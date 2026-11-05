@@ -2,7 +2,7 @@
 // quests, photo mode, ambience, debug.
 import type { Object3D, Vector3, Vector2, Quaternion, Texture, ColorLike, Vec3Like, Ease, Handle, Range, XZ, Loose, PositionLike, Material } from './common';
 import type { Engine } from './core';
-import type { Input } from './generated/core/Input';
+import type { Input } from './generated/core/input/Input';
 import type { Animator, AnimatorOptions, Rideable } from './physics';
 import type { WorldRecord } from './generated/modules/world/World';
 
@@ -93,15 +93,15 @@ export interface LevelOptions {
   outside?: number;
   /** Water surface height (meters), default no water */
   waterLevel?: number;
-  /** Expand the collision box outward by this much (meters) */
+  /** Expand the collision box outward by this much (meters) @experimental */
   colliderPad?: number;
-  /** Minimum height of the collision box (meters) */
+  /** Minimum height of the collision box (meters) @experimental */
   colliderHeight?: number;
-  /** Treat it as a step edge when the height difference between adjacent grid points exceeds this (meters), default 0.6 */
+  /** Treat it as a step edge when the height difference between adjacent grid points exceeds this (meters), default 0.6 @experimental */
   sharpEdge?: number;
-  /** Hide the marker placeholder meshes, default true */
+  /** Hide the marker placeholder meshes, default true @experimental */
   hideMarkers?: boolean;
-  /** Add the scene to engine.scene, default true */
+  /** Add the scene to engine.scene, default true @experimental */
   addToScene?: boolean;
 }
 /** Markers in the level (spawn, npc_*, trigger_*, marker_*), in world coordinates */
@@ -124,7 +124,7 @@ export interface Level {
   marker(name: string): LevelMarker | null;
   /** Get all markers whose names start with prefix, e.g. markersWith('npc_') */
   markersWith(prefix: string): LevelMarker[];
-  /** Unload the level (the scene is fully deleted with engine.remove; collision, ray registrations and things registered with track are removed together) */
+  /** Unload the level (the scene is fully deleted with engine.remove; collision, ray registrations and things registered with track are removed together) @experimental */
   unload(): void;
   /**
    * Change level: unload the current one, load the new one (glTF path/asset name, or a THREE object), and emit level:loaded when done. When a load
@@ -391,10 +391,12 @@ export interface SettingsOptions {
   /**
    * Tabs: true (default) graphics, audio, controls, language, saves; false none; or a list by name, which may include the optional
    * 'game' (resume, load a save, back to title) and 'camera' (mouse sensitivity, invert Y, field of view; saved as camera.sensitivity / camera.invertY
-   * / camera.fov)
+   * / camera.fov). The entry { id: 'graphics', omit } leaves graphics rows out (quality, pixelRatio, shadows, antialias, bloom, ao, adaptive, viewChunks,
+   * density): an omitted row stays the game's value, and no preset or stored value moves it
    * @example settings({ sections: ['game', 'graphics', 'audio', 'controls', 'camera'] })
+   * @example settings({ sections: [{ id: 'graphics', omit: ['pixelRatio', 'antialias', 'adaptive'] }, 'audio', 'controls', 'language', 'saves'] })   // a fixed pixel look
    */
-  sections?: boolean | string[];
+  sections?: boolean | (string | { id: 'graphics'; omit: string[] })[];
   /**
    * Pause gameplay while the menu is open (with flow installed it switches to flow's 'paused' and returns to the previous state on close; without flow
    * it uses engine.freeze); the picture keeps running, default false
@@ -408,15 +410,15 @@ export interface Settings {
   readonly values: Record<string, any>;
   /** Graphics presets */
   presets: Record<string, QualityPreset>;
-  /** Tabs */
+  /** Tabs @experimental */
   sections: Map<string, any>;
-  /** Whether the menu is open */
+  /** Whether the menu is open @experimental */
   readonly isOpen: boolean;
   /** Read a setting, e.g. get('vol.music') */
   get(key: string): any;
   /** Change a setting (takes effect immediately + saved) */
   set(key: string, value: any, opts?: { save?: boolean }): void;
-  /** Graphics preset: 'low' | 'medium' | 'high' */
+  /** Graphics preset: 'low' | 'medium' | 'high' @experimental */
   preset(name: 'low' | 'medium' | 'high' | (string & {})): void;
   /** Game-defined setting: default value + apply function (saved automatically), or { apply, limits }. limits names the shared value(s) the row
    * restricts on the settings layer, like the built-in shadows row: off holds it off (the scene, weather or a cutscene cannot turn it back on),
@@ -429,11 +431,11 @@ export interface Settings {
   toggle(on?: boolean): void;
   /** Put one setting (or all, with no key) back to its default: the engine's start value, or the default the game gave define(). Keys: resetBindings */
   reset(key?: string): void;
-  /** Restore all keys to defaults */
+  /** Restore all keys to defaults @experimental */
   resetBindings(): void;
   /** Change the first key of an action to code */
   rebind(action: string, code: string): void;
-  /** Key list (for the UI) */
+  /** Key list (for the UI) @experimental */
   actionList(): any[];
   /** Save to the browser */
   save(): void;
@@ -461,7 +463,7 @@ export interface MusicOptions {
   fade?: number;
   /** Duck the music bus during dialogue to this (0-1, e.g. 0.35); default false = no duck (the game opts in) */
   duckDialogue?: number | false;
-  /** Fade seconds for the ducking */
+  /** Fade seconds for the ducking @experimental */
   duckFade?: number;
   /** Rule debounce seconds, default 2 */
   hold?: number;
@@ -612,7 +614,7 @@ export declare class Character {
   vy: number;
   /** Whether standing on the ground */
   grounded: boolean;
-  /** Whether swimming */
+  /** Whether swimming @experimental */
   swimming: boolean;
   /** Current action state */
   state: CharacterState;
@@ -622,15 +624,23 @@ export declare class Character {
   faceMode: FaceMode;
   /** What faceMode 'target' faces */
   faceTarget: PositionLike | null;
-  /** Player only: whether the camera module follows it (see PlayerOptions.cameraFollow) */
+  /** Player only: whether the camera module follows it (see PlayerOptions.cameraFollow) @experimental */
   cameraFollow?: boolean;
   /** Move at a fixed velocity (m/s) for seconds, ignoring move()'s direction and without turning (knockback, dodge roll); gravity and collision still apply */
   push(vx: number, vz: number, seconds: number): void;
-  speed: number; runSpeed: number; radius: number; water: CharacterWater; states: CharacterStates | null; swimDepth: number; swimSpeedFactor: number;
-  turnSpeed: number; acceleration: number; gravity: number; jumpSpeed: number; stepHeight: number; airControl: number; coyoteTime: number; canJump: boolean;
-  /** Base jump values (the game's; modifiers go through engine.mod('move.jumpSpeed')) */
-  maxJumps: number; airJumpSpeed: number | null; jumpBuffer: number;
-  /** Fall check (see CharacterOptions.fall); a plain property */
+  speed: number; runSpeed: number; radius: number; water: CharacterWater; states: CharacterStates | null;
+  /** @experimental */ swimDepth: number;
+  /** @experimental */ swimSpeedFactor: number;
+  /** @experimental */ turnSpeed: number;
+  /** @experimental */ acceleration: number; gravity: number; jumpSpeed: number;
+  /** @experimental */ stepHeight: number;
+  /** @experimental */ airControl: number;
+  /** @experimental */ coyoteTime: number; canJump: boolean;
+  /** Base jump values (the game's; modifiers go through engine.mod('move.jumpSpeed')) @experimental */
+  maxJumps: number;
+  /** @experimental */ airJumpSpeed: number | null;
+  /** @experimental */ jumpBuffer: number;
+  /** Fall check (see CharacterOptions.fall); a plain property @experimental */
   fall: false | { belowY: number | ((character: Character) => boolean) };
   /** Time channel the engine drives it on (see CharacterOptions.channel) */
   channel: string;
@@ -641,16 +651,16 @@ export declare class Character {
    * @example engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 }); player.stat('speed')   // 1.2 x player.speed
    */
   stat(name: 'speed' | 'runSpeed' | 'gravity' | 'jumpSpeed' | 'canJump'): number;
-  /** Give back n jumps for this airtime (pickup, wall touch) */
+  /** Give back n jumps for this airtime (pickup, wall touch) @experimental */
   addJumps(n?: number): this;
-  /** All jumps back, as if it had landed */
+  /** All jumps back, as if it had landed @experimental */
   resetJumps(): this;
   /**
    * Throw it upward at speed m/s (jump pad, spring): leaves the ground, ends coyote time, the ground jump counts as used (air jumps stay); emits character:launch
    * @example player.launch(19, { owner: 'pad' })
    */
   launch(speed: number, opts?: { owner?: string }): this;
-  /** Jump state now, read-only */
+  /** Jump state now, read-only @experimental */
   jumpState(): { grounded: boolean; coyoteLeft: number; bufferLeft: number; jumpsUsed: number; jumpsLeft: number; vy: number };
   /** What it stands on, read-only (reused object); 'platform' = a registered support (characters.support), which carries it */
   readonly support: { kind: 'ground' | 'platform' | 'collider' | 'water' | null; object: any; id: string | null; safe: boolean; velocity: { x: number; y: number; z: number } };
@@ -917,6 +927,7 @@ export interface CharactersApi {
   /**
    * Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the
    * position and the vehicle; loading an on-foot save exits the vehicle first
+   * @experimental
    */
   removePlayer(): void;
   /**
@@ -950,7 +961,7 @@ export interface FindSpawnOptions { minH?: number; maxH?: number; maxSlope?: num
 export interface CharactersOptions {
   /** Whether to enable NPCs (engine.npcs), default true */
   npcs?: boolean;
-  /** Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts) */
+  /** Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts) @experimental */
   npcTiers?: { fullRadius: number; nearEvery: number };
   /** What every character's Animator starts from, e.g. { fade: 0.15 }; a model's manifest mapping and the character's own animation win over it */
   animation?: AnimatorOptions;
@@ -1028,7 +1039,7 @@ export interface InteractionOptions {
 }
 /** engine.interactions */
 export interface Interactions {
-  /** How high the prompt floats (meters) */
+  /** How high the prompt floats (meters) @experimental */
   promptHeight: number;
   /** All interactions in the order added (a fresh array each read; get(id) finds one without it) */
   readonly items: Interaction[];
@@ -1154,7 +1165,7 @@ export interface BubbleView { speaker: string; text: string; x: number; y: numbe
 export interface Dialogue {
   /** Story state: state.flags is engine.vars.flags (autosaved) */
   readonly state: DialogueState;
-  /** All scripts */
+  /** All scripts @experimental */
   scripts: Map<string, DialogueScript>;
   /**
    * The dialogue in progress (null when none). speaker: the script name; node: the current node OBJECT (its fields: text, choices, data...);
@@ -1162,9 +1173,9 @@ export interface Dialogue {
    * @example const atAsk = engine.dialogue.active?.id === 'ask';   // the node id; active.node.data holds the node's own fields
    */
   readonly active: { speaker: string; nodes: DialogueScript; node?: DialogueNode; id?: string; onEnd: (() => void) | null } | null;
-  /** The script the main dialogue is playing */
+  /** The script the main dialogue is playing @experimental */
   readonly speaking: string | null;
-  /** Typing speed (characters/second) */
+  /** Typing speed (characters/second) @experimental */
   charsPerSecond: number;
   /** Define a dialogue (the name is usually the speaker) */
   define(speaker: string, nodes: DialogueScript): void;
@@ -1320,7 +1331,7 @@ export interface PickupOptions {
   auto?: boolean;
   /** The game's own three.js object for this one pickup (only detached when it goes; otherwise the model name decides the shape) */
   mesh?: Object3D | null;
-  /** Game seconds until it reappears, 0 = never reappears */
+  /** Calendar seconds until it reappears, 0 = never reappears */
   respawnSeconds?: number;
   /** Bob up and down and rotate, default true */
   bob?: boolean;
@@ -1346,7 +1357,7 @@ export interface Pickups {
   material: Material;
   /** Edge of the placeholder box (meters), read when one is built */
   size: number;
-  /** Height above the ground new pickups float at (meters) */
+  /** Height above the ground new pickups float at (meters) @experimental */
   lift: number;
   /**
    * Place a pickup on the ground at position; its y, if any, is the reference height on multi-layer ground (needs the interactions module unless auto):
@@ -1359,7 +1370,7 @@ export interface Pickups {
 export interface PickupsOptions {
   /** Reach of pickups that do not set their own radius (meters), default 2 */
   radius?: number;
-  /** Pickups have a model, float and spin only within this distance (meters) of the stream sources, default 60 */
+  /** Pickups have a model, float and spin only within this distance (meters) of the stream sources, default 60 @experimental */
   showDistance?: number;
   /** Who walks into auto pickups (actor ids); default engine.actor, plus net peers on a host */
   takers?: (e: Engine) => string[];
@@ -1417,13 +1428,13 @@ export interface Container {
 export interface Inventory {
   /** true: gameplay freezes while the inventory window is open (set from inventory({ pauseGame }) or at runtime) */
   pauseGame: boolean;
-  /** Slot limit of the player inventory */
+  /** Slot limit of the player inventory @experimental */
   capacity: number;
-  /** Player inventory: the bag of engine.actor (= of()) */
+  /** Player inventory: the bag of engine.actor (= of()) @experimental */
   readonly bag: Container;
   /** The bag of an actor (default engine.actor): the container with the actor's id, created empty on first use; inside an op pass ctx.actor */
   of(actor?: string): Container;
-  defaultStack: number;
+  /** @experimental */ defaultStack: number;
   action: string;
   /** Define an item (chainable) */
   define(id: string, def: ItemDef): this;
@@ -1433,8 +1444,6 @@ export interface Inventory {
   count(x: string): number;
   /** Whether there are at least n (default 1) */
   has(x: string, n?: number): boolean;
-  /** Slots used */
-  readonly slotsUsed: number;
   /** Player inventory entries (for custom UI) */
   list(): ItemEntry[];
   /** One player inventory entry by key, or undefined */
@@ -1464,9 +1473,9 @@ export interface Inventory {
   transfer(from: Container | string, to: Container | string, item: string, n?: number): number;
   /** Delete a container together with its contents ('player' cannot be deleted), returns whether one was deleted */
   removeContainer(id: string): boolean;
-  /** Every container's items as plain data, the player bag included: { [containerId]: entries } (what setContents takes; net syncs through these two) */
+  /** Every container's items as plain data, the player bag included: { [containerId]: entries } (what setContents takes; net syncs through these two) @experimental */
   contents(): Record<string, any[]>;
-  /** Replace containers' items from contents() data, silently like a save load; a null entry empties that container, only: true empties the rest too */
+  /** Replace containers' items from contents() data, silently like a save load; a null entry empties that container, only: true empties the rest too @experimental */
   setContents(data: Record<string, any[] | null>, opts?: { only?: boolean }): void;
 }
 export interface InventoryOptions {
@@ -1478,7 +1487,7 @@ export interface InventoryOptions {
   capacity?: number;
   /** Weight limit of the player inventory, default Infinity */
   maxWeight?: number;
-  /** Default stack limit, default 99 */
+  /** Default stack limit, default 99 @experimental */
   defaultStack?: number;
 }
 
@@ -1532,10 +1541,10 @@ export interface Quests {
   state(id: string): { step: number; steps: number; done: boolean; failed: boolean; active: boolean } | null;
   /** Finish the current step from code (its done() is not asked) and go on; the last step completes the quest. false when not active */
   advance(id: string): boolean;
-  isDone(id: string): boolean;
+  /** @experimental */ isDone(id: string): boolean;
   /** Started, not done and not failed */
   isActive(id: string): boolean;
-  /** Its fail condition held (start(id) begins it again) */
+  /** Its fail condition held (start(id) begins it again) @experimental */
   isFailed(id: string): boolean;
   /** Check completion conditions once immediately */
   check(): void;
@@ -1567,7 +1576,7 @@ export interface QuestLogView {
 export interface QuestsOptions {
   /** Action name that opens the quest log, default 'quests' */
   action?: string;
-  /** Check interval (game seconds, checked in the fixed step; not checked while frozen / paused), default 0.5 */
+  /** Check interval (real seconds, checked in the fixed step; not checked while frozen / paused), default 0.5 @experimental */
   checkInterval?: number;
   /**
    * Messages on quest start / step / done: true a toast with kind 'quest' (default) · false none · a function to show them your way.
@@ -1604,7 +1613,7 @@ export interface PhotoTakeOptions {
   format?: string;
 }
 export interface PhotoOptions extends PhotoTakeOptions {
-  /** How many photos the album keeps at most, default 50 */
+  /** How many photos the album keeps at most, default 50 @experimental */
   maxAlbum?: number;
 }
 /** engine.photo */
@@ -1613,10 +1622,12 @@ export interface Photo {
   album: PhotoShot[];
   /** The op photo.take's can: return true, or false / a reason string to refuse (e.g. () => engine.inventory.has('film') || 'noFilm') */
   canTake: () => boolean | string;
-  scale: number; shadowMapSize: number; bloom: boolean; quality: number; format: string; maxAlbum: number;
+  scale: number; shadowMapSize: number; bloom: boolean; quality: number;
+  /** @experimental */ format: string;
+  /** @experimental */ maxAlbum: number;
   /** Capture a photo now without checks. Gameplay takes photos through the op: engine.ops.run('photo.take') (checks canTake, logged) */
   take(opts?: PhotoTakeOptions): PhotoShot;
-  /** What is in the middle of the frame (NPC, entity, named object, vegetation), null if nothing; this is the subject of take() */
+  /** What is in the middle of the frame (NPC, entity, named object, vegetation), null if nothing; this is the subject of take() @experimental */
   subject(): { name: string; kind: string; distance: number } | null;
 }
 
@@ -1796,9 +1807,9 @@ export interface Stacks {
 }
 /** engine.time: time channels (world, player, your own). Speeds change only through engine.mod('time.<channel>', ...) */
 export interface Time {
-  /** Define a channel; parent (default 'world') multiplies its speed */
+  /** Define a channel; parent (default 'world') multiplies its speed @experimental */
   channel(name: string, opts?: { parent?: string | null; stack?: string }): Time;
-  channels(): string[];
+  /** @experimental */ channels(): string[];
   /** Effective speed: parent x the channel's stack (x the record's 'time.local' stack when id is given) */
   scale(name: string, id?: string): number;
   /** Fixed steps run this playthrough: the one time counter; every other time is a read-only view of it */
@@ -1808,7 +1819,7 @@ export interface Time {
    * 'calendar' (= engine.clock.now) or a channel ('world', 'player', your own)
    */
   now(name: 'real' | 'ambient' | 'calendar' | 'world' | 'player' | (string & {})): number;
-  /** This fixed step's dt on a channel (1/60 x scale). Change a speed with engine.mod('time.<channel>', { owner, set | mul }); timers: engine.clock.after(s, fn, data, { channel }) */
+  /** This fixed step's dt on a channel (1/60 x scale). Change a speed with engine.mod('time.<channel>', { owner, set | mul }); timers: engine.clock.after(s, fn, data, { channel }) @experimental */
   dt(name: string, id?: string): number;
 }
 /** engine.vars: story flags and counters (autosaved) */
@@ -1819,7 +1830,7 @@ export interface Vars {
   counters: Record<string, number>;
   /** Read a flag */
   flag(key: string): any;
-  /** Set a flag (default true) */
+  /** Set a flag (default true) @experimental */
   setFlag(key: string, value?: any): void;
   /** Read a counter (0 if none) */
   counter(key: string): number;
@@ -1902,7 +1913,7 @@ export interface Content {
    */
   template(name: string): Readonly<ContentTemplate>;
   /**
-   * The fields one content entry may have (core/params.js spec format): what an editor panel lists and what content-check validates against.
+   * The fields one content entry may have (core/base/params.js spec format): what an editor panel lists and what content-check validates against.
    * name: a template name (placement fields plus its state fields, default = the value in state), an engine entry shape ('props', 'props.template',
    * 'props.grid', 'pickups', 'views'), a game kind that declares fields (content/rules.js kinds), or a world record id. Unknown names throw.
    * @example engine.content.fields('crop').stage   // { type: 'int', optional: true, default: 0, min: 0, max: 4 }
@@ -1916,10 +1927,10 @@ export interface Content {
    */
   spawn(name: string, at: any, fields?: { id?: string; rot?: number; scale?: number; y?: number; items?: Record<string, number>; [stateField: string]: any }): WorldRecord;
 }
-/** One stage of a template with stages: a named step it stays in for duration game seconds (clock.now), e.g. seed -> sprout -> ripe, cold -> armed */
+/** One stage of a template with stages: a named step it stays in for duration calendar seconds (clock.now), e.g. seed -> sprout -> ripe, cold -> armed */
 export interface ContentTemplateStage {
   name: string;
-  /** Game seconds spent in this stage; only the last stage may leave it out (it stays there) */
+  /** Calendar seconds spent in this stage; only the last stage may leave it out (it stays there) */
   duration?: number;
   /** Multiplies the instance's scale while in this stage */
   scale?: number;
@@ -1928,7 +1939,7 @@ export interface ContentTemplateStage {
 }
 /** template:stage event: a template instance entered a new stage by growing (several stages crossed at once give one event) */
 export interface TemplateStageEvent { id: string; template: string; stage: number; name: string }
-/** One field of a content entry (engine.content.fields): the core/params.js spec as plain data */
+/** One field of a content entry (engine.content.fields): the core/base/params.js spec as plain data */
 export interface ContentField {
   type: 'string' | 'number' | 'int' | 'bool' | 'position' | 'id' | 'any' | 'object' | 'array' | 'function';
   optional?: boolean;
@@ -2012,7 +2023,7 @@ export interface FlowTransitionOptions {
 export interface Flow {
   /** Current state name */
   state: string;
-  /** A scene transition is in progress */
+  /** A scene transition is in progress @experimental */
   readonly transitioning: boolean;
   /** Define a state (built-in 'playing', 'paused') */
   define(name: string, def: FlowStateDef): this;

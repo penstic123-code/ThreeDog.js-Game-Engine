@@ -2,7 +2,7 @@
 // Headless: the spec moves the camera with engine.step and reads renderer.info.programs and the scene's lights.
 import { createEngine, lightPool, THREE } from '../../index.js';
 import { neutralMaterial } from '../../render/neutral.js';
-import { lightSetup } from '../../core/lightWatch.js';
+import { lightSetup } from '../../core/inspect/lightWatch.js';
 
 const engine = createEngine({ canvas: document.getElementById('view'), headless: true, ui: { loading: false }, saveKey: 'threedog-lights-test' });
 engine.use(lightPool({ point: 4, fade: 0.2 }));

@@ -10,6 +10,7 @@ const run = async ({ page, check, ev }) => {
   check(`rays still hit a hidden thing: ${r.rayHit}`, r.rayHit === true, JSON.stringify(r.rayHit));
   check(`no visible gap while things come into view: worst frame ${r.gap.worst} pixels off, ${r.gap.shown} of 21 came back`, r.gap.worst === 0 && r.gap.shown > 3, JSON.stringify(r.gap));
   check('a camera cut shows everything in the first frame after it', r.cut.before > 0 && r.cut.differs === 0, JSON.stringify(r.cut));
+  check("the boxes' group is the engine's, not a thing of the game (describe().scene, saves)", r.rootOwner === 'engine:occlusion', JSON.stringify(r.rootOwner));
   check('off puts every layer back and removes the boxes', r.off.boxes === 0 && r.off.layerBack && r.off.stats === 0, JSON.stringify(r.off));
   check('while off, watching reads no box', r.offCost.reads === 0 && r.offCost.boxes === 0, JSON.stringify(r.offCost));
   check('shadow cameras see hidden things, not the boxes, and off gives their mask back', r.shadowSeesHidden && !r.shadowSeesBoxes && r.off.shadowMaskBack, JSON.stringify([r.shadowSeesHidden, r.shadowSeesBoxes, r.off.shadowMaskBack]));

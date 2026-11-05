@@ -97,15 +97,17 @@ export async function newGamePage(browser, { errors = [], ...opts } = {}) {
   return page;
 }
 
-/** Build a workspace (unless build: false) and serve dist with vite preview on a free 127.0.0.1 port: { base, close() } */
+/** Where a tool's build goes and what buildAndPreview serves. Into .threedog/, not dist/: this is a test build (test pages, the real panel) and a deploy of dist/ must never ship it */
+export const TOOL_BUILD = { outDir: '.threedog/tool-build' };
+/** Build a workspace (unless build: false) and serve TOOL_BUILD with vite preview on a free 127.0.0.1 port: { base, close() } */
 export async function buildAndPreview(dir, { build: doBuild = true } = {}) {
   const { build, preview } = await import('vite');
-  if (doBuild) await build(await viteOptions(dir, { logLevel: 'error' }));
+  if (doBuild) await build(await viteOptions(dir, { logLevel: 'error', build: TOOL_BUILD }));
   // Serve without compression. vite preview gzips every response on the fly, and the physics library is one 4 MB script (its wasm inlined as
   //   base64): that was ~250 ms of CPU on the machine for every test page that loads it, and compressing over 127.0.0.1 saves nothing. The hook
   //   runs before the compression middleware, so dropping Accept-Encoding here switches it off.
   const noGzip = { name: 'threedog-preview-no-gzip', configurePreviewServer(s) { s.middlewares.use((req, _res, next) => { delete req.headers['accept-encoding']; next(); }); } };
-  const server = await preview(await viteOptions(dir, { plugins: [noGzip], preview: { port: 0, host: '127.0.0.1', strictPort: false }, logLevel: 'error' }));
+  const server = await preview(await viteOptions(dir, { plugins: [noGzip], build: TOOL_BUILD, preview: { port: 0, host: '127.0.0.1', strictPort: false }, logLevel: 'error' }));
   const base = (server.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${server.httpServer.address().port}/`).replace(/\/$/, '');
   return { base, close: () => new Promise(r => server.httpServer.close(() => r())) };
 }

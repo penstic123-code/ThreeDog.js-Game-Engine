@@ -5,7 +5,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git"
+    "url": "git+https://github.com/penstic123-code/Threedog.js-Game-Engine.git"
   },
   "type": "module",
   "engines": {

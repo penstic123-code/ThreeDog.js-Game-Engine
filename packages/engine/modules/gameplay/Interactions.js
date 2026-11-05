@@ -4,7 +4,7 @@
 // Using one is the op interaction.use { id?, action? } (recipes/23-ops.md): the interact key (in fixed), a click on the prompt, the dev bridge and tests all
 // run it,
 // so every use is logged and checked by the same can (exists, enabled, in range, input not locked). Without id it uses the one the actor would pick now.
-// Who interacts is engine.actor (core/actor.js), measured with engine.actorPosition(): the player by default, a vehicle or squad member when the game says so;
+// Who interacts is engine.actor (core/ops/actor.js), measured with engine.actorPosition(): the player by default, a vehicle or squad member when the game says so;
 // the op's ctx.actor (a net peer, an NPC) is handed to label / enabled / onUse as (object, { actor }).
 // How the one in front of you is chosen is the pick option: 'nearest' | 'facing' | 'aim' | a function (see interactions()). Each action is picked on its own,
 // so one object can carry "Open" and "Lock" as two interactions with different action names (each bound to the game's own key).
@@ -16,7 +16,7 @@
 // once: true hides the object after a use that went through and it stays gone; counter: 'shells' adds 1 to that HUD counter (optional: engine.hud?.). So a
 // mesh the game already built is a pick-and-count thing with no world record or bag; what was used is this module's save part, because a thing that comes
 // back after a load while the count does not would be silently lost progress. Things that go in a bag, respawn or are decided by a net host: pickups.js.
-// Finding candidates goes through one shared xz index (core/cells.js) keyed by each item's actual world position, instead of measuring every interaction
+// Finding candidates goes through one shared xz index (core/stream/cells.js) keyed by each item's actual world position, instead of measuring every interaction
 // each frame. Before a pick pass reads it, items that follow an object are re-filed if they moved: for an object straight under the scene (models, pickups,
 // hand-placed meshes) the check is its local position against the last one seen, so a still crowd costs a few compares; a nested one (a part of a vehicle)
 // is measured. Why the actual position and not the world record's: a game may move a record's model away from its record, and the item must be found where
@@ -26,11 +26,13 @@ import * as THREE from 'three';
 import { worldToScreen } from '../../ui/UI.js';
 import { promptPart } from './interactionPrompt.js';
 
-import { readParams, keysSchema } from '../../core/params.js';
-import { codedError, coded } from '../../core/errorHints.js';
-import { DEV, warnOnce } from '../../core/validate.js';
-import { vec3 } from '../../core/math.js';
-import { Cells } from '../../core/cells.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
+import { refuseSave } from '../../core/saves/saveValues.js';
+import { isPlainObject } from '../../core/base/util.js';
+import { DEV, warnOnce } from '../../core/base/validate.js';
+import { vec3 } from '../../core/base/math.js';
+import { Cells } from '../../core/stream/cells.js';
 
 const PICKS = ['nearest', 'facing', 'aim'];
 // 'facing': within 60° either side of where the actor faces (wide enough for a gamepad stick, narrow enough that doors behind you stay dark)
@@ -156,7 +158,10 @@ export class Interactions {
    * @internal Load or new game. A counter gets the difference, not a value: its base is the game's (hud.counter(name, { value })), this module only knows
    * what uses added. Only things whose state changed are shown or hidden: a once item the game hid itself stays hidden
    */
-  _load({ spent, counted }) {
+  _load(d) {
+    const { spent, counted } = d ?? {};
+    if (!Array.isArray(spent) || !spent.every(id => typeof id === 'string') || !isPlainObject(counted) || !Object.values(counted).every(Number.isFinite))
+      refuseSave('interactions', 'the part', 'must be { spent: [id], counted: { id: number } }', d);
     const was = this._spent; this._spent = new Set(spent);
     for (const it of this._byId.values()) if (it.once && was.has(it.id) !== this._spent.has(it.id)) it.object.visible = !this._spent.has(it.id);
     for (const name of new Set([...this._counted.keys(), ...Object.keys(counted)])) {
@@ -453,7 +458,7 @@ function defineUse(e, i) {
       // the game holds this character on the walk's layer: 'cannot walk now' is an answer, and from the key press in a fixed step a throw would freeze play
       let walk; try { walk = ch.walkTo(q, { arrive: APPROACH_ARRIVE }); } catch (err) { if (err?.code === 'control-conflict') return { ok: false, code: 'cannotWalk' }; throw err; }
       // used after arrival, so checked again then: removed or disabled while walking = not used
-      return { approaching: walk.then(r => r.status === 'arrived' && !it._gone && it.enabled(it.object, { actor: ctx.actor }) ? i._run(it, ctx.actor) : r) };
+      return { approaching: walk.then(r => r.status === 'arrived' && !it._gone && it.enabled(it.object, { actor: ctx.actor }) ? e.ops.allow(() => i._run(it, ctx.actor)) : r) };   // allow: the op ended steps ago, the use is still its own
     },
     // no key: the op still runs when code asks (a click-only game), but it is not offered, so `ops` shows no ✓ for what no key reaches; describe() says why
     offers(e, ctx) { const it = find(undefined, undefined, ctx); return it && !(ctx.actor === e.actor && e.input.isUnbound(it.action)) ? [{ id: it.id }] : []; },

@@ -14,9 +14,9 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FusedPass, groupFuse, checkDepthOrder } from './fuse.js';
-import { codedError } from '../core/errorHints.js';
+import { codedError } from '../core/base/errorHints.js';
 import { holdShadowRedraw, MSAA_SAMPLES } from './backend.js';
-import { notePatch, patchOn } from '../core/threePatches.js';
+import { notePatch, patchOn } from '../core/scene/threePatches.js';
 
 // One FusedPass per group of neighboring fuse effects, kept while the same effects stay grouped (a changed group recompiles once)
 function fuseEntry(post, group, used) {
@@ -150,6 +150,8 @@ export const webglPost = {
     c.passes = named.map(e => e._impl);
     holdAfterScene(post, c.passes[0]);
     for (const p of c.passes) p.setSize(size.x, size.y);
+    // nothing on and the canvas's own MSAA in use: the frame draws straight to the canvas, so the targets give their memory back (over 200 MB at 1080p with MSAA); three allocates them again on the next use
+    if (!post.active) for (const rt of [c.renderTarget1, c.renderTarget2]) rt.dispose();
   },
   dispose(post) {
     for (const p of post._fused.values()) p.dispose();
@@ -192,7 +194,8 @@ export const webglPost = {
     if (r.toneMapping !== THREE.NoToneMapping && bg?.isTexture && THREE.ColorManagement.getTransfer(bg.colorSpace) === THREE.SRGBTransfer) {
       toneBackground(post, () => r.render(s, camera)); return;
     }
-    const col = bg?.isColor ? bg : bg == null ? post._clearColor() : null;
+    // a Color background only while three's clear would paint it: with autoClear off three still clears for a Color, depth too, which the quad would not
+    const col = bg?.isColor ? (r.autoClear && r.autoClearColor ? bg : null) : bg == null ? post._clearColor() : null;
     if (!col || r.toneMapping === THREE.NoToneMapping) { r.render(s, camera); return; }
     const t = post._bgTex ??= Object.assign(new THREE.DataTexture(new Float32Array(4), 1, 1, THREE.RGBAFormat, THREE.FloatType), { colorSpace: THREE.LinearSRGBColorSpace });
     const d = t.image.data;

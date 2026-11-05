@@ -9,11 +9,12 @@
 export function timeline(opts?: TimelineOptions): ModuleDef<Timeline>;
 /** engine.timeline */
 export class Timeline {
-    /** Skip every cutscene immediately (set by scenario param cutscene=skip) @type {boolean} */
+    /** Skip every cutscene immediately (set by scenario param cutscene=skip) @type {boolean} @experimental */
     skipAll: boolean;
     /**
      * Whether a cutscene is playing
      * @returns {boolean}
+     * @experimental
      */
     get playing(): boolean;
     /**

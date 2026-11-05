@@ -1,9 +1,9 @@
-// Models of placed content records: clone the shared prototype of a model name (core/namedModel.js protoOf, the one path every system uses),
+// Models of placed content records: clone the shared prototype of a model name (core/assets/namedModel.js protoOf, the one path every system uses),
 // align it and its collision to the record (props and template instances).
-import { protoOf } from '../../core/namedModel.js';
-import { wrapLod } from '../../core/assetLod.js';
+import { protoOf } from '../../core/assets/namedModel.js';
+import { wrapLod } from '../../core/assets/assetLod.js';
 import { Vector3 } from 'three';
-import { list } from '../../core/util.js';
+import { list } from '../../core/base/util.js';
 
 const BASE_BAND = 0.2;   // the share of the model's height above the ground that counts as its base
 
@@ -53,7 +53,7 @@ export function baseOf(proto) {
  */
 export function settle(e, rec, o, solid, mul = 1) {
   const { x, z } = rec.position, rot = rec.rot ?? 0, scale = (rec.scale ?? 1) * mul, ud = o.userData;
-  ud.fit = fitKey(rec, mul);
+  ud.fit = { x, z, rot, scale };
   rec.position.y = e.surface(x, z, rec.floor) + (rec.offsetY ?? 0);
   o.position.y = rec.position.y; o.rotation.y = rot; o.scale.setScalar(scale);
   ud.unstatic?.remove(); ud.unstatic = null;
@@ -69,8 +69,8 @@ export function settle(e, rec, o, solid, mul = 1) {
     ? e.collision.addCircle({ x: cx, z: cz }, { radius: (set?.circle ?? base.width / 2) * scale, height: size.y, occluder: blocks })
     : e.collision.addBox({ x: cx, z: cz }, { halfWidth: size.x / 2, halfDepth: size.z / 2, rotation: rot, height: size.y, occluder: blocks }));
 }
-/** What settle last aligned to; update compares it because world.move sends no event @internal */
-export const fitKey = (rec, mul = 1) => `${rec.position.x},${rec.position.z},${rec.rot ?? 0},${(rec.scale ?? 1) * mul}`;
+/** Is the model still as settle aligned it? update asks every frame for every built prop, because world.move sends no event: four compares, no text @internal */
+export const fits = (o, rec, mul = 1) => { const f = o.userData.fit, p = rec.position; return f.x === p.x && f.z === p.z && f.rot === (rec.rot ?? 0) && f.scale === (rec.scale ?? 1) * mul; };
 
 /** Clone the shared prototype of a model for one record and align it (props and template instances) @internal */
 export async function buildModel(e, api, rec, model, solid, mul = 1) {

@@ -6,14 +6,14 @@
 // of persist.js.
 // Data must be plain values (putting a three.js object or a function in it throws in dev); position is a plain { x, y, z }. Don't hold on to rec: loading a
 // save swaps in new objects, so keep the id and use world.get(id).
-import { DEV, fmt } from '../../core/validate.js';
-import { checkTypeRule } from '../../core/moduleTypes.js';
+import { DEV, fmt } from '../../core/base/validate.js';
+import { checkTypeRule } from '../../core/engine/moduleTypes.js';
 import { addRecord, setRecord, removeRecord, queryRecords } from './records.js';
 import { Views } from './views.js';
 import { Sim } from './sim.js';
 import { initState, mixInternals } from './state.js';
 import { putPos, centerOf } from './pos.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const STRINGS = {
   anchor: 'world.anchor must be null, an Object3D, a Vector3 / { x, z } or [x, y, z]; got {got}',
@@ -29,7 +29,7 @@ export class World {
     const { cellSize = 32, radius = 60, farEvery = 1, farMaxPerTick = 500, buildPerFrame = 8 } = opts;
     /** @internal */ this.engine = engine;
     initState(this, cellSize);
-    /** All records: id → record (read-only; use set to change fields, move to change position) @type {Map<string, WorldRecord>} */
+    /** All records: id → record (read-only; use set to change fields, move to change position) @type {Map<string, WorldRecord>} @experimental */
     this.records = new Map();
     /**
      * Default distance (meters) for building models and counting as near; present / simulate can override it. Changing it at runtime affects those without
@@ -99,6 +99,7 @@ export class World {
    * @example const h = engine.pick(0, 0); const id = h && engine.world.idOf(h.object);
    * @param {any} obj  a THREE.Object3D (a mesh of the model is fine)
    * @returns {string | null}
+   * @experimental
    */
   idOf(obj) {
     for (let o = obj; o; o = o.parent) { const id = this._v.byObj.get(o); if (id !== undefined) return id; }
@@ -234,11 +235,10 @@ export class World {
    * Stop running simulate() handlers on this machine until remove(): a multiplayer client lets the host simulate and only receives the records.
    * Public so net() needs no world internals.
    * @returns {{ remove(): void }}
+   * @experimental
    */
   pauseSimulation() { const s = this._s; s.fixed = () => {}; return { remove: () => { delete s.fixed; } }; }
   /** Number of fixed steps simulated @experimental */ get steps() { return this._s.n; }
-
-
 }
 
 /**

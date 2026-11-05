@@ -6,6 +6,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export const specs = [
   {
+    name: 'Audio: before the first click a volume change and a removed bus are not reported as a bus mistake',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, createEngine } = threedogThreads, E = mk(createEngine, 'au-early'), a = E.audio;
+        const { warns } = await __t.warns(() => { a.setVolume('music', 0.2); a.addBus('auEarly', { level: 0.5 }).remove(); });
+        let bad = null;
+        try { a.setVolume('auNope', 1); } catch (err) { bad = err.code; }
+        const out = { ctx: !!a.ctx, level: a.levels.music, warns: warns.filter(w => /audio\.buses/.test(w)), bad };
+        E.dispose();
+        return out;
+      });
+      check('audio is still locked in this test', !r.ctx, JSON.stringify(r));
+      check('setVolume keeps the level and no warning says the bus is missing', r.level === 0.2 && r.warns.length === 0, JSON.stringify(r));
+      check('a name that is no bus still throws', r.bad === 'unknown-name', JSON.stringify(r));
+    },
+  },
+  {
     name: 'Audio: buses, variants / cooldown / voices, 3D, ambience rule table, music rules and stems, ducking, settings sliders',
     url: '/tests/audio/index.html',
     async run({ page, check, ev }) {
@@ -175,6 +193,45 @@ export const specs = [
       check('a content sound name resolves through the asset pack (engine.assets loads toneA)', r.chime && r.viaAssets);
       check('a data rule plays: drone on at volume 0.1 by day', r.drone?.on && Math.abs(r.drone.volume - 0.1) < 1e-6, JSON.stringify(r.drone));
       check('loading the same named pack again replaces its rules instead of doubling them', r.reload === 1, r.reload);
+    },
+  },
+  {
+    name: 'Audio: [guard] decoded sounds follow the asset lifetime: release, trim and the memory budget free long sounds, playing ones play on, freed ones load again',
+    url: '/tests/audio/index.html',
+    async run({ page, check, ev }) {
+      await page.waitForFunction(() => window.engine?.ready, null, READY);
+      await page.mouse.click(400, 300);
+      await ev(() => __t.until(() => engine.audio.running, 5000).catch(() => {}));
+      const r = await ev(async () => {
+        const a = engine.audio, A = engine.assets, o = {}, held = n => !!A.entries.get(n)?.value;
+        const tune = window.wav(330, 12), kept = window.wav(330, 12), short = window.wav(440), track = window.wav(220, 12);
+        A.manifest({ name: 'memory', sounds: { tune, kept: { url: kept, preload: true } } });
+        await a.load(short); await a.load('kept');
+        // a music track by path: the same cache, the same lifetime
+        engine.music.define('long', track); engine.music.override('long', { fade: 0 });
+        await __t.until(() => engine.music.playing?.srcs.length, 5000);
+        const h = await a.play('tune', { loop: true });
+        o.trimmed = A.trim();
+        o.isTrack = o.trimmed.includes(track); o.isTune = o.trimmed.includes('tune');
+        o.after = { short: held(short), kept: held('kept'), tune: held('tune'), track: held(track) };
+        o.playing = { voice: h.playing && h.source.buffer?.duration > 11, music: engine.music.playing?.srcs[0].buffer?.duration > 11, name: engine.music.state.playing };
+        o.again = (await a.play('tune')).source.buffer?.duration; o.cached = held('tune');
+        A.release(short); o.released = held(short); o.shortAgain = (await a.load(short)).duration;
+        h.stop({ fade: 0 }); engine.music.override(null);
+        const long = [0, 1, 2].map(() => window.wav(220, 300));   // about 55 MB decoded each: three are over the budget
+        for (const u of long) await a.load(u);
+        o.budget = long.map(held); o.budgetShort = held(short); o.budgetKept = held('kept');
+        o.back = (await a.load(long[0])).duration; o.budgetAfter = long.map(held);
+        o.oneCache = a.buffers === undefined;
+        return o;
+      });
+      check('[guard] trim frees long sounds and leaves short effects and preload ones', r.after.short && r.after.kept && !r.after.tune && !r.after.track && r.trimmed.length === 2 && r.isTrack && r.isTune, JSON.stringify(r.after) + r.trimmed);
+      check('[guard] a sound and a music track still playing keep sounding after trim', r.playing.voice && r.playing.music && r.playing.name === 'long', JSON.stringify(r.playing));
+      check('[guard] a freed sound loads again when played', r.again > 11 && r.cached, JSON.stringify(r));
+      check('assets.release takes a path too; the sound loads again', !r.released && r.shortAgain > 0.9, JSON.stringify(r));
+      check('[guard] over the budget the long sound asked for longest ago goes, the newest stays, short and preload ones are not touched', !r.budget[0] && r.budget[1] && r.budget[2] && r.budgetShort && r.budgetKept, JSON.stringify(r.budget));
+      check('[guard] a sound the budget freed loads again and pushes out the next oldest', r.back > 299 && r.budgetAfter[0] && !r.budgetAfter[1] && r.budgetAfter[2], JSON.stringify(r.budgetAfter));
+      check('one cache: audio.buffers is gone', r.oneCache);
     },
   },
   {

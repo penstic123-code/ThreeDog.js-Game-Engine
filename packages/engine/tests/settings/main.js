@@ -8,7 +8,7 @@ engine.use(
   world(), sky({ time: 0.45 }), weather({ ...presets.weather.temperate, start: 'clear' }), collision(), followCamera(), characters(),
   interactions({ ...presets.interactions.nearest }), dialogue(), debug(),
   music({ tracks: { a: '/tests/settings/audio/a.wav', b: { url: '/tests/settings/audio/b.wav', volume: 0.8 }, sting: { url: '/tests/settings/audio/sting.wav', loop: false } } }),
-  settings(),
+  settings(new URLSearchParams(location.search).has('pixel') ? { sections: [{ id: 'graphics', omit: ['pixelRatio', 'antialias', 'adaptive'] }, 'audio'] } : {}),
 );
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(200, 200).rotateX(-Math.PI / 2), new THREE.MeshLambertMaterial({ color: 0x8a9a7a }));
 ground.receiveShadow = true; engine.add(ground);

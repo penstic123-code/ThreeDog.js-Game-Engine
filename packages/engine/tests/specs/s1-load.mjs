@@ -12,7 +12,7 @@ export const specs = [
         // step until cond() or the limit, yielding so worker replies arrive
         const pump = async (cond, max = 900) => { for (let i = 0; i < max && !cond(); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); } return cond(); };
         engine.haltLoop();
-        const W = engine.world, P = engine.player, L = engine.stream, T = engine.THREE, home = P.position.clone();
+        const W = engine.world, P = engine.player, L = engine.stream, T = __threedogThree, home = P.position.clone();
         const dest = { x: home.x + 1500, z: home.z + 300 };
         W.present('ld-chest', { build: () => new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()), radius: 30 });
         W.add({ id: 'ld-chest-dest', kind: 'ld-chest', position: [dest.x + 4, 0, dest.z] });
@@ -41,7 +41,7 @@ export const specs = [
         // step until cond() or the limit, yielding so worker replies arrive
         const pump = async (cond, max = 900) => { for (let i = 0; i < max && !cond(); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); } return cond(); };
         engine.haltLoop();
-        const W = engine.world, P = engine.player, L = engine.stream, T = engine.THREE, I = engine.inventory, home = P.position.clone();
+        const W = engine.world, P = engine.player, L = engine.stream, T = __threedogThree, I = engine.inventory, home = P.position.clone();
         const box = rec => { const m = new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()); m.userData.opened = !!rec.opened; return m; };
         W.present('ld-chest', { build: box, radius: 30 });
         W.present('ld-rock', { build: box, radius: 30 });
@@ -84,7 +84,7 @@ export const specs = [
         // step until cond() or the limit, yielding so worker replies arrive
         const pump = async (cond, max = 900) => { for (let i = 0; i < max && !cond(); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); } return cond(); };
         engine.haltLoop();
-        const W = engine.world, L = engine.stream, T = engine.THREE, home = engine.player.position.clone();
+        const W = engine.world, L = engine.stream, T = __threedogThree, home = engine.player.position.clone();
         let builds = 0;
         W.present('ld-sign', { build: () => { builds++; return new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()); }, radius: 30 });
         const cam = { x: home.x - 1400, z: home.z + 900 }, far = { x: home.x + 900, z: home.z + 1500 };

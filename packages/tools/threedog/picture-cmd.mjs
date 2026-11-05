@@ -6,7 +6,7 @@ import { paletteText, compareText, pictureArgs } from '../picture.mjs';
 /** args like the CLI after `picture palette|compare`; → { ok, text } (never throws: a bad picture or region is a ✗ line) */
 export async function pictureCommand(dir, cmd, args) {
   let a;
-  try { a = pictureArgs(args); } catch (e) { return { ok: false, text: '✗ ' + e.message }; }
+  try { a = pictureArgs(args); } catch (e) { return { ok: false, kind: 'command-error', text: '✗ ' + e.message }; }
   const { val, flag } = a, pos = a.pos.map(p => resolve(dir, p));
   const mark = flag('--json') ? '' : '✓ ';   // --json stays parseable: no status mark in front
   try {
@@ -18,5 +18,5 @@ export async function pictureCommand(dir, cmd, args) {
     }
     if (pos.length < 2) throw new Error('Usage: picture-compare <reference> <screenshot> [--region x,y,w,h] [--ref-region x,y,w,h] [--shot-region x,y,w,h] [--out side.png] [--json]');
     return { ok: true, text: mark + await compareText(pos[0], pos[1], { region: val('--region'), refRegion: val('--ref-region'), shotRegion: val('--shot-region'), out: val('--out') && resolve(dir, val('--out')), json: flag('--json') }) };
-  } catch (e) { return { ok: false, text: '✗ ' + e.message }; }
+  } catch (e) { return { ok: false, kind: 'command-error', text: '✗ ' + e.message }; }
 }

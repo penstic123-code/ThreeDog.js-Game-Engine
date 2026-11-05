@@ -56,6 +56,7 @@ export function applyEffects(material: THREE.Material, { wind, clouds, season, d
  * @param {{ assets: any }} [engine]
  * @param {{ effects?: boolean, detail?: import('../../../render/detail').DetailOptions | null }} [o]
  * @returns {Material}
+ * @experimental
  */
 export function terrainMaterial(base?: THREE.Material | null, engine?: {
     assets: any;

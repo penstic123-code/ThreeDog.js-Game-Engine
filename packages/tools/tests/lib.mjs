@@ -1,7 +1,7 @@
 // threedog lib add / list / pull / page: a personal art library outside the engine. Offline, no browser, temp folders only (never the real home library).
 // Why a unit test: the library is only useful if a pulled entry runs where it lands (imports rewritten, textures brought along), a good entry is never
 // silently replaced by a different one, and the library location can be moved (a test or a second machine must not touch ~/.threedog).
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -13,7 +13,7 @@ import { addEntry, listEntries, pullEntry, writePage, libraryDir } from '../lib.
 // the engine's plugins loader and module type check, found through the installed package (core/ ships with it): createEngine needs a DOM,
 // these two do not, and they are exactly what engine.start() runs on the plugins folder
 const core = f => import(pathToFileURL(join(dirname(fileURLToPath(import.meta.resolve('threedog'))), 'core', f)).href);
-const { Plugins } = await core('plugins.js'), { checkType } = await core('moduleTypes.js');
+const { Plugins } = await core('engine/plugins.js'), { checkType } = await core('engine/moduleTypes.js');
 
 export const name = 'lib: add copies into an entry with entry.json, list filters by words and names broken entries, pull rewrites imports into another game and writes the plugins/ wiring file for a factory (it plugs at start), a different entry is refused without --force, THREEDOG_LIBRARY moves it';
 
@@ -96,7 +96,7 @@ export async function run({ check }) {
     try { await pullEntry('score-keeper', { game: c, cwd: tmp, lib, dry: true, plug: 'nothere()' }); } catch (x) { badPlug = x.message; }
     check('pull: an entry without a plug line gets the one exported function called; --plug sets the call; a name no file exports is refused',
       inferred.wiring?.text === "import { scoreKeeper } from './score-keeper/score.js';\nexport default scoreKeeper();\n" && given.wiring?.text.includes('scoreKeeper({ bonus: 9 })')
-      && /no file at the top of the entry exports "nothere"/.test(badPlug), JSON.stringify([inferred.wiring, given.wiring, badPlug]));
+      && /no file of the entry exports "nothere"/.test(badPlug), JSON.stringify([inferred.wiring, given.wiring, badPlug]));
     const to = await pullEntry('glow-material', { game: b, cwd: tmp, lib, to: 'fx/mine' });
     check('pull --to: another folder of the game', existsSync(join(b, 'fx', 'mine', 'glow.js')) && to.writes.length === 1, JSON.stringify(to.writes));
     let miss = '';
@@ -106,8 +106,21 @@ export async function run({ check }) {
     // a different entry under the same name is refused, nothing written; --force replaces it whole
     put(join(a, 'art', 'sparks.js'), readFileSync(join(a, 'art', 'sparks.js'), 'utf8') + '\n// v2\n');
     const before = readFileSync(join(lib, 'sparks', 'sparks.js'), 'utf8');
+    // [guard] a function in a subfolder of art/ was not found by name; adding again replaced what a person wrote into entry.json
+    put(join(a, 'art', 'weather', 'rain.js'), "export function rain() { return 1; }\n");
+    const deep = await addEntry('rain', { game: a, cwd: tmp, lib, kind: 'effect', noPreview: true });
+    check('[guard] lib add finds an exported function in a subfolder and plugs it from there', /from '\.\/weather\/rain\.js'/.test(deep.entry.plug ?? ''), JSON.stringify(deep.entry));
+    const entryFile = join(deep.dir, 'entry.json'), edited = { ...JSON.parse(readFileSync(entryFile, 'utf8')), summary: 'Written by hand', use: 'hand use line', mine: 1 };
+    writeFileSync(entryFile, JSON.stringify(edited));
+    await addEntry('rain', { game: a, cwd: tmp, lib, kind: 'effect', noPreview: true });
+    const again = JSON.parse(readFileSync(entryFile, 'utf8'));
+    check('[guard] adding again keeps a hand-edited entry.json', again.summary === 'Written by hand' && again.use === 'hand use line' && again.mine === 1, JSON.stringify(again));
+    rmSync(deep.dir, { recursive: true });
     const refused = await addEntry('sparks', { game: a, cwd: tmp, lib, noPreview: true });
     check('add again with changed content: refused, the entry is untouched', refused.refused?.includes('sparks.js') && readFileSync(join(lib, 'sparks', 'sparks.js'), 'utf8') === before, JSON.stringify(refused));
+    let plugErr = '';
+    try { await addEntry('sparks', { game: a, cwd: tmp, lib, noPreview: true, force: true, plug: 'noSuchFunction()' }); } catch (e) { plugErr = e.message; }
+    check('[guard] a --force that fails leaves the old entry as it was', !!plugErr && readFileSync(join(lib, 'sparks', 'sparks.js'), 'utf8') === before && existsSync(join(lib, 'sparks', 'entry.json')), plugErr);
     const same = await addEntry('sparks', { game: a, cwd: tmp, lib, noPreview: true, force: true });
     check('add --force: replaces the entry', !same.refused && readFileSync(join(lib, 'sparks', 'sparks.js'), 'utf8').endsWith('// v2\n'));
     // a pull must not overwrite a file the game edited
@@ -169,6 +182,8 @@ export async function run({ check }) {
     put(join(d, 'package.json'), '{"name":"game-d"}');
     await pullEntry('lights', { game: d, cwd: d, lib: lib2 });
     await pullEntry('flat', { game: d, cwd: d, lib: lib2 });
+    // [guard] a .glsl is no import follower: the entry counted as code, the folder copy found no .js and took the whole entry folder, entry.json included
+    check('[guard] picture: pulling a lone .glsl brings that file only, not entry.json', !existsSync(join(d, 'picture', 'shaders', 'entry.json')), readdirSync(join(d, 'picture', 'shaders')).join());
     check('picture: pull puts the file back under picture/ (.glsl under picture/shaders/), not plugins/ or art/',
       readFileSync(join(d, 'picture', 'lights.js'), 'utf8').includes('makeLights') && existsSync(join(d, 'picture', 'shaders', 'flat.glsl')) && !existsSync(join(d, 'plugins')) && !existsSync(join(d, 'art')), [existsSync(join(d,'picture','lights.js')), existsSync(join(d,'picture','shaders','flat.glsl')), existsSync(join(d,'plugins')), existsSync(join(d,'art')), existsSync(join(d,'picture','flat.glsl'))].join());
   } finally { rmSync(tmp, { recursive: true, force: true }); }

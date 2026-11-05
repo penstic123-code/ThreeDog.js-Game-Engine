@@ -1,6 +1,6 @@
 // One particle effect (helper of Particles.js): a ring buffer of particles drawn as one THREE.Points, updated on the CPU every frame.
 import * as THREE from 'three';
-import { needMaterial } from '../../core/validate.js';
+import { needMaterial } from '../../core/base/validate.js';
 import { vert, frag } from './shaders.js';
 import { isWebGPU, webgpuPart, onRendererSwap } from '../../render/backend.js';
 
@@ -27,6 +27,7 @@ export class Effect {
     this.sz = new Float32Array(N * 2); this.op = new Float32Array(N * 2);
     this.extra = new Float32Array(N * 3);   // gravity, drag, wind (emit may override)
     this.head = 0; this.alive = 0;
+    /** @internal clear() zeroed slots the GPU copy still shows: the next upload reaches this far */ this._stale = 0;
     /** @internal the game's material while one is set */ this._given = null;
     this._c0 = new THREE.Color(); this._c1 = new THREE.Color();
     this._build();
@@ -144,10 +145,11 @@ export class Effect {
     this.alive = alive;
     this.points.visible = alive > 0;
     // upload only the used range (0 to the last live particle), not the whole buffer
-    const n = hi + 1;
+    const n = hi + 1, up = Math.max(n, this._stale);
+    this._stale = 0;
     if (this.points.isSprite) this.points.count = n;   // WebGPU sprites: instances up to the last live one (dead ones in between have size 0)
     for (const a of this._attrs ||= [this.aPos, this.aSize, this.aAlpha, this.aColor, this.aAngle]) {
-      a.clearUpdateRanges(); a.addUpdateRange(0, n * a.itemSize); a.needsUpdate = true;
+      a.clearUpdateRanges(); a.addUpdateRange(0, up * a.itemSize); a.needsUpdate = true;
     }
   }
 

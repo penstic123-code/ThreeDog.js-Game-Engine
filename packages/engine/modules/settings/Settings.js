@@ -10,6 +10,7 @@
 //
 // Tabs: default graphics, audio, keys, language, saves. Optional built-ins, off unless asked for: 'game' (resume / load / back to title) and
 // 'camera' (mouse sensitivity, invert Y, field of view): settings({ sections: ['game', 'graphics', 'audio', 'controls', 'camera'] }) or addSection('camera').
+// An entry { id: 'graphics', omit: ['pixelRatio', 'antialias'] } in that list leaves rows out of the graphics tab.
 // The whole menu is replaceable: skip this module and build your own (register it as the Esc root with uiFocus(engine).setRoot(() => myMenu.open())).
 //
 // A game's own settings page (e.g. "Gameplay"):
@@ -33,14 +34,13 @@ import { BUILTIN_SECTIONS } from './sections.js';
 import { STRINGS, CSS } from './strings.js';
 import { SettingsView } from './view.js';
 import { applySetting, allowed, checkLimits } from './apply.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { reportError } from '../../core/errors.js';
-import { codedError } from '../../core/errorHints.js';
-import { warnOnce } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { warnOnce } from '../../core/base/validate.js';
 
 // Graphics presets. Values are performance tiers, not art; a game can override with settings({ presets: { low: {...} } })
 // pixelRatio here is a share (0 to 1) of the ratio the engine picked for this device. A fixed number is wrong on one screen or the other: 1 is an upscaled
-// picture on a 2x screen (core/tier.js), 1.5 is wasted work on a 1x one
+// picture on a 2x screen (core/scene/tier.js), 1.5 is wasted work on a 1x one
 const PRESETS = {
   low: { pixelRatio: 0.75, shadows: false, antialias: false, bloom: false, ao: false, viewChunks: 3, density: 0.5 },
   medium: { pixelRatio: 1, shadows: true, antialias: true, bloom: false, ao: false, viewChunks: 4, density: 0.75 },
@@ -48,6 +48,19 @@ const PRESETS = {
 };
 // Settings keys that switch a post effect of the same name; a key whose effect the game did not add is hidden and ignored
 const POST_KEYS = ['bloom', 'ao'];
+
+/**
+ * The graphics rows a game left out: the { id: 'graphics', omit } entry of sections. An omitted row is the game's value: no control, and no preset or stored value moves it.
+ * @param {any} sections @returns {Set<string>}
+ */
+function omittedRows(sections) {
+  const entry = Array.isArray(sections) ? sections.find(s => typeof s === 'object') : null;
+  if (!entry) return new Set();
+  readParams('settings sections', keysSchema(['id', 'omit']), entry);
+  const rows = ['quality', 'adaptive', ...Object.keys(PRESETS.low)], bad = (entry.omit ?? []).filter(k => !rows.includes(k));
+  if (entry.id !== 'graphics' || bad.length) throw codedError('settings-tab', `settings({ sections }): an entry with omit is { id: 'graphics', omit: [...] } with rows from ${rows.join(', ')}; got ${JSON.stringify(entry)}`);
+  return new Set(entry.omit);
+}
 
 /**
  * What a stored file says the player changed. A version 1 file held every value, so there only a value that differs from today's default can be
@@ -66,6 +79,7 @@ export class Settings extends SettingsView {
     /** @internal the module's ctx.track: listeners the settings and its sections add leave with the module */ this._track = track;
     this.engine = engine;
     this.action = action;
+    /** @internal */ this._omit = omittedRows(sections);
     this.presets = { ...PRESETS };
     for (const k in presets) {
       // loud, because a game's old fixed ratio (2) would otherwise multiply the device's own
@@ -98,7 +112,7 @@ export class Settings extends SettingsView {
     for (const [k, v] of Object.entries(this._picked())) this._apply(k, v);
     // Tabs: true = the default set; a list picks built-in and optional tabs by name (optional ones register their own settings in setup)
     if (sections === true) for (const [id, s] of Object.entries(BUILTIN_SECTIONS)) this.sections.set(id, s);
-    else if (sections) for (const id of sections) this._builtin(id);
+    else if (sections) for (const s of sections) this._builtin(s.id ?? s);
     if (stored.locale && engine.i18n.languages.includes(stored.locale) && stored.locale !== engine.i18n.locale) engine.i18n.setLocale(stored.locale);
 
     this.win = makeWindow(engine, {
@@ -114,7 +128,7 @@ export class Settings extends SettingsView {
     track(this.win);
     // The back key (Esc) has one entry point: with an empty focus stack it opens the menu; while the menu is open the window's onCancel handles it
     this.focus = uiFocus(engine);
-    this.focus.setRoot(() => this.open());
+    track(this.focus.setRoot(() => this.open()));   // unloaded, the back key must not open a window that left the page and hold the input behind it
     // The close button, the back key and code close() all go through the window's toggle, emitting ui:open / ui:close
     track(engine.events.on('ui:open', id => { if (id === 'settings') this._pause(true); }));
     track(engine.events.on('ui:close', id => { if (id === 'settings') this._pause(false); }));
@@ -184,7 +198,7 @@ export class Settings extends SettingsView {
   reset(key) {
     const def = k => this.custom.has(k) ? this.custom.get(k).def : this._defaults[k];
     // 'quality' is no value of its own (it is the name of the preset the graphics values match): resetting it resets the graphics values the presets set
-    const keys = key === undefined ? Object.keys(this._values).filter(k => k !== 'quality') : key === 'quality' ? Object.keys(this.presets.low || {}) : [key];
+    const keys = key === undefined ? Object.keys(this._values).filter(k => k !== 'quality' && !this._omit.has(k)) : key === 'quality' ? Object.keys(this._presetValues('low')) : [key];
     if (key === undefined || key === 'quality') delete this._changed.quality;
     const preset = this._presetValues(this._changed.quality);   // a row a kept preset sets must stay stored, or the preset takes it back on the next launch
     for (const k of keys) {
@@ -255,11 +269,16 @@ export class Settings extends SettingsView {
   }
   /** A preset's values on this device: its pixelRatio share made a ratio. Nothing for 'custom' or no preset @param {string} [name] */
   _presetValues(name) {
-    const p = this.presets[name]; if (!p) return {};
-    return 'pixelRatio' in p ? { ...p, pixelRatio: +(p.pixelRatio * this.engine.adaptive.base).toFixed(2) } : { ...p };
+    if (!this.presets[name]) return {};
+    const p = Object.fromEntries(Object.entries(this.presets[name]).filter(([k]) => !this._omit.has(k)));
+    return 'pixelRatio' in p ? { ...p, pixelRatio: +(p.pixelRatio * this.engine.adaptive.base).toFixed(2) } : p;
   }
   /** What the player chose: the preset, then the rows moved after it */
-  _picked() { const { quality, ...rows } = this._changed; return { ...this._presetValues(quality), ...rows }; }
+  _picked() {
+    const { quality, ...rows } = this._changed;
+    for (const k of this._omit) delete rows[k];
+    return { ...this._presetValues(quality), ...rows };
+  }
   // reads what was asked for (_values), not the live ratio: adaptive resolution lowering the scale is not the player picking 'custom'
   _matchPreset() {
     const v = this._values, e = this.engine;
@@ -275,7 +294,6 @@ export class Settings extends SettingsView {
   }
   _apply(key, val) { applySetting(this, key, val); }
 
-
   // ---------- module hooks ----------
   init() {
     // At start() every module is installed: terrain settings and key bindings can only be applied fully now
@@ -289,7 +307,6 @@ export class Settings extends SettingsView {
     this._defaults.pixelRatio = +e.adaptive.base.toFixed(2);
     this._values.pixelRatio = picked.pixelRatio ?? this._defaults.pixelRatio;
     if ('pixelRatio' in picked) this._apply('pixelRatio', picked.pixelRatio);
-    for (const [key, c] of this.custom) if (!(key in this._values)) this._values[key] = c.def;
     this._values.quality = this._matchPreset();
   }
   frame() {
@@ -333,14 +350,14 @@ const SETTINGS_PARAMS = keysSchema(['action', 'storageKey', 'presets', 'sections
  * Settings menu module. Installs engine.settings. Install it after the other modules.
  * @param opts action the action that opens the menu (default the basic 'cancel'; another one the game binds); storageKey storage key; presets override graphics presets;
  * sections which tabs: true (default) graphics, audio, controls, language, saves; a list picks by name, including the optional 'game' (resume, load, back to
- * title) and 'camera' (sensitivity, invert Y, field of view); false for none;
+ * title) and 'camera' (sensitivity, invert Y, field of view); false for none; an entry { id: 'graphics', omit: [...] } leaves rows out of that tab;
  * freezeWorld pause gameplay while the menu is open (with flow it switches to flow's 'paused', otherwise engine.freeze; rendering continues), default false
  */
 export function settings(opts = {}) {
   readParams('settings', SETTINGS_PARAMS, opts);
   let s = null;
   return {
-    name: 'settings', type: 'ui', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['terrain', 'vegetation', 'flow'], stage: 'effects',
+    name: 'settings', type: 'ui', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['terrain', 'vegetation', 'flow', 'cameraRig'], stage: 'effects',
     install(e, ctx) {
       s = new Settings(e, opts, ctx.track);
       ctx.track(e.ui.titleItem('settings', { label: x => x.t('title.settings'), run: () => s.open() }));   // the title screen's Settings button

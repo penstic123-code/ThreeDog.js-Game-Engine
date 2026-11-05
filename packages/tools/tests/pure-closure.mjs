@@ -1,10 +1,10 @@
-// Pure worker functions (core/threadPure.js): a terrain({ height }) that reads an outer variable must not lose it silently. The "no way around it"
+// Pure worker functions (core/threads/threadPure.js): a terrain({ height }) that reads an outer variable must not lose it silently. The "no way around it"
 // check: the error names closures as unsupported and shows the terrain({ params }) data form, so an AI fixes it in one step.
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
-const { compilePure } = await import(pathToFileURL(join(ENGINE, 'core/threadPure.js')).href);
+const { compilePure } = await import(pathToFileURL(join(ENGINE, 'core/threads/threadPure.js')).href);
 
 export const name = 'pure functions: a closure in terrain({ height }) throws with the params form';
 

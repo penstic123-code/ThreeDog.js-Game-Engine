@@ -28,6 +28,15 @@ export async function run({ check }) {
     const props = join(dir, 'content/props.js'), places = join(dir, 'content/places.js');
     const text = p => readFileSync(p, 'utf8');
 
+    // [guard] a write that throws (a locked file) mid-batch left the place written and its entries not: here the temp path of props.js is a folder, so its write fails on any system
+    writeFileSync(props, 'export default [\n];\n');
+    writeFileSync(places, 'export default {\n};\n');
+    mkdirSync(props + '.threedog-tmp');
+    const thrown = await stamp(dir, { arrangement: 'stall', id: 'stall-0', x: 1, z: 1 });
+    check('[guard] stamp: a thrown write undoes the batch and says so', !thrown.ok && text(places) === 'export default {\n};\n', JSON.stringify(thrown) + text(places));
+    rmSync(props + '.threedog-tmp', { recursive: true });
+    rmSync(props); rmSync(places);
+
     // a game with no places.js and no props.js yet: stamp makes them
     const dry = await stamp(dir, { arrangement: 'stall', id: 'stall-1', x: 20, z: 5, rot: 1.6 }, { dry: true });
     check('stamp --dry: shows the entries and writes nothing', dry.ok && dry.entries.length === 2 && !existsSync(props) && !existsSync(places), JSON.stringify(dry));

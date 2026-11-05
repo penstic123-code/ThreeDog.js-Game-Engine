@@ -1,5 +1,5 @@
 // Model LOD, both halves: `threedog assets optimize --lod` (tools/assets-lod.mjs, run here in Node on a model made for the test) and engine.assets.lod / a prop's `lod`
-// (core/assetLod.js, on tests/lod/). The guards are what a shortcut would break: levels stay opt-in, the full model answers rays and collision, batching and hlod keep out.
+// (core/assets/assetLod.js, on tests/lod/). The guards are what a shortcut would break: levels stay opt-in, the full model answers rays and collision, batching and hlod keep out.
 import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';

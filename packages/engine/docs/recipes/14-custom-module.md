@@ -97,7 +97,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
   (a capability, never a module name), and a game swaps it with `engine.use(mine(), { replaces: 'inventory' })` (`55-mods-time-wrap.md`). `engine.unuse('name')` removes a module with nothing in its place, and refuses while another still requires it. Picture slots: `62-picture-code.md` 3e:
   `engine.inventory` is then the new module's API, so the dependents keep working. A missing capability throws naming both fixes: install the
   engine's part of that name first, or your own module with `provides`.
-- `engine.phase` says where the engine is: `'constructed'` -> `'loading'` (start() running: frame hooks run, fixed steps do not, so no game
+- `engine.phase` says where the engine is: `'constructed'` -> `'starting'` (modules init) -> `'loading'` (assets and the world; in both frame hooks run, fixed steps do not, so no game
   time passes while the machine loads) -> `'ready'` (the world is built; fixed steps from here) -> `'running'` (start() resolved) ->
   `'disposed'`. `engine.ready` is true in the last two live ones; `engine.step()` while loading runs frame hooks only.
 - While frozen (`engine.freeze`, flow pause) `fixed` is skipped entirely and `frame` still runs: check `e.frozen` before gameplay decisions.

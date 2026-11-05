@@ -1,6 +1,6 @@
 // Readiness and collision queries on loaded chunks (mixed into ChunkManager.prototype), read by loading and by the collision and physics
 // modules through the ground API.
-import { collidersNear, ringsReady } from '../../core/chunkStream.js';
+import { collidersNear, ringsReady } from '../../core/stream/chunkStream.js';
 
 export const chunkQueries = {
   /** @internal Whether chunks within `rings` rings (default 1) of a position are generated (for the loading screen); solid: also their collision has taken effect */

@@ -1,4 +1,4 @@
-// Diagnostic view modes (core/debugView.js) and overrides (core/DebugOverrides.js) on a three scene in node: each mode changes the drawing, 'off' restores
+// Diagnostic view modes (core/inspect/debugView.js) and overrides (core/inspect/DebugOverrides.js) on a three scene in node: each mode changes the drawing, 'off' restores
 // every material and light, owners are respected, and views and overrides share one chain (a view and an override on the same mesh never restore each
 // other's stale material, nothing disposes the real material, a throwing apply leaves nothing behind).
 import * as THREE from 'three';
@@ -6,8 +6,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
-const { DebugOverrides } = await import(pathToFileURL(join(ENGINE, 'core/DebugOverrides.js')).href);
-const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/stacks.js')).href);
+const { DebugOverrides } = await import(pathToFileURL(join(ENGINE, 'core/inspect/DebugOverrides.js')).href);
+const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/ops/stacks.js')).href);
 
 export const name = 'debug view: albedo / lighting / shadow / normals are temporary, owned, and share one override chain with debug.override';
 

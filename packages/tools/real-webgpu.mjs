@@ -3,7 +3,7 @@
 // WebGPURenderer's WebGL2 backend, so a "WebGPU" pass there proves the node path, never the WGSL, the bind groups or the device.
 //   node packages/tools/real-webgpu.mjs [spec name words...]            the engine's tests/specs whose name or url holds a word, on real WebGPU
 //   node packages/tools/real-webgpu.mjs --urls=/a.html,/b.html?x=1      open pages, wait, report (with --shots=dir, one PNG each)
-//   --game=<dir>  build and serve this folder instead of packages/engine   --no-build  serve the existing dist
+//   --game=<dir>  build and serve this folder instead of packages/engine   --no-build  serve the last tool build
 //   --eval=<file> with --urls: run this script in each page once it stands, print what it returns (JSON)
 //   --webgl       with --urls: no backend demand, for the WebGL picture to compare with   --headed  a visible window
 //   --all-webgpu  examples and tests that ask for no renderer get renderer: 'webgpu' too (a build-time rewrite of createEngine)
@@ -12,7 +12,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { build } from 'vite';
-import { buildAndPreview, launchRealGPU, newGamePage, IGNORED_CONSOLE } from './browser.mjs';
+import { buildAndPreview, launchRealGPU, newGamePage, IGNORED_CONSOLE, TOOL_BUILD } from './browser.mjs';
 import { viteOptions, ENGINE } from './paths.mjs';
 import { workspaceSpecs } from './lib/specs.mjs';
 import { waitEngine, waitLoaded } from './wait-engine.mjs';
@@ -114,7 +114,7 @@ async function verdict(page, { demand = true, strict = false } = {}) {
 async function open(browser, errors, gpuWarnings) {
   const page = await newGamePage(browser, { errors, locale: 'zh-CN' });
   await page.addInitScript(gpuProbe);
-  page.on('console', m => { if (m.type() === 'warning' && /WGSL|bGPU[A-Z]|\[Invalid/.test(m.text()) && !IGNORED_CONSOLE.test(m.text())) gpuWarnings.push(m.text().slice(0, 300)); });
+  page.on('console', m => { if (m.type() === 'warning' && /WGSL|\bGPU[A-Z]|\[Invalid/.test(m.text()) && !IGNORED_CONSOLE.test(m.text())) gpuWarnings.push(m.text().slice(0, 300)); });
   // the console line names no file and a missing favicon gives one on every page; a real 404 is named below
   page.on('console', () => { for (let i = errors.length - 1; i >= 0; i--) if (/^Failed to load resource.* 404/.test(errors[i])) errors.splice(i, 1); });
   page.on('response', r => { if (r.status() === 404 && !/favicon/.test(r.url())) gpuWarnings.push(`404 ${r.url()}`); });
@@ -144,7 +144,7 @@ async function runSpec(browser, server, spec) {
     };
     await Promise.race([
       spec.run({ page, check, frames, ev, wait: ms => page.waitForTimeout(ms) }),
-      new Promise((_, no) => setTimeout(() => no(new Error('spec timed out after 150 s')), 150000)),
+      new Promise((_, no) => setTimeout(() => no(new Error('spec timed out after 150 s')), 150000).unref()),
     ]);
   } catch (e) { check('run error', false, String(e).split('\n')[0]); }
   facts = await verdict(page).catch(e => ({ why: [`page gone: ${e.message.split('\n')[0]}`], line: '' }));
@@ -179,8 +179,8 @@ async function runUrl(browser, server, url) {
   await page.close().catch(() => {});
 }
 
-if (!flag('no-build')) await build(await viteOptions(dir, { plugins: flag('webgl') ? [] : [rewrites], logLevel: 'error' }));
-if (!existsSync(join(dir, 'dist'))) throw new Error(`${dir} has no dist: drop --no-build`);
+if (!flag('no-build')) await build(await viteOptions(dir, { plugins: flag('webgl') ? [] : [rewrites], build: TOOL_BUILD, logLevel: 'error' }));
+if (!existsSync(join(dir, TOOL_BUILD.outDir))) throw new Error(`${dir} has no ${TOOL_BUILD.outDir}: drop --no-build`);
 const server = await buildAndPreview(dir, { build: false });
 const browser = await launchRealGPU({ headless: !flag('headed') });
 try {

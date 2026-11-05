@@ -1,4 +1,4 @@
-// Asset hot swap (core/assetHot.js): an edited generator / tuned params rebuild every live copy in place (props, templates' parts, vegetation),
+// Asset hot swap (core/assets/assetHot.js): an edited generator / tuned params rebuild every live copy in place (props, templates' parts, vegetation),
 // while the clock, the player and world state stay. Open-world example page; the models are registered by the test.
 export const specs = [
   {
@@ -8,7 +8,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const T = engine.THREE, A = engine.assets, W = engine.world, tick = () => new Promise(res => setTimeout(res, 0));
+        const T = __threedogThree, A = engine.assets, W = engine.world, tick = () => new Promise(res => setTimeout(res, 0));
         engine.haltLoop();
         const params = { h: { type: 'number', min: 0.1, max: 9, default: 1 } };
         const box = p => new T.BoxGeometry(1, p.h, 1);
@@ -32,8 +32,12 @@ export const specs = [
         const after2 = { a: height(W.view('hs-a')), veg: vegH(), values: A.paramsOf('hsBox')?.values };
         let typo = null; try { await A.setParams('hsBox', { hh: 2 }); } catch (err) { typo = String(err.message); }
         const unchanged = await engine.debug.reloadAssets({ name: 'hs', models: { hsBox: { build: box2, params }, hsGroup: A.builder('hsGroup') } });
+        const tex0 = new T.Texture(), tex1 = new T.Texture();
+        A.manifest({ name: 'hs', textures: { hsTex: tex0 } });
+        await A.texture('hsTex');
+        const texRep = await engine.debug.reloadAssets({ name: 'hs', textures: { hsTex: tex1 } }), tex = { got: await A.texture('hsTex') === tex1, names: texRep.names };
         const d = engine.describe().assetSwaps;
-        return { before, after, after2, rep, tuned, typo, unchanged: unchanged.names, now: engine.clock.now === now0, pos: p.toArray().join(',') === pos0, d: d?.length ?? 0, hasVeg: !!veg };
+        return { before, after, after2, rep, tuned, typo, tex, unchanged: unchanged.names, now: engine.clock.now === now0, pos: p.toArray().join(',') === pos0, d: d?.length ?? 0, hasVeg: !!veg };
       });
       check('before: props 1 m tall, group of 2 parts', r.before.a === 1 && r.before.b === 1 && r.before.g === 2, JSON.stringify(r.before));
       check('reloadAssets: both prop copies now 2 m, the same objects (swapped in place)', r.after.a === 2 && r.after.b === 2 && r.after.same, JSON.stringify(r.after));
@@ -41,6 +45,7 @@ export const specs = [
       check('vegetation species from the model swapped too', !r.hasVeg || (r.before.veg === 1 && r.after.veg === 2), JSON.stringify([r.before.veg, r.after.veg]));
       check('setParams rebuilds with the tuned value (copies 3 m, vegetation too), paramsOf shows it', r.after2.a === 3 && (!r.hasVeg || r.after2.veg === 3) && r.after2.values?.h === 1.5, JSON.stringify(r.after2));
       check('a param typo throws naming the key', /hh/.test(r.typo ?? ''), r.typo);
+      check('a game texture registered again under its name is swapped too', r.tex.got && r.tex.names.includes('hsTex'), JSON.stringify(r.tex));
       check('registering the same functions again swaps nothing', r.unchanged.length === 0, JSON.stringify(r.unchanged));
       check('clock and player position untouched; describe().assetSwaps lists the swaps', r.now && r.pos && r.d >= 2, JSON.stringify({ now: r.now, pos: r.pos, d: r.d }));
     },

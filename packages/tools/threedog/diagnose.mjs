@@ -30,8 +30,7 @@ export async function probe(dir) {
     return { state: 'missing', port: info.port };
   }
   if (info.state !== 'none') return { state: 'none' };   // stale / unreadable record: nothing of ours is running
-  // no dev.json: a vite server started by hand (npm run dev with another config) may still be running on a default port
-  // (one that has the bridge belongs to another workspace, so it does not count here)
+  // no dev.json: a vite server started by hand (npm run dev with another config) may still be running on a default port;
   // one that has the bridge belongs to another workspace: not ours, but named, so "no dev server" is not said while one visibly runs
   const hits = await Promise.all([5173, 5174, 5175, 5176].map(async p => {
     if (!(await get(`http://localhost:${p}/@vite/client`, {}, 600))?.ok) return null;
@@ -42,9 +41,13 @@ export async function probe(dir) {
   return plain ? { state: 'missing', port: plain.port, scanned: true } : { state: 'none', ...(other.length && { otherPorts: other }) };
 }
 
-/** { kind, text } for a failure, or null when the cause is none of the five (the caller keeps its own message) */
-export async function diagnose(dir, err) {
-  const msg = String(err?.message ?? err ?? ''), ws = rel(dir) || basename(dir), p = await probe(dir);
+/**
+ * { kind, text } for a failure, or null when the cause is none of the five (the caller keeps its own message). p: the probe the caller already made: the server
+ * is judged by that answer, a second probe can find a busy server free again and leave nothing to say
+ */
+export async function diagnose(dir, err, p) {
+  const msg = String(err?.message ?? err ?? ''), ws = rel(dir) || basename(dir);
+  p ??= await probe(dir);
   if (p.state === 'none' && p.otherPorts) return { kind: 'no-server', text: `✗ A threedog dev server answers on port ${p.otherPorts.join(', ')}, but ${ws} has no .threedog/dev.json for it: `
     + `it was started for another folder (it writes its record there), or the record was deleted.\nNext: run the command in the folder that server was started for (or -w <game>); `
     + `to use ${ws} itself, start its own: threedog play, or npm run dev in another terminal.` };

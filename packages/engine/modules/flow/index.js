@@ -8,10 +8,10 @@
 // engine.haltLoop() is another thing: it stops rendering too, for tests only. While frozen: fixed step, module fixed hooks, game clock, quest checks, timeline wait/tween all stop.
 // engine.session.newGame / load / quit move flow too: back to the start state when a playthrough ends, then 'playing' when the next starts.
 // Esc is not handled here: back goes through the UI focus stack (ui/Focus.js), and opens the settings menu when the stack is empty. Events: flow:change { from, to }, flow:transition { phase: 'start' | 'end' }.
-import { warnMissing } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { warnMissing } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { fadeScreen } from '../../ui/UI.js';
-import { unsettled } from '../../core/headlessLoad.js';
+import { unsettled } from '../../core/engine/headlessLoad.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Flow, FlowOptions } from '../../types/gameplay' */
 
@@ -88,7 +88,7 @@ export function flow(opts = {}) {
     },
   };
   return {
-    name: 'flow', type: 'rules', params: FLOW_PARAMS, options: opts, label: 'Game flow', optional: ['music'],
+    name: 'flow', type: 'rules', provides: ['flow'], params: FLOW_PARAMS, options: opts, label: 'Game flow', optional: ['music'],
     install(engine, ctx) { engine.i18n.add({ 'zh-CN': { 'module.flow': '游戏流程' }, en: { 'module.flow': 'game flow' } });
       e = engine;
       // initial state (title screen etc.): entered once the world is ready, so the game can define it after use()
@@ -101,6 +101,8 @@ export function flow(opts = {}) {
       ctx.track(e.events.on('session:failed', () => { if (before) api.go(before); }));
       return api;
     },
+    // unloaded (unuse, replaces) in a state that stops the game: nothing else would ever end its freeze or input lock
+    dispose() { frozen?.remove(); held?.remove(); frozen = held = null; },
     // ?play / applyState({ play }): leave the start state (a title) the way its Start button does; session:start then goes to 'playing'
     stateKeys: ['play'],
     applyState(e, { play }) { if (play != null && opts.start && opts.start !== 'playing' && api.state === opts.start) return e.session.newGame(); },

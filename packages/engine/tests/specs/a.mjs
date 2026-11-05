@@ -68,7 +68,7 @@ export const specs = [
       check('pick on a city building returns building_*', /^building_/.test(r.name ?? ''), JSON.stringify(r));
       check(`city 1000 rays ${r.withBvh.ms} ms (box building has 12 triangles, no tree built: ${!r.bvh})`, !r.bvh && r.withBvh.n === r.without.n && r.withBvh.n > 0, JSON.stringify(r));
       const hp = await ev(() => {
-        const T = engine.THREE, m = new T.Mesh(new T.SphereGeometry(10, 256, 256), engine.level.root.getObjectByName('ground').material);
+        const T = __threedogThree, m = new T.Mesh(new T.SphereGeometry(10, 256, 256), engine.level.root.getObjectByName('ground').material);
         m.position.set(0, 20, 300); engine.add(m); m.updateMatrixWorld();
         const tris = m.geometry.index.count / 3, rays = [];
         for (let i = 0; i < 1000; i++) rays.push([{ x: (i % 40) / 4 - 5, y: 20 + Math.floor(i / 40) / 4 - 3, z: 250 }, { x: 0, y: 0, z: 1 }]);
@@ -151,6 +151,23 @@ export const specs = [
         return { n, same: g1 === g2, geo: !!g1.isBufferGeometry, obj: !!o.getObjectByName('spawn') };
       });
       check('assets.cached: same name builds once, geometry is shared, objects get a copy', c.n === 1 && c.same && c.geo && c.obj, JSON.stringify(c));
+    },
+  },
+  {
+    name: '[guard] A: debug overrides: one key on two objects keeps both exempt from the yield',
+    url: '/tests/a/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { defineOwned } = threedogTest, a = { intensity: 1 }, b = { intensity: 2 }, out = {};
+        const own = (o, id) => { const x = defineOwned(engine, { id, part: 'testDbg', key: id, read: () => o.intensity, write: v => { o.intensity = v; }, objects: [o], levels: { manual: 'manual()' } }); x.mark(); return x; };
+        const oa = own(a, 'test.dbgA'), ob = own(b, 'test.dbgB');
+        const ha = engine.debug.override('dbg', a, 'intensity', 5), hb = engine.debug.override('dbg', b, 'intensity', 6);
+        oa.check(); ob.check();
+        out.modes = [oa.mode, ob.mode];
+        ha.remove(); hb.remove();
+        return out;
+      });
+      check('both objects stay exempt while overridden', r.modes.join() === 'engine,engine', JSON.stringify(r));
     },
   },
   {

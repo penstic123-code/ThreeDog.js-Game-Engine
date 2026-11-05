@@ -8,15 +8,14 @@
 //   lit / shade cloud colors (clouds.color / clouds.shade); cover = weather cloud amount * clouds.coverage, 0..1+
 //   returns  rgb = final cloud color, a = opacity 0..1 (the dome does mix(sky, rgb, a)); apply your own horizon fade
 // In scope for your code: threedogHash(vec2), threedogNoise(vec2), the built-in cloud uniforms (uSkyCloudScale, uSkyCloudSpeed,
-// uCloudHorizon, uCloudFade, uCloudSoft, uCloudOpacity, uCloudMul, uCloudWeights, uCloudRelief) and the patch's own uniforms.
+// uCloudHorizon, uCloudFade, uCloudSoft, uCloudOpacity, uCloudMul, uCloudWeights, uCloudRelief) and the patch's own uniforms (later writes: engine.sky.uniforms.uK.value).
 // WebGPURenderer draws the hook's tsl form instead ({ glsl, tsl, uniforms }; render/fx/sky.tsl.js): tsl: (ctx) => vec4 node, ctx = { dir, time,
 // sunDir, night, lit, shade, cover (the same arguments as nodes), clouds (the built-in kind's vec4, the value so far), uniforms (the dome's
 // uniforms as nodes, the patch's own included), fx: { noise, hash }, tsl (three/tsl) }. Each renderer needs its own form; a missing one throws by name.
 import * as THREE from 'three';
-import { closest, oneForm } from '../../core/validate.js';
+import { closest, oneForm } from '../../core/base/validate.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
-import { codedError } from '../../core/errorHints.js';
-import { scanRenamed, RENAMED_DOME_UNIFORMS } from '../../render/uniformRenames.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { SKY as K, glslFloat as f } from '../../render/fxNumbers.js';
 
 const KINDS = ['plane', 'cumulus'];
@@ -75,7 +74,6 @@ export function resolveClouds(c, hook, gpu = false) {
   if (h?.glsl != null) {
     if (typeof h.glsl !== 'string' || !/vec4\s+threedogClouds\s*\(/.test(h.glsl)) throw codedError('sky-option', "engine.sky.clouds(): glsl must define `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)` returning (rgb color, alpha); see modules/sky/clouds.js");
     glsl = h.glsl;
-    scanRenamed([h.glsl], 'engine.sky.clouds()', h.uniforms, RENAMED_DOME_UNIFORMS);
   }
   const { uniforms, decl } = declareUniforms('engine.sky.clouds().uniforms', h?.uniforms);
   return { kind, glsl, uniforms, decl };

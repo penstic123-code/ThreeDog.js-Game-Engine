@@ -33,6 +33,7 @@ export class Water {
     /**
      * Global water mesh (null when absent)
      * @type {THREE.Mesh | null}
+     * @experimental
      */
     sea: THREE.Mesh | null;
     set material(m: THREE.Material);

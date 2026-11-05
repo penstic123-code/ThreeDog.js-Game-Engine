@@ -1,4 +1,4 @@
-// Command execution layer: shared by the dev bridge command line (threedog describe|step|press…) and future scenario tests.
+// Command execution layer: shared by the dev bridge command line (threedog describe|step|press…) and scenario tests (scenario.mjs).
 // It depends on a single driver: { evaluate(src, arg), screenshot(), reload?() }
 //   evaluate(src, arg)  run function source src (a string) in the page with arg, returning its JSON result (it may be async)
 //   screenshot()        returns a PNG Buffer
@@ -43,7 +43,7 @@ function opPairs(args, what = 'op arguments', e_g = 'n=2') {
  * Where snap writes: a bare name → <dir>/.threedog/shots/<name>.png; a path (absolute, or containing a folder) → that path, relative ones from dir.
  * .png is added only when there is no extension. → { file (absolute), shown (as printed) }
  */
-export function snapPath(dir, arg) {
+function snapPath(dir, arg) {
   const given = arg || 'snap', withExt = extname(given) ? given : given + '.png';
   if (isAbsolute(given) || /[\\/]/.test(given)) return { file: resolve(dir, withExt), shown: withExt };
   const name = withExt.replace(/[^\w一-龥.-]+/g, '-');
@@ -227,7 +227,9 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     case 'inspect': {
       const at = rest[0] && /^-?[\d.]+,-?[\d.]+$/.test(rest[0]) ? rest[0].split(',').map(Number) : rest[0];
       const text = await ev(driver, 'inspect', { at });
-      return { ok: !/^✗/m.test(text), text: at === 'materials' || at === 'perf' ? cut(text, opt.max || 2000) : lines(text, 3) };
+      // ✗ means a problem only in these two reports: around the player it marks an op that cannot run now, which is the answer asked for
+      if (at !== 'materials' && at !== 'perf') return { ok: true, text: lines(text, 3) };
+      return { ok: !/^✗/m.test(text), text: cut(text, opt.max || 2000) };
     }
     case 'scene': {
       const limit = opt.limit ? Number(opt.limit) : undefined;

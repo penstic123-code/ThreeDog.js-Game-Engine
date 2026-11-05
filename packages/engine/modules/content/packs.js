@@ -10,9 +10,9 @@
 //   - a pack may carry name: 'forest-dlc' for error messages; no other extra key (unknown keys are errors)
 // Content references assets by name only: a model written as a file path or a function is reported here in dev (the static check is
 // npm run check -> content-check, packages/tools/content-check/world.mjs).
-import { DEV, warnOnce, fmt } from '../../core/validate.js';
-import { codedError } from '../../core/errorHints.js';
-import { isPlainObject } from '../../core/util.js';
+import { DEV, warnOnce, fmt } from '../../core/base/validate.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { isPlainObject } from '../../core/base/util.js';
 
 const STRINGS = {
   dup: 'content.load: {key}.{id} is defined by both {a} and {b}. Packs loaded together may not share an id: rename one, or drop it from one pack',

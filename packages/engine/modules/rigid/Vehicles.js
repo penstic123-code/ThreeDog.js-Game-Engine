@@ -8,7 +8,7 @@
 // engine.player.enter(car);   car.drive(throttle, steer, brake)
 // Native objects: car.body (rigid body), car.controller (vehicle controller).
 import * as THREE from 'three';
-import { vec3 } from '../../core/math.js';
+import { vec3 } from '../../core/base/math.js';
 
 export const VEHICLE_KEYS = ['id', 'wheels', 'mass', 'engineForce', 'brakeForce', 'maxSteer', 'suspension', 'seats', 'hideDriver', 'camera', 'size', 'friction', 'exitOffset'];
 export const STRINGS = { 'zh-CN': { 'vehicle.enter': '上车', 'vehicle.exit': '下车' }, en: { 'vehicle.enter': 'Get in', 'vehicle.exit': 'Get out' } };

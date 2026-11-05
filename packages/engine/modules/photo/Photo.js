@@ -6,15 +6,15 @@
 // photo.canTake (true or a reason) is its can. engine.photo.take() is the low-level capture the op calls (no checks).
 // const r = engine.ops.run('photo.take');   // r.value = { url, time, position, subject } or r.code (e.g. 'noFilm')
 // When the photo key's op is refused the module emits photo:denied { reason } (the game shows it; a button reads r.code itself).
-// subject is what is in the middle of the frame { name, kind, distance }: NPC (kind 'npc'), entity ('entity'), named object ('object'),
+// subject is what is in the middle of the frame { name, kind, distance }: NPC (kind 'npc'), named object ('object'),
 // vegetation ('vegetation'; after hitting an instanced mesh, vegetation.instanceAt looks up the kind); null when it hits the sky or an unnamed ground.
 // The photo key (action 'photo') is the game's: engine.input.bind('photo', ['KeyC', 'PadX']), presets.bindings.photo (P / gamepad RB) or [] for no key
 // Shutter sound: the game's createEngine({ audio: { sounds: { shutter } } }) supplies a file, otherwise a synthesized fallback
-import { warnOnce } from '../../core/validate.js';
-import { builtInSounds } from '../../core/assetManifest.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { warnOnce } from '../../core/base/validate.js';
+import { builtInSounds } from '../../core/assets/assetManifest.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { toast } from '../../ui/UI.js';
-import { coded } from '../../core/errorHints.js';
+import { coded } from '../../core/base/errorHints.js';
 import { setShadowUpdate, shadowsOn } from '../../render/backend.js';
 const GROUP = 'photo';   // attachment group in engine.saves
 const TAKE_KEYS = ['scale', 'shadowMapSize', 'bloom', 'quality', 'format'];
@@ -136,16 +136,17 @@ export function photo(all = {}) {
       } });
       ph = new Photo(e, opts);
       ph.restore();                                  // read photos taken last time back from storage
-      e.ops.define('photo.take', {
+      ctx.track(e.ops.define('photo.take', {
         desc: 'Take a photo (refused when photo.canTake() returns false or a reason)',
         can: () => { const r = ph.canTake(); return r === true ? true : typeof r === 'string' && r ? r : 'denied'; },
         run: () => ph.take(),
         offers: () => [{}],
         reasons: { denied: 'photo.canTake() returned false' },
-      });
+      }));
       ctx.track(e.events.on('save:imported', () => ph.restore()));   // after restoring from a save file, the attachments in the file (photos) also go into the album
       return ph;
     },
+    dispose() { for (const s of ph.album) if (s.url.startsWith('blob:')) URL.revokeObjectURL(s.url); },   // a blob: URL holds its bytes until revoked, past the engine's life
     frame(dt, e) {
       if (!e.input.pressed('photo')) return;
       const r = e.ops.run('photo.take', {}, { source: 'player' });

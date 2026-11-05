@@ -41,7 +41,7 @@ export const specs = [
         I._keyDown('KeyU', 'keyboard'); I._keyDown('KeyG', 'keyboard');
         dispatchEvent(new Event('blur'));
         o.blur = I.keys.size;
-        dispatchEvent(new Event('focus'));                   // back, then hide the tab (core/page.js emits page:blur, Input releases)
+        dispatchEvent(new Event('focus'));                   // back, then hide the tab (core/engine/page.js emits page:blur, Input releases)
         I._keyDown('KeyU', 'keyboard');
         Object.defineProperty(document, 'visibilityState', { get: () => 'hidden', configurable: true });
         document.dispatchEvent(new Event('visibilitychange'));

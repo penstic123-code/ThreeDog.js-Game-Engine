@@ -29,10 +29,12 @@ export const specs = [
         const shot = () => { const px = new Float32Array(8 * 8 * 4); hemi.visible = sun.visible = false; R.setRenderTarget(fr); R.render(engine.scene, top); R.readRenderTargetPixels(fr, 0, 0, 8, 8, px); R.setRenderTarget(null); hemi.visible = sun.visible = true; return px[(4 * 8 + 4) * 4]; };
         out.before = shot();
         const positions = floor.geometry.attributes.position.count, shape = Array.from(floor.geometry.attributes.position.array), oldGeo = floor.geometry;
+        let oldFreed = false; oldGeo.addEventListener('dispose', () => { oldFreed = true; });
         // the wall comes in with the wrong vertex count, so it is another mesh now
         const map = await engine.loadLightmap(make([entry(floor), entry(wall, { vertices: 3 })], [{ name: 'row', why: 'instanced' }]));
         out.lit = shot();
         out.uv1 = floor.geometry.attributes.uv1?.count === positions && floor.geometry !== oldGeo;
+        out.oldFreed = oldFreed;
         out.shape = Array.from(floor.geometry.attributes.position.array).every((v, i) => v === shape[i]) && !!floor.geometry.attributes.normal;
         out.plain = floor.material.lightMap === map.texture && map.texture.channel === 1 && map.texture.type === THREE.HalfFloatType;
         out.wallOld = !wall.material.lightMap;
@@ -47,6 +49,7 @@ export const specs = [
         const bad = async f => { try { await engine.loadLightmap(f); return 'no throw'; } catch (e) { return e.code; } };
         out.badBytes = await bad(new ArrayBuffer(64)); out.badType = await bad(12); out.badPath = await bad('/no-such-file.lightmap');
         const cut = make([entry(floor)]).slice(0, 200); out.cut = await bad(cut);
+        out.cutEnd = await bad(make([entry(floor)]).slice(0, -8));   // only the last mesh list is short: the check must count the map in front of it
         out.same = engine.describe().render.lightmap.meshes === 1;
         // off: the map leaves the material
         const tex0 = map.texture; map.remove(); map.remove();
@@ -56,13 +59,14 @@ export const specs = [
         return out;
       });
       const J = JSON.stringify(r);
+      check('[guard] the geometry the mesh had is disposed, or its GPU buffers stay for good', r.oldFreed === true);
       check('[guard] the mesh is rebuilt with uv1 and the same shape, and the map is a plain half-float material.lightMap on channel 1', r.uv1 && r.shape && r.plain, J);
       check('[guard] the map reaches a pixel with every light off, and remove() takes it away', r.lit > r.before + 0.05 && Math.abs(r.after - r.before) < 1e-3 && r.off, J);
       check('[guard] a mesh that is not the one baked is left alone and listed as missing', r.wallOld && r.missing.includes('wall') && r.meshes === 1, J);
       check('[guard] an instanced mesh the bake skipped is reported', r.skipped[0]?.name === 'row', J);
       check('[guard] a baked mesh that moved is reported; so is an unbaked mesh on a baked material', r.moved.includes('floor') && r.shared.includes('crate') && r.text, J);
       check('[guard] light counted twice is reported (hemisphere)', r.doubled.some(x => /skyFill/.test(x)), J);
-      check('a wrong, cut or missing file is refused (lightmap-data) and changes nothing', [r.badBytes, r.badType, r.badPath, r.cut].every(c => c === 'lightmap-data') && r.same, J);
+      check('a wrong, cut or missing file is refused (lightmap-data) and changes nothing', [r.badBytes, r.badType, r.badPath, r.cut, r.cutEnd].every(c => c === 'lightmap-data') && r.same, J);
     },
   },
 ];

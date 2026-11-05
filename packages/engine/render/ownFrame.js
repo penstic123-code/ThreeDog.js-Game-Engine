@@ -15,9 +15,9 @@
 // untouched), installed again when start() replaces the renderer; listed in threePatches as 'renderer-render'. Hand-back is automatic: an
 // engine frame with no outside canvas draw since the previous one draws again, so deleting the game's own render call is the whole hand-back.
 import { Vector2, Vector4 } from 'three';
-import { warnOnce } from '../core/validate.js';
-import { coded } from '../core/errorHints.js';
-import { notePatch, patchOn } from '../core/threePatches.js';
+import { warnOnce, fmt } from '../core/base/validate.js';
+import { coded } from '../core/base/errorHints.js';
+import { notePatch, patchOn } from '../core/scene/threePatches.js';
 import { onRendererSwap } from './backend.js';
 
 const WRAPPED = Symbol.for('threedog.ownFrame');
@@ -70,7 +70,7 @@ export function engineDraws(engine) {
   if (!st) return true;
   const took = st.outside > 0;
   st.outside = 0;
-  if (took && !st.yielded) warnOnce(coded('own-frame', STRINGS.took.replace('{what}', st.what)));
+  if (took && !st.yielded) warnOnce(coded('own-frame', fmt(STRINGS.took, { what: st.what })));
   st.yielded = took;
   return !took;
 }

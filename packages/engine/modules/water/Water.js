@@ -16,15 +16,15 @@ import * as THREE from 'three';
 import { neutralMaterial } from '../../render/neutral.js';
 import { placeholderTexture } from '../../render/effects.js';
 import { patchMaterial, unpatchMaterial } from '../../render/patches.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { waterShader, wavesPatch, surfacePatch } from './surface.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { glslFloat, FRESNEL_POWER } from '../../render/fxNumbers.js';
-import { DEV, needMaterial } from '../../core/validate.js';
+import { needMaterial } from '../../core/base/validate.js';
 
 const GREY = new THREE.Color(0xcccccc);
 /** @import { ModuleDef } from '../../types/core' */
-/** @import { Object3D, Material, Vector3, Texture } from '../../types/common' */
+/** @import { Material, Vector3, Texture } from '../../types/common' */
 /** @import { WaterBody, WaterOptions, WaterShaderOptions } from '../../types/world' */
 // Options accepted by water(): the structural choices only
 const WATER_OPTIONS = ['sea', 'level', 'flat', 'size', 'segments'];
@@ -32,13 +32,6 @@ const WATER_PARAMS = keysSchema(WATER_OPTIONS);
 const SHADER_PARAMS = keysSchema(['wave', 'surface', 'depthColor', 'foam', 'uniforms']);
 const NORMAL_PARAMS = { scale: { type: 'number', min: 0, optional: true, desc: 'normal map strength' }, repeat: { type: 'number', min: 0, optional: true, desc: 'tiles per meter' },
   speed: { type: 'position', optional: true, desc: 'scroll [x, z] per second' } };
-// keys that were picture values: each names where the same thing is written now
-const NORMAL = 'engine.water.normalMap(name, { scale, repeat, speed })', PHONG = 'a highlight belongs to your own material: engine.water.material = new THREE.MeshPhongMaterial({ shininess, specular })';
-const SHADER = k => `engine.water.shader({ ${k} })`, TUNE = u => `engine.water.uniforms.${u}.value`;
-const MOVED = { color: 'engine.water.material.color.set(...)', opacity: 'engine.water.material.opacity', material: 'engine.water.material = yourMaterial',
-  waveHeight: TUNE('uWave'), waveScale: TUNE('uWaveScale'), waveSpeed: TUNE('uWaveSpeed'), fresnel: TUNE('uFresnel'),
-  depthColor: SHADER('depthColor'), foam: SHADER('foam'), uniforms: SHADER('uniforms'), glsl: "engine.water.shader({ wave, surface })",
-  normalMap: NORMAL, normalScale: NORMAL, normalRepeat: NORMAL, normalSpeed: NORMAL, shininess: PHONG, specular: PHONG };
 
 /** engine.water */
 export class Water {
@@ -83,13 +76,21 @@ export class Water {
     /**
      * Global water mesh (null when absent)
      * @type {THREE.Mesh | null}
+     * @experimental
      */
     this.sea = null;
     /** @internal */ this._seaChecked = st.sea === false;   // global water is built on the first frame: terrain (water level) is installed by then, so no dependence on install order
     for (const b of engine.waterBodies) this._addBody(b);
     track(engine.events.on('water:add', b => this._addBody(b)));
-    // material is shared by all bodies, so not engine.remove (which would dispose it); its ray registration goes too
-    track(engine.events.on('water:remove', b => { const m = this.bodies.get(b); if (m) { engine.detach(m); engine.rays.forget(m); this._uv.delete(m); m.geometry.dispose(); this.bodies.delete(b); } }));
+    track(engine.events.on('water:remove', b => { const m = this.bodies.get(b); if (m) { this._drop(m); this.bodies.delete(b); } }));
+  }
+
+  /** One water mesh out of the scene. The material is shared by all water, so not engine.remove (which would dispose it); the ray registration goes too @internal */
+  _drop(m) { const e = this.engine; e.detach(m); e.rays.forget(m); this._uv.delete(m); m.geometry.dispose(); }
+  /** The module goes: its meshes and what it made leave with it; a game's material stays the game's @internal */
+  dispose() {
+    for (const m of [this.sea, ...this.bodies.values()]) if (m) this._drop(m);
+    this.sea = null; this.bodies.clear(); this._own.dispose(); this.normalTexture?.dispose();
   }
 
   /**
@@ -232,10 +233,9 @@ export class Water {
  * @returns {ModuleDef<Water>}
  */
 export function water(opts = {}) {
-  if (DEV) for (const k in MOVED) if (k in opts) throw codedError('water-option', `water({ ${k} }) is not an option: after engine.use(water()) use ${MOVED[k]} (recipes/44)`);
   readParams('water', WATER_PARAMS, opts);
   let w = null;
-  return { name: 'water', type: 'picture', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], optional: ['sky'], install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.water': '水面' }, en: { 'module.water': 'water' } }); w = new Water(e, opts, ctx.track); return w; }, frame(dt, e) { w.update(e.focus, dt); },
+  return { name: 'water', type: 'picture', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], optional: ['sky'], install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.water': '水面' }, en: { 'module.water': 'water' } }); w = new Water(e, opts, ctx.track); return w; }, frame(dt, e) { w.update(e.focus, dt); }, dispose() { w.dispose(); },
     // "is there water where I think": the global sea (its level and plane size; null = none, e.g. no water level) and each separate body
     describe() {
       const r = v => Math.round(v * 10) / 10, s = w.sea;

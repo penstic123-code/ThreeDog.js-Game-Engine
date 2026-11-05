@@ -14,8 +14,8 @@
 // The same option holds the picture of every default part: createEngine({ ui: { theme: { bg, accent }, css, fonts, templates, toast: false } }) (ui/theme.js).
 // Names and the data each part receives are listed in `engine.ui.describe()` and in recipes/26-ui-parts.md.
 import { uiFocus } from './Focus.js';
-import { codedError } from '../core/errorHints.js';
-import { fmt } from '../core/validate.js';
+import { codedError } from '../core/base/errorHints.js';
+import { fmt } from '../core/base/validate.js';
 /** @import { Engine } from '../types/core' */
 /** @import { UIPart, UIPartFactory, UIPartValue, UIPartDef } from '../types/core' */
 
@@ -163,13 +163,14 @@ export class UIParts {
     if (!p) return false;
     if (this.opened.has(name)) return true;
     const e = this.engine, m = d.modal;
+    const shown = { ...m.data?.(e, this._resolve(name).options), ...data };   // before the holds below: a title list that throws must not leave the game frozen behind nothing
     // Each modal part owns its own freeze ('ui-<name>') and its own input context, so closing help releases only help's hold, never a player pause or another part's.
     // m.freeze may be a function (inventory: pauseGame is switchable at runtime)
     // a string names the freeze kind engine.runState reads ('title' = waiting for start), so core never matches part names
     const fr = typeof m.freeze === 'function' ? m.freeze(e) : m.freeze;
     const freeze = fr ? e.freeze('ui-' + name, { kind: typeof fr === 'string' ? fr : undefined }) : null;
     this.opened.set(name, { freeze, focus: uiFocus(e).push('ui-' + name, { cancel: m.cancel ? () => m.cancel(e) : null, nav: () => p.el ?? null }), ctx: e.input.push('ui-' + name) });   // own opaque context: gameplay actions stop responding
-    p.show({ ...m.data?.(e, this._resolve(name).options), ...data });
+    try { p.show(shown); } catch (err) { this.close(name); throw err; }
     e.events.emit('ui:open', name);
     return true;
   }

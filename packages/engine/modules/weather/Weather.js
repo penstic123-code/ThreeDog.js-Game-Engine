@@ -12,11 +12,11 @@
 // Weather display names live in the string table as weather.<name> (describe and the debug panel use them); a game that adds a new weather adds its name with
 // i18n.add.
 import * as THREE from 'three';
-import { warnMissing } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { warnMissing, fmt } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { STRINGS, ERR } from './strings.js';
-import { codedError } from '../../core/errorHints.js';
-import { STEP } from '../../core/time.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { STEP } from '../../core/time/time.js';
 import { weatherDrawModule } from './weatherDraw.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { WeatherName, WeatherPreset, WeatherOptions, WeatherParticles, WeatherParticleSystem } from '../../types/world' */
@@ -43,7 +43,7 @@ export class Weather {
     /** @internal */ this.engine = engine;
     if (typeof lightning !== 'function') throw codedError('weather-option', 'weather({ lightning }) must be a function (flash 0..1, engine) => sky flash amount, e.g. lightning: f => f * 0.6; return 0 and draw your own bolt on the weather:lightning event');
     // The game's table is the whole list (a desert game has no snow, a space station no rain); without one only a calm 'clear'.
-    if (types !== undefined && (!types || typeof types !== 'object' || !Object.keys(types).length)) throw codedError('weather-option', ERR.types.replace('{got}', JSON.stringify(types)));
+    if (types !== undefined && (!types || typeof types !== 'object' || !Object.keys(types).length)) throw codedError('weather-option', fmt(ERR.types, { got: String(JSON.stringify(types)) }));
     const table = types ?? ONLY_CLEAR;
     /**
      * The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change) @type {Record<string,
@@ -52,13 +52,13 @@ export class Weather {
     this.types = {};
     for (const k of Object.keys(table)) {
       const v = { ...CALM, ...table[k] };
-      for (const f in v) if (typeof v[f] !== 'number') throw codedError('weather-option', ERR.field.replace('{k}', k).replace('{f}', f).replace('{got}', JSON.stringify(v[f])));
+      for (const f in v) if (typeof v[f] !== 'number') throw codedError('weather-option', fmt(ERR.field, { k, f, got: String(JSON.stringify(v[f])) }));
       this.types[k] = v;
     }
     // a game field one type has ('heat' on 'heatwave') is 0 on the others, so a change always blends between two numbers
     for (const v of Object.values(this.types)) for (const o of Object.values(this.types)) for (const f in o) v[f] ??= 0;
     start ??= this.types.clear ? 'clear' : Object.keys(this.types)[0];
-    if (!this.types[start]) throw codedError('weather-option', ERR.start.replace('{got}', start).replace('{list}', Object.keys(this.types).join(', ')));
+    if (!this.types[start]) throw codedError('weather-option', fmt(ERR.start, { got: String(start), list: Object.keys(this.types).join(', ') }));
     /** Current (mid-transition) weather parameters @type {WeatherPreset} */
     this.current = { ...this.types[start] };
     /** @internal */ this.from = { ...this.current };
@@ -69,19 +69,19 @@ export class Weather {
     this.name = start;
     /** @internal */ this._auto = false;
     /** @internal */ this.autoTimer = 0;
-    /** Candidates for automatic weather (repeat a name to make it likelier) @type {string[]} */
+    /** Candidates for automatic weather (repeat a name to make it likelier) @type {string[]} @experimental */
     this.autoPool = [...(autoPool || Object.keys(this.types))];
-    for (const k of this.autoPool) if (!this.types[k]) throw codedError('weather-option', ERR.pool.replace('{got}', k).replace('{list}', Object.keys(this.types).join(', ')));
-    /** Automatic weather interval [min, max] seconds @type {number[]} */
+    for (const k of this.autoPool) if (!this.types[k]) throw codedError('weather-option', fmt(ERR.pool, { got: String(k), list: Object.keys(this.types).join(', ') }));
+    /** Automatic weather interval [min, max] seconds @type {number[]} @experimental */
     this.autoInterval = autoInterval;
-    /** Transition seconds for automatic weather @type {number} */
+    /** Transition seconds for automatic weather @type {number} @experimental */
     this.autoTransition = transition;
-    /** Seconds to the first bolt (also after a load without a saved timer) @type {number} */
+    /** Seconds to the first bolt (also after a load without a saved timer) @type {number} @experimental */
     this.lightningFirst = lightningFirst;
-    /** [min, max] seconds between bolts while a type with lightning > 0.5 holds @type {number[]} */
+    /** [min, max] seconds between bolts while a type with lightning > 0.5 holds @type {number[]} @experimental */
     this.lightningInterval = lightningInterval;
     /** @internal seconds to the next lightning strike while a type with lightning > 0.5 holds */ this.nextBolt = lightningFirst;
-    /** Strike picture: flash (1 at the strike, fading in a third of a second) -> sky flash amount. Write it at any time @type {(flash: number, engine: any) => number} */
+    /** Strike picture: flash (1 at the strike, fading in a third of a second) -> sky flash amount. Write it at any time @type {(flash: number, engine: any) => number} @experimental */
     this.lightning = lightning;
     /** Multiplies the sky flash of every strike; write it at any time @type {number} */
     this.lightningBrightness = lightningBrightness;
@@ -206,13 +206,15 @@ export function weather(opts = {}) {
       w = new Weather(e, opts);
       if (opts.auto) w.auto = true;
       // the transition is saved too (current / from / to / t / dur): a save made 30% into sun -> rain loads 30% in, not as full rain, and fires no
-      // weather:change (nothing changed for the player). An older save without those fields loads as a finished switch to its weather
+      // weather:change (nothing changed for the player). A damaged part, or a weather the game no longer has, loads as a finished switch to that name
       e.saves.register('weather', {
         save: () => ({ name: w.name, auto: w.auto, autoTimer: w.autoTimer, nextBolt: w.nextBolt, current: { ...w.current }, from: { ...w.from }, to: { ...w.to }, t: w.t, dur: w.dur }),
         load: d => {
           if (!d) return;
           if (Number.isFinite(d.t) && d.current && d.from && d.to && w.types[d.name]) {
-            w.name = d.name; w.current = { ...d.current }; w.from = { ...d.from }; w.to = { ...d.to }; w.t = d.t; w.dur = Math.max(0.01, d.dur ?? 1);
+            // over the type's own fields: a save older than a field the table has now would blend it from undefined (NaN)
+            const full = v => ({ ...w.types[d.name], ...v });
+            w.name = d.name; w.current = full(d.current); w.from = full(d.from); w.to = full(d.to); w.t = d.t; w.dur = Math.max(0.01, d.dur ?? 1);
           } else w.set(d.name, { seconds: 0 });
           w.auto = d.auto; w.autoTimer = d.autoTimer ?? 0; w.nextBolt = d.nextBolt ?? w.lightningFirst;
         } });

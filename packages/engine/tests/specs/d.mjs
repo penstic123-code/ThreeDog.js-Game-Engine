@@ -18,7 +18,7 @@ export const specs = [
         at18.remove();
         let days = 0; const daily = engine.calendar.daily(() => days++);
         engine.mod('clock.rate', { owner: 'test', set: 60 }); cal.timeOfDay = 0.5; engine.step(0.05, { render: false });
-        engine.step(18, { render: false });   // a day is 360 game seconds ÷ 60x = 6 seconds per day
+        engine.step(18, { render: false });   // a day is 360 calendar seconds ÷ 60x = 6 seconds per day
         out.daily = days; daily.remove(); engine.mod('clock.rate', { owner: 'test', set: 1 });
         return out;
       });
@@ -151,7 +151,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.timeline.skip(); engine.haltLoop(); engine.step(0.1);
-        const cam = engine.camera, dir = cam.getWorldDirection(new engine.THREE.Vector3());
+        const cam = engine.camera, dir = cam.getWorldDirection(new __threedogThree.Vector3());
         const behind = cam.position.clone().addScaledVector(dir, -30), front = cam.position.clone().addScaledVector(dir, 30);
         const m = engine.hud.marker(behind, { label: 'D 测试' });
         engine.step(0.05);
@@ -231,13 +231,13 @@ export const specs = [
         };
         out.x1 = run(1); out.x10 = run(10);
         let nowt = 0; const s = engine.calendar.onSeason('summer', () => nowt++);
-        cal.day = cal.daysPerSeason; cal.timeOfDay = 0.999; engine.mod('clock.rate', { owner: 'test', set: 60 }); engine.step(0.05, { render: false }); s.remove();
+        cal.day = cal._ends[0]; cal.timeOfDay = 0.999; engine.mod('clock.rate', { owner: 'test', set: 60 }); engine.step(0.05, { render: false }); s.remove();
         engine.mod('clock.rate', { owner: 'test', set: 1 }); out.season = cal.season; out.seasonHits = nowt; out.dl = dl;
         return out;
       });
       check('clock no longer has at / between / daily / onSeason', r.moved);
-      check('rate 1: 2 fixed-step seconds = 2 game seconds = sky advances 2/dayLength days', Math.abs(r.x1.game - 2) < 0.05 && Math.abs(r.x1.sky - 2 / r.dl) < 0.002 && Math.abs(r.x1.fixed - 2) < 0.05, JSON.stringify(r.x1));
-      check('rate 10: fixed-step seconds stay 2; game seconds and sky time of day run 10x faster', Math.abs(r.x10.fixed - 2) < 0.05 && Math.abs(r.x10.game - 20) < 0.5 && Math.abs(r.x10.sky - 20 / r.dl) < 0.01, JSON.stringify(r.x10));
+      check('rate 1: 2 fixed-step seconds = 2 calendar seconds = sky advances 2/dayLength days', Math.abs(r.x1.game - 2) < 0.05 && Math.abs(r.x1.sky - 2 / r.dl) < 0.002 && Math.abs(r.x1.fixed - 2) < 0.05, JSON.stringify(r.x1));
+      check('rate 10: fixed-step seconds stay 2; calendar seconds and sky time of day run 10x faster', Math.abs(r.x10.fixed - 2) < 0.05 && Math.abs(r.x10.game - 20) < 0.5 && Math.abs(r.x10.sky - 20 / r.dl) < 0.01, JSON.stringify(r.x10));
       check('cal.onSeason fires on entering summer', r.season === 'summer' && r.seasonHits === 1, JSON.stringify([r.season, r.seasonHits]));
     },
   },
@@ -421,14 +421,20 @@ export const specs = [
         c.run({ marker: 'home' }); c.run({ marker: 'home' });
         const markers = engine.hud.markers.length - n0;
         c.run({ clearMarker: 'home' });
+        // clearing names the marker: its id need be no place (a level marker that is gone with its level threw "Place not found" here)
+        c.run({ marker: { id: 'dNoPlace', x: 1, z: 2 } });
+        const idMarked = c.markers.has('dNoPlace');
+        c.run({ clearMarker: 'dNoPlace' });
+        const idCleared = idMarked && !c.markers.has('dNoPlace');
         const p = engine.player.position;
         c.load({ triggers: { dA: { position: { x: p.x + 200, z: p.z }, radius: 2, onEnter: [{ bump: 'dTrigA' }] } } });
         c.load({ triggers: { dB: { position: { x: p.x + 400, z: p.z }, radius: 2, onEnter: [{ bump: 'dTrigB' }] } } });
         engine.player.position.x += 200; engine.step(0.1, { render: false });
         const bumps = engine.vars.counter('dTrigA');
         engine.player.position.x -= 200; engine.step(0.1, { render: false });
-        return { frozen, after, markers, bumps, ready: c.ready };
+        return { frozen, after, markers, bumps, ready: c.ready, idCleared };
       });
+      check('[guard] clearMarker clears by id, whether or not the id is a place', r.idCleared, JSON.stringify(r));
       check('while frozen: quest does not complete even when its condition is met, timeline wait does not finish', !r.frozen.quest && !r.frozen.timeline, JSON.stringify(r));
       check('after unfreezing: quest completes, timeline finishes', r.after.quest && r.after.timeline, JSON.stringify(r));
       check('marker effect run repeatedly: only one marker remains', r.markers === 1, r.markers);
@@ -444,7 +450,7 @@ export const specs = [
         engine.saves.save('d-level');
         const plaza0 = engine.triggers.byTag('plaza').length, npc0 = !!engine.npcs.get('店主');
         // second map: a flat plot (built in code, registered in the asset manifest)
-        const T = engine.THREE;
+        const T = __threedogThree;
         engine.assets.manifest({ models: { 'd-level2': () => {
           const g = new T.Group(), floor = new T.Mesh(new T.BoxGeometry(40, 1, 40), new T.MeshBasicMaterial());
           floor.name = 'ground'; floor.position.y = -0.5; g.add(floor); return g;

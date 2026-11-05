@@ -1,4 +1,4 @@
-// 一个时间来源（core/time.js）的"不许绕开"检查：
+// 一个时间来源（core/time/time.js）的"不许绕开"检查：
 //   1. 跳过（skip）和一步步推（step）在所有时间视图上结果一样（tick、real、ambient、各通道、日历），定时也按同样顺序触发；
 //   2. 新一局把所有视图一起清零（tick 也清，以前漏了）；
 //   3. 同一步里被取消的定时不再触发（以前同一帧还会触发）；
@@ -89,20 +89,20 @@ export const specs = [
     },
   },
   {
-    name: 'TIME 一个时间来源：静态检查，只有 core/time.js 累加时间（没有第二个计数器） [guard]',
+    name: 'TIME 一个时间来源：静态检查，只有 core/time/time.js 累加时间（没有第二个计数器） [guard]',
     url: '/?threedog-headless',
     async run({ check }) {
       const hits = [];
       for (const dir of ['core', 'modules', 'render']) {
         for (const f of sources(join(ENGINE, dir))) {
-          if (f.endsWith(join('core', 'time.js')) || EXEMPT.some(x => f.endsWith(x))) continue;
+          if (f.endsWith(join('core', 'time', 'time.js')) || EXEMPT.some(x => f.endsWith(x))) continue;
           readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
             if (/^\s*(\/\/|\*)/.test(line)) return;
             if (BAD.some(re => re.test(line))) hits.push(`${relative(ENGINE, f)}:${i + 1}: ${line.trim().slice(0, 100)}`);
           });
         }
       }
-      check('no time counter is added to outside core/time.js', hits.length === 0, hits.join('\n'));
+      check('no time counter is added to outside core/time/time.js', hits.length === 0, hits.join('\n'));
     },
   },
 ];

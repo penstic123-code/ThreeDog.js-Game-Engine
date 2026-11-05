@@ -107,4 +107,33 @@ export const specs = [
       check('an index from an old save is read and rewritten as the id', r.legacy && r.now === r.id, JSON.stringify(r));
     },
   },
+  {
+    name: 'character save: vehicle:enter and exit write the record; loading a walking save takes the player out of the car; removePlayer in a car leaves no record behind (vehicle scene)',
+    url: '/tests/vehicle/index.html',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const car = window.car, W = engine.world, p = engine.player, out = {};
+        await engine.saves.save('char-walk');
+        engine.ops.allow(() => p.enter(car));
+        out.entered = W.get('player').vehicle === car.id;
+        engine.ops.allow(() => p.exit());
+        out.exited = W.get('player').vehicle === null;
+        engine.ops.allow(() => p.enter(car));
+        engine.step(0.1);
+        await engine.saves.load('char-walk');
+        engine.step(0.1);
+        out.walking = p.vehicle === null && W.get('player').vehicle === null;
+        engine.ops.allow(() => p.enter(car));
+        engine.ops.allow(() => engine.characters.removePlayer());
+        out.removed = engine.player === null && !W.get('player');
+        engine.step(0.1);
+        out.still = !W.get('player');
+        return out;
+      });
+      const J = JSON.stringify(r);
+      check('the record follows enter and exit', r.entered && r.exited, J);
+      check('a walking save takes the player out of the car', r.walking, J);
+      check('removePlayer in a car leaves no record, also after a step', r.removed && r.still, J);
+    },
+  },
 ];

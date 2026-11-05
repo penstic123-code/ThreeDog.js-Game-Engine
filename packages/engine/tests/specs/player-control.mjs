@@ -108,7 +108,7 @@ export const specs = [
     name: 'pickTarget / switchTarget: prefers what is in view over what is behind, close range ignores angle, blocked skips, switch goes right / left and wraps',
     url: '/tests/a/',   // pure functions run in node; the runner still opens a page, take a light one
     async run({ check }) {
-      const { pickTarget, switchTarget } = await import('../../core/targeting.js');
+      const { pickTarget, switchTarget } = await import('../../core/scene/targeting.js');
       const from = { x: 0, z: 0 }, view = { x: 0, z: 1 };   // looking along +Z; screen right is -X
       const ahead = { id: 'ahead', x: 0, z: 8 }, behind = { id: 'behind', x: 0, z: -4 }, hug = { id: 'hug', x: 0, z: -2 }, right = { id: 'right', x: -5, z: 6 }, far = { id: 'far', x: 0, z: 30 };
       check('in view beats a nearer one behind', pickTarget(from, view, [behind, ahead, far])?.id === 'ahead');
@@ -125,7 +125,7 @@ export const specs = [
     name: 'openWorld parts: every part takes false or its own options (nested calendar / terrain reach the modules), shorthand still works, bad values explain the fix',
     url: '/tests/placeables/index.html',   // built with openWorld({ camera: 'follow', terrain: { seed }, calendar: { time: 0.4, daysPerSeason: 28 }, debug: false, ambience: false })
     async run({ check, ev }) {
-      const r = await ev(() => ({ days: engine.calendar.daysPerSeason, time: engine.calendar.timeOfDay, debug: !!engine.debug?.el, ambience: !!engine.ambience, terrain: !!engine.terrain }));
+      const r = await ev(() => ({ days: engine.calendar._ends[0], time: engine.calendar.timeOfDay, debug: !!engine.debug?.el, ambience: !!engine.ambience, terrain: !!engine.terrain }));
       check('[guard] nested options reach the module: calendar daysPerSeason 28, time ~0.4; false parts are absent', r.days === 28 && Math.abs(r.time - 0.4) < 0.05 && !r.debug && !r.ambience && r.terrain, JSON.stringify(r));
       const { openWorld } = await import('../../index.js');
       const names = o => openWorld(o).map(m => m.name).join(',');

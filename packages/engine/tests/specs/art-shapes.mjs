@@ -95,7 +95,7 @@ export const specs = [
         const chunk = [...engine.terrain.chunks.values()].find(c => c.data?.col), col = chunk?.data.col;
         const gray = !!col && [...col.slice(0, 30)].every((v, i, a) => Math.abs(v - a[i - i % 3]) < 1e-6);
         let caps = 0; engine.player.root.traverse(o => { if (o.isMesh && o.geometry.type === 'CapsuleGeometry') caps++; });
-        const T = engine.THREE;
+        const T = __threedogThree;
         const base = { shadow: engine.lights.sun.castShadow, tone: engine.renderer.toneMapping === T.NoToneMapping, color: engine.renderer.outputColorSpace,
           env: engine.scene.environment === null, shown: [engine.describe().render.toneMapping.value, engine.describe().render.shadows.enabled, 'look' in engine] };
         // onRender: before runs ahead of the frame render with the frame's camera, after runs behind it; a render target set in before is reset

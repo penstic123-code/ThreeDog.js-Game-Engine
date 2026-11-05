@@ -7,10 +7,10 @@
 import { DEFAULT_TERRAIN, SHADINGS, NORMALS } from './terrainDefaults.js';
 import { makeMesher } from './terrainMesh.js';
 import { makeShape } from './terrainShape.js';
-import { grayWorld } from '../../core/grayMap.js';
-import { makeNoise } from '../../core/scatter.js';
-import { compilePure } from '../../core/threadPure.js';
-import { codedError } from '../../core/errorHints.js';
+import { grayWorld } from '../../core/scene/grayMap.js';
+import { makeNoise } from '../../core/stream/scatter.js';
+import { compilePure } from '../../core/threads/threadPure.js';
+import { codedError } from '../../core/base/errorHints.js';
 export { DEFAULT_TERRAIN } from './terrainDefaults.js';
 
 const srgbToLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -43,9 +43,12 @@ export function createTerrain(userCfg = {}) {
   const userNormal = cfg.normalFn && compilePure(cfg.normalFn, 'terrain({ normalFn })').call;
   // no generator of its own: the engine draws flat ground at y = 0 (a placeholder; the terrain module warns in dev)
   const naturalHeight = userHeight ? (x, z) => userHeight(x, z, NOISE) : cfg.heightmap?.data ? heightmapHeight : () => 0;
+  // own copies: a plot's height is remembered per generator. Kept on the game's objects it outlived the generator: read before a height map
+  // loaded, the flat 0 went on to the next generator and the workers (the config travels with it)
+  const FLATTEN = cfg.flatten.map(f => ({ ...f }));
   function rawHeight(x, z) {
     let h = naturalHeight(x, z);
-    for (const f of cfg.flatten) {
+    for (const f of FLATTEN) {
       const d = Math.hypot(x - f.x, z - f.z);
       if (d >= f.radius) continue;
       const target = f.height ?? (f._h ??= naturalHeight(f.x, f.z));

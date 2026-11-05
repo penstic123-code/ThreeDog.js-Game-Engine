@@ -1,6 +1,6 @@
 // world tightening (end of stage 1): a model build error does not block, refresh precision, no time lost, record-count quota, simulation center separate from the camera, frame-rate independence. Same format as s1-world.mjs.
 // Every item is a "do not bypass" guard: these behaviors must hold when changing world.
-const box = 'new engine.THREE.Mesh(new engine.THREE.BoxGeometry(1, 1, 1), new engine.THREE.MeshBasicMaterial())';
+const box = 'new __threedogThree.Mesh(new __threedogThree.BoxGeometry(1, 1, 1), new __threedogThree.MeshBasicMaterial())';
 
 export const specs = [
   {
@@ -64,7 +64,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(mk => {
         engine.haltLoop();
-        const W = engine.world, T = engine.THREE, p = engine.player.position, box = new Function('return ' + mk);
+        const W = engine.world, T = __threedogThree, p = engine.player.position, box = new Function('return ' + mk);
         const cs = W._cells.size, x0 = Math.floor(p.x / cs) * cs + 4, z = Math.floor(p.z / cs) * cs + 16, f = new T.Vector3(x0, p.y, z);
         globalThis.__cam = engine.takeCamera('s1', { focus: f });   // the test places the camera focus
         W.present('s1acc', { build: box, radius: 20 });
@@ -129,7 +129,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(mk => {
         engine.haltLoop();
-        const W = engine.world, T = engine.THREE, p = engine.player.position, box = new Function('return ' + mk);
+        const W = engine.world, T = __threedogThree, p = engine.player.position, box = new Function('return ' + mk);
         const n = { home: 0, away: 0 };
         W.simulate('s1an', { near: rec => { n[rec.tag]++; }, radius: 30 });
         W.present('s1an', { build: box, radius: 30 });

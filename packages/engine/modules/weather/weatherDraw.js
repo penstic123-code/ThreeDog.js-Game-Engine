@@ -3,9 +3,10 @@
 // weather table, its save and its events.
 //   shared points: sky tint, lightning flash, snow cover
 //   rain / snow particles that follow the camera (particles.js), thunder, audio rule conditions
-import { builtInSounds } from '../../core/assetManifest.js';
-import { readParams, keysSchema, isOptions } from '../../core/params.js';
-import { codedError } from '../../core/errorHints.js';
+import { builtInSounds } from '../../core/assets/assetManifest.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { isOptions } from '../../core/base/util.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { onRendererSwap } from '../../render/backend.js';
 import { makeSystem, updateSystem, dropSystem, RAIN, SNOW } from './particles.js';
 
@@ -25,7 +26,7 @@ export class WeatherDraw {
     /** Sky flash now, 1 at a strike (the weather:lightning event) fading to 0 @type {number} */
     this.flash = 0;
     // the weather's entries on the shared sky points: taken once through ctx.mod (owned by this module, gone with it) and rewritten every frame with
-    // handle.change (core/sharedPoint.js), so a frame adds no entry and no cleanup handle. ctx is set by the module's install
+    // handle.change (core/ops/sharedPoint.js), so a frame adds no entry and no cleanup handle. ctx is set by the module's install
     /** @internal */ this._ctx = null; /** @internal */ this._h = {};
     /** @internal */ this._tint = { color: this.state.overcastColor, amount: 0, horizon: 0 };
     /** Default particle count per system: weather({ particles }), else 6000 (3000 on low-tier devices) @type {number} */
@@ -65,9 +66,9 @@ export class WeatherDraw {
 
   /** @internal */
   _build(field, spec, base) {
+    const sys = makeSystem(this.engine, field, spec, { area: this.area, count: this.particles, base });   // first: a bad spec throws with the old system still drawn
     const old = this.systems.get(field);
     if (old) dropSystem(this.engine, old);
-    const sys = makeSystem(this.engine, field, spec, { area: this.area, count: this.particles, base });
     sys.base = base;   // the renderer swap builds it again over the same defaults
     this.systems.set(field, sys);
     return sys;
@@ -138,6 +139,7 @@ export function weatherDrawModule(opts) {
       return L;
     },
     frame(dt, e) { L.apply(e.camera, dt); },
+    dispose(e) { for (const s of L.systems.values()) dropSystem(e, s); L.systems.clear(); },
     describe: () => ({ rainVisible: !!L.systems.get('rain')?.object.visible, snowVisible: !!L.systems.get('snow')?.object.visible, flash: Math.round(L.flash * 100) / 100 }),
   };
 }

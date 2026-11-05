@@ -8,7 +8,7 @@ export const specs = [
       const r = await ev(async () => {
         'use strict';
         engine.haltLoop();
-        const T = engine.THREE, p = engine.player.position, x = Math.round(p.x) + 6, z = Math.round(p.z);
+        const T = __threedogThree, p = engine.player.position, x = Math.round(p.x) + 6, z = Math.round(p.z);
         const mesh = new T.Mesh(new T.BoxGeometry(1, 2, 1), Object.assign(new T.MeshLambertMaterial({ color: 0xaa3322 }), { userData: { purpose: 'prop' } }));
         mesh.position.set(x, engine.surface(x, z), z);
         engine._things.setup = true; engine.add(mesh, { id: 'probe-box' }); engine._things.setup = false;

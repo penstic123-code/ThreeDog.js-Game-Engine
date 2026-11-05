@@ -10,8 +10,8 @@
 // heartbeat pings every heartbeat ms and treats 3 intervals without anything received as dead: it emits 'close' itself, so net:close fires and the
 // game can reconnect. Pings and pongs never reach the net() code. Reconnecting is the game's call by default (engine.net.reconnect(transport) on
 // net:close, the Client's documented path, so the game can show "reconnecting..." or give up); webSocket({ reconnect: true }) retries by itself.
-import { Random } from '../../core/Random.js';
-import { codedError } from '../../core/errorHints.js';
+import { Random } from '../../core/base/Random.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const MISSED = 3;   // heartbeat intervals without any message before the link counts as dead
 

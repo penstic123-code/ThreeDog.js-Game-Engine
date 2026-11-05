@@ -29,6 +29,10 @@ export async function run({ check }) {
     const reg = await paletteOf(join(tmp2, 'framed.png'), 3, { region: { x: 25, y: 25, w: 25, h: 50 } });
     check('palette: --region measures only that area',
       near(reg.colors[0].hex, sand, 30) && reg.colors.length === 1 && reg.basis.text.includes('region 25,25,25,50'));
+    const redFile = join(tmp2, 'red-guard.png');
+    writeFileSync(redFile, png(20, 20, () => [200, 40, 40]));
+    const grayRef = await compareImages(join(tmp2, 'gray.png'), redFile);
+    check('[guard] a gray reference against a colorful shot says more saturated', /more saturated/.test(grayRef.summary), grayRef.summary);
     const avg = await paletteOf(join(tmp2, 'gray.png'), 3, { average: true });
     check('palette: --average gives the mean color as HSL',
       avg.average.hex === '#808080' && avg.average.saturation === 0 && /overall average color #808080/.test(avg.summary));

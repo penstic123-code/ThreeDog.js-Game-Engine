@@ -67,10 +67,18 @@ mesh.material = m.grass; other.material = materials.grass;
       && data.summary.biggest[0].size > 10, JSON.stringify(data.summary));
     check('the run-time list names the line', data.dynamic.some(d => d.at === 'main.js:6'), JSON.stringify(data.dynamic));
 
+    // [guard] art/models/x.glb and its built public/optimized/x.glb are one resource, listed by the built file: code naming the source read as a file that is gone
+    put('art/models/hull.glb', 'x'); put('public/optimized/hull.glb', 'x');
+    put('game/hull.js', `export const hull = new URL('../art/models/hull.glb', import.meta.url);\n`);
+    const built = await scanArt(g), hull = built.items.find(x => x.file === 'public/optimized/hull.glb');
+    check('[guard] code naming the source of an optimized model uses that model, nothing is missing', hull?.status === 'used' && hull.source === 'art/models/hull.glb' && !built.summary.missing.some(r => /hull/.test(r)), JSON.stringify(built.summary.missing));
+
     // the honesty case: one run-time name of a kind and "unused" is no longer known for that kind
     appendFileSync(join(g, 'main.js'), 'const which = pick();\nengine.assets.model(which);\n');
     const open = await scanArt(g);
     check('a model loaded by a variable turns unused models into not traced', open.items.find(x => x.ref === 'model spare').status === 'not-traced', JSON.stringify(open.items.find(x => x.ref === 'model spare')));
+    appendFileSync(join(g, 'main.js'), "const dir = pick();\nfetch(dir + which + '.png');\n");
+    check('a folder held in a variable turns unused files of that type into not traced', (await scanArt(g)).items.find(x => x.ref === 'texture orphan').status === 'not-traced', 'stayed unused');
 
     // the running game's list, sent as text like the bridge does: it must use nothing outside itself
     const m1 = { name: 'hull', type: 'MeshStandardMaterial', userData: {}, map: { isTexture: true, name: '', source: { data: { src: 'http://localhost/tex/orphan.png' } } } };

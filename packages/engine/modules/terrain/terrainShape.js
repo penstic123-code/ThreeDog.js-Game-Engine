@@ -6,8 +6,8 @@
 // The mask lives on grid points (like heights): its value there is the game's mask (function or gray image) plus the edge noise and jitter.
 // A cell with all four corners > 0 is ground, all four <= 0 is void; a mixed cell is cut along straight lines whose ends sit where the mask
 // crosses 0 on the cell edges (linear interpolation). Two chunks compute a shared edge from the same two grid values, so the cut is seamless.
-import { compilePure } from '../../core/threadPure.js';
-import { grayWorld } from '../../core/grayMap.js';
+import { compilePure } from '../../core/threads/threadPure.js';
+import { grayWorld } from '../../core/scene/grayMap.js';
 
 // corner loop a(0,0) b(1,0) d(1,1) c(0,1): counter-clockwise in (x, z); polygons keep that winding
 const LX = [0, 1, 1, 0], LZ = [0, 0, 1, 1];

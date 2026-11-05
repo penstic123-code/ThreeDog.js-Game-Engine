@@ -1,5 +1,5 @@
-import { reportError } from '../../core/errors.js';
-import { codedError } from '../../core/errorHints.js';
+import { reportError } from '../../core/base/errors.js';
+import { codedError } from '../../core/base/errorHints.js';
 // Apply one setting to the engine (helper of Settings.js): the built-in keys (pixel ratio, shadows, post effects, view distance, density, audio buses) and
 // the game's own settings (define). `s` is the Settings instance.
 
@@ -7,7 +7,7 @@ import { codedError } from '../../core/errorHints.js';
 const BUILTIN_LIMITS = { shadows: ['shadows.enabled'], bloom: ['post.bloom.enabled'], ao: ['post.ao.enabled'] };
 
 /**
- * The settings layer only restricts (core/sharedPoint.js). A row's value on one shared point: true (or 1) drops the settings entry, so the scene's
+ * The settings layer only restricts (core/ops/sharedPoint.js). A row's value on one shared point: true (or 1) drops the settings entry, so the scene's
  * own choice shows again; false switches it off (set false on a switch, mul 0 on a number); a number from 0 to 1 is a factor (mul) on a number.
  * Why never "force on": a cutscene or a dark cave that switched shadows off must not be switched back on by the menu; describe().shared then
  * says the settings allow it and which owner below turned it off.

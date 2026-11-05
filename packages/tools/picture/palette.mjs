@@ -2,8 +2,8 @@
 //   threedog picture palette <image> [--n 8] [--average] [--region x,y,w,h] [--ignore-ui] [--crop file.png]
 // A helper that measures, not a decision: it does not tell you which colors make the picture. Pixels are read in a headless browser
 // (pixels.mjs), then reduced here with a median cut.
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { openImage, hsl, luma, hex, opaque, uiFrame, shrink } from './pixels.mjs';
 
 const MAX_SIDE = 200;   // the picture is scaled down to this before reading: the browser's smoothing averages detail, and it keeps the work small
@@ -30,7 +30,7 @@ function medianCut(entries, n) {
 
 const HUES = [[15, 'red'], [40, 'orange'], [65, 'yellow'], [90, 'yellow-green'], [150, 'green'], [190, 'teal'], [210, 'cyan'], [255, 'blue'], [290, 'violet'], [330, 'magenta'], [345, 'pink'], [361, 'red']];
 /** Plain-language name of a color: 'light sand', 'dark blue', 'gray'... */
-export function colorName(rgb) {
+function colorName(rgb) {
   const [h, s, l] = hsl(rgb);
   if (l > 0.93) return 'white';
   if (l < 0.1) return 'black';
@@ -78,7 +78,7 @@ export async function paletteOf(file, n = 8, { average = false, region, ignoreUi
       frame = { top: Math.round(f.top * whole.h), right: Math.round(f.right * whole.w), bottom: Math.round(f.bottom * whole.h), left: Math.round(f.left * whole.w) };
     }
     const got = await img.read(area, { max: MAX_SIDE, png: !!crop });
-    if (crop) writeFileSync(resolve(crop), got.png);
+    if (crop) { mkdirSync(dirname(resolve(crop)), { recursive: true }); writeFileSync(resolve(crop), got.png); }
     px = opaque(got.data);
     basis = { size: [img.width, img.height], region: area, ignoredFramePx: frame, cropFile: crop ? resolve(crop) : null,
       text: `${region ? 'region ' + Object.values(region).join(',') : 'whole picture'}${frame ? `, UI frame cut (px top/right/bottom/left: ${Object.values(frame).join('/')}; a side counts as frame when it is a flat color, at least 3% and at most 45% of the picture)` : ''}, scaled to at most ${MAX_SIDE}px` };

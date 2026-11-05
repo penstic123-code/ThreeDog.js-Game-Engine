@@ -123,6 +123,7 @@ window.occlusionRun = async () => {
   await tick();
   out.cut = { before, after: engine.occlusion.stats.hidden, differs: differing(await read(), await truth()) };
 
+  out.rootOwner = engine._things.byObj.get(engine.occlusion._root)?.owner;
   engine.occlusion.enabled = false;
   out.off = { boxes: engine.scene.getObjectByName('occlusion boxes') ? 1 : 0, layerBack: tower.layers.isEnabled(0), stats: engine.occlusion.stats.hidden, shadowMaskBack: sun.shadow.camera.layers.mask === shadowMask };
   return out;

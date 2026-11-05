@@ -6,9 +6,9 @@
 // a zoning grid the game edits), which cannot travel to the terrain worker; and thinning the already placed instances keeps every survivor's
 // stable id, so felled-tree records and saves stay valid whether the map is on, off or changed. Each instance keeps or drops by its own hash
 // against the density there, so raising the density only adds plants, it never moves the ones already standing.
-import { readParams, keysSchema } from '../../core/params.js';
-import { grayWorld, loadGray } from '../../core/grayMap.js';
-import { codedError } from '../../core/errorHints.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { grayWorld, loadGray } from '../../core/scene/grayMap.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const MAP_KEYS = ['url', 'data', 'width', 'height', 'size', 'center', 'outside'];
 

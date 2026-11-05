@@ -3,10 +3,10 @@
 Optional post effects for [threedog](https://www.npmjs.com/package/threedog): `bloom`, `ao` (ambient occlusion), `outline`, `dof` (depth of field) on the HDR side, and `lut` (color grade; `paletteLut` makes its LUT from a fixed palette), `grain`, `vignette`, `chromatic` (chromatic aberration) fused into one fullscreen LDR pass. Import only what you use; the engine itself ships no effects.
 
 ```sh
-npm install @threedog/post-effects@0.7
+npm install @threedog/post-effects@0.8
 ```
 
-This describes 0.7.1: `npm install @threedog/post-effects@0.7` (games made in the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine) already have it).
+This describes 0.8.0: `npm install @threedog/post-effects@0.8` (games made in the [repository](https://github.com/penstic123-code/Threedog.js-Game-Engine) already have it).
 
 Each effect is one value that runs on WebGL and on WebGPU. It goes in the way every post effect does, `engine.post.add`:
 

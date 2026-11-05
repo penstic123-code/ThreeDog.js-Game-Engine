@@ -5,7 +5,7 @@ import * as TG from 'three/webgpu';
 import 'threedog/tsl';
 import { createEngine } from '../../index.js';
 import { backendName, renderOnce } from '../../render/backend.js';
-import { threePatches } from '../../core/threePatches.js';
+import { threePatches } from '../../core/scene/threePatches.js';
 
 const W = 200, H = 200;
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), renderer: 'webgpu', lights: false, pixelRatio: 1, adaptiveResolution: false, antialias: false, ui: { loading: false }, saveKey: 'test-shadow-cache', urlState: false });

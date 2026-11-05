@@ -56,7 +56,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const W = engine.world, T = engine.THREE, m = engine.level.marker('npc_shopkeeper').position.clone();
+        const W = engine.world, T = __threedogThree, m = engine.level.marker('npc_shopkeeper').position.clone();
         engine.assets.manifest({ models: {
           's1-level2': () => { const g = new T.Group(), f = new T.Mesh(new T.BoxGeometry(40, 1, 40), new T.MeshBasicMaterial()); f.name = 'ground'; f.position.y = -0.5; g.add(f); return g; },
           's1cube': () => new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()),

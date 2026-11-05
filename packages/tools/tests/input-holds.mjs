@@ -9,12 +9,12 @@ import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
 const imp = f => import(pathToFileURL(join(ENGINE, f)).href);
-const { Stacks } = await imp('core/stacks.js');
-const { Time, STEP } = await imp('core/time.js');
-const { defineHoldStacks, holdMethods } = await imp('core/holds.js');
-const { Input } = await imp('core/Input.js');
-const { initContexts, applyContexts } = await imp('core/inputContext.js');
-const { describeHolds: holds } = await imp('core/holds.js');   // the function describe().holds calls
+const { Stacks } = await imp('core/ops/stacks.js');
+const { Time, STEP } = await imp('core/time/time.js');
+const { defineHoldStacks, holdMethods } = await imp('core/ops/holds.js');
+const { Input } = await imp('core/input/Input.js');
+const { initContexts, applyContexts } = await imp('core/input/inputContext.js');
+const { describeHolds: holds } = await imp('core/ops/holds.js');   // the function describe().holds calls
 
 export const name = 'input holds: push({ owner }), input.gate, describe().holds lists every holder';
 
@@ -67,8 +67,8 @@ export async function run({ check }) {
   const files = [];
   const walk = d => { for (const f of readdirSync(join(ENGINE, d), { withFileTypes: true })) { const p = `${d}/${f.name}`; if (f.isDirectory()) walk(p); else if (f.name.endsWith('.js')) files.push(p); } };
   for (const d of ['core', 'modules', 'ui', 'render']) walk(d);
-  const readers = files.filter(f => !/core\/(Input|inputContext)\.js$/.test(f) && /input\._stack\b/.test(readFileSync(join(ENGINE, f), 'utf8')));
+  const readers = files.filter(f => !/core\/input\/(Input|inputContext)\.js$/.test(f) && /input\._stack\b/.test(readFileSync(join(ENGINE, f), 'utf8')));
   check('nothing outside Input.js / inputContext.js reads input._stack', !readers.length, readers.join(', '));
-  const desc = readFileSync(join(ENGINE, 'core/Describe.js'), 'utf8');
+  const desc = readFileSync(join(ENGINE, 'core/inspect/Describe.js'), 'utf8');
   check('describe has one holder list (no time.heldBy, no ui.inputContexts)', !/heldBy|inputContexts/.test(desc));
 }

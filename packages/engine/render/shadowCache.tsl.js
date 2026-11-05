@@ -1,5 +1,5 @@
 // Kept shadows on WebGPURenderer: what stays still is drawn into a second depth map once; each shadow frame copies that map into the light's own shadow map and draws
-// only the rest on top (engine.shadows.cache, core/shadows.js). Loaded only through threedog/tsl (render/fx/index.js).
+// only the rest on top (engine.shadows.cache, render/shadows.js). Loaded only through threedog/tsl (render/fx/index.js).
 // Why copy then draw and not a second lookup in the shader: the light's map holds the whole answer again, so no material, filter or custom shadow node changes.
 // Why one filter on the shadow draw and a kept set: only what the static pass really drew may be skipped later. A static object that came after that pass (a streamed
 // block), or was outside the box then, still draws with the moving things, so it casts a shadow without any redraw. An InstancedMesh is kept with its instance version: batching
@@ -8,8 +8,8 @@
 // shortcut: one plain map only. Cascades build their own shadow nodes inside three's CSMShadowNode; upgrade if a game needs kept far cascades.
 import { FloatType, Matrix4, ShadowNode } from 'three/webgpu';
 import { registerWebGPUPart, rebuildShadow } from './backend.js';
-import { notePatch } from '../core/threePatches.js';
-import { warnOnce } from '../core/validate.js';
+import { notePatch } from '../core/scene/threePatches.js';
+import { warnOnce } from '../core/base/validate.js';
 
 const Base = /** @type {any} */ (ShadowNode);   // @types/three declares none of the methods a shadow node subclass overrides
 

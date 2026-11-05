@@ -8,9 +8,7 @@ import { engineFiles, lines, P } from './_lib.mjs';
 
 // [file under packages/engine, reason]
 const ALLOW = [
-  ['core/Events.js', 'fallback when the bus has no onError (an Events built without an engine); the engine always passes reportListenerError'],
-  ['core/lifecycle.js', 'dispose: the engine is being torn down, so freezing or engine.error would mean nothing; the message carries code module-dispose'],
-  ['core/threadServe.js', 'worker side: a broadcast (no reply id) has nobody to answer, so the worker console is the only place'],
+  ['core/base/Events.js', 'fallback when the bus has no onError (an Events built without an engine); the engine always passes reportListenerError'],
 ];
 const RE = /catch\s*(?:\([^)]*\))?\s*\{\s*console\.(?:error|warn)\([^;{}]*\);?\s*\}|\.catch\(\s*\(?\w*\)?\s*=>\s*console\.(?:error|warn)\(/;
 

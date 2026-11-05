@@ -74,21 +74,17 @@ export const specs = [
     },
   },
   {
-    name: '[guard] sky writes nothing: sky({ sun | hemisphere | fog }) throw naming what to write; lights: false leaves the scene without the placeholders',
+    name: '[guard] sky writes nothing: lights: false leaves the scene without the placeholders',
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(() => {
         const { mk } = threedogThreads, T = threedogThreads.all, { createEngine } = T;
-        const err = o => { try { T.sky(o); return ''; } catch (x) { return x.message; } };
         const E = mk(createEngine, 'sky-no-placeholders', { lights: false });
         E.use(T.sky());
         let lights = 0; E.scene.traverse(o => { if (o.isLight) lights++; });
         E.dispose();
-        return { sun: err({ sun: false }), hemi: err({ hemisphere: false }), fog: err({ fog: false }), lights };
+        return { lights };
       });
-      check('sky({ sun: false }) throws and names lights: false and the signals', /sky-option/.test(r.sun) && /createEngine\(\{ lights: false \}\)/.test(r.sun) && /uSunDir/.test(r.sun), r.sun);
-      check('sky({ hemisphere: false }) throws and names the signals', /sky-option/.test(r.hemi) && /uDaylight/.test(r.hemi), r.hemi);
-      check('sky({ fog: false }) throws and names scene.fog', /sky-option/.test(r.fog) && /scene\.fog = new THREE\.Fog/.test(r.fog), r.fog);
       check('lights: false: no light in the scene, with a sky installed too', r.lights === 0, String(r.lights));
     },
   },

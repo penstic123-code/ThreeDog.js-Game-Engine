@@ -1,12 +1,11 @@
 // GAMEMAP sections (used by packages/tools/gamemap.mjs): where the level comes from, and which engine systems the game does not use yet.
 //   placementLines: authored placements per content file (counts by template / model / item / kind), then what game code creates at startup that a save would duplicate, and code managing world models (rule R33).
 //   unusedLines: the systems from the AI.md "before writing gameplay code" list that this game has not installed, one hint each.
-import { read } from '../lib/text.mjs';
+import { read, cut } from './text.mjs';
 import { scanText } from '../rules/R33-authored-placement.mjs';
 
 const count = (list, key) => Object.entries(list.reduce((a, x) => { const k = key(x); a[k] = (a[k] || 0) + 1; return a; }, {})).map(([k, n]) => `${k}×${n}`).join(', ');
 const size = v => Array.isArray(v) ? v.length : v && typeof v === 'object' ? Object.keys(v).length : 0;
-const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 /** Authored placements by content file, then code placements found by R33 in the game's code files (gameFiles: absolute paths; g: path relative to the game) */
 export function placementLines(c, gameFiles, g) {

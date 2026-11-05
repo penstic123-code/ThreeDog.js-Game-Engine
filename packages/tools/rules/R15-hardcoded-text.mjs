@@ -11,7 +11,7 @@ const CJK = /[一-鿿]/, CJK_STRING = /(['"`])[^'"`]*[一-鿿][^'"`]*\1/;
 const ALLOW = [
   [reE('modules\\/debug\\/'), 'the debug panel is a dev tool'],
   [/strings\.js$/, 'string tables: this is where the text lives'],
-  [reE('core\\/I18n\\.js$'), 'the core locale tables'],
+  [reE('core\\/base\\/I18n\\.js$'), 'the core locale tables'],
 ];
 /** A line without its // and /* *\/ comments; quotes are kept, since the strings are what this rule reads */
 const noComments = line => line.replace(/(['"`])(?:\\.|(?!\1).)*\1|\/\/.*$|\/\*.*?\*\//g, m => m.startsWith('/') ? '' : m);

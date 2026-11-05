@@ -23,7 +23,9 @@ const HISTORY = 'threedog-editor-history', KEEP = 100, EPS = 1e-4, APART = 1;   
 const round = v => { const r = Math.round(v * 1000) / 1000; return r === 0 ? 0 : r; };   // a millimetre: no 3.4000000000000004 in a hand-kept file
 const fileValues = new WeakMap();   // entry -> { fields, kind, computed, file, line } as read from the file; private so the screen cannot grow a dependency on them
 
-const post = body => fetch('/__threedog/design', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json());
+// never rejects: a server that went away is one more refusal, on a read as on a write, and the screen has one way to show it
+const post = body => fetch('/__threedog/design', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(r => r.json())
+  .catch(e => ({ ok: false, error: `the dev server did not answer (${e.message})` }));
 const editorRun = (engine, op, args) => engine.ops.run(op, args, { source: 'editor' });
 
 // The history: file changes and how to take each back. Every step carries expect, so an undo over a hand edit is refused like any other stale write
@@ -89,7 +91,8 @@ export function thingAt(engine, id) { try { return engine.thing(id); } catch { r
 export function pickAt(engine, x, y) {
   const views = engine.world ? engine.world.query({}).map(r => engine.world.view(r.id)).filter(Boolean) : [];
   const fixed = engine.pick(x, y), moving = views.length ? engine.pick(x, y, { targets: views }) : null;
-  return (moving && (!fixed || moving.distance <= fixed.distance) ? moving : fixed)?.thing ?? null;
+  const thing = (moving && (!fixed || moving.distance <= fixed.distance) ? moving : fixed)?.thing;
+  return thing?.id ? thing : null;   // a mesh nobody named (engine.rays.addStatic alone) is hit, but there is no entry behind it
 }
 
 /** The model on screen for an entry now: a save builds a new one, so the selection box asks every frame @param {any} engine @param {any} entry */
@@ -117,6 +120,8 @@ export function previewEntry(engine, entry, to) {
   editorRun(engine, 'thing.set', { id: entry.id, position: { x: at.x, y: at.y, z: at.z }, ...(entry.turn && { rotation: at.yaw }) });
 }
 
+const gridProblem = (g, f, id, cell, rotation) => { const { code } = g.check(f.item, cell, { rotation, ignore: id }); return code ? `cell ${cell} is not free (${code})` : null; };
+
 /** The file's values for a pose given in world terms: only what really moved, so an axis left alone stays as the author wrote it */
 function poseFields(engine, entry, to) {
   const { fields: f, kind } = fileValues.get(entry);
@@ -127,8 +132,8 @@ function poseFields(engine, entry, to) {
     if (String(cell) !== String(f.cell)) out.cell = cell;
     if (rotation !== was) out.rotation = rotation;
     if (!Object.keys(out).length) return {};
-    const check = g.check(f.item, cell, { rotation, ignore: entry.id });
-    if (check.code) throw new Error(`cell ${cell} is not free (${check.code})`);
+    const why = gridProblem(g, f, entry.id, cell, rotation);
+    if (why) throw new Error(why);
     return out;
   }
   const spot = spotOf(kind, f), base = spot.place ? engine.content.place(spot.place) : null;
@@ -185,7 +190,7 @@ async function follow(engine, step, r) {
 
 /** Send one step and bring the game along. The screen gets the reply and the fresh entry to hold */
 async function run(engine, step, id) {
-  const r = await post(step).catch(e => ({ ok: false, error: `the dev server did not answer (${e.message})` }));
+  const r = await post(step);
   if (!r.ok) return { ok: false, error: r.error, conflict: !!r.conflict };
   const out = { ok: true, change: r.change, restore: r.restore };
   try {
@@ -215,12 +220,12 @@ async function act(engine, fwd, back, id) {
 /**
  * Save a new pose for a movable entry: the file first, the running game only when the file took it. Refused: the model goes back where it stood.
  * @param {any} engine
- * @param {any} entry  from entryAt
+ * @param {any} held  from entryAt
  * @param {{ x: number, y: number, z: number, yaw: number }} to  world pose
  * @returns {Promise<{ ok: boolean, error?: string, conflict?: boolean, change?: string, entry?: any, reloading?: boolean }>} entry: the one to hold from now on
  */
 export const moveEntry = (engine, held, to) => inTurn(async () => {
-  const entry = fresh(held), stay = () => { if (previewed.delete(entry.id)) previewEntry(engine, entry, { ...entry.position, yaw: entry.yaw }); };
+  const entry = fresh(held), stay = () => { if (previewed.has(entry.id)) { previewEntry(engine, entry, { ...entry.position, yaw: entry.yaw }); previewed.delete(entry.id); } };
   let fields;
   try { fields = poseFields(engine, entry, to); } catch (e) { stay(); return { ok: false, error: e.message }; }
   if (!Object.keys(fields).length) { stay(); return { ok: true, entry }; }
@@ -232,22 +237,27 @@ export const moveEntry = (engine, held, to) => inTurn(async () => {
 
 // A yes/no is a list with an empty first line, not a checkbox: most of these mean yes when the file says nothing (static, batch, occluder), and an empty box would show the opposite
 const YES_NO = [true, false];
+// The panel's words. Only the words: the file's name stays the row's key and shows in its tooltip, and what is written does not change
+const LABELS = { y: 'Height', rot: 'Facing', scale: 'Size', rotation: 'Quarter turns', place: 'Place', floor: 'Storey height', source: 'Copied from', collide: 'Collision', occluder: 'Blocks camera',
+  static: 'Never moves', batch: 'Merge copies', lod: 'Far detail', items: 'Starts with', fields: 'Own fields', data: 'Extra data', radius: 'Reach', auto: 'Walk to take', respawn: 'Comes back after' };
+// behind More while the file leaves them empty: most entries never set one, and one that does shows it with the rest
+const RARE = new Set(['place', 'floor', 'source', 'collide', 'occluder', 'static', 'batch', 'lod', 'items', 'fields', 'data', 'radius', 'auto', 'respawn']);
 const inputOf = spec => spec.values || /^bool/.test(spec.type) ? 'select' : { number: 'number', int: 'number', string: 'text' }[spec.type] ?? 'json';
 
 /**
  * The rows of the property panel: the field table of this kind of entry (engine.content.fields, the one the content check reads) plus whatever else the file has.
  * @param {any} engine @param {any} entry
- * @returns {{ key: string, input: 'number' | 'text' | 'select' | 'json', value: any, values?: any[], placeholder?: string, desc?: string, locked: boolean }[]}
+ * @returns {{ key: string, label: string, rare: boolean, input: 'number' | 'text' | 'select' | 'json', value: any, values?: any[], placeholder?: string, desc?: string, locked: boolean }[]}
  */
 export function fieldsOf(engine, entry) {
   const v = fileValues.get(entry);
   if (!v) return [];
   const { fields: f, kind, computed } = v, specs = { ...(kind === 'npcs' ? {} : engine.content.fields(isGrid(f) ? 'props.grid' : f.template ?? kind)) };
   const models = catalog(engine).filter(c => c.model).map(c => c.name);
-  if (specs.model && models.length && typeof f.model === 'string') specs.model = { ...specs.model, values: models };
   for (const k of Object.keys(f)) specs[k] ??= { type: typeof f[k] };
+  if (specs.model && models.includes(f.model)) specs.model = { ...specs.model, values: models };
   return Object.entries(specs).filter(([k]) => k !== 'id').map(([key, s]) => ({
-    key, input: inputOf(s), value: f[key] ?? null, ...(inputOf(s) === 'select' && { values: s.values ?? YES_NO }), ...(s.default !== undefined && { placeholder: JSON.stringify(s.default) }),
+    key, label: LABELS[key] ?? key, rare: RARE.has(key) && f[key] == null, input: inputOf(s), value: f[key] ?? null, ...(inputOf(s) === 'select' && { values: s.values ?? YES_NO }), ...(s.default !== undefined && { placeholder: JSON.stringify(s.default) }),
     ...(s.desc && { desc: s.desc }), locked: computed.includes(key) }));
 }
 
@@ -261,9 +271,24 @@ function parseRow(row, raw) {
   return String(raw);
 }
 
+/** Why a row's value cannot stand, for what only the running game can tell: the drag asks the grid the same, and an NPC reloads the page, where a place that is not there stops the game before any editor opens */
+function whyNot(engine, entry, key, value) {
+  const { fields: f, kind, computed } = fileValues.get(entry), other = { start: 'schedule', schedule: 'start' }[key];
+  if (kind === 'npcs' && value == null) {
+    if (key === 'name') return 'an NPC needs a name';
+    if (other && f[other] == null && !computed.includes(other)) return 'an NPC needs a start or a schedule: without one the game stops at load';
+    return null;
+  }
+  try {
+    if (isGrid(f) && (key === 'cell' || key === 'rotation')) return gridProblem(engine.grids.get(f.grid), f, entry.id, key === 'cell' ? value : f.cell, key === 'rotation' ? value : f.rotation ?? 0);
+    if (kind === 'npcs' && key === 'start') { if (!value || typeof value !== 'object') return 'start: write { "x": 1, "z": 2 } or { "place": "name" }'; engine.content.where(value); }
+  } catch (e) { return `${key}: ${e.message}`; }
+  return null;
+}
+
 /**
  * Save one property from the panel. An empty value takes the field out of the entry.
- * @param {any} engine @param {any} entry @param {string} key @param {any} raw  what the input holds
+ * @param {any} engine @param {any} held @param {string} key @param {any} raw  what the input holds
  */
 export const setField = (engine, held, key, raw) => inTurn(async () => {
   const entry = fresh(held), row = fieldsOf(engine, entry).find(r => r.key === key), had = fileValues.get(entry).fields[key];
@@ -271,12 +296,17 @@ export const setField = (engine, held, key, raw) => inTurn(async () => {
   if (row.locked) return { ok: false, error: `${key} is computed by code: edit the file` };
   if (raw === '' || raw == null) {
     if (had === undefined) return { ok: true, entry };
-    const { fwd, back } = setSteps(entry, {}, [key]);
-    return act(engine, fwd, back, entry.id);
+    const why = whyNot(engine, entry, key, null);
+    if (why) return { ok: false, error: why };
+    const { fwd, back } = setSteps(entry, {}, [key]), r = await act(engine, fwd, back, entry.id);
+    // what the entry then does is the default, which may well put the model elsewhere: said here, so the jump has a reason and the way back
+    return r.ok ? { ...r, change: `${row.label} emptied, so it uses its default. Undo brings back ${JSON.stringify(had)}` } : r;
   }
   let value;
   try { value = parseRow(row, raw); } catch (e) { return { ok: false, error: e.message }; }
   if (JSON.stringify(value) === JSON.stringify(had)) return { ok: true, entry };
+  const why = whyNot(engine, entry, key, value);
+  if (why) return { ok: false, error: why };
   const { fwd, back } = setSteps(entry, { [key]: value });
   return act(engine, fwd, back, entry.id);
 });
@@ -311,7 +341,7 @@ export const addEntry = (engine, what, near) => inTurn(async () => {
 
 /**
  * Take an entry out of its file and out of the running game. Undo puts the same bytes back in the same spot.
- * @param {any} engine @param {any} entry
+ * @param {any} engine @param {any} held
  */
 export const removeEntry = (engine, held) => inTurn(() => {
   const entry = fresh(held), { fields, kind } = fileValues.get(entry);

@@ -12,9 +12,9 @@
 //   engine.cameraRig.moveTo(position);   // move the view somewhere; { instant: true } skips smoothing
 import * as THREE from 'three';
 import { rigModule, defineRig, CAMERA_STRINGS, YAW_RIG, rigPlaced } from './common.js';
-import { xzOf } from '../../core/math.js';
-import { setFov } from '../../core/view.js';
-import { surfaceOr } from '../../core/ground.js';
+import { xzOf } from '../../core/base/math.js';
+import { setFov } from '../../core/scene/view.js';
+import { surfaceOr } from '../../core/scene/ground.js';
 
 export class RtsCamera {
   /**
@@ -42,9 +42,9 @@ export class RtsCamera {
     this._place();
   }
 
-  /** Follow an object (called automatically when the player is created). While following, WASD moves the character; manual drag/edge pan drops the follow (not with followLock) */
   /** Called when this camera is switched in (module install, setCamera): applies fov */
   onEnter() { if (this.fov) setFov(this.engine, this.fov); }
+  /** Follow an object (called automatically when the player is created). While following, WASD moves the character; manual drag/edge pan drops the follow (not with followLock) */
   follow(obj) { this.target = obj; this.following = !!obj; if (obj) this.moveTo(obj); }
   /** Move the view somewhere; with instant true there is no smoothing */
   moveTo(position, { instant = false } = {}) { const [x, z] = xzOf(position); this.focus.set(x, 0, z); this._clamp(); if (instant) { this._f.copy(this.focus); this._place(); } }

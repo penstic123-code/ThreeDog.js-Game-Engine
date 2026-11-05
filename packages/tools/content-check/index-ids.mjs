@@ -9,11 +9,12 @@ import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseAst } from 'vite';
 import { abs, CONTENT_IDS_REL } from '../paths.mjs';
+import { keyName } from '../lib/ast-value.mjs';
 import { exportedLiteral } from '../vite/vite-threedog-content-src.js';
 
 const { pickupId, templateId } = await import(pathToFileURL(abs(CONTENT_IDS_REL)).href);
 /** Above this many entries in one file content check suggests splitting the kind into a folder (a hint, not an error) */
-export const SPLIT_HINT = 2000;
+const SPLIT_HINT = 2000;
 export const indexPath = dir => join(dir, '.threedog', 'content-index.json');
 const relOf = (dir, path) => relative(dir, path).replace(/\\/g, '/');
 
@@ -37,7 +38,6 @@ function lineIndex(code) {
   for (let i = 0; i < code.length; i++) if (code.charCodeAt(i) === 10) starts.push(i + 1);
   return off => { let lo = 0, hi = starts.length - 1; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (starts[m] <= off) lo = m; else hi = m - 1; } return lo + 1; };
 }
-const keyName = p => p.computed ? null : p.key.type === 'Identifier' ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : null;
 
 /**
  * Index entries of one file: { ids: [[id, { file, kind, line, placed, generated? }]], indexIds }. value is what the file exports (evaluated),

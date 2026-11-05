@@ -6,8 +6,6 @@
 //   engine.use(interactions({ ...presets.interactions.nearest, radius: 3 }));
 // No imports and no engine state: plain data plus small control functions that call public API only.
 
-/** @import { WeatherOptions, SkyOptions } from './types/world' */
-
 /** A side-scroller moves only along world X (left / right keys); W / S do nothing. Reads input by action like the 'camera' control */
 function sideScroll(p, input) { return { x: (input.autopilot || input.axis).x, z: 0, run: input.actions.has('run') && input.down('run') }; }
 
@@ -43,7 +41,7 @@ export const presets = Object.freeze({
   calendar: Object.freeze({
     /** Spring, summer, autumn, winter, 7 days each, with the 360 s day cycle of `cycle` (a cozy life sim; set daysPerSeason: 28 for longer seasons) */
     fourSeasons: Object.freeze({ seasons: Object.freeze(['spring', 'summer', 'autumn', 'winter']), daysPerSeason: 7, dayLength: 360 }),
-    /** A day-night cycle, one day = 360 game seconds (6 minutes at clock.rate 1); calendar() alone keeps a fixed time of day */
+    /** A day-night cycle, one day = 360 calendar seconds (6 minutes at clock.rate 1); calendar() alone keeps a fixed time of day */
     cycle: Object.freeze({ dayLength: 360 }),
     /** One time of day that never moves (dungeon, arena, space station), what calendar() does without a dayLength; pick the hour with time */
     fixedTime: Object.freeze({ dayLength: Infinity }),

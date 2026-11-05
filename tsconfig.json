@@ -20,6 +20,7 @@
     // 打开 noImplicitAny 只为抓 home[0] 这类"拿数字下标读 three 对象"的错（Vector3 没有下标，否则静默成 any 再变 NaN）；
     // 其余 7xxx 隐式 any 的报错在 packages/tools/types.mjs 里过滤掉，不要求游戏代码到处标类型
     "noImplicitAny": true,
+    "noUnusedLocals": true,
     // 不跳过 .d.ts：引擎自己的声明（index.d.ts、types/）也要查——跳过时里面引用了不存在的类型名会悄悄变成 any
     "skipLibCheck": false,
     "resolveJsonModule": true,

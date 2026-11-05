@@ -1,11 +1,11 @@
 // World record mutations (add / rest / orphans / set / remove): the bodies behind the World methods of the same names. World.js keeps the public
 // JSDoc and signatures; these functions take the world as `w` and reach its internals the same way sim.js / views.js / persist.js do.
-import { DEV, fmt } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { DEV, fmt } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { checkPlain } from './persist.js';
 import { putPos, centerOf } from './pos.js';
-import { claimId } from '../../core/things.js';
-import { codedError } from '../../core/errorHints.js';
+import { claimId } from '../../core/scene/things.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 export const STRINGS = {
   noKind: 'world.add() needs a kind (what sort of thing this is), e.g. world.add({ kind: "crate", position: [0, 0, 0] })',
@@ -70,7 +70,7 @@ export function orphanIds(w) {
   const out = [], known = id => w._base.has(id) || w.records.has(id);
   const due = id => { const i = id.indexOf('/'); return i < 0 || w._levels.has(id.slice(0, i)); };
   for (const id of w._pending.keys()) if (!known(id) && due(id)) out.push(id);
-  for (const id of w._removed) if (!known(id) && !w._base.has(id) && due(id)) out.push(id);
+  for (const id of w._removed) if (!known(id) && due(id)) out.push(id);
   return out;
 }
 

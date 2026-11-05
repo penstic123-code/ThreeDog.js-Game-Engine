@@ -8,8 +8,8 @@
 // Why one "moved outside the mover" check here: a teleport guess from distance ("collider more than 0.3 m from the position") is inexact; a
 // platform carry, placeAt and a load all move the position outside the mover, so the mover compares with where it left the character (exact).
 import * as THREE from 'three';
-import { codedError } from '../../../core/errorHints.js';
-import { placeY } from '../../../core/ground.js';
+import { codedError } from '../../../core/base/errorHints.js';
+import { placeY } from '../../../core/scene/ground.js';
 
 const REG = new WeakMap();     // engine -> { list: Map<id, entry>, riders: Set<character> }
 const STATE = new WeakMap();   // character -> per-character support state (private: games read character.support / safeGround)
@@ -181,6 +181,6 @@ export function carryRiders(e, between) {
   if (!R?.riders.size) return;
   for (const c of [...R.riders]) {
     if (!carry(c)) continue;
-    if (between && e.ops?.allow) e.ops.allow(() => c._store()); else c._store();
+    if (between) e.ops.allow(() => c._store()); else c._store();
   }
 }

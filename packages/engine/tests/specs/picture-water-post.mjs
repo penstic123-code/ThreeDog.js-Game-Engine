@@ -10,14 +10,12 @@ const page = fn => new Function(`${MAKE}\nreturn (${fn})();`);
 
 export const specs = [
   {
-    name: '[guard] one entry per picture value: sky keeps its start values as options; the moved keys throw naming the call; start values are live',
+    name: '[guard] one entry per picture value: sky keeps its start values as options; start values are live',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
         const out = {};
-        out.moved = [err(() => sky({ layers: [] })), err(() => sky({ skybox: 'pano' }))];
         out.kept = [err(() => sky({ time: '12:00', dim: { stars: false } }))];
-        out.gone = ['moonSize','starScale','gradientCurve','orbitTilt','orbitSway'].map(k => err(() => sky({ [k]: 1 })));
         // sky: start values land on the dome; engine.uniforms, plain fields and keyframes() are live
         const s = make([sky({ dim: { stars: false } })]), U = s.sky.uniforms, EU = s.uniforms;
         s.sky.update(s.focus);
@@ -28,8 +26,6 @@ export const specs = [
         s.dispose();
         return out;
       }));
-      check('removed sky options throw naming the call', r.moved[0].includes('engine.sky.layer(name, layer)') && r.moved[1].includes('engine.sky.replace(skybox)'), JSON.stringify(r.moved));
-      check('the five start values that only duplicated a uniform / field throw naming where to write it', r.gone.every((m, i) => m.includes(['uMoonSize', 'uStarScale', 'uSkyCurve', 'orbit.tilt', 'orbit.sway'][i])), JSON.stringify(r.gone));
       check('structural options stay (sky time and start values)', r.kept.join('') === '', JSON.stringify(r.kept));
       check('sky: start values are on the dome through engine.uniforms; .value and plain fields move it; bad keyframes throw', r.s0.join() === '1400,true,0'
         && r.s1.join() === '500,0.3,1' && /keyframes/.test(r.sBad), JSON.stringify([r.s0, r.s1, r.sBad]));

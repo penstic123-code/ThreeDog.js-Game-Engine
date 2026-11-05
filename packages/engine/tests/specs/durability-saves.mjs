@@ -141,7 +141,9 @@ export const specs = [
           const loaded = await A.saves.load('auto');
           const again = await A.saves.save('auto');   // A continues from B's save now: allowed
           const bAgain = await B.saves.save('auto');   // and B, which has not seen that, is refused in turn
-          return { bSaved, ok, stale: warns.some(w => w.includes('[save-stale]')), shows, disk, loaded, again, bAgain };
+          const C = mk(), early = C.saves.save('auto');   // a save made before the boot read: its write expects the record that read finds
+          const earlyOk = await early; C.dispose();
+          return { bSaved, ok, stale: warns.some(w => w.includes('[save-stale]')), shows, disk, loaded, again, bAgain, earlyOk };
         } finally { await A.saves.remove('auto'); A.dispose(); B.dispose(); }
       });
       // a save still queued when remove runs must not leave its rev behind for the deleted record
@@ -154,10 +156,45 @@ export const specs = [
         return { again, st };
       });
       check('save then remove (queued together) then save again: the second save is written', q.again === true && q.st === null, JSON.stringify(q));
+      check('a save made before storage is read is not taken for another tab', r.earlyOk === true, JSON.stringify(r));
       check('tab B overwrites the save it read at boot', r.bSaved === true, JSON.stringify(r));
       check('tab A is refused (save-stale) instead of overwriting B’s newer save', r.ok === false && r.stale, JSON.stringify(r));
       check('after the refusal tab A lists B’s save, and the stored save is still B’s', r.shows && r.disk, JSON.stringify(r));
       check('once tab A loads that save it may save over it again; B is refused in turn', r.loaded === true && r.again === true && r.bAgain === false, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'durability: a rollback waiting on an async part holds gameplay however the load failed; a save with no savedAt exports a readable file (open world) [guard]',
+    url: '/?threedog-headless',
+    expectErrors: /dur rollback boom/,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const S = engine.saves, out = {}, held = () => engine.stacks.get('freeze').has('threedog:load-parts');
+        const clear = () => { engine.error = null; engine.stacks.get('freeze').release('error'); };
+        let seen = [];
+        S.register('durBoom', { first: true, save: () => ({}), load: d => { if (d.bad) throw new Error('dur rollback boom'); } });
+        S.register('durSlow', { save: () => ({}), load: async () => { await new Promise(res => setTimeout(res, 0)); seen.push(held()); } });
+        const good = S.collect(), bad = JSON.parse(JSON.stringify(good));
+        bad.parts.durBoom = { bad: true };
+        out.sync = { ok: await S.apply(bad, 'dur'), seen }; clear();   // threw before any hold was taken
+        seen = [];
+        engine.modules.set('dur-al', { name: 'dur-al', afterLoad() { throw new Error('dur rollback boom'); } });
+        out.hook = { ok: await S.apply(good, 'dur') }; out.hook.seen = seen;   // the parts' hold ended before the hook failed
+        engine.modules.delete('dur-al'); clear();
+        out.released = !held();
+        S.providers.delete('durBoom'); S.providers.delete('durSlow');
+        await S._put('dur-odd', JSON.stringify({ parts: {} }), undefined);
+        const url = URL.createObjectURL; let blob = null;
+        URL.createObjectURL = b => { blob = b; return url.call(URL, b); };
+        try { out.exported = await S.exportFile('dur-odd', { files: false }); } finally { URL.createObjectURL = url; }
+        out.file = JSON.parse(await blob.text()).savedAt;
+        await S.remove('dur-odd');
+        return out;
+      });
+      check('a load that threw at once: gameplay held while the rollback waits', r.sync.ok === false && r.sync.seen.length === 1 && r.sync.seen[0] === true, JSON.stringify(r));
+      check('an afterLoad that threw: gameplay held while the rollback waits', r.hook.ok === false && r.hook.seen.length === 2 && r.hook.seen.every(Boolean), JSON.stringify(r));
+      check('the hold ends with the load', r.released === true, JSON.stringify(r));
+      check('exportFile writes valid JSON for a save without savedAt', r.exported === true && r.file === 0, JSON.stringify(r));
     },
   },
   {

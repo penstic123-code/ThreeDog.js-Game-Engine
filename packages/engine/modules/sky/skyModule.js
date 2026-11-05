@@ -2,11 +2,11 @@
 // timers and saves are the calendar's (modules/calendar); the sky reads engine.calendar each frame to draw.
 // Usage and the engine.sky API are documented in Sky.js.
 import { Sky } from './Sky.js';
-import { dropOwned } from '../../core/owned.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { parseClock } from '../../core/dayTime.js';
-import { codedError, coded } from '../../core/errorHints.js';
-import { DEV, warnOnce } from '../../core/validate.js';
+import { dropOwned } from '../../core/ops/owned.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { parseClock } from '../../core/time/dayTime.js';
+import { coded } from '../../core/base/errorHints.js';
+import { warnOnce } from '../../core/base/validate.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { SkyOptions } from '../../types/world' */
 
@@ -14,21 +14,8 @@ import { DEV, warnOnce } from '../../core/validate.js';
 // start values. After install the numbers are engine.uniforms values (shader.js), the rest plain fields or calls on engine.sky
 const SKY_OPTIONS = ['time', 'clouds', 'backdrop', 'keyframes', 'sunSize', 'sunGlow', 'sunBrightness', 'moonColor', 'moonBrightness',
   'starDensity', 'dim'];
-// the sky no longer writes lights or fog, so there is nothing to switch off: say what to write instead of the generic unknown-key error
-const REMOVED = { shadow: 'shadows are engine.shadows (box, budget, cascades on engine.lights.sun) and three.js (light.shadow.*, renderer.shadowMap.type)',
-  sun: "lights are the game's: delete the option; createEngine({ lights: false }) drops the placeholder lights, and your picture/ code reads engine.uniforms.uSunDir / uDaylight",
-  hemisphere: "lights are the game's: delete the option; createEngine({ lights: false }) drops the placeholder lights, and your picture/ code reads engine.uniforms.uDaylight / uSkyTop",
-  environment: 'the sky builds no map on its own: delete the option and call engine.sky.environment({ into: engine.scene }); an asset map is plain three.js (recipes/34)',
-  fog: "fog is the game's: delete the option and write scene.fog = new THREE.Fog(color, near, far) in your picture/ code (engine.uniforms.uSkyHorizon is the horizon color)" };
-// the five appearance numbers that were only start values of a uniform or field: write that after install, there is no second entry
-const NOW_LIVE = { moonSize: 'engine.uniforms.uMoonSize.value', starScale: 'engine.uniforms.uStarScale.value', gradientCurve: 'engine.uniforms.uSkyCurve.value',
-  orbitTilt: 'engine.sky.orbit.tilt', orbitSway: 'engine.sky.orbit.sway' };
-const MOVED = { layers: 'engine.sky.layer(name, layer) per layer', skybox: 'engine.sky.replace(skybox)' };
 const SKY_PARAMS = keysSchema(SKY_OPTIONS);   // keys only: the values take several shapes (time: 'HH:MM' | 0-1), Sky checks them
-const CAL_KEYS = ['dayLength', 'day', 'daysPerSeason', 'seasons', 'hoursPerDay'];
 const STRINGS = {
-  calendarKey: 'sky({ {key} }): day length, days, seasons and hours per day belong to the calendar module: engine.use(calendar({ {key}: ... }), sky()) ' +
-    '(the sky only draws the calendar time)',
   timeTwice: "sky({ time }) is the fixed time drawn without a calendar, but calendar() is installed, so the sky draws the calendar's time; " +
     'start the day with calendar({ time }) and drop sky({ time })',
   noSeason: "applyState({ season }): seasons are the calendar's; install calendar({ seasons: [...] }) (sky alone draws one fixed time)",
@@ -40,12 +27,6 @@ const STRINGS = {
  * @returns {ModuleDef<Sky>}
  */
 export function sky(opts = {}) {
-  // the old calendar keys: say where they went instead of the generic unknown-key error (the calendar moved out of the sky)
-  const moved = CAL_KEYS.find(k => k in opts);
-  if (moved) throw codedError('sky-option', STRINGS.calendarKey.replaceAll('{key}', moved));
-  for (const k in REMOVED) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) was removed: ${REMOVED[k]}`);
-  for (const k in NOW_LIVE) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) was removed: write ${NOW_LIVE[k]} after engine.use(sky()) (a plain value, live)`);
-  if (DEV) for (const k in MOVED) if (k in opts) throw codedError('sky-option', `sky({ ${k} }) moved: ${MOVED[k]} after engine.use(sky()) (one entry per picture value)`);
   readParams('sky', SKY_PARAMS, opts);
   let s = null, own = () => {};
   return {
@@ -59,14 +40,15 @@ export function sky(opts = {}) {
       if (opts.time != null && e.calendar) warnOnce(coded('sky-option', STRINGS.timeTwice), 'sky-time-calendar');
       s = new Sky(e, opts);
       // without a calendar the drawn sun tells day from night (night glow reads the measure); a calendar installed later registers its own over it
-      own = () => { for (const [n, f] of [['daylight', () => s.daylight], ['timeOfDay', () => s.drawnTime]]) if (!e.audio.measures.has(n)) ctx.track(e.audio.measure(n, f)); };
+      const measures = [['daylight', () => s.daylight], ['timeOfDay', () => s.drawnTime]];
+      own = () => { for (const [n, f] of measures) if (!e.audio.measures.has(n)) ctx.track(e.audio.measure(n, f)); };
       own();
       return s;
     },
     // a calendar removed mid-game takes its measures with it: the sky takes the signals back at once, or uDaylight / uTimeOfDay would freeze
     frame(dt) { own(); s.update(); s._envFrame(dt); },
     // the dome goes too: a sky swapped with replaces must not leave the old dome drawn behind the new one
-    dispose() { s._shadowOff(); s._swap.remove(); s._envOff(); dropOwned(s.engine, s._owned); s.dome.removeFromParent(); s.dome.geometry.dispose(); s.dome.material.dispose(); },
+    dispose() { s._shadowOff(); s._swap.remove(); s._envOff(); s._entries.dispose(); dropOwned(s.engine, s._owned); s.dome.removeFromParent(); s.dome.geometry.dispose(); s.dome.material.dispose(); },
     // scenario params time / season go to the calendar when there is one (its own applyState); without it time sets the fixed time drawn
     stateKeys: ['time', 'season'],
     applyState(e, { time, season }) {

@@ -20,10 +20,10 @@
 // Advancing and picking a choice are the ops dialogue.advance and dialogue.choose { index } (recipes/23-ops.md): keys, the cursor, clicks, the dev bridge and
 // tests all run them, so a choice's do (which may change gameplay state) always runs inside a logged op.
 import { uiFocus } from '../../ui/UI.js';
-import { warnMissing, warnOnce } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { warnMissing, warnOnce, fmt } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { dialogueBox } from './dialogueBox.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { Bubbles, bubblePart } from './dialogueBubbles.js';
 // 'data' is the one slot for game-specific fields: other unknown keys stay typos (a misspelled next would silently end the dialogue)
 const NODE_KEYS = ['text', 'next', 'choices', 'do', 'speaker', 'data'], CHOICE_KEYS = ['text', 'next', 'if', 'do', 'data'];
@@ -34,7 +34,7 @@ const STR = {
   channel: "dialogue: channel '{got}' is not one of 'main' (the conversation the player reads, locks input) | 'bubble' (a line over its speaker while play goes on)",
   bubbleChoices: "[dialogue] '{name}' node '{id}' has choices: choices need the main channel (the player picks them), so on the bubble channel the script ends there",
 };
-const checkChannel = c => { if (!CHANNELS.includes(c)) throw codedError('module-params', STR.channel.replace('{got}', c)); };
+const checkChannel = c => { if (!CHANNELS.includes(c)) throw codedError('module-params', fmt(STR.channel, { got: String(c) })); };
 const SAY_KEYS = ['speaker', 'node', 'channel', 'at', 'seconds', 'queue', 'onCancel'], START_KEYS = ['channel', 'at', 'onCancel'];
 const readLine = (fn, keys, o) => readParams(`dialogue.${fn}`, keysSchema(keys), o ?? {});
 
@@ -94,7 +94,7 @@ export class Dialogue {
     const step = id => {
       const node = id && id !== 'end' && nodes[id];
       if (!node || stopped) { finish(); return; }
-      if (node.choices?.length) { warnOnce(STR.bubbleChoices.replace('{name}', name).replace('{id}', id)); finish(); return; }
+      if (node.choices?.length) { warnOnce(fmt(STR.bubbleChoices, { name, id })); finish(); return; }
       const text = typeof node.text === 'function' ? node.text(this.state, this.engine) : node.text;
       node.do?.(this.state, this.engine);
       cur = this._bubbles.say(at, text, { speaker: node.speaker || (name.startsWith('__say_') ? '' : name), seconds, queue });
@@ -144,7 +144,9 @@ export class Dialogue {
   }
 
   _show(id) {
-    const a = this.active, node = id && a.nodes[id];
+    const a = this.active;
+    if (!a) return;   // a dialogue:start listener ended it
+    const node = id && a.nodes[id];
     if (!node && id && id !== 'end') warnMissing('node', id, Object.keys(a.nodes));   // next points at a node that doesn't exist
     if (!node || id === 'end') { this.end(); return; }
     a.node = node; a.id = id;
@@ -155,6 +157,7 @@ export class Dialogue {
     a.who = node.speaker || a.speaker;
     this.full = String(text ?? ''); this.shown = 0; this.typing = true; this._opts = null;
     this.engine.events.emit('dialogue:line', { script: a.speaker, node: id, speaker: a.who, text: this.full, data: node.data ?? {} });
+    if (this.active !== a) return;        // a dialogue:line listener ended it (a skip key)
     if (!this.full || !(this.charsPerSecond > 0)) this._finishTyping();   // charsPerSecond 0 = whole line at once
     else this._draw();
   }

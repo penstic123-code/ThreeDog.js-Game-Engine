@@ -37,7 +37,7 @@ export class Music {
      * @returns {boolean}
      */
     get ready(): boolean;
-    /** Auto track rules are in use */
+    /** Auto track rules are in use @experimental */
     get ruled(): boolean;
     /**
      * State (for debugging and tests): gain is the playing track's fade level, stems each stem's level

@@ -10,11 +10,11 @@
 // other layers are stored only for points that have several (extra: point index -> [{ y, t }]); single-layer levels pay no extra memory or time.
 // height(x, z, refY) with a reference height picks the highest layer not above refY + stepUp.
 import * as THREE from 'three';
-import { MOVEMENT_DEFAULTS } from '../../core/movement.js';
-import { warnOnce } from '../../core/validate.js';
-import { coded } from '../../core/errorHints.js';
+import { MOVEMENT_DEFAULTS } from '../../core/scene/movement.js';
+import { warnOnce } from '../../core/base/validate.js';
+import { coded } from '../../core/base/errorHints.js';
 
-// Step-height default comes from the shared movement params (core/movement.js); level passes engine.movement.stepHeight, don't hardcode it elsewhere
+// Step-height default comes from the shared movement params (core/scene/movement.js); level passes engine.movement.stepHeight, don't hardcode it elsewhere
 const STEP_UP = MOVEMENT_DEFAULTS.stepHeight, LAYER_GAP = MOVEMENT_DEFAULTS.height;   // step height, min gap between layers (character height)
 
 const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3();
@@ -43,6 +43,7 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
   const minX = bounds.min.x, minZ = bounds.min.z;
   const H = new Float32Array(nx * nz).fill(-Infinity);
   const T = new Uint16Array(nx * nz);          // ground type index into the types array
+  const U = new Uint8Array(nx * nz);           // 1: the top surface at this point faces up, so it can be stood on and survives as a layer when something is stamped above it
   const types = ['default'], typeIndex = new Map([['default', 0]]);
   const EPS = 1e-4;
   const extra = new Map();                     // multi-layer: point index -> layers other than the top [{ y, t }]
@@ -50,7 +51,7 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
   for (const mesh of meshes) {
     const g = mesh.geometry, pos = g?.attributes?.position;
     if (!pos) continue;
-    const idx = g.index, mw = mesh.matrixWorld;
+    const idx = g.index, mw = mesh.matrixWorld, mirrored = mw.determinant() < 0;   // a negative scale flips the winding: its up faces read as down
     const triCount = (idx ? idx.count : pos.count) / 3;
     // multi-material mesh: find each triangle's material via geometry.groups
     const groups = Array.isArray(mesh.material) && g.groups.length ? g.groups : null;
@@ -68,7 +69,7 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
       const ax = _a.x, az = _a.z, bx = _b.x, bz = _b.z, cx = _c.x, cz = _c.z;
       const det = (bz - cz) * (ax - cx) + (cx - bx) * (az - cz);
       if (Math.abs(det) < 1e-9) continue;           // vertical faces (wall sides) are invisible from above
-      const up = (_b.z - _a.z) * (_c.x - _a.x) - (_b.x - _a.x) * (_c.z - _a.z) > 0;   // only up-facing faces count as an extra layer (a box bottom is not walkable)
+      const up = (_b.z - _a.z) * (_c.x - _a.x) - (_b.x - _a.x) * (_c.z - _a.z) > 0 !== mirrored;   // only up-facing faces count as an extra layer (a box bottom is not walkable)
       const ia = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - minX) / cell - 1e-6));
       const ib = Math.min(nx - 1, Math.floor((Math.max(ax, bx, cx) - minX) / cell + 1e-6));
       const ja = Math.max(0, Math.ceil((Math.min(az, bz, cz) - minZ) / cell - 1e-6));
@@ -85,10 +86,11 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
           if (l3 < -EPS) continue;
           const y = l1 * _a.y + l2 * _b.y + l3 * _c.y, k = j * nx + i;
           const top = H[k];
-          if (top === -Infinity) { H[k] = y; T[k] = curType; continue; }
+          if (top === -Infinity) { H[k] = y; T[k] = curType; U[k] = up ? 1 : 0; continue; }
           if (y > top) {
-            if (y - top > layerGap && up) addLayer(k, top, T[k]);   // the old top layer becomes a lower layer
-            H[k] = y; T[k] = curType;
+            // the old top becomes a lower layer when it can be stood on, whatever lands on it: a bridge's bottom face stamped before its deck must not erase the road under it
+            if (y - top > layerGap && U[k]) addLayer(k, top, T[k]);
+            H[k] = y; T[k] = curType; U[k] = up ? 1 : 0;
           } else if (top - y > layerGap && up) addLayer(k, y, curType);
         }
       }

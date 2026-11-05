@@ -3,10 +3,10 @@
 // Why in the engine: only the engine knows which effects are neighbors in a slot; the effects themselves stay plain data + GLSL.
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
-import { codedError } from '../core/errorHints.js';
+import { CopyShader } from 'three/addons/shaders/CopyShader.js';
+import { codedError } from '../core/base/errorHints.js';
 /** @import { PostFuse } from './PostFX' */
 
-const VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
 // Helpers every snippet may call
 const HELPERS = 'float fxHash(vec2 p){ vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }';
 const EMPTY = { float: () => 0, int: () => 0, vec2: () => new THREE.Vector2(), vec3: () => new THREE.Vector3(), vec4: () => new THREE.Vector4() };
@@ -30,7 +30,7 @@ export class FusedPass extends Pass {
       }
       body.push(`  { // ${e.name}\n${f.glsl}\n  }`);
     }
-    this.material = new THREE.ShaderMaterial({ uniforms, vertexShader: VERT,
+    this.material = new THREE.ShaderMaterial({ uniforms, vertexShader: CopyShader.vertexShader,
       fragmentShader: `uniform sampler2D tDiffuse; uniform float uTime; uniform vec2 uResolution; ${decl.join(' ')}\nvarying vec2 vUv;\n${HELPERS}\n` +
         `void main(){\n  vec4 color = texture2D(tDiffuse, vUv);\n${body.join('\n')}\n  gl_FragColor = color;\n}` });
     this.quad = new FullScreenQuad(this.material);

@@ -12,7 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { normalizePath } from 'vite';
 import { contentRead, contentWrite } from '../content-write.mjs';
-import { isLocalRequest, readBody } from './local.js';
+import { isLocalRequest, readBody, orderedQueue, jsonReply } from './local.js';
 
 const VIRTUAL = 'virtual:threedog-editor', RESOLVED = '\0' + VIRTUAL;
 const LOADER = `
@@ -32,7 +32,8 @@ if (on) {
 /** @returns {import('vite').Plugin} */
 export default function threedogEditor() {
   const written = new Map();   // normalized path -> the text our last write left there
-  let root = process.cwd(), tail = Promise.resolve();
+  const inOrder = orderedQueue();
+  let root = process.cwd();
   return {
     name: 'threedog-editor',
     apply: 'serve',
@@ -43,7 +44,7 @@ export default function threedogEditor() {
     load: id => id === RESOLVED ? LOADER : undefined,
     transformIndexHtml: () => [{ tag: 'script', attrs: { type: 'module', src: '/@id/__x00__' + VIRTUAL }, injectTo: 'head' }],
     async handleHotUpdate({ file }) {
-      await tail;   // the watcher fires as soon as the file lands, while the write is still checking it: `written` is only right after that
+      await inOrder.idle();   // the watcher fires as soon as the file lands, while the write is still checking it: `written` is only right after that
       const key = normalizePath(file), mine = written.get(key);
       if (mine === undefined) return undefined;
       try { if (readFileSync(file, 'utf8') === mine) return []; } catch { /* gone: let vite say so */ }
@@ -51,7 +52,6 @@ export default function threedogEditor() {
       return undefined;
     },
     configureServer(server) {
-      const inOrder = fn => { const run = tail.then(fn); tail = run.catch(() => {}); return run; };
       const answer = async ({ op, ...req }) => {
         if (op === 'read') return contentRead(root, { id: req.id, kind: req.kind });
         if (!['write', 'add', 'remove', 'restore'].includes(op)) return { ok: false, error: `unknown op '${op}': read, write, add, remove or restore` };
@@ -62,7 +62,7 @@ export default function threedogEditor() {
         return out;   // without the path: the page has no use for it
       };
       server.middlewares.use('/__threedog/design', (req, res) => {
-        const reply = (code, obj) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); };
+        const reply = jsonReply(res);
         // POST only: a browser always sends Origin on it, so a foreign page cannot pass as "no Origin"; sameOrigin lets the game's own page through
         if (req.method !== 'POST' || !isLocalRequest(req, { sameOrigin: true })) return reply(403, { ok: false, error: 'the editor endpoint only takes POST from this dev server\'s own page' });
         readBody(req, 256 * 1024).then(async b => {

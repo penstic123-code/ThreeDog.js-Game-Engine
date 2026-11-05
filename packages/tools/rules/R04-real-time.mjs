@@ -1,7 +1,7 @@
 // R4 real time and randomness in game logic: setTimeout / setInterval / performance.now / Date.now / Math.random
 //   in packages/engine/core or packages/engine/modules → error.
 // Why: real time ignores pause, freeze and engine.step fast-forward, so it cannot be tested or saved; Math.random makes step/test results non-reproducible.
-// Fix: for timing use the hook's dt or engine.clock (after / every); for gameplay randomness use the seeded engine.random (core/Random.js: next / range / int / pick / chance, saved with the game).
+// Fix: for timing use the hook's dt or engine.clock (after / every); for gameplay randomness use the seeded engine.random (core/base/Random.js: next / range / int / pick / chance, saved with the game).
 //
 // Allowlist convention (written in the code, not here): a usage tag in a comment at the end of the line, or on the whole line above, lets it through:
 //   // presentation   only affects visuals/sound, not gameplay (toast fade-out, loading-screen fade, music crossfade, ambient pitch jitter, particle jitter)
@@ -9,7 +9,7 @@
 //            "measure" is not accepted inside a fixed step (fixed / _fixedStep methods, onFixed callbacks): truncating by real milliseconds there makes gameplay results depend on machine speed; use a per-count limit instead
 //   // debug   dev tools
 //   // wall-clock   records a real-world timestamp (save time, autosave by real minutes)
-//   // main-loop   the main loop converts real time to game time (tick in core/loop.js), and waits that yield to the browser while loading / setting up a scenario (startup.js, UrlState.js)
+//   // main-loop   the main loop converts real time to game time (tick in core/engine/loop.js), and waits that yield to the browser while loading / setting up a scenario (startup.js, UrlState.js)
 // A tag may be followed by an explanation, e.g. // presentation: bird-call pitch jitter.
 // Example: src.playbackRate.value = 0.5 + Math.random() * 0.5;   // presentation
 import { engineFiles, lines, codeOnly, lineTag, reE } from './_lib.mjs';

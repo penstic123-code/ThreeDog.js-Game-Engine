@@ -3,12 +3,12 @@
 // 不进页面；要真引擎的（move.* 在 setup 可用、densityMap 图片的错误与 dispose）在 /tests/terrain-edit/ 页面里起无头引擎。
 // Run: npm test -- "AUDIT"      Same format as the other files here.
 import * as THREE from 'three';
-import { Stacks } from '../../core/stacks.js';
-import { Wraps } from '../../core/wrap.js';
-import { Time } from '../../core/time.js';
+import { Stacks } from '../../core/ops/stacks.js';
+import { Wraps } from '../../core/ops/wrap.js';
+import { Time } from '../../core/time/time.js';
 import { nameShaderErrors } from '../../render/shaderErrors.js';
 import { patchMaterial, replacePatchCode } from '../../render/patches.js';
-import { recordRender } from '../../core/describeRender.js';
+import { recordRender } from '../../core/inspect/describeRender.js';
 import { Vegetation } from '../../modules/vegetation/Vegetation.js';
 import { VegetationDraw } from '../../modules/vegetation/draw.js';
 

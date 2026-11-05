@@ -26,6 +26,7 @@ export function makeWindow(engine: Engine, opts: WindowOptions): UIWindow;
  * @param {{ open: boolean, toggle(on?: boolean): void }} win  a makeWindow window or any handle with open / toggle
  * @param {string} action
  * @returns {void}
+ * @experimental
  */
 export function toggleOnKey(engine: Engine, win: {
     open: boolean;

@@ -1,4 +1,4 @@
-// File name and place of a `threedog shot` picture (shot.mjs): page, query and options joined with '_', only [\w,.-] kept.
+// File name and place of a `threedog shot` picture (shot.mjs): page, query and options joined with '_', only letters, digits and _,.- kept.
 // Never starts with '-' (or '.'): a name like "-grain-0_view-ref.png" reads as an option to every CLI it is handed to (picture compare, rm, git),
 // which is how a page with only query parameters (/?grain=0&view=ref) used to come out. The page part is 'main' when the path is just '/'.
 import { join, resolve } from 'node:path';
@@ -8,7 +8,7 @@ export function shotName(url, opt, wait) {
   const [path, query = ''] = url.split('?');
   const page = path.replace(/^\/+/, '').replace(/\.html$/, '') || 'main';
   return [page, query, opt.time && 't' + String(opt.time).replace(':', ''), opt.weather, opt.pos && 'pos' + opt.pos, opt.at && 'at-' + opt.at, opt.view && 'view-' + opt.view, 'w' + wait]
-    .filter(Boolean).join('_').replace(/[^\w,.-]+/g, '-').replace(/^[-.]+/, '') || 'main';
+    .filter(Boolean).join('_').replace(/[^\p{L}\p{N}_,.-]+/gu, '-').replace(/^[-.]+/, '') || 'main';
 }
 
 /**

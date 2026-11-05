@@ -1,8 +1,8 @@
 // UI part of the settings menu (tabs, redraw, click/slider events); Settings inherits it.
 import { formatValue, BUILTIN_SECTIONS, OPTIONAL_SECTIONS, settingsTools } from './sections.js';
 import { esc } from '../../ui/UI.js';
-import { codedError } from '../../core/errorHints.js';
-import { reportError } from '../../core/errors.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { reportError } from '../../core/base/errors.js';
 
 const CSS_ESC = s => (globalThis.CSS?.escape ? globalThis.CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&'));
 

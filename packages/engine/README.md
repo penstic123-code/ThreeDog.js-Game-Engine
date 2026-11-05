@@ -3,11 +3,11 @@
 A web 3D game engine on three.js 0.187: **core** (rendering, main loop, input, audio, saving, UI) -> **modules** (terrain, sky and weather, physics, characters, dialogue, inventory, quests... installed on demand); all art is the game's own (`picture/` folder, `assets.js`).
 
 ## Install
-This README describes threedog 0.7.1 (older releases on npm do not match it; upgrade steps are in `docs/MIGRATING-0.8.md`). To work on the engine itself, clone the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine), run `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
+This README describes threedog 0.8.0 (older releases do not match it; upgrade steps are in `docs/MIGRATING-0.8.md`). To work on the engine itself, clone the [repository](https://github.com/penstic123-code/Threedog.js-Game-Engine), run `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
 ```sh
-npm install threedog@0.7 three@~0.187.0
-npm install @threedog/terrain-noise@0.7      # optional: the noise terrain generator terrainPreset() (without one the ground is flat)
-npm install -D vite @threedog/tools@0.7      # optional: the vite preset and the threedog command line
+npm install threedog@0.8 three@~0.187.0
+npm install @threedog/terrain-noise@0.8      # optional: the noise terrain generator terrainPreset() (without one the ground is flat)
+npm install -D vite @threedog/tools@0.8      # optional: the vite preset and the threedog command line
 ```
 Then let it set up the folder: `npx threedog init` (flags: `--open-world` for generated ground, sky, follow camera and a player; the default is a blank scene with a camera and a gray starter picture in `picture/`) writes index.html, main.js, vite.config.js, content/, CLAUDE.md and `.mcp.json` (Claude Code then starts the threedog MCP server by itself), never overwriting a file you have. Finish with `npm install` (for what the new files need) and `npm run dev`.
 `three` is a peer dependency: your game and the engine share one copy. Types for three come with the engine (`@types/three`, same version), so `// @ts-check` JS and TypeScript both see real three.js types.

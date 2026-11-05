@@ -4,7 +4,7 @@
 //   -> owner (op.owner(args) names a world record whose owner must be this peer's actor) -> ops.run with source 'net' and the actor
 //      taken from the connection, never from the message.
 // Replies (op results) go out after the next state diff, so a client sees the new state before it hears "done".
-import { checkArgs } from '../../core/opsCheck.js';
+import { checkArgs } from '../../core/ops/opsCheck.js';
 import { partKeys, diffParts, snapshotParts } from './sync.js';
 
 const STEP = 1 / 60;

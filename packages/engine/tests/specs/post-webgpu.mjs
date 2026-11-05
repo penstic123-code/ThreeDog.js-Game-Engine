@@ -49,6 +49,8 @@ export const specs = [
         ['gl', 'gpu'].every(b => r.plainParam[b].ratio > 1.7 && r.plainParam[b].ratio < 2.2) && Math.abs(r.plainParam.gl.ratio - r.plainParam.gpu.ratio) < 0.1, JSON.stringify(r.plainParam));
       check("an effect with only create() (a three.js Pass) throws on WebGPU naming it, with the node: form and the post-effect code",
         r.onlyCreate.includes("post effect 'myCopy' has only create()") && r.onlyCreate.includes('node: (input, ctx)') && r.onlyCreate.includes('[post-effect]') && r.onlyCreateGone, r.onlyCreate);
+      check('a node() that throws in a rebuild leaves nothing added and the chain rebuilt: effects built, scene pass back to no extra buffers, picture drawn',
+        r.rollback.failed.includes('bad node') && r.rollback.gone && r.rollback.built && r.rollback.buffers === '' && r.rollback.lit, JSON.stringify(r.rollback));
       check('a GLSL-only fuse effect throws on WebGPU naming it, with the fuse.tsl form', r.glslFuse.includes("post effect 'tintGL'") && r.glslFuse.includes('fuse.tsl'), r.glslFuse);
       for (const b of ['gpu', 'gl'])
         check(`${b}: post.own() keeps the built chain through a chain change (writer manual:game); own(false) rebuilds it`,

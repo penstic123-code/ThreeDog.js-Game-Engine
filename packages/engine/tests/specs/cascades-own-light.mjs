@@ -17,7 +17,7 @@ export const specs = [
       const importers = ['core', 'render', 'modules', 'ui'].flatMap(d => sources(join(ENGINE, d)))
         .filter(f => /from 'three\/addons\/csm\/CSM(ShadowNode)?\.js'/.test(readFileSync(f, 'utf8'))).map(f => relative(ENGINE, f).replaceAll('\\', '/')).sort();
       check('[guard] one copy: only render/cascades.js and its WebGPU half build on three\'s cascades', importers.join() === 'render/cascades.js,render/cascades.tsl.js', importers.join());
-      const core = readFileSync(join(ENGINE, 'core/shadows.js'), 'utf8');
+      const core = readFileSync(join(ENGINE, 'render/shadows.js'), 'utf8');
       check('[guard] the core entry imports no module', !/from '[^']*modules\//.test(core));
 
       const r = await ev(() => {

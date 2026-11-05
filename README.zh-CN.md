@@ -106,13 +106,13 @@ engine.onRender(() => {
 
 ## 现状
 
-1.0 已经很近。npm 上是 0.7.0，`main` 比它新，这一页写的是 `main`，包括编辑器和 `engine.swarm`。1.0 之前名字还可能调整。
+1.0 已经很近。npm 上是 0.8.0，这一页写的就是它，包括编辑器和 `engine.swarm`。1.0 之前名字还可能调整。
 
 ThreeDog 运行在 Windows 和 Linux 的桌面浏览器上。Mac 支持在 1.0 之后。多人联机不是目标。
 
 ## 快速开始
 
-需要 [Node.js](https://nodejs.org) 20.19+ 或 22.12+。下面的步骤从 npm 安装 0.7.0：
+需要 [Node.js](https://nodejs.org) 20.19+ 或 22.12+。下面的步骤从 npm 安装 0.8.0：
 
 ```sh
 mkdir my-game && cd my-game
@@ -123,6 +123,8 @@ npx threedog init --open-world   # 地面、天空、跟随相机和玩家；不
 npm install                      # 安装新文件需要的依赖
 npm run dev                      # 打开它打印的地址
 ```
+
+文件夹名是 npm 不接受的字（比如中文）时，`npm init -y` 会报 "Invalid name"：跳过这一行，下一行会写出 `package.json`。
 
 不加 `--open-world` 时，游戏从一个空场景开始，只有相机和灰色的 `picture/` 文件夹。在这个文件夹里打开 Claude Code，它会自己找到引擎文档和 MCP 服务器，只在第一次问你是否信任服务器。然后让它做一个游戏，或者自己试试这些工具：
 
@@ -137,8 +139,8 @@ npx threedog play --stop                 # 关掉开发服务器
 想用 `main` 上的代码，就从仓库开始。这样新游戏直接链接引擎源码，在开发服务器上按 F2 打开编辑器：
 
 ```sh
-git clone https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git
-cd ThreeDog.js-Game-Engine
+git clone https://github.com/penstic123-code/Threedog.js-Game-Engine.git
+cd Threedog.js-Game-Engine
 npm install
 npm run new-game -- my-game --open-world
 npm run dev -- my-game

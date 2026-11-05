@@ -17,19 +17,15 @@ const URL = '/tests/perf/index.html?mode=world';
 export const specs = [
   {
     software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
-    name: "[guard] glsl only through one entry: sky({ clouds: { glsl } }) throws naming engine.sky.clouds(); water({ glsl }) names engine.water.shader",
+    name: "[guard] glsl only through one entry: sky({ clouds: { glsl } }) throws naming engine.sky.clouds()",
     url: URL,
     async run({ check, ev }) {
       const r = await ev(page(() => {
-        const { water } = threedogTest;
         const out = {};
         out.clouds = make({ clouds: { glsl: 'vec4 threedogClouds(vec3 d, float t, vec3 s, float n, vec3 l, vec3 sh, float c){ return vec4(l, 0.5); }' } }).error;
-        const mk = opts => { const e = bare(); try { e.use(water(opts)); return ''; } catch (x) { return x.message; } finally { e.dispose(); } };
-        out.waterOpt = mk({ glsl: { wave: 'float threedogWaterWave(vec3 p, float t){ return 0.0; }' } });
         return out;
       }));
       check('sky({ clouds: { glsl } }) throws naming engine.sky.clouds()', /sky\.clouds\(/.test(r.clouds || ''), r.clouds);
-      check('water({ glsl }) names engine.water.shader', /engine\.water\.shader/.test(r.waterOpt || ''), r.waterOpt);
     },
   },
   {

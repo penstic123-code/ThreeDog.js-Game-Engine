@@ -30,7 +30,7 @@ try {
   }, () => window.threedogBakeLightReady);
   const r = await page.evaluate(a => window.threedogBakeLight(a), { size, samples });
   if (r.gpu) console.log(`GPU: ${r.gpu}, backend ${r.backend}, browser ${browser.version()}`);
-  if (r.error) { console.error('✗ ' + r.error); for (const l of gpuErrors.slice(0, 3)) console.error('  ' + l); code = 1; } else {
+  if (r.error || gpuErrors.length) { console.error('✗ ' + (r.error ?? 'a GPU pipeline failed, so the bake cannot be trusted')); for (const l of gpuErrors.slice(0, 3)) console.error('  ' + l); code = 1; } else {
     const table = Buffer.from(JSON.stringify(r.meta)), head = Buffer.alloc(8);
     head.writeUInt32LE(0x4d4c4454, 0); head.writeUInt32LE(table.length, 4);
     const pad = Buffer.alloc(((8 + table.length + 7) & ~7) - 8 - table.length);   // engine.loadLightmap reads aligned views

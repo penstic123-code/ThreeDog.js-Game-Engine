@@ -8,7 +8,7 @@ export const specs = [
       await ev(() => __t.until(() => engine.nav.ready, 10000).catch(() => {}));   // the page's own navmesh first
       const r = await ev(async () => {
         engine.haltLoop();
-        const T = engine.THREE;
+        const T = __threedogThree;
         // a wall at x=0 splits the 40x40 ground in two, with a door in the middle: gap is the door width
         const make = gap => () => {
           const g = new T.Group(), floor = new T.Mesh(new T.BoxGeometry(40, 1, 40), new T.MeshBasicMaterial());
@@ -41,7 +41,7 @@ export const specs = [
       await ev(() => __t.until(() => engine.nav.ready, 10000).catch(() => {}));   // the page's own navmesh first
       const r = await ev(async () => {
         engine.haltLoop();
-        const T = engine.THREE;
+        const T = __threedogThree;
         engine.assets.manifest({ models: { 's1m-open': () => {
           const g = new T.Group(), floor = new T.Mesh(new T.BoxGeometry(40, 1, 40), new T.MeshBasicMaterial());
           floor.name = 'ground'; floor.position.y = -0.5; g.add(floor); return g;

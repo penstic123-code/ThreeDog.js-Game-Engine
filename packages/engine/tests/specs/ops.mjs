@@ -1,4 +1,4 @@
-// engine.ops: the one entry point for actions (core/Ops.js). Same format as the other files here.
+// engine.ops: the one entry point for actions (core/ops/Ops.js). Same format as the other files here.
 import { runScenario, pageDriver } from '@threedog/tools/scenario';
 export const specs = [
   {
@@ -59,7 +59,7 @@ export const specs = [
         const t = (k, f) => { try { f(); errs[k] = null; } catch (e) { errs[k] = e.message; } };
         const h = O.define('shop.buy', { args: { shop: 'string', item: 'string', n: 'int?' }, can: () => true, run: () => 1 });
         t('unknown', () => O.run('shop.by', { shop: 'a', item: 'b' }));
-        t('vector', () => O.run('shop.buy', { shop: 'a', item: 'b', n: new engine.THREE.Vector3() }));
+        t('vector', () => O.run('shop.buy', { shop: 'a', item: 'b', n: new __threedogThree.Vector3() }));
         t('missing', () => O.run('shop.buy', { shop: 'a' }));
         t('extra', () => O.run('shop.buy', { shop: 'a', item: 'b', itme: 1 }));
         t('wrong', () => O.run('shop.buy', { shop: 'a', item: 'b', n: 1.5 }));

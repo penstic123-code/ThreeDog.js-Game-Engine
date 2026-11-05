@@ -10,10 +10,11 @@
 //   - Public functions, classes and constants get JSDoc (description + @param / @returns / @type).
 //   - To reference a hand-written type: /** @import { Engine } from '../types/core' */ at the top of the file (path relative to the source file; it is rewritten here relative to the generated file).
 //   - Things a file exports that are not public API (only used by other engine files) get @internal; generation strips them (stripInternal), so they do not leak into the docs.
-import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync, readdirSync, statSync } from 'node:fs';
-import { join, dirname, relative, resolve, sep } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { dirname, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 import * as P from './paths.mjs';
+import { walk } from './lib/text.mjs';
 
 const CHECK = !!P.cli(process.argv.slice(2), { workspace: false, flags: ['check'] }).opt.check;
 const ENGINE = P.ENGINE, GEN = P.abs(P.TYPES_GEN_REL);
@@ -102,11 +103,7 @@ function stripInternal(text) {
 
 // Compare / write
 const files = [...out.keys()].sort();
-const existing = [];
-(function walk(d) {
-  if (!existsSync(d)) return;
-  for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) walk(p); else existing.push(resolve(p)); }
-})(GEN);
+const existing = walk(GEN, { exts: /./, unscoped: true }).map(p => resolve(p));
 
 if (problems.length) { console.log(problems.map(s => '  ✗ ' + s).join('\n')); console.log(`\n✗ ${problems.length} problems while generating declarations`); process.exit(1); }
 if (!files.length) { console.log('✗ no declarations generated (is MIGRATED_JS_REL empty?)'); process.exit(1); }

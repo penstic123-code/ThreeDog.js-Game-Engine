@@ -1,11 +1,11 @@
 // Internal half of World (World.js copies these onto World.prototype; a mixin, not a base class, so the generated World.d.ts needs no import of this file): state tables, the hooks the engine calls, and the helpers other world files use.
 // Split by responsibility: World.js keeps the public API and its documentation; nothing here is public.
-import { DEV, fmt } from '../../core/validate.js';
+import { DEV, fmt } from '../../core/base/validate.js';
 import { STRINGS as RECORD_STRINGS, restRecord, orphanIds } from './records.js';
 import { saveWorld, loadWorld, renamePending, isPlain } from './persist.js';
-import { Cells } from '../../core/cells.js';
+import { Cells } from '../../core/stream/cells.js';
 import { centerOf } from './pos.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 export function initState(w, cellSize) {
   /** @internal */ w._anchor = null;

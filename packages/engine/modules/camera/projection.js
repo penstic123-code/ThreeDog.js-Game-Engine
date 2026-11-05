@@ -1,5 +1,5 @@
-import { codedError } from '../../core/errorHints.js';
-// Orthographic projection for engine.camera, without replacing the camera object: engine.camera is an EngineCamera (core/engineCamera.js), whose
+import { codedError } from '../../core/base/errorHints.js';
+// Orthographic projection for engine.camera, without replacing the camera object: engine.camera is an EngineCamera (core/scene/engineCamera.js), whose
 // own updateProjectionMatrix draws orthographic while orthoSize is set. Nothing is patched on the instance; describe().camera.projection reports it.
 
 /**

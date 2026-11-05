@@ -7,7 +7,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.haltLoop();
-        const T = engine.THREE;
+        const T = __threedogThree;
         engine.assets.manifest({ models: { 's1-level2': () => {
           const g = new T.Group(), floor = new T.Mesh(new T.BoxGeometry(40, 1, 40), new T.MeshBasicMaterial());
           floor.name = 'ground'; floor.position.y = -0.5; g.add(floor); return g;
@@ -78,7 +78,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.haltLoop();
-        const T = engine.THREE, A = engine.assets;
+        const T = __threedogThree, A = engine.assets;
         // a small model that generates fast (under 20 ms in dev; also guards against the "fast generation returns undefined" regression)
         A.manifest({ models: { 's1-box': () => { const g = new T.Group(); g.add(new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial())); return g; } } });
         const a = engine.add(await A.model('s1-box')), b = engine.add(await A.model('s1-box'));

@@ -7,7 +7,7 @@ export function buildNpcView(m, rec) {
   const e = m.engine, { interactLabel, ...rt } = m._runtime.get(rec.id) || {};
   // id: engine.mod('move.speed', { id }) and time.local use the NPC's record id, the same id the game knows it by
   const ch = new Character(e, { ...rec.look, ...rt, speed: rec.speed, id: rec.id });
-  ch.npcModel = true;   // the model of a world NPC: disposing it (the NPC went far) keeps the NPC's control slot (core/control.js)
+  ch.npcModel = true;   // the model of a world NPC: disposing it (the NPC went far) keeps the NPC's control slot (core/ops/control.js)
   ch.placeAt(rec.position);
   ch.loadMotion(rec.motion); ch.state = ch._stateMark = rec.state;
   let use = null;
@@ -31,6 +31,7 @@ export function unbuildNpcView(m, rec, obj) {
   if (!v) { e.remove(obj); return; }
   const { ch, use } = v;
   use?.remove();
+  ch._pathReq?.remove();   // an answer for this model would write a path from where it stood into the record, after far moved it on
   if (ch._agent && ch._navVersion === e.nav?.version) e.nav.crowd?.removeAgent(ch._agent);
   const model = rec && m._runtime.get(rec.id)?.model;
   if (model && model.parent === ch.root) ch.root.remove(model);

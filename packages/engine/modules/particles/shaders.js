@@ -8,7 +8,8 @@ export const vert = `
     vAlpha = aAlpha; vAngle = aAngle; vColor = aColor;
     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
     gl_Position = projectionMatrix * mvPosition;
-    gl_PointSize = aAlpha <= 0.0 ? 0.0 : min(aSize * uScale / max(0.1, -mvPosition.z), uMaxPx);   // capped: no screen-filling sprites near the camera
+    // uScale is pixels per meter at distance 1, or just pixels per meter on an orthographic camera (no shrink with distance); capped: no screen-filling sprites near the camera
+    gl_PointSize = aAlpha <= 0.0 ? 0.0 : min(aSize * uScale / (isOrthographic ? 1.0 : max(0.1, -mvPosition.z)), uMaxPx);
     #include <fog_vertex>
   }`;
 export const frag = `

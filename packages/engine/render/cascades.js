@@ -1,5 +1,5 @@
 // Cascaded shadows of one DirectionalLight: 2-4 maps along the view (three's CSM addon), sharp near the camera, wide far away. The one copy of this
-// engineering: engine.shadows.cascades(light) (core/shadows.js) builds them here, one set per engine (one 'csm' patch per material, and the cascade order
+// engineering: engine.shadows.cascades(light) (render/shadows.js) builds them here, one set per engine (one 'csm' patch per material, and the cascade order
 // is the order of the shadow-casting lights).
 // Design choices, each one because the addon used as-is would break something:
 // - The light handed in stays in charge and is the nearest cascade, so whoever writes it keeps its color / intensity / direction.
@@ -9,7 +9,7 @@
 // - The chunk swap is per material (the patch replaces <lights_fragment_begin>): CSM's constructor overwrites ShaderChunk globally and
 //   never restores it, which would reach every material and every engine on the page; here _injectInclude does nothing.
 // - Every lit material in the scene must carry the patch: without it the cascade lights would add up (N times the sunlight). So while
-//   cascades are on, each frame visits only what entered the scene since the last one (core/sceneDelta.js: an add at any depth, or
+//   cascades are on, each frame visits only what entered the scene since the last one (core/scene/sceneDelta.js: an add at any depth, or
 //   mesh.material = x) and patches lit materials it has not seen (one Map lookup per mesh); the whole scene is walked once, when they turn on.
 // - Which materials (user decision 4, option A, 2026-11-02): every BUILT-IN lit type, the game's own `new` materials too. This is the one named
 //   exception to "the engine does not change what it did not create": unpatched, a lit material is lit by every cascade light (N times as
@@ -24,9 +24,10 @@ import { CSM } from 'three/addons/csm/CSM.js';
 import { CSMShader } from 'three/addons/csm/CSMShader.js';
 import { patchMaterial, unpatchMaterial, isEngineMade } from './patches.js';
 
-import { warnOnce } from '../core/validate.js';
-import { sceneVisitor } from '../core/sceneDelta.js';
-import { codedError } from '../core/errorHints.js';
+import { warnOnce } from '../core/base/validate.js';
+import { sceneVisitor } from '../core/scene/sceneDelta.js';
+import { engineOwned } from '../core/scene/things.js';
+import { codedError } from '../core/base/errorHints.js';
 import { setShadowUpdate, shadowUpdatePending, shadowsOn, isWebGPU, webgpuPart, projectionKey } from './backend.js';
 
 export const CASCADE_SPLITS = ['practical', 'uniform', 'logarithmic'];
@@ -34,6 +35,7 @@ export const CASCADE_SPLITS = ['practical', 'uniform', 'logarithmic'];
 export const CASCADE_DEFAULTS = { maxFar: 120, fade: true, lightMargin: 100, split: 'practical' };
 
 const LIT = new Set(['MeshLambertMaterial', 'MeshPhongMaterial', 'MeshStandardMaterial', 'MeshPhysicalMaterial', 'MeshToonMaterial']);
+const _cam = new THREE.Vector3();
 const litShader = m => m.isShaderMaterial && m.lights && m.fragmentShader.includes('#include <lights_fragment_begin>');
 /** ShaderMaterials the game opted in with engine.shadows.include(mat), per engine */
 const optedIn = e => e._csmInclude ??= new WeakSet();
@@ -66,11 +68,13 @@ class LightCSM extends CSM {
   /** @param {any} e @param {any} light @param {{ cascades: number, maxFar: number, fade: boolean, lightMargin: number, split: any }} S */
   constructor(e, light, S) {
     const custom = typeof S.split === 'function';
-    super({ camera: e.camera, parent: e.scene, cascades: S.cascades, maxFar: S.maxFar, mode: custom ? 'custom' : S.split, customSplitsCallback: custom ? S.split : undefined,
+    // parent: a Group, not the scene. three's constructor adds its lights itself, and a plain scene.add counts them as the game's (describe().scene, the "lights add up" warning)
+    super({ camera: e.camera, parent: new THREE.Group(), cascades: S.cascades, maxFar: S.maxFar, mode: custom ? 'custom' : S.split, customSplitsCallback: custom ? S.split : undefined,
       shadowMapSize: light.shadow.mapSize.x, shadowBias: light.shadow.bias, lightMargin: S.lightMargin, lightNear: 1, lightFar: S.lightMargin + 2 * S.maxFar });
-    const first = this.lights[0];
-    this.parent.remove(first, first.target); first.dispose();
+    this.parent = e.scene;
+    this.lights[0].dispose();
     this.lights[0] = light;
+    for (const l of this.lights) if (l !== light) { engineOwned('shadows', l, l.target); e.scene.add(l, l.target); }
     // uniforms shared by every patched material: one write here reaches all of them
     this.uniforms = { CSM_cascades: { value: [] }, cameraNear: { value: 0 }, shadowFar: { value: 0 } };
     this.fade = S.fade;
@@ -152,10 +156,11 @@ class LightCSM extends CSM {
     const show = light.visible && light.castShadow && !!light.parent && shadowsOn(e);
     for (const l of this.lights) if (l !== light) { l.color.copy(light.color); l.intensity = light.intensity; l.visible = show; }
     cam.updateMatrixWorld();
+    _cam.setFromMatrixPosition(cam.matrixWorld);   // world: a camera on a rig keeps a small local position while it travels
     // not updating every frame: also place early when the camera left a quarter of the nearest cascade (teleport, fast travel)
     const near = this.breaks[0] * Math.min(cam.far, this.maxFar);
-    if (updateEvery <= 1 || shadowUpdatePending(e.renderer, e.scene) || force || this.at.distanceToSquared(cam.position) > (near / 4) ** 2) {
-      this.update(); this.at.copy(cam.position);
+    if (updateEvery <= 1 || shadowUpdatePending(e.renderer, e.scene) || force || this.at.distanceToSquared(_cam) > (near / 4) ** 2) {
+      this.update(); this.at.copy(_cam);
       if (updateEvery > 1) setShadowUpdate(e.renderer, e.scene, { now: true });
     }
   }

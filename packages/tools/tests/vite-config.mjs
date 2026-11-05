@@ -16,6 +16,14 @@ export async function run({ check }) {
     writeFileSync(join(dir, 'main.js'), 'new Worker(new URL("./w.js", import.meta.url), { type: "module" }); console.log("main");\n');
     writeFileSync(join(dir, 'w.js'), 'export const w = 1;\n');
     check('no config file: ownViteConfig is null', ownViteConfig(dir) === null);
+    // [guard] a plugin passed in replaced all of the preset's, and main.html took index.html's place in the build
+    const { gameConfig } = await import('../vite/gameConfig.js');
+    const mine = { name: 'mine' }, cfg = gameConfig(dir, { plugins: [mine], build: { sourcemap: true } }), names = cfg.plugins.flat().map(p => p.name);
+    check('[guard] gameConfig(dir, { plugins }) adds to the threedog plugins, and a build option leaves the rest of build', names.includes('mine') && names.includes('threedog-editor') && cfg.build.sourcemap === true && cfg.worker.format === 'es' && !!cfg.build.rollupOptions.input.main, names.join());
+    writeFileSync(join(dir, 'main.html'), '<!doctype html>\n');
+    const input = gameConfig(dir).build.rollupOptions.input;
+    rmSync(join(dir, 'main.html'));
+    check('[guard] index.html and main.html are two pages of the build', Object.keys(input).length === 2 && input.main.endsWith('main.html') && input.index.endsWith('index.html'), JSON.stringify(input));
     const o = await viteOptions(dir, { logLevel: 'error' });
     check('no config file: the preset, rooted at the game folder (not the process cwd), Workers as ES modules', o.configFile === false && o.root === dir && o.worker?.format === 'es' && o.logLevel === 'error', JSON.stringify({ configFile: o.configFile, root: o.root, worker: o.worker }));
     const { build } = await import('vite');

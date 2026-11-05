@@ -15,10 +15,10 @@ Dialogue (dialogue() module). Ops: `dialogue.advance` (finish typing the line, e
 - `dialogue.end()` — End the main dialogue
 - Properties:
   - `state: DialogueState` Story state: state.flags is engine.vars.flags (autosaved)
-  - `scripts: Map<string, DialogueScript>` All scripts
+  - `scripts: Map<string, DialogueScript>` (experimental) All scripts
   - `active: { speaker, nodes, node?, id?, onEnd } | null` The dialogue in progress (null when none). speaker: the script name; node: the current node OBJECT (its fields: text, choices, data...); id: that node's id string ('start', 'ask'); both are set once the first line shows. Read-only: drive it with start / end / the dialogue ops. Example: `const atAsk = engine.dialogue.active?.id === 'ask';   // the node id; active.node.data holds the node's own fields`
-  - `speaking: string | null` The script the main dialogue is playing
-  - `charsPerSecond: number` Typing speed (characters/second)
+  - `speaking: string | null` (experimental) The script the main dialogue is playing
+  - `charsPerSecond: number` (experimental) Typing speed (characters/second)
 
 ## Data structures
 - **DialogueScript** = `Record<string, DialogueNode>` — Dialogue script: node name -> node, starting from 'start'

@@ -9,6 +9,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cli, rel, viteOptions } from './paths.mjs';
+import { intOption } from './lib/cli-args.mjs';
 import { headlessUrl } from './lib/page-url.mjs';
 import { parseGalleryOptions, fileStems, escapeHtml as esc } from './gallery/index.js';
 
@@ -16,6 +17,7 @@ import { parseGalleryOptions, fileStems, escapeHtml as esc } from './gallery/ind
 const { dir, opt } = cli(process.argv.slice(2), { flags: ['shots', 'gpu', 'software'], values: ['port', 'size', 'only', 'mode'] });
 let modes;
 try { modes = parseGalleryOptions(opt); } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
+if (opt.shots) process.env.THREEDOG_TEST = '1';   // before the server: the vite preset reads it, and a run for pictures must not rewrite GAMEMAP.md
 const { createServer } = await import('vite');
 const server = await createServer(await viteOptions(dir, { logLevel: 'error',
   server: { port: opt.port ? +opt.port : opt.shots ? 0 : 5181, host: '127.0.0.1', strictPort: false, open: false } }));
@@ -24,19 +26,20 @@ const base = (server.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${server.http
 if (!opt.shots) {
   console.log(`Asset gallery: ${base}/?gallery=1   (${rel(dir)}; save an art module and the gallery and game update in place; Ctrl+C stops)`);
 } else {
-  process.env.THREEDOG_TEST = '1';
   const { launchBrowser, newGamePage } = await import('./browser.mjs');
   const { waitEngine } = await import('./wait-engine.mjs');
   const browser = await launchBrowser({ prefer: 'gpu' }), errors = [], out = join(dir, '.threedog', 'gallery');
   let code = 0;
   try {
     const page = await newGamePage(browser, { errors });
-    // desktop tier like shot (core/tier.js): the headless browser would be detected low and the turntables would lack the game's post
+    // desktop tier like shot (core/scene/tier.js): the headless browser would be detected low and the turntables would lack the game's post
     await page.goto(base + headlessUrl('/', { 'threedog-tier': 'high', cutscene: 'skip', gallery: '1' }));
     await waitEngine(page, { timeout: 120000, errors, dir });
     await page.waitForFunction(() => !!globalThis.threedogGallery, null, { timeout: 30000 });
-    const size = opt.size ? +opt.size : 256, only = typeof opt.only === 'string' ? opt.only.split(',') : null;
+    const size = intOption(opt, 'size') ?? 256, only = typeof opt.only === 'string' ? opt.only.split(',') : null;
     const list = await page.evaluate(o => globalThis.threedogGallery.shots(o), { size, only, modes });
+    const typo = only?.filter(n => !list.some(s => s.name === n)) ?? [];
+    if (typo.length) throw new Error(`--only: no asset named ${typo.join(', ')}`);
     mkdirSync(out, { recursive: true });
     const rows = [], stems = fileStems(list.map(s => s.name));
     for (const s of list) {

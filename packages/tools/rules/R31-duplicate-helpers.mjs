@@ -6,7 +6,7 @@ import { engineFiles, lines, P } from './_lib.mjs';
 
 // [file under packages/engine, helper name, reason]
 const ALLOW = [
-  ['core/threadPure.js', 'fmt', 'worker code: threadPure.js stays import-free'],
+  ['core/threads/threadPure.js', 'fmt', 'worker code: threadPure.js stays import-free'],
 ];
 const HELPER = /^const (\w+) = (\([^)]*\)|\w+) => (.+);\s*(\/\/.*)?$/;
 

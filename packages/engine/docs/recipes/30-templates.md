@@ -58,7 +58,7 @@ turret: { model: 'turret', state: { ammo: 30 }, fields: { ammo: { min: 0, max: 9
 ```
 `npm run check` then reports a placement with `stage: 9`, `sort: 'rice'` or a misspelled `stagee` (with the closest name), and dev `engine.content.spawn`
 throws on the same mistakes. `engine.content.fields('crop')` returns the whole table (placement fields plus state fields, with each state default),
-in the `core/params.js` format; `fields('props')`, `fields('pickups')`, `fields('views')` and `fields('props.grid')` give the engine's own placement
+in the `core/base/params.js` format; `fields('props')`, `fields('pickups')`, `fields('views')` and `fields('props.grid')` give the engine's own placement
 fields, and a game kind in `content/rules.js` can declare `fields` the same way. A state field may not be named `id`, `kind` or `position`: those
 are the record's own.
 
@@ -123,7 +123,7 @@ export default {
   },
 };
 ```
-- `duration` is game seconds (`engine.clock.now`) spent in a stage; only the last stage may leave it out (it stays there). `scale` multiplies the
+- `duration` is calendar seconds (`engine.clock.now`) spent in a stage; only the last stage may leave it out (it stays there). `scale` multiplies the
   instance's scale; `model` is a model name shown from that stage on. Stages are data: content-check validates them with the engine's own rules.
 - Each instance gets the state field `stage` (default 0, an int 0..n-1, so a placement may write `{ template: 'crop', stage: 2 }` and
   `content.fields('crop').stage` describes it) and `stageAt`, the clock time it entered. Both are on the world record and saved like any other field.

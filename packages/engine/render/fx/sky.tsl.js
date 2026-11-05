@@ -14,7 +14,7 @@ import { MeshBasicNodeMaterial, BackSide } from 'three/webgpu';
 import { noise } from './noise.tsl.js';
 import * as FX from './library.tsl.js';
 import { uniforms as engineUniforms, valueNode } from './uniforms.tsl.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { registerWebGPUPart } from '../backend.js';
 import { SKY as K } from '../fxNumbers.js';
 

@@ -58,201 +58,96 @@
 // Event: level:loaded { root, markers, spawn }
 // Picture: the level module draws nothing itself, the scene looks entirely like your model, so it does not read the style.
 import * as THREE from 'three';
-import { buildHeightfield } from './heightfield.js';
-import { toast } from '../../ui/UI.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { MARKER_RE, levelNodes } from './nodes.js';
-import { worldTrimeshes, colliderBoxes } from './geometry.js';
-import { warnOnce } from '../../core/validate.js';
-import { coded } from '../../core/errorHints.js';
-import { reportError } from '../../core/errors.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { levelNodes } from './nodes.js';
+import { worldTrimeshes } from './geometry.js';
+import { loadLevel, finishLoad, processScene } from './load.js';
+import { warnOnce } from '../../core/base/validate.js';
+import { coded } from '../../core/base/errorHints.js';
 
 const STRINGS = {
   'zh-CN': { 'module.level': '关卡', 'level.loadFailed': '关卡加载失败：{url}', 'level.noScene': '关卡模块需要 url 或 scene 参数' },
   en: { 'module.level': 'level', 'level.loadFailed': 'Failed to load level: {url}', 'level.noScene': 'The level module needs a url or scene option' },
 };
 
-const WALK_RE = /ground|floor|road|terrain|stairs?|ramp/i;
-const COL_RE = /^col_/i;
-
-// a name or userData on the node itself or any ancestor counts (in glTF meshes often hang under a same-named empty)
-function chainHas(o, root, test) {
-  for (let p = o; p; p = p.parent) { if (test(p)) return true; if (p === root) break; }
-  return false;
-}
-function chainValue(o, root, key) {
-  for (let p = o; p; p = p.parent) { if (p.userData?.[key] != null) return p.userData[key]; if (p === root) break; }
-  return undefined;
-}
-
 const LEVEL_PARAMS = keysSchema(['url', 'scene', 'walkable', 'colliders', 'cellSize', 'outside', 'waterLevel', 'colliderPad', 'colliderHeight', 'sharpEdge', 'hideMarkers', 'addToScene']);
+
+/** The object behind engine.level; st is the module's state (level() below). load and unload go through api, so a wrapped one (engine.wrap) is the one that runs */
+function levelApi(st) {
+  const api = {
+    root: null, markers: {}, spawn: new THREE.Vector3(), heightfield: null,
+    get ready() { return st.done; },
+    /** Register things belonging to the current level ({ remove() } handles); auto-removed on level switch / unload; returns the same handle */
+    track(h) { if (h) st.removers.push(h); return h; },
+    marker: name => api.markers[name] || null,
+    markersWith: prefix => Object.values(api.markers).filter(m => m.name.startsWith(prefix)),
+    /** @internal Triangles of walkable meshes (world space), [{ positions: Float32Array, indices: Uint32Array }], cached */
+    staticTrimeshes() {
+      if (st.trimeshCache) return st.trimeshCache;
+      st.trimeshCache = worldTrimeshes(st.walkMeshes);
+      return st.trimeshCache;
+    },
+    /** Unload the level: remove from scene, delete colliders, ground reverts to the outside height */
+    unload() {
+      for (const h of st.removers.splice(0)) h.remove();
+      if (api.root && st.o.addToScene) st.e.remove(api.root);   // full removal (geometries and materials shared by assets are not disposed)
+      st.walkMeshes.length = 0; st.hf = api.heightfield = null; st.pendingColliders = null; st.trimeshCache = null; api.markers = {}; api.root = null; st.current = null; st.version++; st.loadGen++;
+      st.done = true;   // nothing is loading now: a file still on its way is dropped, and no finishLoad would ever come for it (load sets it back)
+    },
+    /** Switch level: unload the current one, load a new one (glTF path/asset name, or THREE object), emit level:loaded when done */
+    async load(urlOrScene) { return loadLevel(st, urlOrScene, false); },
+  };
+  return api;
+}
 
 export function level(opts = {}) {
   readParams('level', LEVEL_PARAMS, opts);
   const { url = null, scene = null, walkable = null, colliders = 'named', cellSize = 0.5, outside = 0, waterLevel = -Infinity,
     colliderPad = 0, colliderHeight = 0, sharpEdge = 0.6, hideMarkers = true, addToScene = true } = opts;
-  let e = null, hf = null, done = false, version = 0, trimeshCache = null, pendingColliders = null;
-  let loadGen = 0;   // +1 per load / unload: a file that arrives after a newer load or unload started is dropped, not processed on top of it
-  let current = typeof url === 'string' && !scene ? url : null;   // current level path/asset name (for saving)
-  const walkMeshes = [], removers = [];
-  let nodeSet = null;   // level nodes that become world records (nodes.js), created at install
-
-  const api = {
-    root: null, markers: {}, spawn: new THREE.Vector3(), heightfield: null,
-    get ready() { return done; },
-    /** Register things belonging to the current level ({ remove() } handles); auto-removed on level switch / unload; returns the same handle */
-    track(h) { if (h) removers.push(h); return h; },
-    marker: name => api.markers[name] || null,
-    markersWith: prefix => Object.values(api.markers).filter(m => m.name.startsWith(prefix)),
-    /** @internal Triangles of walkable meshes (world space), [{ positions: Float32Array, indices: Uint32Array }], cached */
-    staticTrimeshes() {
-      if (trimeshCache) return trimeshCache;
-      trimeshCache = worldTrimeshes(walkMeshes);
-      return trimeshCache;
-    },
-    /** Unload the level: remove from scene, delete colliders, ground reverts to the outside height */
-    unload() {
-      for (const h of removers.splice(0)) h.remove();
-      if (api.root && addToScene) e.remove(api.root);   // full removal (geometries and materials shared by assets are not disposed)
-      walkMeshes.length = 0; hf = null; trimeshCache = null; api.markers = {}; api.root = null; current = null; version++; loadGen++;
-    },
-    /** Switch level: unload the current one, load a new one (glTF path/asset name, or THREE object), emit level:loaded when done */
-    async load(urlOrScene) { return loadLevel(urlOrScene, false); },
+  const st = {
+    e: null, hf: null, done: false, version: 0, trimeshCache: null, pendingColliders: null,
+    o: { walkable, colliders, cellSize, outside, colliderPad, colliderHeight, sharpEdge, hideMarkers, addToScene },
+    loadGen: 0,   // +1 per load / unload: a file that arrives after a newer load or unload started is dropped, not processed on top of it
+    current: typeof url === 'string' && !scene ? url : null,   // current level path/asset name (for saving)
+    walkMeshes: [], removers: [],
+    nodeSet: null,   // level nodes that become world records (nodes.js), created at install
   };
-
-  /** hard: the first load from init() (the module is critical, so a missing level file must stop start() instead of opening an empty world);
-   *  a switch while playing or a save load stays soft (reported + toast) so the running game is not torn down by one bad path */
-  async function loadLevel(urlOrScene, hard) {
-    api.unload(); done = false;
-    e.commits.invalidate();   // background results requested for the old level must not land on the new one
-    // world-data zone = level name: other levels' NPCs etc. only lose models, data stays and is rebuilt on return (code-built scenes have no name, record
-    // null, no zoning)
-    if (e.world) e.world.zone = typeof urlOrScene === 'string' ? urlOrScene : null;
-    if (typeof urlOrScene === 'string') {
-      current = urlOrScene;   // set before process(): level nodes read it as their zone
-      const gen = loadGen;
-      try {
-        const scene = await e.assets.model(urlOrScene);
-        // a newer load / unload started while this file loaded (two doors in a row, a save loaded mid-switch): that one owns the level now;
-        // processing this one too would put both levels in the scene under the newer level's name
-        if (gen !== loadGen || e.disposed) { e.remove(scene); return; }   // e.remove releases the copy (assets.trim can free the file)
-        process(scene);
-      } catch (err) {
-        if (gen !== loadGen || e.disposed) return;   // superseded: the newer load reports its own outcome
-        current = null;   // the save must not name a level that never loaded
-        if (hard) throw err;
-        reportError(e, err, `level.load('${urlOrScene}')`, { soft: true }); toast(e, e.t('level.loadFailed', { url: urlOrScene }), { kind: 'error' });
-      }
-    } else process(urlOrScene);
-    loaded();
-  }
-
-  function loaded() {
-    addColliders();                    // if the collision module is installed after level, add colliders here
-    // nodes tagged template / id become world records (loading is setup, not a gameplay action) before anyone (hlod...) sees level:loaded
-    e.ops.allow(nodeSet.place);
-    done = true;
-    e.assets.trim();                   // old level's models have no copies in use: return GPU memory
-    e.events.emit('level:loaded', { root: api.root, markers: api.markers, spawn: api.spawn });
-  }
-
-  /** Process a scene: classify meshes, build the heightfield, record markers. Colliders wait for the collision module (may not be installed at install time) */
-  function process(root) {
-    api.root = root;
-    root.userData.budgetTag ??= 'level';
-    if (addToScene && !root.parent) e.add(root, { owner: 'level' });
-    root.updateMatrixWorld(true);
-    nodeSet.take(root);   // record nodes leave the level root first: no ground, collision or ray registration for them, and hlod never bakes them
-    const meshes = [], cols = [], markerObjs = [];
-    root.traverse(o => {
-      if (MARKER_RE.test(o.name)) { markerObjs.push(o); return; }
-      if (!o.isMesh) return;
-      // placeholder models under a marker
-      if (o.parent && chainHas(o.parent, root, p => MARKER_RE.test(p.name))) { if (hideMarkers) o.visible = false; return; }
-      if (chainHas(o, root, p => COL_RE.test(p.name))) { cols.push(o); o.visible = false; return; }
-      meshes.push(o);
-    });
-    // walkable meshes
-    const isWalk = walkable || (m => chainHas(m, root, p => p.userData?.walkable === true || WALK_RE.test(p.name)));
-    let walk = meshes.filter(m => chainValue(m, root, 'walkable') !== false && isWalk(m));
-    if (!walkable && !walk.length) walk = meshes.filter(m => chainValue(m, root, 'walkable') !== false);
-    walkMeshes.push(...walk);
-    const walkSet = new Set(walk);
-    for (const m of meshes) {
-      if (walkSet.has(m)) continue;
-      if (chainValue(m, root, 'collider')) cols.push(m);
-      else if (colliders === 'auto') { const b = new THREE.Box3().setFromObject(m); if (b.max.y - b.min.y > 0.5) cols.push(m); }
-    }
-    // heightfield
-    const typeOf = (m, mi) => {
-      const t = chainValue(m, root, 'groundType'); if (t != null) return String(t);
-      const mat = Array.isArray(m.material) ? m.material[mi] : m.material;
-      return mat?.name || 'default';
-    };
-    const t0 = performance.now();   // measure
-    hf = api.heightfield = buildHeightfield(walk, { cellSize, outside, typeOf, sharpEdge, stepUp: e.movement.stepHeight, layerGap: e.movement.height });
-    api.buildMs = performance.now() - t0;   // measure: heightfield build time (shown in the debug panel)
-    // markers
-    const markers = api.markers = {};
-    for (const o of markerObjs) {
-      const position = new THREE.Vector3(), quaternion = new THREE.Quaternion(), scale = new THREE.Vector3();
-      o.matrixWorld.decompose(position, quaternion, scale);
-      markers[o.name] = { name: o.name, position, quaternion, scale, userData: { ...o.userData }, object: o };
-      if (hideMarkers && o.isMesh) o.visible = false;
-    }
-    const sp = markers.spawn || Object.values(markers).find(m => /^spawn_/i.test(m.name));
-    api.spawn = sp ? sp.position.clone() : new THREE.Vector3(0, hf.height(0, 0), 0);
-    pendingColliders = colliders === false ? cols.filter(m => COL_RE.test(m.name) || chainValue(m, root, 'collider')) : cols;
-    // rays: all meshes; collision meshes and shown non-walkable meshes also occlude the camera, unless a node says userData.occluder = false (a glass roof, a thin railing).
-    // col_ meshes are hidden by design and still block; any other hidden mesh is not on screen, so the arm has nothing to avoid
-    const blocks = m => chainValue(m, root, 'occluder') !== false, shownHere = m => !chainHas(m, root, p => !p.visible);
-    removers.push(e.rays.addStatic(root), e.rays.addStatic([...cols.filter(blocks), ...meshes.filter(m => !walkSet.has(m) && shownHere(m) && blocks(m))], { occluder: true }));
-    trimeshCache = null; version++;
-    addColliders();
-  }
-
-  /** Turn collision meshes into rotated boxes in the collision module (best-fit box by the mesh's world orientation) */
-  function addColliders() {
-    const ph = e.collision;
-    if (!ph || !pendingColliders) return;
-    for (const b of colliderBoxes(pendingColliders, { colliderHeight, colliderPad })) removers.push(ph.addBox(b.at, b.opts));
-    pendingColliders = null;
-  }
+  const api = st.api = levelApi(st);
 
   return {
-    name: 'level', type: 'world', provides: ['level'], params: LEVEL_PARAMS, options: opts, label: 'Level', stage: 'ground', after: ['terrain'], optional: ['world', 'content'],
+    name: 'level', type: 'world', provides: ['level'], params: LEVEL_PARAMS, options: opts, label: 'Level', stage: 'ground', after: ['terrain'], optional: ['world', 'content', 'collision'],
     install(engine) {
-      e = engine;
-      nodeSet = levelNodes(e, () => api.root, () => current);
+      const e = st.e = engine;
+      st.nodeSet = levelNodes(e, () => api.root, () => st.current);
       e.i18n.add(STRINGS);
       // ground API: before the heightfield is built, return the outside height
       e.setGround({
-        height: (x, z, refY) => hf ? hf.height(x, z, refY) : outside,
-        slope: (x, z) => hf ? hf.slope(x, z) : 0,
-        type: (x, z) => hf ? hf.type(x, z) : 'default',
+        height: (x, z, refY) => st.hf ? st.hf.height(x, z, refY) : outside,
+        slope: (x, z) => st.hf ? st.hf.slope(x, z) : 0,
+        type: (x, z) => st.hf ? st.hf.type(x, z) : 'default',
         waterLevel,
         staticTrimeshes: () => api.staticTrimeshes(),
-        staticVersion: () => version,          // +1 on level change; the physics module rebuilds static colliders on it
+        staticVersion: () => st.version,          // +1 on level change; the physics module rebuilds static colliders on it
       });
-      if (scene) process(scene);
+      if (scene) processScene(st, scene);
       // on load, switch back to the saved level (code-built scenes have no name, record null, no switch)
       // load returns a Promise: the save system waits for the new level (old level's trigger zones are already removed by unload) before reading player
       // position etc.
-      e.saves.register('level', { first: true, save: () => current, load: d => { if (typeof d === 'string' && d !== current) return api.load(d); } });
+      e.saves.register('level', { first: true, save: () => st.current, load: d => { if (typeof d === 'string' && d !== st.current) return api.load(d); } });
       return api;
     },
     critical: true,   // the level file is the game's world: a failed load stops start() with the reason
     async init(engine) {
-      if (scene) return loaded();
-      if (url) return loadLevel(url, true);
+      if (scene) return finishLoad(st);
+      if (url) return loadLevel(st, url, true);
       warnOnce(coded('level-node', engine.t('level.noScene')));
-      loaded();
+      finishLoad(st);
     },
-    isReady() { return done; },
+    isReady() { return st.done; },
     // which level is up and what it gave: a wrong path shows as file set but markers 0 / walk 0, a code-built scene as file null
     describe() {
       const s = api.spawn, r = v => Math.round(v * 10) / 10;
-      return { file: current, ready: done, markers: Object.keys(api.markers).length, walkMeshes: walkMeshes.length, removers: removers.length,
+      return { file: st.current, ready: st.done, markers: Object.keys(api.markers).length, walkMeshes: st.walkMeshes.length, removers: st.removers.length,
         spawn: { x: r(s.x), y: r(s.y), z: r(s.z) } };
     },
   };

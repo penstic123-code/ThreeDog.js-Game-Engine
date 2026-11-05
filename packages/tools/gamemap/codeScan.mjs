@@ -21,7 +21,7 @@ export function actionUsed(src, a) {
 export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
   // Timed events (engine.clock, engine.sky; between lists both clock times)
   const tm = [];
-  const TIMED = /(?:clock|calendar).(at|between|after|every|daily|onSeason)\(([^,)]*(?:, '[^']*')?)/g;
+  const TIMED = /(?:clock|calendar)\.(at|between|after|every|daily|onSeason)\(([^,)]*(?:, '[^']*')?)/g;
   for (const f of gameFiles) for (const m of noComments(read(f)).matchAll(TIMED)) tm.push(`- ${m[1]}(${m[2].trim()}) — ${g(f)}`);
   if (tm.length) sec('Timed events (engine.clock, engine.sky)', uniq(tm));
 
@@ -60,8 +60,7 @@ export function codeSections({ c, dir, g, gameFiles, code, ce, sec }) {
   const sk = code.match(/saveKey: '([^']+)'/); sv.push(`- Save prefix saveKey: ${sk ? sk[1] : 'default'}`);
   const slots = uniq([...code.matchAll(/saves\.(?:save|load)\('([^']+)'\)/g)].map(m => m[1])); if (slots.length) sv.push(`- Save slots: ${slots.join(', ')}`);
   const auto = code.match(/saves\.autosave\(([^)]*)\)/); if (auto) sv.push(`- Autosave: every ${auto[1] || 'default'} minutes`);
-  const reg = uniq([...code.matchAll(/saves\.register\('([^']+)'/g)].map(m => m[1])); if (reg.length) sv.push(`- Save entries the game registers itself: ' +
-    '${reg.join(', ')}`);
+  const reg = uniq([...code.matchAll(/saves\.register\('([^']+)'/g)].map(m => m[1])); if (reg.length) sv.push(`- Save entries the game registers itself: ${reg.join(', ')}`);
   sv.push('- Saved parts of the engine modules (vars, inventory, quests, timers, world...): `threedog catalog` (saves per module)');
   sec('Saves', sv);
 

@@ -3,7 +3,7 @@
 // LOD is split by ring from the nearest source: the chunk a source stands in plus the one ring around it is ring 1, and so on.
 // Visuals and gameplay take effect separately: a generated chunk is handed to the looks at once; collision (forEachCollider, chunkCollision) only takes
 // effect at the tick set by engine.commits (c.solid), and is generated on the main thread on the spot if not done by then -- machine speed never
-// changes whether the player bumps into a tree (see core/Commits.js).
+// changes whether the player bumps into a tree (see core/threads/Commits.js).
 // Data only: this file makes no mesh and touches no material. Each generated chunk keeps its arrays in c.data (pos, nor, col, uv, tex, top...),
 // collision and queries read them, and draw parts subscribe with view({ add, change, remove, show }) (terrain/draw.js is the engine's own).
 // Vegetation plugs in as the chunk planter (its data part sets terrain.plants): this file never reads engine.vegetation.
@@ -11,10 +11,10 @@ import * as THREE from 'three';
 import { createTerrain } from './terrainGen.js';
 import { chunkHandler } from './chunkJob.js';
 import { TerrainEdits } from './terrainEdit.js';
-import { ChunkStream, bookCollision } from '../../core/chunkStream.js';
+import { ChunkStream, bookCollision } from '../../core/stream/chunkStream.js';
 import { chunkQueries } from './chunkQueries.js';
-import { reportError } from '../../core/errors.js';
-import { codedError } from '../../core/errorHints.js';
+import { reportError } from '../../core/base/errors.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 /** Planter stand-in while no vegetation is installed (the vegetation data part replaces it) */
 const NO_VEG = { baseNames: () => [], nearNames: () => [], list: () => [], get: () => null, mount() {}, unmount() {}, drop() {} };
@@ -34,13 +34,13 @@ export class ChunkManager {
     this.ready = [];
     this._want = [];                              // chunks not yet dispatched (nearest first)
     this.gen = 0;
-    this.vgen = 0;                                // +1 on a density change: plants placed with the old density are asked again
+    this.vgen = 0;                                // +1 on a density or species change: plants placed before it are asked again
     this.stats = { builtThisFrame: 0, applyMs: 0, queued: 0, failed: 0 };
     /** @internal the draw parts drawing these chunks (view()) */ this.views = new Set();
     /** @internal the vegetation data part, or NO_VEG */ this.plants = NO_VEG;
     /** @internal the engine's terrain drawing (draw.js), null when a game's picture holds the slot */ this.drawPart = null;
     this.lowest = 0;                              // lowest island point loaded (default voidY)
-    // which chunks the sources need, ring, culling: shared with vegetation's own-ground chunks (core/chunkStream.js)
+    // which chunks the sources need, ring, culling: shared with vegetation's own-ground chunks (core/stream/chunkStream.js)
     this._stream = new ChunkStream(this, { show: (c, v) => this._emit('show', c, v), level: (c, ring) => this._setLevel(c, ring),
       count: c => { let n = 0; for (const k in c.plants) n += c.plants[k].n; return n; } });
 
@@ -107,7 +107,7 @@ export class ChunkManager {
 
   /**
    * Draw these chunks. Hooks: add(c) (generated: c.data holds the arrays pos / nor / col / uv / tex, c.cx / c.cz the chunk), change(c) (an edit
-   * rewrote c.data, same vertex count), remove(c) (released), show(c, visible) (in the camera view or not). Chunks already loaded are added at
+   * rewrote c.data; the vertex count can differ on the rim of a shape with diagonal 'adaptive'), remove(c) (released), show(c, visible) (in the camera view or not). Chunks already loaded are added at
    * once. This is how a draw part that replaces 'terrain-draw' draws the ground. Returns { remove() } (ctx.track it).
    * @example ctx.track(engine.terrain.view({ add(c) { draw(c) }, remove(c) { undraw(c) } }))
    * @param {{ add?: (c: any) => void, change?: (c: any) => void, remove?: (c: any) => void, show?: (c: any, visible: boolean) => void }} v
@@ -127,8 +127,9 @@ export class ChunkManager {
    */
   registerSpecies(name, rule) {
     this.lane.broadcast({ type: 'species', name, rule }, 'species:' + name);
+    this.vgen++;   // a chunk already on its way carries the old species list: update() asks again when it arrives
     if (!this.plants.get(name)?.nearOnly) this._regrow([name]);
-    else for (const c of this.chunks.values()) { c.detailDone.delete(name); c.level = -1; }
+    else this._regrowNear([name]);
   }
   /** Replace the terrain config in every worker (height map loaded, recolor); species is the full rule table */
   reinit(terrainCfg, species) {
@@ -152,7 +153,7 @@ export class ChunkManager {
     const key = job.cx + ',' + job.cz, c = this.chunks.get(key);
     if (!c || job.gen !== this.gen) return;
     if (!job.terrain) {
-      if (job.regrow) c.regrow--;
+      if (job.regrow) this._regrown(c);
       c.pendingDetail = false; for (const name of job.species || []) c.detailDone.add(name);
       reportError(this.engine, err, 'terrain chunk worker job');   // one key: a broken rule fails every chunk, report it once
       return;
@@ -187,7 +188,7 @@ export class ChunkManager {
   /** The view distance the signal uViewDistance gets with terrain({ viewFog: true }) (meters), else null; never scene.fog itself */
   get viewFogFar() { return this.viewFog ? this._viewMeters() : null; }
   /** Vegetation density multiplier: plants are placed again on the loaded chunks; the ground and its collision stay, old trees block until the new ones are in */
-  setDensity(d) { this._density = d; this.vgen++; this._regrow(this.plants.baseNames()); }
+  setDensity(d) { this._density = d; this.vgen++; this._regrow(this.plants.baseNames()); this._regrowNear(this.plants.nearNames()); }
   // Why setters: a plain write used to change the number and nothing else (no far plane, no new plants), with no error
   /** View distance (in chunks); writing it takes effect like setViewChunks */
   get viewChunks() { return this._viewChunks; }
@@ -195,12 +196,18 @@ export class ChunkManager {
   /** Vegetation density multiplier; writing it takes effect like setDensity */
   get density() { return this._density; }
   set density(d) { this.setDensity(d); }
-  // plants-only jobs for every loaded chunk (the ground, its collision and the near-only detail stay). c.regrow counts the ones not yet
-  // mounted: readyAt is false until they are, so a headless page (core/headlessLoad.js) keeps running loading frames and stateApplied
+  // plants-only jobs for every loaded chunk (the ground and its collision stay; near-only species: _regrowNear). c.regrow counts the ones not yet
+  // mounted: readyAt is false until they are, so a headless page (core/engine/headlessLoad.js) keeps running loading frames and stateApplied
   // waits for the new plants, as it did when a species dropped the whole terrain
   _regrow(names) {
     if (!names.length) return;
-    for (const c of this.chunks.values()) if (c.state === 'ready') { c.regrow = (c.regrow ?? 0) + 1; this._send({ ...this._job(c, false, names), regrow: true }); }
+    for (const c of this.chunks.values()) if (c.state === 'ready') { c.regrow++; this._send({ ...this._job(c, false, names), regrow: true }); }
+  }
+  // one regrow job came back. A chunk released and loaded again meanwhile is a new record with nothing counted
+  _regrown(c) { if (c.regrow > 0) c.regrow--; }
+  // near-only species: dropped here, and the LOD pass places them again on the chunks within their ring (never on the far ones _regrow would reach)
+  _regrowNear(names) {
+    for (const c of this.chunks.values()) { for (const n of names) { this.plants.unmount(c, n); c.detailDone.delete(n); } c.level = -1; }
   }
 
   rebuild() {
@@ -218,7 +225,7 @@ export class ChunkManager {
    * Ring 1, which the loading screen waits for, takes effect the moment play starts (lag 0); farther rings get more worker time
    */
   _queue(cx, cz, key) {
-    const c = { cx, cz, key, state: 'queued', data: null, plants: {}, colliders: {}, inView: true, pendingDetail: false, detailDone: new Set(), level: -1, sphere: null, solid: false, gen: this.gen };
+    const c = { cx, cz, key, state: 'queued', data: null, plants: {}, colliders: {}, inView: true, pendingDetail: false, detailDone: new Set(), level: -1, sphere: null, solid: false, gen: this.gen, regrow: 0 };
     this.chunks.set(key, c);
     bookCollision(this, c, this._ring(c), {
       // collision counts from this step on (a new token makes the physics module build this chunk's collision)
@@ -232,6 +239,7 @@ export class ChunkManager {
    * waiting for replies would idle the worker)
    */
   _pump() {
+    if (!this._want.length) return;
     const species = this.plants.baseNames(), max = this.engine.ready ? Math.max(this.maxInFlight, 2 * this.lane.size) : Infinity;
     while (this.inFlight < max && this._want.length) {
       const c = this._want.shift();
@@ -254,17 +262,18 @@ export class ChunkManager {
     for (const r of this.ready) {
       const c = this.chunks.get(r.cx + ',' + r.cz);
       if (!c || r.gen !== this.gen) continue;
-      if (this._stale(c, r)) { if (r.regrow) c.regrow--; continue; }
+      if (this._stale(c, r)) { if (r.regrow) this._regrown(c); continue; }
       if (built > 0 && performance.now() - t0 >= this.applyBudgetMs   // measure
         && !(loading && this._ring(c) <= 1)) { later.push(r); continue; }
       if (r.terrain) { if (c.state === 'ready') continue; this._applyTerrain(c, r.terrain); c.ticket?.resolve(true); }
       else if (c.state !== 'ready') continue;
-      if (r.vgen !== this.vgen) {   // placed with an old density: keep the ground, ask for these plants again
-        if (!r.terrain) c.pendingDetail = false;
-        this._send({ ...this._job(c, false, Object.keys(r.veg)), regrow: !!r.regrow });   // a regrow stays counted until its plants are in
+      if (r.vgen !== this.vgen) {   // placed with an old density or species list: keep the ground, ask for the plants again
+        if (r.terrain) c.regrow++; else c.pendingDetail = false;
+        // a regrow stays counted until its plants are in; a new chunk asks for today's species, not the list it left with
+        this._send({ ...this._job(c, false, r.terrain ? this.plants.baseNames() : Object.keys(r.veg)), regrow: !!(r.regrow || r.terrain) });
       } else {
         for (const name in r.veg) this.plants.mount(c, name, r.veg[name]);
-        if (r.regrow) c.regrow--;
+        if (r.regrow) this._regrown(c);
         if (!r.terrain) { c.pendingDetail = false; for (const name in r.veg) c.detailDone.add(name); }
       }
       c.level = -1; built++;
@@ -293,11 +302,16 @@ export class ChunkManager {
 
   // a generated chunk: keep its arrays and bounds, tell the draw parts
   _applyTerrain(c, t) {
-    c.data = t;
-    if (t.top != null) { c.solidCount = t.solid; this.lowest = Math.min(this.lowest, t.minH); }   // island: collision takes top and sides, not the bottom
-    c.sphere = new THREE.Sphere(new THREE.Vector3(t.sphere[0], t.sphere[1], t.sphere[2]), t.sphere[3]);
+    c.sphere = new THREE.Sphere();
+    this._adopt(c, t);
     c.state = 'ready';
     this._emit('add', c);
+  }
+  /** @internal the arrays a chunk now holds, freshly generated or rebuilt by an edit */
+  _adopt(c, t) {
+    c.data = t;
+    if (t.top != null) { c.solidCount = t.solid; this.lowest = Math.min(this.lowest, t.minH); }   // island: collision takes top and sides, not the bottom
+    c.sphere.center.set(t.sphere[0], t.sphere[1], t.sphere[2]); c.sphere.radius = t.sphere[3];
   }
 
   // due but not ready: if the worker result already arrived take it now, else generate on the main thread (same code, same result).
@@ -333,12 +347,13 @@ export class ChunkManager {
     P.ring?.(c, ring);
   }
 
-  /** Stop the chunk workers (called by terrain dispose; in-flight results are discarded) */
-  dispose() { this.lane.dispose(); this.ready.length = 0; }
+  /** Stop the chunk workers and release the chunks with their commit tickets (called by terrain dispose; in-flight results are discarded) */
+  dispose() { this.lane.dispose(); this.rebuild(); }
   /** @internal vegetation / settings plumbing */
   refreshLevels() { for (const c of this.chunks.values()) c.level = -1; }
 
   _dispose(c) {
+    if (c.state === 'failed') this.stats.failed--;   // the count is of failed chunks loaded now: retry() can only send those
     if (c.state !== 'ready') return;
     this.plants.drop(c);
     this._emit('remove', c);

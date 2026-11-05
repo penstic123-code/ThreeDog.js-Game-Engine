@@ -26,7 +26,7 @@ export function hashFile(path) {
 export const contentFiles = dir => readdirSync(dir, { recursive: true }).map(f => posix(String(f))).filter(f => !NOT_CONTENT.has(f) && statSync(join(dir, f)).isFile()).sort();
 
 /** Hash of an entry's content (its files and their paths), the version mark lib status compares */
-export function hashEntry(dir) {
+function hashEntry(dir) {
   const files = contentFiles(dir);
   return createHash('sha256').update(files.map(f => `${f}\0${hashFile(join(dir, f))}\n`).join('')).digest('hex').slice(0, 16);
 }

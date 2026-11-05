@@ -28,7 +28,7 @@ export const BRIEF = e => {
   if (d.cutscene) flags.push('in cutscene');
   if (d.ui?.dialogue) flags.push('in dialogue');
   if (d.ui?.windows?.length) flags.push('windows open ' + d.ui.windows.map(x => x.id || x).slice(0, 2).join(', '));
-  // engine.error is an object { where, message, code, at } (core/errors.js): String() of it printed "engine error [object Object]"
+  // engine.error is an object { where, message, code, at } (core/base/errors.js): String() of it printed "engine error [object Object]"
   if (d.error) flags.push(`engine error ${d.error.code ? `[${d.error.code}] ` : ''}${d.error.where}: ${(m => m.length > 400 ? m.slice(0, 200) + ' … ' + m.slice(-197) : m)(String(d.error.message))}${d.error.at ? ` (${d.error.at})` : ''}`);
   if (d.loading?.failed?.length) flags.push('load failed ' + d.loading.failed.map(f => f.name).slice(0, 3).join(', ') + ' (threedog loading)');
   const l1 = [p && `Player (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) ${p.inWater ? 'in water' : 'on ' + (p.ground || 'ground')}`,
@@ -64,11 +64,14 @@ const RUN = e => { const r = e.runState; return 'Run state: ' + (r.state === 'fr
  * Value at a describe path: 'player.x', 'nearby[0].name', 'player.position' (-> { x, y, z }). The ONE parser: describe <path> and a scenario's
  * expect keys both use it (it runs in the page for describe, so it is self-contained).
  */
-export const atPath = (obj, path) => String(path).split(/\.|(?=\[)/).filter(Boolean).reduce((v, k) => v == null ? undefined
-  : v[k.startsWith('[') ? +k.slice(1, -1) : k] ?? (k === 'position' && typeof v === 'object' && 'x' in v ? { x: v.x, y: v.y, z: v.z } : undefined), obj);
+export const atPath = (obj, path) => String(path).split(/\.|(?=\[)/).filter(Boolean).reduce((v, k) => {
+  if (v == null) return undefined;
+  const got = v[k.startsWith('[') ? +k.slice(1, -1) : k];   // null is an answer ("no dialogue open"), only undefined means the path is not there
+  return got === undefined && k === 'position' && typeof v === 'object' && 'x' in v ? { x: v.x, y: v.y, z: v.z } : got;
+}, obj);
 
 /**
- * Game seconds a step really moved, measured on the tick (frozen pages tick nothing), and why it fell short. The answer of step / press / hold: asked for 3 s and
+ * Real seconds a step really moved, measured on the tick (frozen pages tick nothing), and why it fell short. The answer of step / press / hold: asked for 3 s and
  * frozen on an error after 2, it says 2 of 3. A tick that went backwards means a new run started inside the step, so that is counted as done. Self-contained.
  */
 const MOVED = (e, before, seconds) => {
@@ -139,17 +142,21 @@ const PAGE = {
   // skip: engine.skip({ to | seconds }): the jump itself is the op time.skip; the sky clock moves, no fixed steps run
   skip: async (a, e, brief, run) => {
     e.haltLoop('threedog');
-    const v = await e.skip(a.opts);
+    // fade= waits on frames and this page is halted: they are driven here (engine.skip says so), or the command hangs until the bridge gives up. Gameplay is frozen for the skip
+    const jump = e.skip(a.opts);
+    let ended = false; const end = () => { ended = true; }; jump.then(end, end);
+    for (;;) { await new Promise(r => setTimeout(r)); if (ended) break; e.step(1 / 30, { render: false, describe: false }); }
+    const v = await jump;
     e.step(1 / 60);
     return [`Skipped ${a.desc}` + (v === null || v === undefined ? '' : ' → ' + JSON.stringify(v).slice(0, 80)), ...brief(e).slice(0, 2), run(e)].join('\n');
   },
   // state changes the scenario, not the clock (only wait= moves it). On a halted page one frame with no game time shows the result: rigs see the new place, then a draw
   state: async (a, e, brief) => { const r = await e.applyState(a.params); if (e.halted) { e._frameHooks(0, true); e._render(1 / 60); } return { refused: r.refused, text: brief(e).slice(0, 2).join('\n') }; },
   // js / eval and checks scripts (js --file steps.js) share this one function, so both see the same globals: engine, step(seconds = 1/60) (pauses the
-  // real-time loop first, like the step command), log(...), assert(cond, msg), expect(v, msg).toBe/toEqual/toBeCloseTo/toBeGreaterThan(x, msg).
+  // real-time loop first, like the step command), log(...), assert(cond, msg), expect(v, msg).toBe/toEqual/toBeGreaterThan(x, msg), toBeCloseTo(x, tol?, msg).
   // Checks mode (the script calls assert / expect, steps.mjs): a failed check is recorded and the script goes on; a throw ends it and counts as one
-  // failure; returns the records, steps.mjs prints them. Plain mode (a.plain): the source is tried as an expression first, a throw propagates, and the
-  // return value comes back as JSON text cut at a.max.
+  // failure; returns the records, steps.mjs prints them. Plain mode (a.plain): the source is tried as an expression first, a throw comes back as threw, and
+  // the return value comes back as JSON text (commands.mjs cuts it).
   steps: async (a, e) => {
     const AsyncFunction = (async () => {}).constructor, res = [], logs = [];   // the function body is async, so await works directly inside
     const show = v => { try { return JSON.stringify(v); } catch { return String(v); } };
@@ -159,7 +166,8 @@ const PAGE = {
     const expect = (v, em) => ({
       toBe: (x, m) => rec(Object.is(v, x), m ?? em, `expected ${show(x)}, got ${show(v)}`),
       toEqual: (x, m) => rec(show(v) === show(x), m ?? em, `expected ${show(x)}, got ${show(v)}`),
-      toBeCloseTo: (x, tol = 0.01, m) => rec(Math.abs(v - x) <= tol, m ?? em, `expected ${x} ± ${tol}, got ${show(v)}`),
+      // the message may stand where the tolerance goes, as on every other matcher
+      toBeCloseTo: (x, tol = 0.01, m) => { if (typeof tol === 'string') [tol, m] = [0.01, tol]; rec(Math.abs(v - x) <= tol, m ?? em, `expected ${x} ± ${tol}, got ${show(v)}`); },
       toBeGreaterThan: (x, m) => rec(v > x, m ?? em, `expected > ${show(x)}, got ${show(v)}`),
     });
     const step = (s = 1 / 60) => { e.haltLoop('threedog'); e.step(s, { render: false }); e.step(1 / 60); };
@@ -168,7 +176,7 @@ const PAGE = {
     // reason given. The count of a.wait seconds runs only while the page looks stopped: driven by manual step, nothing loading, no clock tick, no queue moving.
     // A queue counts by change, not by being non-empty: jobs drain in frames, so on such a page a waiting queue never empties. Even then a script may be
     // waiting on something else (a fetch, a long timer), which a page cannot see: the message says "may", and --wait gives it longer.
-    // Promise.resolve().then(fn): building the function throws a SyntaxError for statements, and the expression try must not leave this timer behind
+    // Promise.resolve().then(fn): a body that does not compile rejects here and leaves no timer behind
     const stall = fn => new Promise((ok, no) => {
       const mark = () => `${e.time.tick} ${e.jobs?.pending} ${e.commits?.pending}`, manual = () => e.headless || e.runState.state === 'halted';
       let seen = mark(), last = Date.now();
@@ -185,8 +193,11 @@ const PAGE = {
     if (a.plain) {
       let v;
       try {
-        try { v = await run('return (' + a.src + ')'); }   // try it as an expression first
-        catch (err) { if (!(err instanceof SyntaxError)) throw err; v = await run(a.src); }   // otherwise as statements (multi-line needs its own return)
+        // an expression if it compiles as one, otherwise statements (multi-line needs its own return). Decided before anything runs: a SyntaxError from
+        // JSON.parse inside the script is the script's own, and running it again would do its steps twice
+        let expression = true;
+        try { new AsyncFunction('return (' + a.src + ')'); } catch { expression = false; }
+        v = await run(expression ? 'return (' + a.src + ')' : a.src);
       } catch (err) { return { logs, threw: String(err?.message ?? err) }; }
       let text = '(no return value)';
       if (v !== undefined) {
@@ -248,7 +259,7 @@ const PAGE = {
     const more = now.length > 12 ? ` · … ${now.length - 12} more on offer` : '', moreFree = free.length > 6 ? ` · … ${free.length - 6} more` : '';
     return [(shown.join(' · ') + more) || 'Nothing on offer right now', freeLine && freeLine + moreFree].filter(Boolean).join('\n');
   },
-  // a source string, not a function: PICTURE is spliced in here because the page wrapper only passes brief / run / at
+  // a source string, not a function: PICTURE is spliced in here because the page wrapper only passes brief / run / at / moved
   picture: `(a, e) => (${PICTURE})(e).join('\\n')`,
   catalog: (a, e) => ({ data: e.catalog(a.id ?? (a.find ? { find: a.find } : undefined)), ids: [...e.modules.keys()], ops: [...e.ops.defs.keys()] }),
   inspect: (a, e) => {

@@ -6,7 +6,7 @@ An AI coding agent asked for a three.js game starts from an empty scene. Before 
 
 The main user of the engine is an agent, not a person at a keyboard. That one fact explains most of the decisions below: an agent already knows three.js well, it reads little documentation, and it trusts whatever a tool tells it. So the engine stays close to three.js, keeps its index short, and has to report problems honestly.
 
-> **Where this stands.** This page describes version 0.7. Version 0.6 was the first in which the engine no longer drew the picture. Versions up to 0.5 had the look layer described in the next section. The last section lists what is planned and not yet built.
+> **Where this stands.** This page describes version 0.8. Version 0.6 was the first in which the engine no longer drew the picture. Versions up to 0.5 had the look layer described in the next section. The last section lists what is planned and not yet built.
 
 ## Why the engine stopped drawing the picture
 
@@ -30,7 +30,8 @@ The price is real. A new game starts gray, and writing the picture is now the ga
 
 | Part | Does | Does not |
 |---|---|---|
-| Core | The loop, time, world records and saves, input, events | Touch any rendering value |
+| Core | The loop, time, saves, input, events, and the wiring to three.js (scene, renderer, loading, shadows, the changes it lists in `describe().threePatches`) | Decide how the picture looks: lights, materials, fog and colors stay the game's |
+| World | The world records (`modules/world`), a module on top of core | Know how a record is drawn |
 | Signals | Time of day, sun direction, weather amounts, wetness, wind, quality tier | Write lights, fog or exposure |
 | Capabilities | Terrain chunks, plant instancing, cascaded shadows, light budgets, the post-effect chain | Work on anything the game did not hand over |
 | Checks | Screenshots, diagnostic views, performance budgets, pointers to the next step | Change the picture |
@@ -89,4 +90,4 @@ The evidence is small. In ten timed runs of two small games, half with the engin
 
 - An asset library that records where each pulled item came from, describes what it needs and writes, and checks that items fit together.
 - Composed templates, so one placed object can be made of several parts.
-- A browser editor, and a harder art test that combines assets from different sources.
+- A harder art test that combines assets from different sources.

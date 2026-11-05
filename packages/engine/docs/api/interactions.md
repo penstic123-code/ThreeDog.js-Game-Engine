@@ -12,7 +12,7 @@ Interaction prompts (interactions() module)
 - `interactions.add(target: Object3D | PositionLike, opts?: InteractionOptions) → Handle` — Add an interaction: passing an object makes it follow the object, passing a position (Vector3 / [x, y, z] / { x, y, z }) makes a fixed point. Returns a handle { remove() }
 - `interactions.get(id: string) → Interaction | undefined` — The interaction with this id, or undefined. Using one is the op: engine.ops.run('interaction.use', { id }) (no id = the one the actor would pick)
 - Properties:
-  - `promptHeight: number` How high the prompt floats (meters)
+  - `promptHeight: number` (experimental) How high the prompt floats (meters)
   - `items: Interaction[]` All interactions in the order added (a fresh array each read; get(id) finds one without it)
   - `radius: number` Default reach of add() in meters (2.5)
   - `pickMode: InteractionPick` How the one in front of the actor is chosen; can be changed at runtime

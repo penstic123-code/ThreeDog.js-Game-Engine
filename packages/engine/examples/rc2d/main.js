@@ -9,9 +9,7 @@ import { createPicture } from './picture/index.js';
 
 const url = new URLSearchParams(location.search);
 const engine = createEngine({ canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, ui: { loading: false }, saveKey: 'threedog-rc2d' });
-// projection / size per shot work at run time (recipes/21-camera.md) but CameraShot does not declare them yet, hence the cast
-const top = /** @type {any} */ ({ position: [0, 40, 0.001], lookAt: [0, 0, 0], projection: 'orthographic', size: 30 });
-engine.use(fixedCamera({ shots: { top }, start: 'top' }));
+engine.use(fixedCamera({ shots: { top: { position: [0, 40, 0.001], lookAt: [0, 0, 0], projection: 'orthographic', size: 30 } }, start: 'top' }));
 
 const cascades = url.get('cascades');
 const picture = createPicture(engine, {

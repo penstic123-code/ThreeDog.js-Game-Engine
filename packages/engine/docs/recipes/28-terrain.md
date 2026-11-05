@@ -73,6 +73,35 @@ engine.ops.define('path.sand', { args: { at: 'position' },   // a sandy path; a 
 Read the ground with `engine.surface(x, z)` (also `slope`, `groundType`, `waterAt`) and put an object on it with `engine.snapToGround(obj)`. Don't
 raycast the terrain for this: the height function is exact and works before the chunk has a mesh.
 
+## 4b. A road laid on the ground
+
+The road and the height function must read the same data, or the road floats or sinks wherever they disagree. Write the road's shape once as plain numbers and hand them over with `terrain({ params })`. The height function runs in workers and sees only `n.params`, so it works out the centre line itself: a formula or a small table of numbers, never a curve object. Near the line it returns the road's level, and it blends to the hills further out.
+
+```js
+const ROAD = { R: 130, wobble: 24, level: 14, flat: 10, blend: 40 };   // the one copy of the road's shape
+
+function height(x, z, n) {
+  const p = n.params, t = Math.atan2(z, x);
+  const centre = p.R + p.wobble * Math.sin(2 * t);
+  const k0 = Math.min(1, Math.max(0, (Math.abs(Math.hypot(x, z) - centre) - p.flat) / p.blend)), k = k0 * k0 * (3 - 2 * k0);
+  const hills = 10 + 60 * (n.fbm(x * 0.009, z * 0.009, 4) - 0.5);
+  return p.level + (hills - p.level) * k;
+}
+// terrain({ params: ROAD, height })
+```
+
+The road itself comes from the same numbers, with its heights read from `engine.surface`, so nothing is computed twice:
+
+```js
+const points = [];
+for (let i = 0; i < 720; i++) {
+  const t = i / 720 * Math.PI * 2, r = ROAD.R + ROAD.wobble * Math.sin(2 * t), x = r * Math.cos(t), z = r * Math.sin(t);
+  points.push({ x, y: engine.surface(x, z), z });
+}
+```
+
+Build the road's mesh from `points`, a little above the ground, and keep `flat` wider than half the road. The same data answers gameplay questions too, such as where the road is or how far a car has left it.
+
 ## 5. Where the ground ends: `shape`
 `terrain({ shape })` decides where there is ground at all: an island, a floating rock, a world that ends. Without it the ground goes on forever. With it, ground exists only
 where `mask > 0`; the rim is cut through the cells in straight lines, walls hang down from it, and an optional underside closes it. The keys and their defaults are `TerrainShape` in `types/world.d.ts`.
@@ -131,7 +160,7 @@ engine.use({ name: 'myGround', type: 'picture', provides: ['terrain-draw'], inst
   const meshes = new Map();
   ctx.track(e.terrain.view({
     add(c) { const m = buildMesh(c.data.pos, c.data.nor, c.data.col); m.position.set(c.cx * e.terrain.chunkSize, 0, c.cz * e.terrain.chunkSize); e.scene.add(m); meshes.set(c, m); },
-    change(c) { refill(meshes.get(c), c.data); },   // terrain.edit rewrote the arrays (same vertex count)
+    change(c) { refill(meshes.get(c), c.data); },   // terrain.edit rewrote the arrays (the count can differ on an 'adaptive' rim)
     remove(c) { e.scene.remove(meshes.get(c)); meshes.delete(c); },
     show(c, visible) { meshes.get(c).visible = visible; },
   }));

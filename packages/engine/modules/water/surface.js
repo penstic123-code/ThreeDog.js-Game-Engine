@@ -8,11 +8,11 @@
 //           base = material color and opacity; wave = threedogWaterWave at this point; facing = 1 looking straight down, 0 at grazing angles;
 //           returns the color and opacity lighting starts from
 import * as THREE from 'three';
-import { closest } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { closest } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { hashText } from '../../render/effects.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { glslFloat as gf, WAVE as W, WAVE_MAX, DEPTH, FOAM } from '../../render/fxNumbers.js';
 
 const DEPTH_KEYS = ['shallow', 'deep', 'by', 'curve'];

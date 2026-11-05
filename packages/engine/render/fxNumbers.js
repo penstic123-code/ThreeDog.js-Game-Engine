@@ -20,6 +20,9 @@ export const DETAIL = Object.freeze({ lacunarity: 2.03, offset: 17, paper: [0.65
 export const SKY = Object.freeze({ starMul: 0.3183099, starAdd: 0.1, starScale: 17, glowPower: 12, sunCut: 0.05, starFade: 0.25, nightDim: 0.35,
   planeTone: [0.3, 0.8], lacunarity: 2.03, offset: 3.7, norm: 0.9375, toSun: 0.12, cover: 0.9, core: 0.35, rim: 0.5, coreDark: 0.45 });
 
+/** Luminance weights: Rec. 709 for light (render/lighting.js, the sky's own light), Rec. 601 for a detail texture's alpha. Two sets on purpose: moving either shifts pictures */
+export const LUMA = Object.freeze([0.2126, 0.7152, 0.0722]), LUMA_601 = Object.freeze([0.299, 0.587, 0.114]);
+
 /** A number as a GLSL float literal (1 -> 1.0) @param {number} v */
 export const glslFloat = v => { const s = String(v); return /[.e]/.test(s) ? s : s + '.0'; };
 

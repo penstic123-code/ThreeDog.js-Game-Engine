@@ -122,7 +122,6 @@ export const specs = [
         out.off = [W.normalTexture, W.material.normalMap];
         out.bad = [err(() => W.normalMap(5)), err(() => W.normalMap('n', { sclae: 1 }))];
         e.dispose();
-        out.moved = [err(() => water({ color: 0x3070a0 })), err(() => water({ normalMap: 'n' })), err(() => water({ material: null })), err(() => water({ shininess: 9 })), err(() => water({ waveHeight: 1 })), err(() => water({ foam: true })), err(() => water({ uniforms: {} }))];
         out.kept = err(() => water({ sea: false, level: 1, flat: true, size: 50, segments: 8 }));
         return out;
       }));
@@ -130,7 +129,6 @@ export const specs = [
       check('same name again keeps the texture; repeat tiles once more; scale stays', r.retile.join() === 'true,true,0.8', JSON.stringify(r.retile));
       check('the scroll runs under a game material', r.scroll === 0.5, String(r.scroll));
       check('null takes it off; wrong name / key throw', r.off[0] === null && r.off[1] === null && /asset name/.test(r.bad[0]) && /sclae/.test(r.bad[1]), JSON.stringify([r.off, r.bad]));
-      check('moved options name the new entry', ['material.color', 'normalMap(', 'engine.water.material =', 'MeshPhongMaterial', 'uniforms.uWave', 'shader({ foam })', 'shader({ uniforms })'].every((t, i) => r.moved[i].includes(t)), JSON.stringify(r.moved));
       check('structural options stay', r.kept === '', r.kept);
     },
   },

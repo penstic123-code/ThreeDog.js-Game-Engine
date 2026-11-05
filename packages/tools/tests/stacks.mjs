@@ -1,4 +1,4 @@
-// Modifier stacks (core/stacks.js), the one way several systems change a shared quantity: combine rules per op x layer, only the owner ends its
+// Modifier stacks (core/ops/stacks.js), the one way several systems change a shared quantity: combine rules per op x layer, only the owner ends its
 // entry, a stale handle ends nothing, two owners setting one layer warn (release; dev throws), save / load round trip, holders(); pause / freeze / camera ride on it.
 // The "no way around it" check: claims.js and the engine's private holder fields are gone, so nothing can hold the engine still beside the stacks.
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -6,17 +6,17 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
-const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/stacks.js')).href);
-const { holdMethods, defineHoldStacks } = await import(pathToFileURL(join(ENGINE, 'core/holds.js')).href);
+const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/ops/stacks.js')).href);
+const { holdMethods, defineHoldStacks } = await import(pathToFileURL(join(ENGINE, 'core/ops/holds.js')).href);
 
 export const name = 'modifier stacks: engine.mod combine rules, owners, save, holds';
 
 /** A minimal engine: saves, events and the stacks; the holds from holds.js on top */
 function fake() {
   const parts = {}, events = [], on = {};
-  const e = Object.defineProperties({ elapsed: 0, saves: { register: (k, p) => { parts[k] = p; } }, _loop() {}, disposed: false,
+  const e = Object.defineProperties({ elapsed: 0, saves: { register: (k, p) => { parts[k] = p; } }, _loop() {}, disposed: false, page: { _sync() {} },
     events: { emit: (n, d) => events.push([n, d]), on: (n, f) => { (on[n] ??= []).push(f); return { remove() {} }; } } }, Object.getOwnPropertyDescriptors(holdMethods));
-  e.stacks = new Stacks(e); e.mod = (n, o) => e.stacks.mod(n, o);
+  e.stacks = new Stacks(e); e.stacks._hook(); e.mod = (n, o) => e.stacks.mod(n, o);
   defineHoldStacks(e);   // the engine's own hold stacks (halt does the loop side effect itself)
   return Object.assign(e, { parts, events, fire: (n, d) => (on[n] ?? []).forEach(f => f(d)) });
 }
@@ -140,11 +140,11 @@ export async function run({ check }) {
   p.remove();
   // nothing beside the stacks
   check('core/claims.js is deleted', !existsSync(join(ENGINE, 'core/claims.js')));
-  const src = ['holds.js', 'services.js', 'loop.js', 'Describe.js', 'checks.js', 'Ops.js', 'opsRun.js', 'debugView.js'].map(f => readFileSync(join(ENGINE, 'core', f), 'utf8')).join('\n');
+  const src = ['ops/holds.js', 'engine/services.js', 'engine/loop.js', 'inspect/Describe.js', 'inspect/checks.js', 'ops/Ops.js', 'ops/opsRun.js', 'inspect/debugView.js'].map(f => readFileSync(join(ENGINE, 'core', f), 'utf8')).join('\n');
   check('no private holder fields left (_pausers / _freezers / _cameraClaims / claims())', !/_pausers|_freezers|_cameraClaims|\bclaims\(/.test(src));
-  // one layer table: engine.mod takes layer names from core/sharedPoint.js; the 0.4 numeric priority option is gone everywhere in the engine
+  // one layer table: engine.mod takes layer names from core/ops/sharedPoint.js; the 0.4 numeric priority option is gone everywhere in the engine
   const walk = d => readdirSync(d, { withFileTypes: true }).flatMap(x => x.isDirectory() ? walk(join(d, x.name)) : x.name.endsWith('.js') ? [join(d, x.name)] : []);
   const oldPriority = ['core', 'modules', 'ui'].flatMap(d => walk(join(ENGINE, d))).filter(f => /\.mod\([^)]*\bpriority:/.test(readFileSync(f, 'utf8')));
   check('no engine.mod call passes priority (layer replaced it)', !oldPriority.length, oldPriority.join(', '));
-  check('the layer table lives only in sharedPoint.js', !/\bPRIORITY\s*=\s*\{/.test(readFileSync(join(ENGINE, 'core/stacks.js'), 'utf8')) && /export const LAYERS/.test(readFileSync(join(ENGINE, 'core/sharedPoint.js'), 'utf8')));
+  check('the layer table lives only in sharedPoint.js', !/\bPRIORITY\s*=\s*\{/.test(readFileSync(join(ENGINE, 'core/ops/stacks.js'), 'utf8')) && /export const LAYERS/.test(readFileSync(join(ENGINE, 'core/ops/sharedPoint.js'), 'utf8')));
 }

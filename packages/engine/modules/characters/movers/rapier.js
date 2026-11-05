@@ -2,8 +2,7 @@
 // Feel parameters (speed, acceleration, jump, air control, swimming) match simple; while physics is not ready or the collision under the feet is not built, simple is used temporarily.
 // Native objects: mover.controller (KinematicCharacterController), mover.body, mover.collider.
 // The player uses rigid.playerBody / playerCollider (rigid syncs it to the player position each step); each NPC builds its own kinematic capsule.
-import { steer, water, float, tryJump, tickJump, leaveGround, land, finish, stat, inherited } from './common.js';
-import { climbLimit } from './common.js';
+import { steer, water, float, tryJump, tickJump, leaveGround, land, finish, stat, inherited, climbLimit } from './common.js';
 import { beginMove, endMove } from './support.js';
 
 /** Create the 'rapier' mover (c is the character, fallback is the simple mover used when not ready) */
@@ -53,7 +52,8 @@ export function rapierMover(c, fallback) {
     dispose() {
       const r = c.engine.rigid;
       if (!m.controller) return;
-      if (m.gen !== r.gen) { m.controller = m.body = m.collider = null; return; }   // built for a world that was rebuilt (and freed) since
+      // built for a world that was rebuilt or disposed since (engine.dispose runs rigid's before world's, which tears down the NPC models): freed with it
+      if (m.gen !== r?.gen || !r.world) { m.controller = m.body = m.collider = null; return; }
       r.world.removeCharacterController(m.controller);
       if (m.body !== r.playerBody) r.world.removeRigidBody(m.body);
       m.controller = m.body = m.collider = null;

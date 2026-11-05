@@ -1,4 +1,4 @@
-// Picture parts from different sources in one game (core/pictureSlots.js, core/pictureWriters.js), on the real dev server: a bundle has no source lines. The page
+// Picture parts from different sources in one game (core/scene/pictureSlots.js, core/inspect/pictureWriters.js), on the real dev server: a bundle has no source lines. The page
 // (packages/engine/tests/picture-parts/) installs a sky, rain and a sea written in three styles. First they must run together and go without a trace; then each planned
 // collision must fail with a message naming both sides and the fix.
 import { readFileSync } from 'node:fs';

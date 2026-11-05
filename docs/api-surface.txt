@@ -160,7 +160,7 @@ createEngine options | batching | ?false | BatchingOptions
 createEngine options | bindings | ?Readonly<Record<string, string | readonly string[]>>
 createEngine options | budget | ?BudgetLimits
 createEngine options | canvas | ?HTMLCanvasElement | HTMLElement
-createEngine options | decoders | ?string
+createEngine options | decoders | ?string @experimental
 createEngine options | fallback | ?"webgl" | "webgl2" | "error"
 createEngine options | fov | ?number
 createEngine options | headless | ?boolean
@@ -178,9 +178,8 @@ createEngine options | strings | ?StringTables
 createEngine options | targetFps | ?number
 createEngine options | threads | ?number | false | "auto" @experimental
 createEngine options | ui | ?UIOptions
-createEngine options | urlState | ?boolean
-createEngine options | validate | ?boolean
-engine members | THREE | typeof import("three/build/three.module")
+createEngine options | urlState | ?boolean @experimental
+createEngine options | validate | ?boolean @experimental
 engine members | actor | string
 engine members | actorPosition | (id?: string) => { x: number; y: number; z: number; } | null
 engine members | adaptive | AdaptiveState
@@ -246,7 +245,7 @@ engine members | lights | { sun: import("three").DirectionalLight; hemi: import(
 engine members | loadLightmap | (file: string | ArrayBuffer, opts?: { owner?: string; }) => Promise<Lightmap> @experimental
 engine members | loadProbes | (json: ProbeData, opts?: { owner?: string; }) => ProbeSet @experimental
 engine members | loading | Loading
-engine members | mod | (name: string, opts: import("./gameplay").ModOptions) => import("./gameplay").ModHandle
+engine members | mod | (name: string, opts: import("./gameplay").ModOptions) => import("./gameplay").ModHandle @experimental
 engine members | moduleOrder | string[] @experimental
 engine members | moduleStates | Record<string, "running" | "disposed" | "registered" | "initializing" | "failed"> @experimental
 engine members | modules | Map<string, ModuleDef<any>>
@@ -263,7 +262,7 @@ engine members | onRender | (fn: (ctx: { renderer: EngineRenderer; scene: import
 engine members | ops | Ops
 engine members | page | Page
 engine members | particles | ?Particles
-engine members | phase | "constructed" | "loading" | "ready" | "running" | "disposed"
+engine members | phase | "constructed" | "starting" | "loading" | "ready" | "running" | "disposed"
 engine members | photo | ?Photo
 engine members | pick | (ndcX: number, ndcY: number, opts?: RaycastOptions) => RayHit | null
 engine members | pickups | ?Pickups
@@ -295,11 +294,11 @@ engine members | skip | (opts: SkipOptions) => Promise<{ seconds: number; clock:
 engine members | sky | ?Sky
 engine members | slope | { (x: number, z: number): number; (at: PositionLike): number; }
 engine members | snapToGround | <T = Object3D<Object3DEventMap>>(obj: T, offset?: number) => T
-engine members | stacks | Stacks
+engine members | stacks | Stacks @experimental
 engine members | start | () => Promise<Engine>
 engine members | startup | StartupReport
-engine members | stateApplied | boolean
-engine members | stateRefused | { key: string; value: any; reason: string; }[]
+engine members | stateApplied | boolean @experimental
+engine members | stateRefused | { key: string; value: any; reason: string; }[] @experimental
 engine members | step | (seconds: number, opts?: { render?: boolean; frameEvery?: number; describe?: boolean; }) => GameState | null
 engine members | stepBlend | number
 engine members | still | boolean
@@ -321,6 +320,7 @@ engine members | uiRoot | HTMLDivElement
 engine members | uniforms | EngineUniforms
 engine members | unuse | (name: string) => void
 engine members | use | (...mods: (ModuleInput | { replaces: string | string[]; })[]) => Engine
+engine members | validate | boolean
 engine members | vars | Vars
 engine members | vegetation | ?Vegetation
 engine members | vegetationDraw | ?VegetationDraw @experimental
@@ -332,19 +332,19 @@ engine members | waterLevel | number
 engine members | weather | ?Weather
 engine members | weatherDraw | ?WeatherDraw @experimental
 engine members | world | ?World
-engine members | wrap | <T extends object>(target: T, method: string, fn: (next: (...args: any[]) => any, ...args: any[]) => any, opts?: { owner?: string; }) => Handle
+engine members | wrap | <T extends object>(target: T, method: string, fn: (next: (...args: any[]) => any, ...args: any[]) => any, opts?: { owner?: string; }) => Handle @experimental
 engine sub-objects | adaptive.base | number
-engine sub-objects | adaptive.lowered | ?boolean
+engine sub-objects | adaptive.lowered | ?boolean @experimental
 engine sub-objects | adaptive.max | number
 engine sub-objects | adaptive.min | number
 engine sub-objects | adaptive.on | boolean
 engine sub-objects | adaptive.target | number
 engine sub-objects | assets.animate | (root: Object3D, config?: AnimatorOptions) => Animator
-engine sub-objects | assets.builder | (name: string) => ((...args: any[]) => any) | null
+engine sub-objects | assets.builder | (name: string) => ((...args: any[]) => any) | null @experimental
 engine sub-objects | assets.cacheMinMs | number
 engine sub-objects | assets.draco | any @experimental
 engine sub-objects | assets.font | (name: string) => Promise<FontFace | null>
-engine sub-objects | assets.forget | (obj: Object3D) => void
+engine sub-objects | assets.forget | (obj: Object3D) => void @experimental
 engine sub-objects | assets.geometry | (nameOrUrl: string) => Promise<BufferGeometry>
 engine sub-objects | assets.gltf | any @experimental
 engine sub-objects | assets.gridFromImage | (nameOrUrl: string, opts?: { channel?: "r" | "g" | "b" | "a" | number; range?: [number, number]; bits?: 8 | 16; }) => Promise<{ data: Float32Array; width: number; height: number; bits: number; }>
@@ -354,10 +354,10 @@ engine sub-objects | assets.manifest | (m: AssetManifest | AssetManifest[]) => A
 engine sub-objects | assets.mapping | (root: Object3D) => AnimatorOptions | null
 engine sub-objects | assets.memory | { geometries: number; textures: number; }
 engine sub-objects | assets.model | (nameOrUrl: string, opts?: { castShadow?: boolean; receiveShadow?: boolean; static?: boolean; }) => Promise<Object3D>
-engine sub-objects | assets.modelNow | (nameOrUrl: string, opts?: { castShadow?: boolean; receiveShadow?: boolean; static?: boolean; }) => Object3D | null
+engine sub-objects | assets.modelNow | (nameOrUrl: string, opts?: { castShadow?: boolean; receiveShadow?: boolean; static?: boolean; }) => Object3D | null @experimental
 engine sub-objects | assets.palette | Record<string, any>
-engine sub-objects | assets.paramsOf | (name: string) => { schema: Record<string, any>; values: Record<string, any>; tuned: Record<string, any>; } | null
-engine sub-objects | assets.preload | (onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean; }) => Promise<{ loaded: number; failed: string[]; ok: boolean; }>
+engine sub-objects | assets.paramsOf | (name: string) => { schema: Record<string, any>; values: Record<string, any>; tuned: Record<string, any>; } | null @experimental
+engine sub-objects | assets.preload | (onProgress?: (p: number, name: string) => void, opts?: { onlyMarked?: boolean; }) => Promise<{ loaded: number; failed: string[]; ok: boolean; }> @experimental
 engine sub-objects | assets.release | (name: string) => void
 engine sub-objects | assets.report | (nameOrRoot: string | Object3D) => AssetReport
 engine sub-objects | assets.setParams | (name: string, values: Record<string, any>) => Promise<{ why: string; names: string[]; copies: Record<string, number>; ms: number; partsChanged?: string[]; }>
@@ -375,38 +375,38 @@ engine sub-objects | audio.info | { running: boolean; state: string | null; leve
 engine sub-objects | audio.levels | Record<string, number>
 engine sub-objects | audio.load | (url: string) => Promise<any>
 engine sub-objects | audio.master | any
-engine sub-objects | audio.matches | (when: AudioCondition | undefined, ...extra: any[]) => boolean
+engine sub-objects | audio.matches | (when: AudioCondition | undefined, ...extra: any[]) => boolean @experimental
 engine sub-objects | audio.measure | (name: string, fn: (e: any) => number) => { remove(): void; }
 engine sub-objects | audio.noise | any
 engine sub-objects | audio.noiseBurst | (opts?: { dur?: number; type?: string; freq?: number; vol?: number; bus?: string; out?: any; rate?: number; delay?: number; }) => void
 engine sub-objects | audio.play | (url: string, opts?: { bus?: string; volume?: number; loop?: boolean; fadeIn?: number; pitch?: number; at?: any; }) => Promise<SoundHandle | null>
-engine sub-objects | audio.running | boolean
+engine sub-objects | audio.running | boolean @experimental
 engine sub-objects | audio.setVolume | (bus: string, v: number) => void
 engine sub-objects | audio.sfx | (name: string, opts?: { volume?: number; pitch?: number; at?: any; bus?: string; loop?: boolean; params?: Record<string, any>; fadeIn?: number; }) => SoundHandle | null
 engine sub-objects | audio.state | string
 engine sub-objects | audio.tone | (opts?: { freq?: number; to?: number | null; dur?: number; vol?: number; type?: string; bus?: string; out?: any; delay?: number; pan?: number; }) => void
 engine sub-objects | audio.value | (name: string) => number | undefined
-engine sub-objects | audio.volumeOf | (volume: AudioVolume | undefined, ...extra: any[]) => number
+engine sub-objects | audio.volumeOf | (volume: AudioVolume | undefined, ...extra: any[]) => number @experimental
 engine sub-objects | autoView.manual | (key: "far" | "fov" | "pixelRatio" | "camera", on?: boolean) => { remove(): void; }
 engine sub-objects | batching.batches | BatchInfo[]
 engine sub-objects | batching.cell | number
 engine sub-objects | batching.enabled | boolean
 engine sub-objects | batching.held | Map<any, number> @experimental
 engine sub-objects | batching.item | (mesh: THREE.Object3D, index: number) => THREE.Object3D | null
-engine sub-objects | batching.minCount | number
+engine sub-objects | batching.minCount | number @experimental
 engine sub-objects | batching.of | (obj: THREE.Object3D) => { mesh: THREE.InstancedMesh; index: number; }[]
 engine sub-objects | batching.refresh | (obj: THREE.Object3D) => void
 engine sub-objects | batching.root | THREE.Group<THREE.Object3DEventMap>
 engine sub-objects | batching.stats | BatchingStats
 engine sub-objects | batching.tint | (obj: THREE.Object3D, c: THREE.ColorRepresentation | null) => void
 engine sub-objects | budget.byTag | () => BudgetTagStat[]
-engine sub-objects | budget.checkStartup | (s: { totalMs: number; modules: Record<string, { init?: number; ready?: number; }>; }) => { category: "startupMs" | "moduleMs"; value: number; limit: number; top: { tag: string; ms: number; }[]; }[]
+engine sub-objects | budget.checkStartup | (s: { totalMs: number; modules: Record<string, { init?: number; ready?: number; }>; }) => { category: "startupMs" | "moduleMs"; value: number; limit: number; top: { tag: string; ms: number; }[]; }[] @experimental
 engine sub-objects | budget.cost | ApplyCost
-engine sub-objects | budget.disable | () => void
+engine sub-objects | budget.disable | () => void @experimental
 engine sub-objects | budget.enable | (limits?: BudgetLimits) => Budget
 engine sub-objects | budget.enabled | boolean
-engine sub-objects | budget.limitOf | (name: string) => number | undefined
-engine sub-objects | budget.limits | BudgetLimits
+engine sub-objects | budget.limitOf | (name: string) => number | undefined @experimental
+engine sub-objects | budget.limits | BudgetLimits @experimental
 engine sub-objects | budget.metric | (name: string, read: () => number, opts?: { limit?: number; }) => Handle
 engine sub-objects | budget.report | () => BudgetReport | null
 engine sub-objects | budget.values | () => Record<string, number>
@@ -422,7 +422,7 @@ engine sub-objects | commits.pending | number @experimental
 engine sub-objects | commits.request | <T = any>(opts: { apply: (result: T) => void; fallback: () => T; valid?: (() => boolean) | null; lag?: number; }) => { due: number; resolve: (result: T) => void; remove: () => void; } @experimental
 engine sub-objects | commits.stats | { applied: number; late: number; dropped: number; } @experimental
 engine sub-objects | control.describe | () => {}
-engine sub-objects | control.forget | (id: string) => void
+engine sub-objects | control.forget | (id: string) => void @experimental
 engine sub-objects | control.has | (who: any, owner: string) => boolean
 engine sub-objects | control.of | (who: any) => { waiting: { owner: any; layer: any; }[]; at: any; owner: any; layer: any; }
 engine sub-objects | control.take | (who: any, o?: { owner: string; layer?: "base" | "script" | "cutscene" | "physics" | "net"; step?: (dt: number, ch: any) => ({ x: number; z: number; run?: boolean; } | null | false | void); }) => { owner: string; layer: string; id: string; readonly active: boolean; move(x: number, z: number, run?: boolean, dt?: number): boolean; remove(): void; }
@@ -430,7 +430,7 @@ engine sub-objects | error.at | string
 engine sub-objects | error.code | string
 engine sub-objects | error.docs | string[]
 engine sub-objects | error.fix | string
-engine sub-objects | error.message | string
+engine sub-objects | error.message | string @experimental
 engine sub-objects | error.where | string
 engine sub-objects | events.emit | <K extends EventName>(name: K, ...args: EventArgs<K & string>) => void
 engine sub-objects | events.historySize | number
@@ -441,39 +441,39 @@ engine sub-objects | events.recent | (name?: string) => { tick: number; name: st
 engine sub-objects | events.trace | (name?: string) => { id: number; tick: number; name: string; parent: string | null; chain: string[]; code?: string; obj?: string; data?: object; }[]
 engine sub-objects | events.traceFocus | (id: string | null) => void
 engine sub-objects | events.traceSize | number
-engine sub-objects | ground.chunkCollision | ?(cx: number, cz: number) => any
+engine sub-objects | ground.chunkCollision | ?(cx: number, cz: number) => any @experimental
 engine sub-objects | ground.chunkSize | ?number
 engine sub-objects | ground.forEachCollider | ?(x: number, z: number, range: number, fn: (cx: number, cz: number, r: number) => void) => void
 engine sub-objects | ground.has | (x: number, z: number) => boolean
 engine sub-objects | ground.height | (x: number, z: number, refY?: number) => number
 engine sub-objects | ground.slope | (x: number, z: number) => number
-engine sub-objects | ground.staticTrimeshes | ?() => { positions: Float32Array; indices: Uint32Array; }[]
-engine sub-objects | ground.staticVersion | ?() => number
+engine sub-objects | ground.staticTrimeshes | ?() => { positions: Float32Array; indices: Uint32Array; }[] @experimental
+engine sub-objects | ground.staticVersion | ?() => number @experimental
 engine sub-objects | ground.type | (x: number, z: number) => string
-engine sub-objects | ground.viewRange | ?() => number
+engine sub-objects | ground.viewRange | ?() => number @experimental
 engine sub-objects | ground.voidY | () => number
 engine sub-objects | ground.waterLevel | number
 engine sub-objects | i18n.add | (tables: StringTables) => I18n
-engine sub-objects | i18n.fallback | string
+engine sub-objects | i18n.fallback | string @experimental
 engine sub-objects | i18n.has | (key: string) => boolean
-engine sub-objects | i18n.languages | string[]
-engine sub-objects | i18n.locale | any
-engine sub-objects | i18n.setLocale | (l: string) => void
+engine sub-objects | i18n.languages | string[] @experimental
+engine sub-objects | i18n.locale | any @experimental
+engine sub-objects | i18n.setLocale | (l: string) => void @experimental
 engine sub-objects | input.action | (name: string, o?: { context?: string; label?: string; optional?: boolean; keys?: string | string[]; owner?: string; }) => { name: string; remove(): void; }
 engine sub-objects | input.actions | Map<string, { labelKey: string; context: string; optional: boolean; by: string | null; }>
 engine sub-objects | input.autopilot | Autopilot
 engine sub-objects | input.axis | { x: number; y: number; }
 engine sub-objects | input.bind | (name: string | Readonly<Record<string, string | readonly string[]>>, keys?: string | readonly string[], { owner }?: { owner?: string; }) => { owner: string; remove(): void; }
-engine sub-objects | input.contexts | string[]
+engine sub-objects | input.contexts | string[] @experimental
 engine sub-objects | input.describe | () => { stack: string[]; unbound: string[]; rebound: Record<string, string[]>; }
 engine sub-objects | input.down | (action: string) => boolean
 engine sub-objects | input.enabled | boolean
 engine sub-objects | input.gate | (action: string, owner?: string | { owner?: string; for?: number; clock?: string; }) => { owner: string; remove(): void; }
-engine sub-objects | input.holders | { context: string; owner: string; pass: boolean; }[]
+engine sub-objects | input.holders | { context: string; owner: string; pass: boolean; }[] @experimental
 engine sub-objects | input.isUnbound | (action: string) => boolean
-engine sub-objects | input.keysOf | (action: string) => readonly string[]
+engine sub-objects | input.keysOf | (action: string) => readonly string[] @experimental
 engine sub-objects | input.label | (action: string) => string
-engine sub-objects | input.lastDevice | "keyboard" | "pad" | "touch"
+engine sub-objects | input.lastDevice | "keyboard" | "pad" | "touch" @experimental
 engine sub-objects | input.look | { dx: number; dy: number; zoom: number; }
 engine sub-objects | input.pointer | Pointer
 engine sub-objects | input.pressed | (action: string) => boolean
@@ -481,16 +481,16 @@ engine sub-objects | input.pressedRaw | (action: string) => boolean
 engine sub-objects | input.push | (name: string, opts?: { pass?: boolean; owner?: string; }) => { name: string; remove(): void; }
 engine sub-objects | input.rebind | (action: string, keys: string | string[] | null) => void
 engine sub-objects | input.rebound | () => Record<string, string[]>
-engine sub-objects | input.released | (action: string) => boolean
+engine sub-objects | input.released | (action: string) => boolean @experimental
 engine sub-objects | input.simulate | (action: string, down?: boolean) => void
-engine sub-objects | input.stick | { x: number; y: number; }
-engine sub-objects | input.touch | boolean
+engine sub-objects | input.stick | { x: number; y: number; } @experimental
+engine sub-objects | input.touch | boolean @experimental
 engine sub-objects | input.touchButton | (action: string, labelKey: string) => void
 engine sub-objects | jobs.add | <T = any>(work: (() => T) | (() => Generator<any, T, any>) | Generator<any, T, any>, opts?: { priority?: number; apply?: ((result: T) => void) | null; lag?: number; valid?: () => boolean; }) => Promise<T>
-engine sub-objects | jobs.budgetMs | number
+engine sub-objects | jobs.budgetMs | number @experimental
 engine sub-objects | jobs.loadingMs | number @experimental
 engine sub-objects | jobs.maxSteps | number @experimental
-engine sub-objects | jobs.pending | number
+engine sub-objects | jobs.pending | number @experimental
 engine sub-objects | jobs.run | (opts?: { deterministic?: boolean; }) => void
 engine sub-objects | jobs.slowStepMs | number @experimental
 engine sub-objects | lights.hemi | HemisphereLight
@@ -520,27 +520,27 @@ engine sub-objects | ops.guard | (where: string) => void @experimental
 engine sub-objects | ops.historySize | number
 engine sub-objects | ops.list | ({ available, actor }?: { available?: boolean; actor?: string; }) => { name: string; desc?: string; args?: any; atomic: boolean; ok?: boolean; code?: string; }[]
 engine sub-objects | ops.recent | (name?: string) => { seq: number; tick: number; phase: string; name: string; args: any; source: string; actor: string; ok: boolean; code: string | null; depth: number; count: number; }[]
-engine sub-objects | ops.refused | (name: string, args: any, { reason, actor, source }: { reason: string; actor?: string; source?: string; }) => void
+engine sub-objects | ops.refused | (name: string, args: any, { reason, actor, source }: { reason: string; actor?: string; source?: string; }) => void @experimental
 engine sub-objects | ops.revision | number
 engine sub-objects | ops.route | (fn: (def: any, args: any, opts: any) => any) => { remove(): void; }
 engine sub-objects | ops.run | (name: string, args?: object, opts?: { source?: string; actor?: string; }) => { ok: boolean; value?: any; revision: number; code?: string; facts?: object; nextActions?: { op: string; args?: object; }[]; }
 engine sub-objects | ops.undo | (name: string, args: object, value: any, opts?: { actor?: string; }) => { ok: boolean; code?: string; facts?: object; nextActions?: { op: string; args?: object; }[]; }
-engine sub-objects | page.away | boolean
-engine sub-objects | page.contextLost | boolean
-engine sub-objects | page.focused | boolean
+engine sub-objects | page.away | boolean @experimental
+engine sub-objects | page.contextLost | boolean @experimental
+engine sub-objects | page.focused | boolean @experimental
 engine sub-objects | page.pauseOnBlur | boolean
-engine sub-objects | page.pointerLocked | boolean
+engine sub-objects | page.pointerLocked | boolean @experimental
 engine sub-objects | page.releaseLock | () => void
 engine sub-objects | page.visible | boolean
-engine sub-objects | player.acceleration | number
-engine sub-objects | player.addJumps | (n?: number) => Character
-engine sub-objects | player.airControl | number
-engine sub-objects | player.airJumpSpeed | number
+engine sub-objects | player.acceleration | number @experimental
+engine sub-objects | player.addJumps | (n?: number) => Character @experimental
+engine sub-objects | player.airControl | number @experimental
+engine sub-objects | player.airJumpSpeed | number @experimental
 engine sub-objects | player.anim | Animator
-engine sub-objects | player.cameraFollow | ?boolean
+engine sub-objects | player.cameraFollow | ?boolean @experimental
 engine sub-objects | player.canJump | boolean
 engine sub-objects | player.channel | string
-engine sub-objects | player.coyoteTime | number
+engine sub-objects | player.coyoteTime | number @experimental
 engine sub-objects | player.dispose | () => void
 engine sub-objects | player.enter | (vehicle: Rideable) => void
 engine sub-objects | player.exit | () => void
@@ -548,18 +548,18 @@ engine sub-objects | player.face | (target: PositionLike | number) => void
 engine sub-objects | player.faceMode | FaceMode
 engine sub-objects | player.faceTarget | PositionLike
 engine sub-objects | player.facing | number
-engine sub-objects | player.fall | false | { belowY: number | ((character: Character) => boolean); }
+engine sub-objects | player.fall | false | { belowY: number | ((character: Character) => boolean); } @experimental
 engine sub-objects | player.gravity | number
 engine sub-objects | player.groundType | () => string
 engine sub-objects | player.grounded | boolean
 engine sub-objects | player.id | string
 engine sub-objects | player.jump | (opts?: { air?: boolean; }) => Character
-engine sub-objects | player.jumpBuffer | number
+engine sub-objects | player.jumpBuffer | number @experimental
 engine sub-objects | player.jumpSpeed | number
-engine sub-objects | player.jumpState | () => { grounded: boolean; coyoteLeft: number; bufferLeft: number; jumpsUsed: number; jumpsLeft: number; vy: number; }
+engine sub-objects | player.jumpState | () => { grounded: boolean; coyoteLeft: number; bufferLeft: number; jumpsUsed: number; jumpsLeft: number; vy: number; } @experimental
 engine sub-objects | player.launch | (speed: number, opts?: { owner?: string; }) => Character
 engine sub-objects | player.loadMotion | (m: CharacterMotion | null | undefined) => Character @experimental
-engine sub-objects | player.maxJumps | number
+engine sub-objects | player.maxJumps | number @experimental
 engine sub-objects | player.move | (dirX: number, dirZ: number, run: boolean, dt: number) => void
 engine sub-objects | player.moveAmount | number
 engine sub-objects | player.mover | { name: "simple" | "rapier" | "manual"; controller?: any; body?: any; collider?: any; move(dirX: number, dirZ: number, run: boolean, dt: number): void; dispose?(): void; }
@@ -570,7 +570,7 @@ engine sub-objects | player.position | Vector3
 engine sub-objects | player.push | (vx: number, vz: number, seconds: number) => void
 engine sub-objects | player.radius | number
 engine sub-objects | player.ready | boolean
-engine sub-objects | player.resetJumps | () => Character
+engine sub-objects | player.resetJumps | () => Character @experimental
 engine sub-objects | player.root | Object3D<Object3DEventMap>
 engine sub-objects | player.runSpeed | number
 engine sub-objects | player.safeGround | Vector3
@@ -580,13 +580,13 @@ engine sub-objects | player.speed | number
 engine sub-objects | player.stat | (name: "speed" | "runSpeed" | "gravity" | "jumpSpeed" | "canJump") => number
 engine sub-objects | player.state | CharacterState
 engine sub-objects | player.states | CharacterStates
-engine sub-objects | player.stepHeight | number
+engine sub-objects | player.stepHeight | number @experimental
 engine sub-objects | player.support | { kind: "ground" | "platform" | "collider" | "water" | null; object: any; id: string | null; safe: boolean; velocity: { x: number; y: number; z: number; }; }
-engine sub-objects | player.swimDepth | number
-engine sub-objects | player.swimSpeedFactor | number
-engine sub-objects | player.swimming | boolean
+engine sub-objects | player.swimDepth | number @experimental
+engine sub-objects | player.swimSpeedFactor | number @experimental
+engine sub-objects | player.swimming | boolean @experimental
 engine sub-objects | player.syncRecord | () => Character
-engine sub-objects | player.turnSpeed | number
+engine sub-objects | player.turnSpeed | number @experimental
 engine sub-objects | player.vehicle | Rideable
 engine sub-objects | player.velocity | Vector2
 engine sub-objects | player.vy | number
@@ -599,7 +599,7 @@ engine sub-objects | plugins.off | (name: string) => { off: string[]; note: stri
 engine sub-objects | plugins.on | (name: string) => { on: string[]; note: string; }
 engine sub-objects | post.active | boolean
 engine sub-objects | post.add | (x: any, o?: { name?: string; slot?: PostSlot | (string & {}); order?: number; }) => PostHandle
-engine sub-objects | post.antialias | boolean
+engine sub-objects | post.antialias | boolean @experimental
 engine sub-objects | post.get | (name: string) => PostHandle | undefined @experimental
 engine sub-objects | post.list | () => { name: string; slot: PostSlot; order: number; enabled: boolean; }[] @experimental
 engine sub-objects | post.object | () => any @experimental
@@ -608,49 +608,49 @@ engine sub-objects | post.render | (dt: number, target?: any) => void
 engine sub-objects | post.setAntialias | (on: boolean) => void @experimental
 engine sub-objects | post.targets | () => { renderTarget1: any; renderTarget2: any; readBuffer: any; writeBuffer: any; } | null @experimental
 engine sub-objects | random.chance | (p: number) => boolean
-engine sub-objects | random.fromJSON | (d: { seed: number; state: number; } | null | undefined) => void
-engine sub-objects | random.int | (a: number, b: number) => number
+engine sub-objects | random.fromJSON | (d: { seed: number; state: number; } | null | undefined) => void @experimental
+engine sub-objects | random.int | (a: number, b: number) => number @experimental
 engine sub-objects | random.next | () => number
 engine sub-objects | random.pick | <T>(list: readonly T[]) => T | undefined
 engine sub-objects | random.range | (a: number, b: number) => number
 engine sub-objects | random.seed | any
 engine sub-objects | random.seeded | (seed: number) => Random
-engine sub-objects | random.setSeed | (seed: number) => Random
+engine sub-objects | random.setSeed | (seed: number) => Random @experimental
 engine sub-objects | random.state | any
 engine sub-objects | random.toJSON | () => { seed: number; state: number; }
-engine sub-objects | rays.addProvider | (fn: RayProvider) => Handle
+engine sub-objects | rays.addProvider | (fn: RayProvider) => Handle @experimental
 engine sub-objects | rays.addStatic | (obj: THREE.Object3D | THREE.Object3D[], opts?: { occluder?: boolean; }) => Handle
-engine sub-objects | rays.forget | (obj: THREE.Object3D) => void
-engine sub-objects | rays.ray | any
-engine sub-objects | rays.statics | Map<THREE.Object3D<THREE.Object3DEventMap>, { refs: number; occ: number; }>
-engine sub-objects | runState.blockedBy | string[]
+engine sub-objects | rays.forget | (obj: THREE.Object3D) => void @experimental
+engine sub-objects | rays.ray | any @experimental
+engine sub-objects | rays.statics | Map<THREE.Object3D<THREE.Object3DEventMap>, { refs: number; occ: number; }> @experimental
+engine sub-objects | runState.blockedBy | string[] @experimental
 engine sub-objects | runState.owners | string[]
 engine sub-objects | runState.state | "loading" | "running" | "title-frozen" | "halted" | "frozen"
 engine sub-objects | saves.apply | (data: any, slot?: string) => Promise<boolean>
-engine sub-objects | saves.attachments | (group: string) => Promise<{ group: string; id: string; at: number; blob: Blob; meta: any; }[]>
+engine sub-objects | saves.attachments | (group: string) => Promise<{ group: string; id: string; at: number; blob: Blob; meta: any; }[]> @experimental
 engine sub-objects | saves.autosave | (minutes?: number) => { remove(): void; }
 engine sub-objects | saves.check | (slot?: string) => null | "missing" | "corrupt" | "tooNew" | "migrate"
 engine sub-objects | saves.collect | () => { format: number; savedAt: number; versions: Record<string, number>; parts: Record<string, any>; }
-engine sub-objects | saves.export | (slot?: string) => string
-engine sub-objects | saves.exportFile | (slot?: string, opts?: { files?: boolean; }) => Promise<boolean>
+engine sub-objects | saves.export | (slot?: string) => string @experimental
+engine sub-objects | saves.exportFile | (slot?: string, opts?: { files?: boolean; }) => Promise<boolean> @experimental
 engine sub-objects | saves.flush | () => Promise<void>
 engine sub-objects | saves.import | (text: string, slot?: string) => Promise<boolean>
 engine sub-objects | saves.importFile | (file?: Blob, slot?: string) => Promise<string | null>
 engine sub-objects | saves.list | () => { slot: string; savedAt: number; }[]
 engine sub-objects | saves.load | (slot?: string) => Promise<boolean>
-engine sub-objects | saves.putAttachment | (group: string, id: string, blob: Blob | (() => Promise<Blob>), meta?: any) => Promise<void>
+engine sub-objects | saves.putAttachment | (group: string, id: string, blob: Blob | (() => Promise<Blob>), meta?: any) => Promise<void> @experimental
 engine sub-objects | saves.ready | boolean
 engine sub-objects | saves.register | (key: string, provider: SaveProvider) => void
 engine sub-objects | saves.remove | (slot: string) => Promise<void>
-engine sub-objects | saves.removeAttachment | (group: string, id: string) => Promise<void>
+engine sub-objects | saves.removeAttachment | (group: string, id: string) => Promise<void> @experimental
 engine sub-objects | saves.save | (slot?: string) => Promise<boolean>
 engine sub-objects | saves.storageKey | (name: string) => string
-engine sub-objects | saves.store | { mode: "idb" | "localStorage"; blobs(group?: string): Promise<{ group: string; id: string; at: number; blob: Blob; meta: any; }[]>; putBlob(group: string, id: string, blob: Blob, meta?: any, at?: number): Promise<void>; deleteBlob(group: string, id: string): Promise<void>; }
+engine sub-objects | saves.store | { mode: "idb" | "localStorage"; blobs(group?: string): Promise<{ group: string; id: string; at: number; blob: Blob; meta: any; }[]>; putBlob(group: string, id: string, blob: Blob, meta?: any, at?: number): Promise<void>; deleteBlob(group: string, id: string): Promise<void>; } @experimental
 engine sub-objects | saves.versions | Record<string, number>
 engine sub-objects | saves.whenReady | Promise<void>
 engine sub-objects | session.load | (slot?: string) => Promise<boolean>
 engine sub-objects | session.newGame | () => Promise<boolean>
-engine sub-objects | session.playing | boolean
+engine sub-objects | session.playing | boolean @experimental
 engine sub-objects | session.quit | () => Promise<boolean>
 engine sub-objects | session.track | <H extends { remove(): void; }>(handle: H) => H
 engine sub-objects | shaderTerms.cloudShadow | (spec: TermSpec | false) => { remove(): void; }
@@ -663,22 +663,22 @@ engine sub-objects | shadows.csm | any @experimental
 engine sub-objects | shadows.enabled | boolean
 engine sub-objects | shadows.include | <M extends import("three").Material>(material: M) => M
 engine sub-objects | shadows.mapSize | (light: import("three").Light, width: number, height?: number) => void
-engine sub-objects | stacks.define | (name: string, opts?: { kind?: "number" | "value" | "any" | "top" | "one"; base?: any; min?: number; max?: number; per?: boolean | "optional"; save?: boolean; manual?: string; }) => Stack
-engine sub-objects | stacks.describe | () => Record<string, SharedRow>
-engine sub-objects | stacks.get | (name: string) => Stack
-engine sub-objects | stacks.has | (name: string) => boolean
-engine sub-objects | stacks.list | () => string[]
-engine sub-objects | stacks.mod | (name: string, opts: ModOptions) => ModHandle
-engine sub-objects | stacks.of | (owner: string) => string[]
+engine sub-objects | stacks.define | (name: string, opts?: { kind?: "number" | "value" | "any" | "top" | "one"; base?: any; min?: number; max?: number; per?: boolean | "optional"; save?: boolean; manual?: string; }) => Stack @experimental
+engine sub-objects | stacks.describe | () => Record<string, SharedRow> @experimental
+engine sub-objects | stacks.get | (name: string) => Stack @experimental
+engine sub-objects | stacks.has | (name: string) => boolean @experimental
+engine sub-objects | stacks.list | () => string[] @experimental
+engine sub-objects | stacks.mod | (name: string, opts: ModOptions) => ModHandle @experimental
+engine sub-objects | stacks.of | (owner: string) => string[] @experimental
 engine sub-objects | startup.compileMs | number
-engine sub-objects | startup.firstFrameMs | number
+engine sub-objects | startup.firstFrameMs | number @experimental
 engine sub-objects | startup.modules | Record<string, { init?: number; ready?: number; }>
-engine sub-objects | startup.phases | { script: number; construct: number; setup: number; init: number; preload: number; world: number; compile: number; draw: number | null; }
-engine sub-objects | startup.preloadMs | number
-engine sub-objects | startup.startMs | number
-engine sub-objects | startup.streamMs | number
-engine sub-objects | startup.totalMs | number
-engine sub-objects | stream.activeRadius | number
+engine sub-objects | startup.phases | { script: number; construct: number; setup: number; init: number; preload: number; world: number; compile: number; draw: number | null; } @experimental
+engine sub-objects | startup.preloadMs | number @experimental
+engine sub-objects | startup.startMs | number @experimental
+engine sub-objects | startup.streamMs | number @experimental
+engine sub-objects | startup.totalMs | number @experimental
+engine sub-objects | stream.activeRadius | number @experimental
 engine sub-objects | stream.add | (def: StreamEntryOptions) => StreamHandle
 engine sub-objects | stream.addReadyCheck | (name: string, fn: (source: StreamSource) => boolean) => { remove(): void; } @experimental
 engine sub-objects | stream.camera | StreamSource
@@ -686,7 +686,7 @@ engine sub-objects | stream.cellSize | number
 engine sub-objects | stream.player | StreamSource
 engine sub-objects | stream.radius | number
 engine sub-objects | stream.ready | boolean
-engine sub-objects | stream.setRadius | (m: number) => void
+engine sub-objects | stream.setRadius | (m: number) => void @experimental
 engine sub-objects | stream.source | (position: any, opts?: StreamSourceOptions) => StreamSource @experimental
 engine sub-objects | stream.sources | (pick?: { detail?: "full" | "simple"; physics?: boolean; }) => StreamSource[] @experimental
 engine sub-objects | stream.stats | { entries: number; built: number; queued: number; }
@@ -702,59 +702,59 @@ engine sub-objects | threads.lane | (opts: { create: () => Worker; local: () => 
 engine sub-objects | threads.pure | (fn: Function, label: string) => { fn: Function; src: string; label: string; } @experimental
 engine sub-objects | threads.shared | boolean @experimental
 engine sub-objects | threads.size | number @experimental
-engine sub-objects | time.channel | (name: string, opts?: { parent?: string | null; stack?: string; }) => Time
-engine sub-objects | time.channels | () => string[]
-engine sub-objects | time.dt | (name: string, id?: string) => number
+engine sub-objects | time.channel | (name: string, opts?: { parent?: string | null; stack?: string; }) => Time @experimental
+engine sub-objects | time.channels | () => string[] @experimental
+engine sub-objects | time.dt | (name: string, id?: string) => number @experimental
 engine sub-objects | time.now | (name: "real" | "ambient" | "calendar" | "world" | "player" | (string & {})) => number
 engine sub-objects | time.scale | (name: string, id?: string) => number
 engine sub-objects | time.tick | number
 engine sub-objects | ui.close | (name: string) => void
-engine sub-objects | ui.create | (name: string) => UIPart | null
+engine sub-objects | ui.create | (name: string) => UIPart | null @experimental
 engine sub-objects | ui.define | (name: string, factory: UIPartFactory, def?: UIPartDef) => void
 engine sub-objects | ui.describe | () => Record<string, string>
 engine sub-objects | ui.get | (name: string) => UIPart | null
-engine sub-objects | ui.isOpen | (name: string) => boolean
+engine sub-objects | ui.isOpen | (name: string) => boolean @experimental
 engine sub-objects | ui.open | (name: string, data?: object) => boolean
 engine sub-objects | ui.set | (name: string, value: UIPartValue) => void
 engine sub-objects | ui.settled | () => Promise<void>
 engine sub-objects | ui.templates | Record<string, UITemplate>
-engine sub-objects | ui.titleItem | (id: string, item: { label: string | ((engine: Engine) => string); run(engine: Engine): any; }) => { remove(): void; }
+engine sub-objects | ui.titleItem | (id: string, item: { label: string | ((engine: Engine) => string); run(engine: Engine): any; }) => { remove(): void; } @experimental
 engine sub-objects | uniforms.uCloudColor | { value: Color; }
 engine sub-objects | uniforms.uCloudCover | { value: number; }
-engine sub-objects | uniforms.uCloudOpacity | { value: number; }
+engine sub-objects | uniforms.uCloudOpacity | { value: number; } @experimental
 engine sub-objects | uniforms.uCloudShade | { value: Color; }
 engine sub-objects | uniforms.uCloudShadow | { value: number; }
-engine sub-objects | uniforms.uCloudShadowScale | { value: number; }
-engine sub-objects | uniforms.uCloudShadowSpeed | { value: Vector2; }
-engine sub-objects | uniforms.uCloudSoft | { value: number; }
+engine sub-objects | uniforms.uCloudShadowScale | { value: number; } @experimental
+engine sub-objects | uniforms.uCloudShadowSpeed | { value: Vector2; } @experimental
+engine sub-objects | uniforms.uCloudSoft | { value: number; } @experimental
 engine sub-objects | uniforms.uDaylight | { value: number; }
-engine sub-objects | uniforms.uFoliageMix | { value: number; }
-engine sub-objects | uniforms.uFoliageTint | { value: Color; }
-engine sub-objects | uniforms.uGroundCover | { value: Vector2; }
-engine sub-objects | uniforms.uGroundMix | { value: number; }
-engine sub-objects | uniforms.uGroundTint | { value: Color; }
-engine sub-objects | uniforms.uMoonBrightness | { value: number; }
-engine sub-objects | uniforms.uMoonColor | { value: Color; }
-engine sub-objects | uniforms.uMoonSize | { value: number; }
+engine sub-objects | uniforms.uFoliageMix | { value: number; } @experimental
+engine sub-objects | uniforms.uFoliageTint | { value: Color; } @experimental
+engine sub-objects | uniforms.uGroundCover | { value: Vector2; } @experimental
+engine sub-objects | uniforms.uGroundMix | { value: number; } @experimental
+engine sub-objects | uniforms.uGroundTint | { value: Color; } @experimental
+engine sub-objects | uniforms.uMoonBrightness | { value: number; } @experimental
+engine sub-objects | uniforms.uMoonColor | { value: Color; } @experimental
+engine sub-objects | uniforms.uMoonSize | { value: number; } @experimental
 engine sub-objects | uniforms.uNight | { value: number; }
 engine sub-objects | uniforms.uRain | { value: number; }
 engine sub-objects | uniforms.uSkyCloudScale | { value: number; }
 engine sub-objects | uniforms.uSkyCloudSpeed | { value: Vector2; }
-engine sub-objects | uniforms.uSkyCurve | { value: number; }
+engine sub-objects | uniforms.uSkyCurve | { value: number; } @experimental
 engine sub-objects | uniforms.uSkyHorizon | { value: Color; }
 engine sub-objects | uniforms.uSkyTop | { value: Color; }
-engine sub-objects | uniforms.uSnow | { value: number; }
-engine sub-objects | uniforms.uStarScale | { value: number; }
-engine sub-objects | uniforms.uStars | { value: number; }
+engine sub-objects | uniforms.uSnow | { value: number; } @experimental
+engine sub-objects | uniforms.uStarScale | { value: number; } @experimental
+engine sub-objects | uniforms.uStars | { value: number; } @experimental
 engine sub-objects | uniforms.uSunBrightness | { value: number; }
 engine sub-objects | uniforms.uSunColor | { value: Color; }
 engine sub-objects | uniforms.uSunDir | { value: Vector3; }
-engine sub-objects | uniforms.uSunGlow | { value: number; }
-engine sub-objects | uniforms.uSunSize | { value: number; }
+engine sub-objects | uniforms.uSunGlow | { value: number; } @experimental
+engine sub-objects | uniforms.uSunSize | { value: number; } @experimental
 engine sub-objects | uniforms.uTime | { value: number; }
 engine sub-objects | uniforms.uTimeOfDay | { value: number; }
 engine sub-objects | uniforms.uViewDistance | { value: number; }
-engine sub-objects | uniforms.uWeatherCloud | { value: number; }
+engine sub-objects | uniforms.uWeatherCloud | { value: number; } @experimental
 engine sub-objects | uniforms.uWeatherFog | { value: number; }
 engine sub-objects | uniforms.uWeatherLight | { value: number; }
 engine sub-objects | uniforms.uWind | { value: number; }
@@ -765,7 +765,7 @@ engine sub-objects | vars.counter | (key: string) => number
 engine sub-objects | vars.counters | Record<string, number>
 engine sub-objects | vars.flag | (key: string) => any
 engine sub-objects | vars.flags | Record<string, any>
-engine sub-objects | vars.setFlag | (key: string, value?: any) => void
+engine sub-objects | vars.setFlag | (key: string, value?: any) => void @experimental
 engine sub-objects | vegetationDraw.kind | (name: string) => { geometry: BufferGeometry; lodGeometry: BufferGeometry | null; material: Material | Material[]; fadeUniforms: any; shared: boolean; } | null @experimental
 engine sub-objects | vegetationDraw.mesh | (c: TerrainChunk, name: string) => InstancedMesh | null @experimental
 engine sub-objects | vegetationDraw.meshes | Map<TerrainChunk, { group: Object3D; ims: Record<string, InstancedMesh>; }> @experimental
@@ -777,16 +777,16 @@ engine sub-objects | views.map | Map<any, any>
 engine sub-objects | views.release | () => void
 engine sub-objects | views.show | (name: string) => { remove(): void; } | null
 engine sub-objects | weather.auto | boolean
-engine sub-objects | weather.autoInterval | number[]
-engine sub-objects | weather.autoPool | string[]
-engine sub-objects | weather.autoTransition | number
+engine sub-objects | weather.autoInterval | number[] @experimental
+engine sub-objects | weather.autoPool | string[] @experimental
+engine sub-objects | weather.autoTransition | number @experimental
 engine sub-objects | weather.current | WeatherPreset
 engine sub-objects | weather.defineField | (field: string, spec: WeatherParticles | null) => WeatherParticleSystem | null
 engine sub-objects | weather.label | (name?: string) => string
-engine sub-objects | weather.lightning | (flash: number, engine: any) => number
+engine sub-objects | weather.lightning | (flash: number, engine: any) => number @experimental
 engine sub-objects | weather.lightningBrightness | number
-engine sub-objects | weather.lightningFirst | number
-engine sub-objects | weather.lightningInterval | number[]
+engine sub-objects | weather.lightningFirst | number @experimental
+engine sub-objects | weather.lightningInterval | number[] @experimental
 engine sub-objects | weather.name | string
 engine sub-objects | weather.overcastColor | THREE.Color
 engine sub-objects | weather.particles | Record<string, WeatherParticleSystem>
@@ -1021,7 +1021,7 @@ exports threedog | applyEffects | (material: THREE.Material, { wind, clouds, sea
 exports threedog | bakeVertexAO | (geometry: THREE.BufferGeometry, { samples, radius, strength, bias, occluders, seed }?: { samples?: number; radius?: number; strength?: number; bias?: number; occluders?: THREE.BufferGeometry[]; seed?: number; }) => THREE.BufferGeometry
 exports threedog | calendar | (opts?: CalendarOptions) => ModuleDef<Calendar>
 exports threedog | characters | (opts?: CharactersOptions) => ModuleDef<CharactersApi>
-exports threedog | checkOptions | (where: string, opts: object | null | undefined, known: string[], flags?: { loose?: boolean; }) => void
+exports threedog | checkOptions | (where: string, opts: object | null | undefined, known: string[], flags?: { loose?: boolean; }) => void @experimental
 exports threedog | collision | (opts?: CollisionOptions) => ModuleDef<Collision>
 exports threedog | content | () => ModuleDef<Content>
 exports threedog | contentParts | (modules: Record<string, { default: any; } | any>) => any
@@ -1040,13 +1040,13 @@ exports threedog | formatClock | (t: number, hoursPerDay?: number) => string
 exports threedog | grids | (opts?: GridsOptions) => import("../../../core").ModuleDef<Grids> @experimental
 exports threedog | hlod | (opts?: HlodOptions) => ModuleDef<Hlod> @experimental
 exports threedog | hud | (opts?: HudOptions) => ModuleDef<Hud>
-exports threedog | inRange | (t: number, from: string | number, to: string | number, hoursPerDay?: number) => boolean
+exports threedog | inRange | (t: number, from: string | number, to: string | number, hoursPerDay?: number) => boolean @experimental
 exports threedog | interactions | (opts: InteractionsOptions) => ModuleDef<Interactions>
 exports threedog | inventory | (opts?: InventoryOptions) => ModuleDef<Inventory>
 exports threedog | level | (opts?: LevelOptions) => ModuleDef<Level>
 exports threedog | lightPool | (opts?: LightPoolOptions) => ModuleDef<LightPool>
 exports threedog | makeWindow | (engine: Engine, opts: WindowOptions) => UIWindow
-exports threedog | materialPatches | (material: THREE.Material) => string[]
+exports threedog | materialPatches | (material: THREE.Material) => string[] @experimental
 exports threedog | mergeColored | (parts: [THREE.BufferGeometry, ColorLike][], { flat }?: { flat?: boolean; }) => THREE.BufferGeometry
 exports threedog | music | (opts?: MusicOptions) => ModuleDef<Music>
 exports threedog | nav | (opts?: NavOptions) => ModuleDef<Nav>
@@ -1070,13 +1070,13 @@ exports threedog | sky | (opts?: SkyOptions) => ModuleDef<Sky>
 exports threedog | swarm | () => import("../../../core").ModuleDef @experimental
 exports threedog | switchTarget | <T>(from: PositionLike, view: { x: number; z: number; } | number, current: T | null, candidates: Iterable<T>, side: 1 | -1, opts?: Pick<TargetOptions<T>, "radius" | "blocked" | "at">) => T | null
 exports threedog | terrain | (opts?: TerrainOptions) => ModuleDef<Terrain>
-exports threedog | terrainMaterial | (base?: THREE.Material | null, engine?: { assets: any; }, { effects, detail }?: { effects?: boolean; detail?: import("../../../render/detail").DetailOptions | null; }) => THREE.Material
+exports threedog | terrainMaterial | (base?: THREE.Material | null, engine?: { assets: any; }, { effects, detail }?: { effects?: boolean; detail?: import("../../../render/detail").DetailOptions | null; }) => THREE.Material @experimental
 exports threedog | threePatches | { list(): { id: string; what: string; scope: string; on: boolean; offable: boolean; lost: string; }[]; off(id: string): void; }
 exports threedog | timeline | (opts?: TimelineOptions) => ModuleDef<Timeline>
 exports threedog | toast | (engine: Engine, text: string, { kind, ms }?: { kind?: string; ms?: number; }) => void
-exports threedog | toggleOnKey | (engine: Engine, win: { open: boolean; toggle(on?: boolean): void; }, action: string) => void
+exports threedog | toggleOnKey | (engine: Engine, win: { open: boolean; toggle(on?: boolean): void; }, action: string) => void @experimental
 exports threedog | triggers | (opts?: TriggersOptions) => ModuleDef<Triggers>
-exports threedog | uiFocus | (engine: Engine) => UIFocus
+exports threedog | uiFocus | (engine: Engine) => UIFocus @experimental
 exports threedog | vegetation | (opts?: VegetationModuleOptions) => ModuleDef<Vegetation>
 exports threedog | water | (opts?: WaterOptions) => ModuleDef<Water>
 exports threedog | weather | (opts?: WeatherOptions) => [ModuleDef<Weather>, ModuleDef<import("./weatherDraw.js").WeatherDraw>]
@@ -1110,19 +1110,18 @@ module APIs | calendar.clock | string
 module APIs | calendar.daily | (fn: (day: number) => void, opts?: CalendarAtOptions) => Handle
 module APIs | calendar.day | number
 module APIs | calendar.dayLength | number
-module APIs | calendar.dayOfSeason | number
+module APIs | calendar.dayOfSeason | number @experimental
 module APIs | calendar.daylight | number
-module APIs | calendar.daysPerSeason | number
-module APIs | calendar.hoursPerDay | number
+module APIs | calendar.hoursPerDay | number @experimental
 module APIs | calendar.isDay | boolean
 module APIs | calendar.onSeason | (name: string, fn: (season: string) => void) => Handle
 module APIs | calendar.season | string
-module APIs | calendar.seasonIndex | number
-module APIs | calendar.seasonProgress | number
-module APIs | calendar.seasons | string[]
+module APIs | calendar.seasonIndex | number @experimental
+module APIs | calendar.seasonProgress | number @experimental
+module APIs | calendar.seasons | string[] @experimental
 module APIs | calendar.timeOfDay | number
-module APIs | calendar.totalDays | number
-module APIs | calendar.untilMark | () => number
+module APIs | calendar.totalDays | number @experimental
+module APIs | calendar.untilMark | () => number @experimental
 module APIs | characters.createPlayer | (opts: PlayerOptions) => Character
 module APIs | characters.findPath | { (from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false; }): XZ[] | null; (from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true; }): PathResult; }
 module APIs | characters.findPathAsync | (from: PositionLike, to: PositionLike, done: (path: XZ[] | null, status: "ok" | "noPath" | "notReady") => void, opts?: { radius?: number; step?: number; maxNodes?: number; }) => { remove(): void; }
@@ -1130,26 +1129,26 @@ module APIs | characters.findSpawn | (position?: PositionLike, opts?: FindSpawnO
 module APIs | characters.material | Material<MaterialEventMap>
 module APIs | characters.moveInput | () => { x: number; z: number; run: boolean; }
 module APIs | characters.pathsPerStep | number
-module APIs | characters.removePlayer | () => void
+module APIs | characters.removePlayer | () => void @experimental
 module APIs | characters.support | (object: any, opts?: { id?: string; safe?: boolean; carry?: "position" | "position+yaw"; inherit?: boolean; }) => { id: string; remove(): void; }
 module APIs | collision.addBlocked | (fn: (x: number, z: number) => boolean, opts?: { bounds?: { minX: number; maxX: number; minZ: number; maxZ: number; }; }) => Handle
 module APIs | collision.addBox | (position: PositionLike, opts?: BoxColliderOptions) => Handle
 module APIs | collision.addCircle | (position: PositionLike, opts?: CircleColliderOptions) => Handle
 module APIs | collision.addObject | (obj: Object3D, opts?: { pad?: number; occluder?: boolean; }) => Handle
 module APIs | collision.addSegment | (a: PositionLike, b: PositionLike, opts?: { thickness?: number; height?: number; y?: number; occluder?: boolean; }) => Handle
-module APIs | collision.blockedAt | (x: number, z: number, radius?: number) => boolean
-module APIs | collision.cameraMin | number
-module APIs | collision.cameraOcclusion | "colliders" | "meshes" | "both"
-module APIs | collision.cameraPad | number
-module APIs | collision.canopyHeight | number
-module APIs | collision.forEachStatic | (fn: (type: "box" | "circle", data: any) => void) => void
+module APIs | collision.blockedAt | (x: number, z: number, radius?: number) => boolean @experimental
+module APIs | collision.cameraMin | number @experimental
+module APIs | collision.cameraOcclusion | "colliders" | "meshes" | "both" @experimental
+module APIs | collision.cameraPad | number @experimental
+module APIs | collision.canopyHeight | number @experimental
+module APIs | collision.forEachStatic | (fn: (type: "box" | "circle", data: any) => void) => void @experimental
 module APIs | collision.lineClear | (a: PositionLike, b: PositionLike, opts?: { radius?: number; who?: string; }) => boolean
-module APIs | collision.maxClimb | number
-module APIs | collision.mirror | <P>(fns: { add(type: "box" | "circle", data: any): P; remove(piece: P, data: any): void; }) => { sync(): boolean; clear(): void; readonly size: number; }
-module APIs | collision.version | number
+module APIs | collision.maxClimb | number @experimental
+module APIs | collision.mirror | <P>(fns: { add(type: "box" | "circle", data: any): P; remove(piece: P, data: any): void; }) => { sync(): boolean; clear(): void; readonly size: number; } @experimental
+module APIs | collision.version | number @experimental
 module APIs | collision.walkable | (position: PositionLike, opts?: { radius?: number; }) => boolean
 module APIs | collision.walkableAt | (x: number, z: number, radius?: number) => boolean
-module APIs | collision.walkableWaterMargin | number
+module APIs | collision.walkableWaterMargin | number @experimental
 module APIs | content.condition | (name: string, def: ContentConditionDef) => Content
 module APIs | content.fields | (name: string) => Record<string, ContentField>
 module APIs | content.load | (data: ContentPack | ContentPack[], opts?: ContentLoadOptions) => Content
@@ -1164,19 +1163,19 @@ module APIs | content.where | (p: { place?: string; x?: number; z?: number; }) =
 module APIs | debug.el | HTMLElement
 module APIs | dialogue.active | { speaker: string; nodes: DialogueScript; node?: DialogueNode; id?: string; onEnd: (() => void) | null; }
 module APIs | dialogue.bubbles | () => { speaker: string; text: string; queued: number; }[]
-module APIs | dialogue.charsPerSecond | number
+module APIs | dialogue.charsPerSecond | number @experimental
 module APIs | dialogue.define | (speaker: string, nodes: DialogueScript) => void
 module APIs | dialogue.end | () => void
 module APIs | dialogue.say | (text: string | DialogueScript, opts?: { speaker?: string; node?: string; channel?: DialogueChannel; onCancel?: (() => void) | null; } & BubbleOptions) => SayPromise
-module APIs | dialogue.scripts | Map<string, DialogueScript>
-module APIs | dialogue.speaking | string
+module APIs | dialogue.scripts | Map<string, DialogueScript> @experimental
+module APIs | dialogue.speaking | string @experimental
 module APIs | dialogue.start | (speaker: string, nodeId?: string, onEnd?: (() => void) | null, opts?: { channel?: DialogueChannel; at?: BubbleAt; onCancel?: (() => void) | null; }) => void
 module APIs | dialogue.state | DialogueState
 module APIs | flow.define | (name: string, def: FlowStateDef) => Flow
 module APIs | flow.go | (name: string) => void
 module APIs | flow.state | string
 module APIs | flow.transition | (fn: () => any, opts?: FlowTransitionOptions) => Promise<void>
-module APIs | flow.transitioning | boolean
+module APIs | flow.transitioning | boolean @experimental
 module APIs | grids.add | (name: string, opts?: { cell?: number; origin?: any; size?: [number, number]; zone?: string; flat?: number; y?: number; levelHeight?: number; mapping?: { toCell(x: number, z: number): [number, number]; center(cell: [number, number]): [number, number]; }; layers?: Record<string, [number, number, Record<string, any>][]>; }) => Grid @experimental
 module APIs | grids.bad | any @experimental
 module APIs | grids.define | (name: string, rule: import("./Grid.js").GridRule) => void @experimental
@@ -1204,16 +1203,16 @@ module APIs | interactions.holding | { id: string; action: string; seconds: numb
 module APIs | interactions.items | Interaction[]
 module APIs | interactions.options | { action: string; id: string; label: string; }[]
 module APIs | interactions.pickMode | InteractionPick
-module APIs | interactions.promptHeight | number
+module APIs | interactions.promptHeight | number @experimental
 module APIs | interactions.radius | number
 module APIs | inventory.action | string
 module APIs | inventory.add | (id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean; }) => ItemAddResult
-module APIs | inventory.bag | Container
-module APIs | inventory.capacity | number
+module APIs | inventory.bag | Container @experimental
+module APIs | inventory.capacity | number @experimental
 module APIs | inventory.container | (id: string, opts?: { capacity?: number; maxWeight?: number; items?: Record<string, number>; }) => Container
-module APIs | inventory.contents | () => Record<string, any[]>
+module APIs | inventory.contents | () => Record<string, any[]> @experimental
 module APIs | inventory.count | (x: string) => number
-module APIs | inventory.defaultStack | number
+module APIs | inventory.defaultStack | number @experimental
 module APIs | inventory.define | (id: string, def: ItemDef) => Inventory
 module APIs | inventory.get | (key: string) => ItemEntry | undefined
 module APIs | inventory.has | (x: string, n?: number) => boolean
@@ -1223,9 +1222,8 @@ module APIs | inventory.of | (actor?: string) => Container
 module APIs | inventory.pauseGame | boolean
 module APIs | inventory.remove | (x: string, n?: number) => boolean
 module APIs | inventory.removeContainer | (id: string) => boolean
-module APIs | inventory.setContents | (data: Record<string, any[] | null>, opts?: { only?: boolean; }) => void
+module APIs | inventory.setContents | (data: Record<string, any[] | null>, opts?: { only?: boolean; }) => void @experimental
 module APIs | inventory.setData | (key: string, data: Record<string, any> | null, n?: number) => string
-module APIs | inventory.slotsUsed | number
 module APIs | inventory.trade | (take: string, give: string, opts?: { takeN?: number; giveN?: number; data?: Record<string, any>; silent?: boolean; }) => { ok: boolean; code?: string; facts?: any; nextActions?: any[]; took?: { id: string; count: number; data?: any; }[]; gave?: string; giveId?: string; giveN?: number; }
 module APIs | inventory.transfer | (from: Container | string, to: Container | string, item: string, n?: number) => number
 module APIs | level.heightfield | any @experimental
@@ -1237,7 +1235,7 @@ module APIs | level.ready | boolean
 module APIs | level.root | Object3D<Object3DEventMap>
 module APIs | level.spawn | Vector3
 module APIs | level.track | <T extends { remove(): void; }>(handle: T) => T
-module APIs | level.unload | () => void
+module APIs | level.unload | () => void @experimental
 module APIs | lightPool.add | (position: PositionLike, opts?: LightSourceOptions) => LightSource
 module APIs | lightPool.focus | PositionLike
 module APIs | lightPool.lights | Object3D<Object3DEventMap>[]
@@ -1248,13 +1246,13 @@ module APIs | music.override | (name: string | null, opts?: { fade?: number; for
 module APIs | music.pick | () => string | null | undefined
 module APIs | music.play | (name: string | null, opts?: { fade?: number; force?: boolean; }) => void
 module APIs | music.ready | boolean
-module APIs | music.ruled | boolean
+module APIs | music.ruled | boolean @experimental
 module APIs | music.rules | (list: MusicRule[] | null, opts?: { hold?: number; fade?: number; interval?: number; }) => Music
 module APIs | music.state | { current: string | null; playing: string | null; pending: string | null; override: string | null; intensity: number; gain: number; stems: number[]; }
 module APIs | music.stinger | (name: string, opts?: { duck?: number; volume?: number; }) => void
 module APIs | music.stop | (opts?: { fade?: number; }) => void
 module APIs | music.tracks | Map<string, { url?: string; volume?: number; loop?: boolean; stems?: { url: string; at?: number[]; volume?: number; }[]; }>
-module APIs | nav.agent | { radius: number; height: number; maxClimb: number; maxSlope: number; }
+module APIs | nav.agent | { radius: number; height: number; maxClimb: number; maxSlope: number; } @experimental
 module APIs | nav.crowd | any @experimental
 module APIs | nav.dispose | () => void
 module APIs | nav.findPath | { (from: PositionLike, to: PositionLike, opts?: { radius?: number; detailed?: false; }): XZ[] | null; (from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true; }): { status: "ok" | "noPath" | "notReady"; path: XZ[] | null; }; }
@@ -1263,7 +1261,7 @@ module APIs | nav.navMesh | any @experimental
 module APIs | nav.query | any @experimental
 module APIs | nav.ready | boolean
 module APIs | nav.tileCache | any @experimental
-module APIs | nav.version | number
+module APIs | nav.version | number @experimental
 module APIs | net.actor | string @experimental
 module APIs | net.connected | boolean @experimental
 module APIs | net.peers | { id: number; actor: string; }[] @experimental
@@ -1275,20 +1273,20 @@ module APIs | particles.attach | (name: string, object3d: THREE.Object3D, opts?:
 module APIs | particles.clear | (name?: string) => void
 module APIs | particles.count | (name?: string) => number
 module APIs | particles.define | (name: string, opts?: ParticleOptions) => ParticleEffect
-module APIs | particles.effects | Map<string, ParticleEffect>
+module APIs | particles.effects | Map<string, ParticleEffect> @experimental
 module APIs | particles.emit | (name: string, position: PositionLike, opts?: { count?: number; overrides?: ParticleOptions | null; }) => void
 module APIs | particles.has | (name: string) => boolean
 module APIs | photo.album | PhotoShot[]
 module APIs | photo.bloom | boolean
 module APIs | photo.canTake | () => boolean | string
-module APIs | photo.format | string
-module APIs | photo.maxAlbum | number
+module APIs | photo.format | string @experimental
+module APIs | photo.maxAlbum | number @experimental
 module APIs | photo.quality | number
 module APIs | photo.scale | number
 module APIs | photo.shadowMapSize | number
-module APIs | photo.subject | () => { name: string; kind: string; distance: number; } | null
+module APIs | photo.subject | () => { name: string; kind: string; distance: number; } | null @experimental
 module APIs | photo.take | (opts?: PhotoTakeOptions) => PhotoShot
-module APIs | pickups.lift | number
+module APIs | pickups.lift | number @experimental
 module APIs | pickups.material | Material<MaterialEventMap>
 module APIs | pickups.nearest | (item?: string | null, from?: PositionLike) => WorldRecord | null
 module APIs | pickups.radius | number
@@ -1299,51 +1297,51 @@ module APIs | quests.advance | (id: string) => boolean
 module APIs | quests.check | () => void
 module APIs | quests.define | (id: string, def: QuestDef) => Quests
 module APIs | quests.isActive | (id: string) => boolean
-module APIs | quests.isDone | (id: string) => boolean
-module APIs | quests.isFailed | (id: string) => boolean
+module APIs | quests.isDone | (id: string) => boolean @experimental
+module APIs | quests.isFailed | (id: string) => boolean @experimental
 module APIs | quests.list | () => { id: string; title: string; desc?: string; done: boolean; failed: boolean; steps: { text: string; target?: HudTarget; done: boolean; current: boolean; parts?: { text: string; target?: HudTarget; optional: boolean; done: boolean; }[]; }[]; }[]
 module APIs | quests.start | (id: string) => void
 module APIs | quests.state | (id: string) => { step: number; steps: number; done: boolean; failed: boolean; active: boolean; } | null
 module APIs | quests.win | { readonly open: boolean; toggle(on?: boolean): void; refresh(): void; }
-module APIs | rigid.addBall | (mesh: Object3D, opts?: RigidBallOptions) => RigidEntry | null
+module APIs | rigid.addBall | (mesh: Object3D, opts?: RigidBallOptions) => RigidEntry | null @experimental
 module APIs | rigid.addBox | (mesh: Object3D, opts?: RigidBoxOptions) => RigidEntry | null
-module APIs | rigid.addHull | (mesh: Object3D, opts?: RigidBodyOptions) => RigidEntry | null
+module APIs | rigid.addHull | (mesh: Object3D, opts?: RigidBodyOptions) => RigidEntry | null @experimental
 module APIs | rigid.addWheeled | (mesh: Object3D, opts: VehicleOptions) => Vehicle | null
 module APIs | rigid.bodies | RigidEntry[]
-module APIs | rigid.buoyancy | boolean
-module APIs | rigid.buoyancyForce | number
-module APIs | rigid.floatDepth | number
-module APIs | rigid.floatLine | number
+module APIs | rigid.buoyancy | boolean @experimental
+module APIs | rigid.buoyancyForce | number @experimental
+module APIs | rigid.floatDepth | number @experimental
+module APIs | rigid.floatLine | number @experimental
 module APIs | rigid.gravity | number
 module APIs | rigid.impulse | (entry: RigidEntry, impulse: Vec3Like) => void
 module APIs | rigid.playerBody | any @experimental
-module APIs | rigid.playerCapsule | { halfHeight: number; radius: number; }
+module APIs | rigid.playerCapsule | { halfHeight: number; radius: number; } @experimental
 module APIs | rigid.playerCollider | any @experimental
 module APIs | rigid.ragdoll | (who: any, opts?: RagdollOptions) => Ragdoll | null @experimental
 module APIs | rigid.rapier | any @experimental
 module APIs | rigid.ready | boolean
 module APIs | rigid.setPosition | (entry: RigidEntry, position: PositionLike) => void
 module APIs | rigid.stats | { bodies: number; active: number; colliders: number; }
-module APIs | rigid.terrainRing | number
-module APIs | rigid.treeColliderHeight | number
-module APIs | rigid.treeRadius | number
-module APIs | rigid.vehicles | Vehicle[]
-module APIs | rigid.waterDrag | number
+module APIs | rigid.terrainRing | number @experimental
+module APIs | rigid.treeColliderHeight | number @experimental
+module APIs | rigid.treeRadius | number @experimental
+module APIs | rigid.vehicles | Vehicle[] @experimental
+module APIs | rigid.waterDrag | number @experimental
 module APIs | rigid.world | any @experimental
-module APIs | settings.actionList | () => any[]
+module APIs | settings.actionList | () => any[] @experimental
 module APIs | settings.addSection | (id: string, section?: SettingsSection) => Settings
 module APIs | settings.close | () => void
 module APIs | settings.define | <T = any>(key: string, def: T, apply?: ((value: T, e: Engine) => void) | { apply?: (value: T, e: Engine) => void; limits?: string | string[]; }) => Settings
 module APIs | settings.get | (key: string) => any
-module APIs | settings.isOpen | boolean
+module APIs | settings.isOpen | boolean @experimental
 module APIs | settings.open | () => void
-module APIs | settings.preset | (name: "low" | "medium" | "high" | (string & {})) => void
+module APIs | settings.preset | (name: "low" | "medium" | "high" | (string & {})) => void @experimental
 module APIs | settings.presets | Record<string, QualityPreset>
 module APIs | settings.rebind | (action: string, code: string) => void
 module APIs | settings.reset | (key?: string) => void
-module APIs | settings.resetBindings | () => void
+module APIs | settings.resetBindings | () => void @experimental
 module APIs | settings.save | () => void
-module APIs | settings.sections | Map<string, any>
+module APIs | settings.sections | Map<string, any> @experimental
 module APIs | settings.set | (key: string, value: any, opts?: { save?: boolean; }) => void
 module APIs | settings.toggle | (on?: boolean) => void
 module APIs | settings.values | Record<string, any>
@@ -1352,7 +1350,7 @@ module APIs | sky.clouds | (spec: string | { glsl?: string; tsl?: Function; unif
 module APIs | sky.daylight | number
 module APIs | sky.dim | { tint: boolean; stars: boolean; }
 module APIs | sky.dome | THREE.Object3D<THREE.Object3DEventMap>
-module APIs | sky.drawnTime | any
+module APIs | sky.drawnTime | any @experimental
 module APIs | sky.environment | (options?: { into?: { environment: any; }; interval?: number; }) => { readonly texture: import("three").Texture | null; remove(): void; }
 module APIs | sky.fixedTime | number
 module APIs | sky.horizon | any
@@ -1363,8 +1361,9 @@ module APIs | sky.orbit | { tilt: number; sway: number; distance: number; }
 module APIs | sky.replace | (sky: string | import("three").Texture | THREE.Object3D | null | false) => void
 module APIs | sky.seasonTints | SeasonTints
 module APIs | sky.sunDir | THREE.Vector3
-module APIs | sky.sunHeight | number
+module APIs | sky.sunHeight | number @experimental
 module APIs | sky.top | any
+module APIs | sky.uniforms | Record<string, { value: any; }>
 module APIs | terrain.applyBudgetMs | number
 module APIs | terrain.cellSize | number
 module APIs | terrain.chunkSize | number
@@ -1377,17 +1376,17 @@ module APIs | terrain.patches | ShaderPatch[]
 module APIs | terrain.rebuild | () => void
 module APIs | terrain.recolor | (o?: TerrainRecolor) => void
 module APIs | terrain.retry | () => number
-module APIs | terrain.setDensity | (d: number) => void
-module APIs | terrain.setViewChunks | (n: number) => void
+module APIs | terrain.setDensity | (d: number) => void @experimental
+module APIs | terrain.setViewChunks | (n: number) => void @experimental
 module APIs | terrain.stats | { builtThisFrame: number; applyMs: number; queued: number; failed: number; visible?: number; loaded?: number; instances?: number; }
 module APIs | terrain.uniforms | Record<string, { value: any; }>
 module APIs | terrain.view | (hooks: { add?: (c: TerrainChunk) => void; change?: (c: TerrainChunk) => void; remove?: (c: TerrainChunk) => void; show?: (c: TerrainChunk, visible: boolean) => void; }) => { remove(): void; }
-module APIs | terrain.viewChunks | number
+module APIs | terrain.viewChunks | number @experimental
 module APIs | terrain.voidY | number
 module APIs | timeline.play | (steps: TimelineStep | TimelineStep[], opts?: TimelinePlayOptions) => Promise<{ skipped: boolean; }>
-module APIs | timeline.playing | boolean
+module APIs | timeline.playing | boolean @experimental
 module APIs | timeline.skip | (run?: any) => void
-module APIs | timeline.skipAll | boolean
+module APIs | timeline.skipAll | boolean @experimental
 module APIs | timeline.tween | (target: any, to: TweenTo, opts?: { duration?: number; ease?: Ease; }) => TweenPromise
 module APIs | triggers.add | (opts?: TriggerOptions) => Trigger
 module APIs | triggers.byTag | (tag: string) => Trigger[]
@@ -1398,13 +1397,13 @@ module APIs | vegetation.color | (spec: string | { glsl?: string; tsl?: (ctx: an
 module APIs | vegetation.define | (name: string, opts: VegetationOptions) => Species | Promise<Species>
 module APIs | vegetation.get | (name: string) => Species | undefined
 module APIs | vegetation.instanceAt | (position: PositionLike, opts?: { radius?: number; species?: string | null; }) => VegetationHit | null
-module APIs | vegetation.isRemoved | (species: string, cx: number, cz: number, id: number) => boolean
+module APIs | vegetation.isRemoved | (species: string, cx: number, cz: number, id: number) => boolean @experimental
 module APIs | vegetation.list | () => Species[]
 module APIs | vegetation.material | Material<MaterialEventMap>
 module APIs | vegetation.patches | any[]
 module APIs | vegetation.rebuild | () => void
 module APIs | vegetation.removeInstance | (species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number; }) => string
-module APIs | vegetation.restoreInstance | (species: string, cx: number, cz: number, id: number) => void
+module APIs | vegetation.restoreInstance | (species: string, cx: number, cz: number, id: number) => void @experimental
 module APIs | vegetation.setShadowRing | (name: string, ring: number) => void
 module APIs | vegetation.sway | (spec: string | { glsl?: string; tsl?: (ctx: any) => any; uniforms?: Record<string, any>; } | null) => void
 module APIs | vegetation.view | (hooks: { species?: (sp: Species) => void; change?: (c: TerrainChunk, name: string) => void; ring?: (c: TerrainChunk, ring: number) => void; show?: (c: TerrainChunk, visible: boolean) => void; drop?: (c: TerrainChunk) => void; }) => { remove(): void; }
@@ -1413,7 +1412,7 @@ module APIs | water.material | THREE.Material<THREE.MaterialEventMap>
 module APIs | water.normalMap | (name: string | null, opts?: { scale?: number; repeat?: number; speed?: [number, number]; }) => THREE.Texture | null
 module APIs | water.normalTexture | THREE.Texture<unknown, THREE.TextureEventMap>
 module APIs | water.patches | ShaderPatch[]
-module APIs | water.sea | THREE.Mesh<THREE.BufferGeometry<THREE.NormalBufferAttributes, THREE.BufferGeometryEventMap>, THREE.Material<THREE.MaterialEventMap> | THREE.Material<THREE.MaterialEventMap>[], THREE.Object3DEventMap>
+module APIs | water.sea | THREE.Mesh<THREE.BufferGeometry<THREE.NormalBufferAttributes, THREE.BufferGeometryEventMap>, THREE.Material<THREE.MaterialEventMap> | THREE.Material<THREE.MaterialEventMap>[], THREE.Object3DEventMap> @experimental
 module APIs | water.shader | (opts?: WaterShaderOptions) => void
 module APIs | water.uniforms | Record<string, { value: any; }>
 module APIs | world.add | (def: { kind: string; id?: string; position?: any; [field: string]: any; }, opts?: { initial?: boolean; save?: boolean; }) => WorldRecord | null
@@ -1423,15 +1422,15 @@ module APIs | world.farEvery | number
 module APIs | world.farMaxPerTick | number
 module APIs | world.forEachNear | (center: any, radius: number, fn: (rec: WorldRecord, d2: number) => void) => void
 module APIs | world.get | (id: string) => WorldRecord | undefined
-module APIs | world.idOf | (obj: any) => string | null
+module APIs | world.idOf | (obj: any) => string | null @experimental
 module APIs | world.move | (id: string, position: any) => void
 module APIs | world.origin | (id: string) => { definedAt?: string; level?: string; node?: string; template?: string; spawned?: { op: string | null; tick: number; }; } | null
-module APIs | world.pauseSimulation | () => { remove(): void; }
+module APIs | world.pauseSimulation | () => { remove(): void; } @experimental
 module APIs | world.present | (kind: string, opts: { build: (rec: WorldRecord) => any; update?: (rec: WorldRecord, obj: any, dt: number) => void; dispose?: (rec: WorldRecord, obj: any) => void; show?: (rec: WorldRecord) => boolean; radius?: number | (() => number); positionFrom?: "record" | "view"; }) => { remove(): void; }
 module APIs | world.query | (opts?: { kind?: string; near?: any; radius?: number; where?: (rec: WorldRecord) => boolean; zone?: string | null; }) => WorldRecord[]
 module APIs | world.radius | number
 module APIs | world.ready | boolean
-module APIs | world.records | Map<string, WorldRecord>
+module APIs | world.records | Map<string, WorldRecord> @experimental
 module APIs | world.refresh | () => void
 module APIs | world.remove | (id: string) => void
 module APIs | world.set | (id: string, patch: Record<string, any>) => WorldRecord
@@ -1449,40 +1448,40 @@ module options | calendar.hoursPerDay | ?number
 module options | calendar.seasons | ?(string | { name: string; days: number; })[]
 module options | calendar.time | ?string | number
 module options | characters.animation | ?AnimatorOptions
-module options | characters.npcTiers | ?{ fullRadius: number; nearEvery: number; }
+module options | characters.npcTiers | ?{ fullRadius: number; nearEvery: number; } @experimental
 module options | characters.npcs | ?boolean
 module options | collision.cameraMin | ?number
 module options | collision.cameraOcclusion | ?"colliders" | "meshes" | "both"
-module options | collision.cameraPad | ?number
+module options | collision.cameraPad | ?number @experimental
 module options | collision.canopyHeight | ?number
 module options | collision.maxClimb | ?number
-module options | collision.walkableWaterMargin | ?number
+module options | collision.walkableWaterMargin | ?number @experimental
 module options | debug.open | ?boolean
 module options | dialogue.advanceActions | ?string[]
 module options | dialogue.charsPerSecond | ?number
 module options | dialogue.holdSeconds | ?number
-module options | firstPersonCamera.bobFrequency | ?number
+module options | firstPersonCamera.bobFrequency | ?number @experimental
 module options | firstPersonCamera.fov | ?number
 module options | firstPersonCamera.headBob | ?number
 module options | firstPersonCamera.height | ?number
 module options | firstPersonCamera.hideLayer | ?number
-module options | firstPersonCamera.hideTarget | ?boolean
-module options | firstPersonCamera.invertY | ?boolean
-module options | firstPersonCamera.maxPitch | ?number
+module options | firstPersonCamera.hideTarget | ?boolean @experimental
+module options | firstPersonCamera.invertY | ?boolean @experimental
+module options | firstPersonCamera.maxPitch | ?number @experimental
 module options | firstPersonCamera.minPitch | ?number
 module options | firstPersonCamera.pitch | ?number
 module options | firstPersonCamera.pointerLock | ?boolean
 module options | firstPersonCamera.sensitivity | ?number
-module options | firstPersonCamera.smoothing | ?number
+module options | firstPersonCamera.smoothing | ?number @experimental
 module options | firstPersonCamera.swallowLockClick | ?boolean
 module options | firstPersonCamera.yaw | ?number
-module options | firstPersonCamera.yawLimits | ?number[]
+module options | firstPersonCamera.yawLimits | ?number[] @experimental
 module options | fixedCamera.at | ?Vec3Like
 module options | fixedCamera.auto | ?false | "nearest"
-module options | fixedCamera.autoInterval | ?number
+module options | fixedCamera.autoInterval | ?number @experimental
 module options | fixedCamera.ease | ?Ease
 module options | fixedCamera.fov | ?number
-module options | fixedCamera.holdDirection | ?boolean
+module options | fixedCamera.holdDirection | ?boolean @experimental
 module options | fixedCamera.hysteresis | ?number
 module options | fixedCamera.lookAt | ?Vec3Like
 module options | fixedCamera.position | ?Vec3Like
@@ -1491,20 +1490,20 @@ module options | fixedCamera.shots | ?Record<string, CameraShot>
 module options | fixedCamera.size | ?number
 module options | fixedCamera.start | ?string
 module options | fixedCamera.track | ?boolean
-module options | fixedCamera.trackHeight | ?number
-module options | fixedCamera.trackSmoothing | ?number
-module options | fixedCamera.triggerBlend | ?number
+module options | fixedCamera.trackHeight | ?number @experimental
+module options | fixedCamera.trackSmoothing | ?number @experimental
+module options | fixedCamera.triggerBlend | ?number @experimental
 module options | flow.start | ?string
 module options | followCamera.distance | ?number
 module options | followCamera.ground | ?"raise" | "shorten" | "none" | ((facts: FollowCameraGroundFacts) => Vec3Like | null | void)
-module options | followCamera.groundClearance | ?number
+module options | followCamera.groundClearance | ?number @experimental
 module options | followCamera.height | ?number
 module options | followCamera.hideLayer | ?number
 module options | followCamera.hideTargetNear | ?number
-module options | followCamera.invertY | ?boolean
+module options | followCamera.invertY | ?boolean @experimental
 module options | followCamera.lockPitch | ?boolean
 module options | followCamera.maxDistance | ?number
-module options | followCamera.maxPitch | ?number
+module options | followCamera.maxPitch | ?number @experimental
 module options | followCamera.minDistance | ?number
 module options | followCamera.minPitch | ?number
 module options | followCamera.mouseLook | ?boolean
@@ -1514,10 +1513,10 @@ module options | followCamera.projection | ?"perspective" | "orthographic"
 module options | followCamera.sensitivity | ?number
 module options | followCamera.shoulder | ?number
 module options | followCamera.size | ?number
-module options | followCamera.smoothing | ?number
+module options | followCamera.smoothing | ?number @experimental
 module options | followCamera.swallowLockClick | ?boolean
 module options | followCamera.yaw | ?number
-module options | followCamera.zoomStep | ?number
+module options | followCamera.zoomStep | ?number @experimental
 module options | grids.bad | ?any @experimental
 module options | grids.ok | ?any @experimental
 module options | grids.previewHeight | ?number @experimental
@@ -1536,18 +1535,18 @@ module options | interactions.promptHeight | ?number
 module options | interactions.radius | ?number
 module options | inventory.action | ?string
 module options | inventory.capacity | ?number
-module options | inventory.defaultStack | ?number
+module options | inventory.defaultStack | ?number @experimental
 module options | inventory.maxWeight | ?number
 module options | inventory.pauseGame | ?boolean
-module options | level.addToScene | ?boolean
+module options | level.addToScene | ?boolean @experimental
 module options | level.cellSize | ?number
-module options | level.colliderHeight | ?number
-module options | level.colliderPad | ?number
+module options | level.colliderHeight | ?number @experimental
+module options | level.colliderPad | ?number @experimental
 module options | level.colliders | ?false | "auto" | "named"
-module options | level.hideMarkers | ?boolean
+module options | level.hideMarkers | ?boolean @experimental
 module options | level.outside | ?number
 module options | level.scene | ?Object3D<Object3DEventMap>
-module options | level.sharpEdge | ?number
+module options | level.sharpEdge | ?number @experimental
 module options | level.url | ?string
 module options | level.walkable | ?(mesh: Object3D) => boolean
 module options | level.waterLevel | ?number
@@ -1558,7 +1557,7 @@ module options | lightPool.point | ?number
 module options | lightPool.shadows | ?number
 module options | lightPool.spot | ?number
 module options | music.duckDialogue | ?number | false
-module options | music.duckFade | ?number
+module options | music.duckFade | ?number @experimental
 module options | music.fade | ?number
 module options | music.hold | ?number
 module options | music.interval | ?number
@@ -1570,11 +1569,11 @@ module options | nav.arrive | ?number
 module options | nav.cellSize | ?number
 module options | nav.crowd | ?boolean
 module options | nav.debug | ?boolean
-module options | nav.maxAgents | ?number
+module options | nav.maxAgents | ?number @experimental
 module options | nav.maxClimb | ?number
-module options | nav.maxObstacles | ?number
+module options | nav.maxObstacles | ?number @experimental
 module options | nav.maxSlope | ?number
-module options | nav.tileSize | ?number
+module options | nav.tileSize | ?number @experimental
 module options | net.actorFields | ?string[] @experimental
 module options | net.actorFor | ?(peerId: number) => string @experimental
 module options | net.avatar | ?boolean @experimental
@@ -1595,59 +1594,59 @@ module options | particles.default | ?ParticleOptions
 module options | particles.effects | ?Record<string, ParticleOptions>
 module options | photo.bloom | ?boolean
 module options | photo.format | ?string
-module options | photo.maxAlbum | ?number
+module options | photo.maxAlbum | ?number @experimental
 module options | photo.quality | ?number
 module options | photo.scale | ?number
 module options | photo.shadowMapSize | ?number
 module options | pickups.color | ?ColorLike
 module options | pickups.lift | ?number
 module options | pickups.radius | ?number
-module options | pickups.showDistance | ?number
+module options | pickups.showDistance | ?number @experimental
 module options | pickups.size | ?number
 module options | pickups.takers | ?(e: Engine) => string[]
 module options | quests.action | ?string
-module options | quests.checkInterval | ?number
+module options | quests.checkInterval | ?number @experimental
 module options | quests.notify | ?boolean | ((msg: { type: "start" | "step" | "done"; id: string; text: string; }) => void)
 module options | rigid.buoyancy | ?boolean
-module options | rigid.buoyancyForce | ?number
-module options | rigid.floatDepth | ?number
-module options | rigid.floatLine | ?number
+module options | rigid.buoyancyForce | ?number @experimental
+module options | rigid.floatDepth | ?number @experimental
+module options | rigid.floatLine | ?number @experimental
 module options | rigid.gravity | ?number
-module options | rigid.playerCapsule | ?{ halfHeight: number; radius: number; }
+module options | rigid.playerCapsule | ?{ halfHeight: number; radius: number; } @experimental
 module options | rigid.terrainRing | ?number
-module options | rigid.treeColliderHeight | ?number
-module options | rigid.treeRadius | ?number
-module options | rigid.waterDrag | ?number
+module options | rigid.treeColliderHeight | ?number @experimental
+module options | rigid.treeRadius | ?number @experimental
+module options | rigid.waterDrag | ?number @experimental
 module options | rtsCamera.bounds | ?{ minX?: number; maxX?: number; minZ?: number; maxZ?: number; }
-module options | rtsCamera.dragPan | ?boolean
-module options | rtsCamera.edgePan | ?boolean
-module options | rtsCamera.edgeSize | ?number
-module options | rtsCamera.followLock | ?boolean
+module options | rtsCamera.dragPan | ?boolean @experimental
+module options | rtsCamera.edgePan | ?boolean @experimental
+module options | rtsCamera.edgeSize | ?number @experimental
+module options | rtsCamera.followLock | ?boolean @experimental
 module options | rtsCamera.fov | ?number
 module options | rtsCamera.height | ?number
 module options | rtsCamera.maxHeight | ?number
 module options | rtsCamera.minHeight | ?number
-module options | rtsCamera.panSpeed | ?number
+module options | rtsCamera.panSpeed | ?number @experimental
 module options | rtsCamera.pitch | ?number
 module options | rtsCamera.rotate | ?boolean
-module options | rtsCamera.rotateSpeed | ?number
-module options | rtsCamera.smoothing | ?number
+module options | rtsCamera.rotateSpeed | ?number @experimental
+module options | rtsCamera.smoothing | ?number @experimental
 module options | rtsCamera.start | ?PositionLike
 module options | rtsCamera.yaw | ?number
-module options | rtsCamera.zoomStep | ?number
+module options | rtsCamera.zoomStep | ?number @experimental
 module options | settings.action | ?string
 module options | settings.freezeWorld | ?boolean
 module options | settings.presets | ?Record<string, QualityPreset>
-module options | settings.sections | ?boolean | string[]
+module options | settings.sections | ?boolean | (string | { id: "graphics"; omit: string[]; })[]
 module options | settings.storageKey | ?string
 module options | sky.backdrop | ?ColorLike
 module options | sky.clouds | ?SkyCloudOptions
 module options | sky.dim | ?{ tint?: boolean; stars?: boolean; }
 module options | sky.keyframes | ?SkyKeyframe[]
-module options | sky.moonBrightness | ?number
-module options | sky.moonColor | ?ColorLike
+module options | sky.moonBrightness | ?number @experimental
+module options | sky.moonColor | ?ColorLike @experimental
 module options | sky.starDensity | ?number
-module options | sky.sunBrightness | ?number
+module options | sky.sunBrightness | ?number @experimental
 module options | sky.sunGlow | ?number
 module options | sky.sunSize | ?number
 module options | sky.time | ?string | number

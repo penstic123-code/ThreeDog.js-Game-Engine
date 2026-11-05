@@ -1,6 +1,7 @@
 // What the depth-reading effects (dof, outline) share: the fullscreen vertex shader and scene depth as distance from the camera, in GLSL and as nodes.
+import { CopyShader } from 'three/addons/shaders/CopyShader.js';
 
-export const FULLSCREEN_VERT = 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
+export const FULLSCREEN_VERT = CopyShader.vertexShader;
 
 /** GLSL lin(depth texture, uv): distance from the camera. Goes with depthUniforms() */
 export const DEPTH_GLSL = `uniform float uNear; uniform float uFar; uniform float uOrtho;

@@ -8,13 +8,13 @@
 // tests/specs/probes.mjs compares the two pictures, so a three.js update that changes the layout fails there.
 // Probes sit ON the bounds and the grid's box reaches half a step past them: three puts probes at cell centers, and it tests a pixel half a cell along
 // its normal, so a roof exactly at bounds.max would fall outside a box that stops there (the black band on the roofs in the trial).
-import { engineOwned } from '../core/things.js';
+import { engineOwned } from '../core/scene/things.js';
 import * as THREE from 'three';
 import { LightProbeGridWebGL } from 'three/addons/lighting/LightProbeGridWebGL.js';
-import { readParams } from '../core/params.js';
-import { codedError, coded } from '../core/errorHints.js';
-import { warnOnce } from '../core/validate.js';
-import { vec3 } from '../core/math.js';
+import { readParams } from '../core/base/params.js';
+import { codedError, coded } from '../core/base/errorHints.js';
+import { warnOnce, fmt } from '../core/base/validate.js';
+import { vec3 } from '../core/base/math.js';
 import { isWebGPU, webgpuPart, freshFrame, readLayer, onRendererSwap } from './backend.js';
 import { mats, lit, noteFillLight, noteEnvironment } from './lit.js';
 
@@ -44,12 +44,12 @@ const sets = e => (e._probeSets ??= new Set());
 function layout(bounds, spacing) {
   const min = vec3(bounds.min), max = vec3(bounds.max);
   if (![min.x, min.y, min.z, max.x, max.y, max.z].every(Number.isFinite) || max.x < min.x || max.y < min.y || max.z < min.z) {
-    throw codedError('probes-option', STRINGS.bounds.replace('{got}', JSON.stringify({ min, max })));
+    throw codedError('probes-option', fmt(STRINGS.bounds, { got: JSON.stringify({ min, max }) }));
   }
   const origin = [], step = [], counts = [];
   for (const k of ['x', 'y', 'z']) {
-    const size = max[k] - min[k], n = size < 1e-6 ? 2 : Math.ceil(size / spacing - 1e-6) + 1;
-    counts.push(n); step.push(size < 1e-6 ? spacing : size / (n - 1)); origin.push(size < 1e-6 ? min[k] - spacing / 2 : min[k]);
+    const size = max[k] - min[k], flat = size < Math.max(1e-6, spacing * 1e-6), n = flat ? 2 : Math.ceil(size / spacing - 1e-6) + 1;
+    counts.push(n); step.push(flat ? spacing : size / (n - 1)); origin.push(flat ? min[k] - spacing / 2 : min[k]);
   }
   return { origin, step, counts };
 }
@@ -207,14 +207,14 @@ function drawProbes(e, scene) {
 function addSet(e, data, o) {
   e._probeView ??= e.debug?.defineView('probes', { what: 'each light probe as a dot colored by its average light', apply: scene => drawProbes(e, scene) });
   const set = new ProbeSet(e, data, o), { outside, doubled } = probeChecks(e);
-  if (outside.length) warnOnce(coded('probes-check', STRINGS.outside.replace('{n}', String(outside.length)).replace('{names}', outside.slice(0, 3).join(', '))));
-  if (doubled.length) warnOnce(coded('probes-check', STRINGS.doubled.replace('{what}', doubled.join(', '))));
+  if (outside.length) warnOnce(coded('probes-check', fmt(STRINGS.outside, { n: outside.length, names: outside.slice(0, 3).join(', ') })));
+  if (doubled.length) warnOnce(coded('probes-check', fmt(STRINGS.doubled, { what: doubled.join(', ') })));
   return set;
 }
 
 /** Check a loaded file's shape; every problem is a coded refusal, never a half-applied grid */
 function readData(json) {
-  const bad = why => codedError('probes-data', STRINGS.data.replace('{why}', why));
+  const bad = why => codedError('probes-data', fmt(STRINGS.data, { why }));
   if (!json || typeof json !== 'object') throw bad(`got ${typeof json}`);
   if (json.format !== FORMAT) throw bad(`format is ${JSON.stringify(json.format)}`);
   if (json.version !== VERSION) throw bad(`version ${JSON.stringify(json.version)} is not supported`);
@@ -233,7 +233,7 @@ function readData(json) {
   return { origin, step, counts, sh };
 }
 
-/** Mixed into Engine.prototype (core/Engine.js) */
+/** Mixed into Engine.prototype (core/engine/Engine.js) */
 export const probeMethods = {
   /**
    * Bake a grid of light probes from the scene as it is now: three's probe grid renders a cube at every grid point and keeps spherical harmonics, and
@@ -250,7 +250,7 @@ export const probeMethods = {
   async bakeProbes(opts) {
     const o = readParams('engine.bakeProbes()', BAKE, opts), r = this.renderer;
     const d = layout(o.bounds, o.spacing), n = d.counts[0] * d.counts[1] * d.counts[2];
-    if (n > MAX_PROBES) throw codedError('probes-option', STRINGS.tooMany.replace('{n}', n).replace('{dims}', d.counts.join(' x ')).replace('{max}', MAX_PROBES));
+    if (n > MAX_PROBES) throw codedError('probes-option', fmt(STRINGS.tooMany, { n, dims: d.counts.join(' x '), max: MAX_PROBES }));
     if (!isWebGPU(r) && !r.extensions.has('EXT_color_buffer_float')) throw codedError('probes-option', STRINGS.noFloat);
     const t0 = performance.now();   // measure
     const grid = makeGrid(r, d);

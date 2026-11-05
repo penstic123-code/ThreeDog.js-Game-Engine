@@ -23,7 +23,7 @@ import { writeAtomic, writeChecked } from './lib/atomic.mjs';
 import { keyName, literalValue } from './lib/ast-value.mjs';
 
 const IDENT = /^[A-Za-z_$][\w$]*$/;
-const BARE = /^[A-Za-z_][\w.-]*$/;
+const BARE = /^[\p{L}_][\p{L}\p{N}_.-]*$/u;
 const SIMPLE = /^(Literal|ArrayExpression|ObjectExpression|UnaryExpression|TemplateLiteral)$/;
 const lineAt = (text, off) => text.slice(0, off).split('\n').length;
 // key order is not a value: an undo that puts a cleared field back puts it at the end of the entry
@@ -47,7 +47,7 @@ export function lit(v) {
  * Why a value cannot be written as a content literal, or null. NaN, Infinity, undefined, functions and bigints would be written as CODE
  * (`x: NaN`), which reads back as "computed by code" and is not data the editor or a save can hold: refuse by name instead of writing it.
  */
-export function unwritable(v, path = 'value') {
+function unwritable(v, path = 'value') {
   if (typeof v === 'number' && !Number.isFinite(v)) return `${path} is ${v}: a content file holds finite numbers`;
   if (v === undefined || typeof v === 'function' || typeof v === 'bigint' || typeof v === 'symbol') return `${path} is ${typeof v === 'undefined' ? 'undefined' : 'a ' + typeof v}: a content file holds numbers, strings, booleans, null, arrays and plain objects (use unset to remove a field)`;
   if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) { const why = unwritable(x, `${path}.${k}`); if (why) return why; }
@@ -55,7 +55,7 @@ export function unwritable(v, path = 'value') {
 }
 
 /** Kind of a content file from its path: content/props.js -> props, content/props/town.js -> props; null outside content/ */
-export function kindOfFile(dir, path) {
+function kindOfFile(dir, path) {
   const r = relative(join(dir, 'content'), path).split(sep);
   if (r[0] === '..' || r.some(x => x === '..')) return null;
   return r.length === 1 ? r[0].replace(/\.js$/, '') : r.length === 2 && r[1].endsWith('.js') ? r[0] : null;
@@ -115,16 +115,23 @@ function planSet(text, hit, fields, unset, expect, where, spot = {}) {
       changes.push(`${field}: ${lt} (added)`);
     } else { added.push(`${fkey}: ${lt}`); changes.push(`${field}: ${lt} (added)`); }
   }
-  for (const field of unset) {
-    const i = el.properties.findIndex(p => keyName(p) === field), prop = el.properties[i], next = el.properties[i + 1], prev = el.properties[i - 1];
-    if (!prop) continue;   // already gone is what was asked for; expect says when that matters
+  // the comma that goes is the one written after a cut field, or before it when nothing stays behind it: a field added at the end comes off again byte for byte.
+  // Fields cut together are one plan: cut one by one, two trailing ones overlapped and every offset after the first was wrong
+  const props = el.properties, gone = new Set(unset.filter(f => props.some(p => keyName(p) === f)));   // already gone is what was asked for; expect says when that matters
+  for (const field of gone) {
     if (Object.hasOwn(fields, field)) return { error: `${where}: ${field} is both set and unset` };
-    // the comma that goes is the one written after it, or before it when it is last: a field added at the end comes off again byte for byte
-    edits.push(next ? { start: prop.start, end: next.start, text: '' } : { start: prev?.end ?? prop.start, end: prop.end, text: '' });
+    const prop = props.find(p => keyName(p) === field);
     changes.push(`${field}: ${text.slice(prop.value.start, prop.value.end)} (removed)`);
-    if (!next) after = prev?.end ?? null;
   }
+  const lastKept = props.findLastIndex(p => !gone.has(keyName(p)));
+  if (lastKept < 0 && gone.size) after = null;
+  else {
+    for (let i = 0; i < lastKept; i++) if (gone.has(keyName(props[i]))) edits.push({ start: props[i].start, end: props[i + 1].start, text: '' });
+    if (lastKept < props.length - 1) { after = props[lastKept].end; edits.push({ start: after, end: props.at(-1).end, text: '' }); }
+  }
+  // nothing stays and something new comes: the new text replaces the whole body. Nothing comes: only the fields go
   if (added.length) edits.push(after != null ? { start: after, end: after, text: ', ' + added.join(', ') } : { start: el.start + 1, end: el.end - 1, text: ` ${added.join(', ')} ` });
+  else if (lastKept < 0 && gone.size) edits.push({ start: props[0].start, end: props.at(-1).end, text: '' });
   let out = text;
   for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return { after: out, change: changes.join('; '), line: lineAt(text, el.start) };
@@ -300,6 +307,7 @@ export async function contentWrite(dir, req, opt = {}) {
     break;
   }
   const path = fileOf(target.file), kind = target.kind, info = index?.files?.[target.file], from = info?.from ?? 0;
+  if (!io.existsSync(path)) return fail(`${target.file} does not exist`);
   const before = io.readFileSync(path, 'utf8');
   const where = `${target.file}${req.id ? ` '${req.id}'` : ''}`;
 
@@ -330,7 +338,7 @@ export async function contentWrite(dir, req, opt = {}) {
     const hit = findEntry(before, req.id, kind, from, where);
     if (hit.error) return fail(hit.error, hit.generated && { generated: true });
     if (!hit.el) {
-      if (!rebuilt && !req.file) { index = await rebuildIndex(dir, io); return contentWrite(dir, req, { ...opt, rebuilt: true }); }
+      if (!rebuilt && !req.file) { await rebuildIndex(dir, io); return contentWrite(dir, req, { ...opt, rebuilt: true }); }
       return fail(`no literal entry '${req.id}' in ${target.file} (the index is out of date: run threedog check, or pass --file)`);
     }
     isArray = hit.root.type === 'ArrayExpression';
@@ -401,20 +409,19 @@ const USAGE = `Usage:
 /** CLI body of `threedog content set|add|remove …` (argv after the subcommand) */
 export async function main(op, argv) {
   // --expect takes every field=value after it (up to the next option), so it is taken out before the one strict parse of the rest
-  const own = [], expect = [];
+  const own = [], expectArgs = [];
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] !== '--expect') { own.push(argv[i]); continue; }
-    while (argv[i + 1] && !argv[i + 1].startsWith('-')) expect.push(argv[++i]);
+    while (argv[i + 1] && !argv[i + 1].startsWith('-')) expectArgs.push(argv[++i]);
   }
   let dir, args, opt;
   try { ({ dir, rest: args, opt } = command(own, { positional: true, flags: ['dry'], values: ['in', 'dir', 'file'] })); } catch (e) { console.log('✗ ' + e.message); return 1; }
-  opt.expect = expect;
   if (opt.dir) dir = resolve(opt.dir);
   let req;
   if (op === 'set') {
     // also the older `<id> <field> <json>` form
     const kv = args.length === 3 && !args[1].includes('=') ? [`${args[1]}=${args[2]}`] : args.slice(1);
-    const fields = pairsOf(kv), expect = opt.expect.length ? pairsOf(opt.expect) : undefined;
+    const fields = pairsOf(kv), expect = expectArgs.length ? pairsOf(expectArgs) : undefined;
     if (!args[0] || !fields || !Object.keys(fields).length || (expect === null)) { console.log(USAGE); return 1; }
     if (fields.bad || expect?.bad) { console.log(`✗ ${fields.bad || expect.bad}: the value must be JSON (strings in double quotes) or a bare word`); return 1; }
     req = { op, id: args[0], fields, expect, kind: opt.in, file: opt.file };

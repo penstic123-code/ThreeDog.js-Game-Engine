@@ -2,13 +2,15 @@
 // the ones kept on purpose are reported apart, see keptWhy).
 // Source of truth: the public type declarations (index.d.ts, types/tsl.d.ts, @threedog/post-effects index.d.ts) read with the TypeScript checker,
 // because that is what an AI's editor and `npm run types` see, and the checker resolves generated re-exports, inheritance and ModuleDef<Api>.
-// The CLI comes from the command tables in bin/threedog.mjs and the literal option lists of each tool; error codes from core/errorCodes.js.
+// The CLI comes from the command tables in bin/threedog.mjs and the literal option lists of each tool; error codes from core/base/errorCodes.js.
 // "Used" = found in engine sources, examples, the new-game templates or recipe code blocks (tests and prose docs are not users). Name matching is
 // a heuristic: a name shared by several items must be written qualified (parent.name) to count. Record: docs/testing/api-count.md.
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
 import { join, relative, sep, resolve } from 'node:path';
 import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { ROOT, ENGINE, TOOLS, MODE, addonDir, cli } from './paths.mjs';
+import { walk } from './lib/text.mjs';
 
 const require = createRequire(import.meta.url);
 const relp = p => relative(ROOT, p).split(sep).join('/');
@@ -16,7 +18,7 @@ const relp = p => relative(ROOT, p).split(sep).join('/');
 export const EXPERIMENTAL = '@experimental';
 
 /** All public items: { group, name, decl, kind } (decl: repo-relative file of the declaration) */
-export function collect() {
+function collect() {
   const ts = require('typescript');
   const entries = [join(ENGINE, 'index.d.ts'), join(ENGINE, 'types/tsl.d.ts'), join(addonDir('post-effects'), 'index.d.ts'), join(addonDir('post-effects'), 'tsl.d.ts')].filter(existsSync);
   const program = ts.createProgram(entries, { noEmit: true, skipLibCheck: true, target: ts.ScriptTarget.ES2022, moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext });
@@ -81,12 +83,11 @@ export function collect() {
 }
 
 /** CLI commands (bin tables) and their options (the literal flags / values lists each tool passes to the shared parser) */
-export async function cliItems() {
+async function cliItems() {
   const { SCRIPTS, BRIDGE, VITE } = await import('./bin/threedog.mjs');
   const items = [...VITE, 'map', ...Object.keys(SCRIPTS), ...BRIDGE].map(c => ({ group: 'CLI commands', name: c, decl: 'packages/tools/bin/threedog.mjs', kind: 'cli' }));
   const seen = new Set();
-  const walk = d => readdirSync(d).flatMap(n => { const p = join(d, n); return n === 'tests' || n === 'node_modules' || n === 'templates' ? [] : statSync(p).isDirectory() ? walk(p) : /\.mjs$/.test(n) ? [p] : []; });
-  for (const f of walk(TOOLS)) {
+  for (const f of walk(TOOLS, { exts: /\.mjs$/, skip: ['tests', 'templates'] })) {
     for (const m of readFileSync(f, 'utf8').matchAll(/\b(flags|values|lists):\s*\[([^\]]*)\]/g)) for (const q of m[2].matchAll(/'([a-z][\w-]*)'/g)) {
       const key = relp(f) + ' --' + q[1];
       if (!seen.has(key)) { seen.add(key); items.push({ group: 'CLI options', name: '--' + q[1], decl: relp(f), kind: 'flag' }); }
@@ -101,20 +102,15 @@ export async function surfaceLines() {
   return [...new Set(items.map(i => `${i.group} | ${i.name} | ${[i.sig, i.experimental && EXPERIMENTAL].filter(Boolean).join(' ')}`.trimEnd()))].sort();
 }
 
-export async function errorItems() {
-  const { ERROR_CODES } = await import(new URL('file:///' + join(ENGINE, 'core/errorCodes.js').replace(/\\/g, '/')).href);
-  return Object.keys(ERROR_CODES).map(c => ({ group: 'error codes', name: c, decl: relp(join(ENGINE, 'core/errorCodes.js')), kind: 'error' }));
+async function errorItems() {
+  const { ERROR_CODES } = await import(pathToFileURL(join(ENGINE, 'core/base/errorCodes.js')).href);
+  return Object.keys(ERROR_CODES).map(c => ({ group: 'error codes', name: c, decl: relp(join(ENGINE, 'core/base/errorCodes.js')), kind: 'error' }));
 }
 
 // ── who uses it ──
-const SKIP = new Set(['node_modules', 'tests', 'docs', 'public', 'types', 'dist', '.threedog']);
-function files(d, re, out = []) {
-  if (!existsSync(d)) return out;
-  for (const n of readdirSync(d)) { if (SKIP.has(n)) continue; const p = join(d, n); if (statSync(p).isDirectory()) files(p, re, out); else if (re.test(n)) out.push(p); }
-  return out;
-}
+const files = (d, exts) => walk(d, { exts, skip: ['tests', 'docs', 'types'] });
 /** The text of every user: [{ file, where, text }]; where = 'engine' | 'example' | 'template' | 'recipe' */
-export function corpus() {
+function corpus() {
   const code = /\.(m?js|html|json)$/;
   const out = [];
   for (const d of ['core', 'modules', 'render', 'ui']) for (const f of files(join(ENGINE, d), /\.js$/)) out.push({ file: relp(f), where: 'engine', text: readFileSync(f, 'utf8') });
@@ -133,23 +129,22 @@ export function corpus() {
 }
 
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** Mark each item used / unused; returns the unused ones with the kinds of places that use them (none) */
-export function usage(items, texts) {
+/** Mark each item used / unused; returns the unused ones */
+function usage(items, texts) {
   const leaf = i => i.name.split('.').pop();
   const count = new Map();
   for (const i of items) count.set(i.kind + ':' + leaf(i), (count.get(i.kind + ':' + leaf(i)) ?? 0) + 1);
-  const hit = (re, skipDecl) => texts.some(t => (!skipDecl || t.file !== skipDecl) && re.test(t.text));
+  const hit = re => texts.some(t => re.test(t.text));
   const raised = new Set();
   // a code is raised when engine code names it as a string or a [code] tag (often through a variable: const code = slot ? 'a' : 'b')
-  for (const t of texts) if (t.where === 'engine' && !t.file.endsWith('core/errorCodes.js')) for (const m of t.text.matchAll(/['"`[]([a-z0-9]+(?:-[a-z0-9]+)+)['"`\]]|\b(?:codedError|coded)\(\s*'([a-z0-9-]+)'/g)) raised.add(m[1] ?? m[2]);
-  const users = t => texts.filter(x => x.where !== 'engine' || t);   // engine sources count for every kind
+  for (const t of texts) if (t.where === 'engine' && !t.file.endsWith('core/base/errorCodes.js')) for (const m of t.text.matchAll(/['"`[]([a-z0-9]+(?:-[a-z0-9]+)+)['"`\]]|\b(?:codedError|coded)\(\s*'([a-z0-9-]+)'/g)) raised.add(m[1] ?? m[2]);
   for (const i of items) {
     const n = esc(leaf(i)), parent = i.name.includes('.') ? esc(i.name.split('.').slice(-2, -1)[0]) : null;
     const unique = count.get(i.kind + ':' + leaf(i)) === 1;
     let used;
     switch (i.kind) {
       case 'export': used = hit(new RegExp(`(^|[^\\w.$'"])${n}\\b(?!\\s*[:(]?\\s*function)`, 'm')) && texts.some(t => new RegExp(`\\b${n}\\s*\\(|import\\s*\\{[^}]*\\b${n}\\b|\\b${n}\\.|[,(\\[]\\s*${n}\\b`).test(t.text.replace(new RegExp(`(export\\s+)?(async\\s+)?function\\s+${n}\\b|export\\s+(const|let|class)\\s+${n}\\b`, 'g'), ''))); break;
-      case 'option': used = users(false).some(t => new RegExp(`\\b${n}\\s*:`).test(t.text)) || (i.group === 'createEngine options' && texts.some(t => new RegExp(`createEngine\\([^)]*\\b${n}\\b`).test(t.text))); break;
+      case 'option': used = texts.some(t => t.where !== 'engine' && new RegExp(`\\b${n}\\s*:`).test(t.text)) ||(i.group === 'createEngine options' && texts.some(t => new RegExp(`createEngine\\([^)]*\\b${n}\\b`).test(t.text))); break;
       case 'cli': used = texts.some(t => t.where !== 'engine' && new RegExp(`(threedog|npm run)\\s+${n}\\b|"${n}"\\s*:`).test(t.text)); break;
       case 'flag': used = true; break;   // options are not traced per command (a flag name alone says too little); counted only
       case 'error': used = raised.has(i.name); break;
@@ -184,12 +179,12 @@ keep('read-only fact for debugging, UI or tests', 'slope', 'stateApplied', 'play
 keep('the other half of a pair (do / undo, set / get)', 'terrain.rebuild', 'vegetation.rebuild', 'player.addJumps', 'player.resetJumps', 'player.dispose', 'assets.release', 'views.release',
   'plugins.on', 'settings.close', 'settings.save', 'settings.rebind', 'triggers.clear', 'particles.clear', 'batching.refresh', 'ambience.rules', 'content.run');
 keep('runtime tuning knob', 'interactions.radius', 'pickups.radius', 'pickups.size', 'photo.scale', 'stream.radius', 'events.historySize', 'ops.historySize', 'budget.enabled', 'rigid.gravity',
-  'calendar.daysPerSeason', 'uniforms.uSkyCloudSpeed');
+  'uniforms.uSkyCloudSpeed');
 keep('taught in a recipe (prose), not dead', 'quests.isDone', 'quests.isActive', 'quests.isFailed', 'quests.check', 'level.markersWith', 'triggers.byTag');
 keep('contract of a replaceable draw module (engine.use(mine, { replaces }))', 'terrainDraw.material', 'terrainDraw.patches', 'terrainDraw.uniforms', 'terrainDraw.recolor', 'terrainDraw.meshes',
   'vegetationDraw.meshes', 'weatherDraw.particles');
 /** Why an unused item is kept anyway, or null when it is a candidate */
-export function keptWhy(i) {
+function keptWhy(i) {
   if (i.group === 'CLI commands') return 'CLI command (used in the terminal)';
   if (i.group === 'error codes') return 'error code';
   if ((i.group === 'module options' || i.group === 'createEngine options') && !PICTURE_MOVE.has(i.name)) return 'tuning option with a default';
@@ -199,10 +194,10 @@ export function keptWhy(i) {
 /**
  * The daily surface: which public code names do real games write? Each folder in `dirs` is one game (its own .js/.mjs/.html/.json files, not
  * node_modules, dist, public or docs). A name counts for a game when that game's text alone matches (same heuristic as `usage`).
- * Only the groups a game's code can touch are counted: CLI commands and options, and error codes are not code a game writes.
+ * collect() alone: CLI commands and options, and error codes are not code a game writes.
  */
-export function dailySurface(dirs) {
-  const items = collect().filter(i => !['CLI commands', 'CLI options', 'error codes'].includes(i.group));
+function dailySurface(dirs) {
+  const items = collect();
   for (const i of items) i.games = 0;
   for (const d of dirs) {
     const texts = files(d, /\.(m?js|html|json)$/).map(f => ({ file: relp(f), where: 'example', text: readFileSync(f, 'utf8') }));
@@ -225,13 +220,12 @@ export async function apiCount() {
   return { total: items.length, experimental: items.filter(i => i.experimental).map(i => `${i.group} | ${i.name}`), unusedTotal: unused.length, keptTotal: kept.length, groups, unused: unused.map(row), kept: kept.map(i => ({ ...row(i), why: keptWhy(i) })) };
 }
 
-if (import.meta.url === new URL('file:///' + process.argv[1].replace(/\\/g, '/')).href || process.argv[1]?.endsWith('api-count.mjs')) {
+if (import.meta.url === pathToFileURL(process.argv[1] || '').href) {
   if (MODE !== 'monorepo') { console.error('api-count reads the engine sources: run it in the threedog repository'); process.exit(1); }
   const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['json', 'unused', 'lock'], values: ['games'] });
   if (opt.lock) {   // regenerate the API lock snapshot (see surfaceLines); then add a CHANGELOG line under "## Unreleased" for every removed or changed name
-    const { writeFileSync } = await import('node:fs');
     const lines = await surfaceLines();
-    writeFileSync(join(ROOT, 'docs/api-surface.txt'), ['# Public names and signatures, one per line (threedog api-count --lock rewrites it; rule R55 compares it). group | name | signature [@experimental]', ...lines, ''].join(String.fromCharCode(10)));
+    writeFileSync(join(ROOT, 'docs/api-surface.txt'), ['# Public names and signatures, one per line (threedog api-count --lock rewrites it; rule R55 compares it). group | name | signature [@experimental]', ...lines, ''].join('\n'));
     console.log(`docs/api-surface.txt: ${lines.length} lines`);
     process.exit(0);
   }

@@ -1,13 +1,13 @@
 // world() module: installed as engine.world (world data, see World.js). Models load around engine.stream sources; records stay when models unload. Independent of game type: slow-life NPCs, shooter enemies, survival zombies and containers all use it.
 //   engine.use(world())                     // the openWorld() preset installs it by default
 //   engine.use(world({ radius: 80 }))       // distance (meters) for building models and counting as near, default 60
-// Save key world (runtime records whole, initial records only changes and removals, see the top of World.js); emits world:load after loading. The loading screen waits for world.ready (nearby models all built). describe() reports world.total / byKind / presented, and nearby records with a name go into nearby.
+// Save key world (runtime records whole, initial records only changes and removals, see the top of persist.js); emits world:load after loading. The loading screen waits for world.ready (nearby models all built). describe() reports world.total / byKind / presented, and nearby records with a name go into nearby.
 import { recordSource } from './thingSource.js';
 import { World } from './World.js';
 import { WORLD_MIGRATE, worldChanges } from './persist.js';
 import { worldExplain } from './explain.js';
-import { closest, warnOnce, DEV } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { closest, warnOnce, DEV, fmt } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 
 const PLACED = '[session] {n} world record(s) were created or removed by code before the game started ({ids}): a new game should equal the content. '
   + 'Move them to content (content/props.js with an id and a template from content/templates.js), or create them during play inside an op';
@@ -15,12 +15,12 @@ const PLACED = '[session] {n} world record(s) were created or removed by code be
 /**
  * Dev check on the new-game state (saves.register checkNewGame, run once start() finished): authored things come from content, so a new game has
  * no runtime records but the player and removes nothing. Changed fields are not checked: simulation may already move authored records (an NPC
- * walking its schedule) while loading runs in real time. Lives here, not in core/session.js: only the world knows its own save format.
+ * walking its schedule) while loading runs in real time. Lives here, not in core/saves/session.js: only the world knows its own save format.
  * @param {any} d the world part of the new-game state
  */
 function codePlaced(d) {
   const ids = [...Object.entries(d?.records || {}).filter(([, r]) => r.kind !== 'player').map(([id]) => id), ...(d?.removed || [])];
-  if (ids.length) warnOnce(PLACED.replace('{n}', String(ids.length)).replace('{ids}', ids.slice(0, 8).join(', ') + (ids.length > 8 ? ', …' : '')));
+  if (ids.length) warnOnce(fmt(PLACED, { n: ids.length, ids: ids.slice(0, 8).join(', ') + (ids.length > 8 ? ', …' : '') }));
 }
 
 const ORPHAN = '[world] the save has changes for {n} id(s) that the content no longer defines: {list}. They are kept in the save (restoring the entry brings them back); '
@@ -55,12 +55,12 @@ export function world(opts = {}) {
           const ids = [...w._base.keys()];
           // a near id the save has no data for is the likely new name: suggest the exact renames.js pair
           const list = o.slice(0, 8).map(id => { const c = closest(id, ids); return c ? `${id} (did you mean ${c}? renames: { '${id}': '${c}' })` : id; });
-          warnOnce(ORPHAN.replace('{n}', String(o.length)).replace('{list}', list.join(', ') + (o.length > 8 ? ', …' : '')));
+          warnOnce(fmt(ORPHAN, { n: o.length, list: list.join(', ') + (o.length > 8 ? ', …' : '') }));
         };
         const targets = () => {   // a rename target nothing defines moves the player's state into a void: name it (level-node targets once that level loaded)
           const due = id => { const i = id.indexOf('/'); return i < 0 || w._levels.has(id.slice(0, i)); };
           const bad = [...w._renames].filter(([, b]) => b != null && !w._base.has(b) && due(b));
-          if (bad.length) warnOnce(RENAME_TARGET.replace('{list}', bad.map(([a, b]) => `${b} (from ${a})`).join(', ')).replace('{near}', closest(bad[0][1], [...w._base.keys()]) ?? '-'));
+          if (bad.length) warnOnce(fmt(RENAME_TARGET, { list: bad.map(([a, b]) => `${b} (from ${a})`).join(', '), near: closest(bad[0][1], [...w._base.keys()]) ?? '-' }));
         };
         for (const ev of ['engine:ready', 'save:loaded', 'level:loaded']) ctx.track(e.events.on(ev, () => { if (e.ready) warn(); }));
       }
@@ -78,7 +78,7 @@ export function world(opts = {}) {
       // with a model, report by the model (merged with the interaction and other modules' reports on the same object into one entry); skip records of another zone (level)
       // a record without a name (props, template instances) is listed by its id, nearest 8 only: 'kind' shows what it is, and the list is capped so a thick prop field cannot push NPCs out of nearby
       let unnamed = 0;
-      for (const r of w.query({ near: ctx.center, radius: ctx.radius }).sort((a, b) => Math.hypot(a.position.x - ctx.center.x, a.position.z - ctx.center.z) - Math.hypot(b.position.x - ctx.center.x, b.position.z - ctx.center.z))) {
+      for (const r of w.query({ near: ctx.center, radius: ctx.radius })) {   // nearest first
         if (!w.inZone(r) || (r.name == null && unnamed >= 8)) continue;
         if (r.name == null) unnamed++;
         ctx.near(w.view(r.id) ?? r.position, { id: r.id, name: r.name ?? r.id, kind: r.kind }, true);

@@ -2,9 +2,9 @@
 // rule table, music rules and stems, ducking, the settings sliders. No real listening: the spec reads gains and counters.
 import { createEngine, world, calendar, sky, weather, triggers, ambience, music, settings, followCamera, content, THREE } from '../../index.js';
 
-// sound files made in the page (a built test page has no static files to fetch): a 1 s mono 16-bit sine WAV as a blob: URL
-function wav(freq) {
-  const rate = 8000, n = rate, buf = new DataView(new ArrayBuffer(44 + n * 2)), str = (o, t) => [...t].forEach((c, i) => buf.setUint8(o + i, c.charCodeAt(0)));
+// sound files made in the page (a built test page has no static files to fetch): a mono 16-bit sine WAV as a blob: URL
+function wav(freq, seconds = 1) {
+  const rate = 8000, n = rate * seconds, buf = new DataView(new ArrayBuffer(44 + n * 2)), str = (o, t) => [...t].forEach((c, i) => buf.setUint8(o + i, c.charCodeAt(0)));
   str(0, 'RIFF'); buf.setUint32(4, 36 + n * 2, true); str(8, 'WAVEfmt '); buf.setUint32(16, 16, true); buf.setUint16(20, 1, true); buf.setUint16(22, 1, true);
   buf.setUint32(24, rate, true); buf.setUint32(28, rate * 2, true); buf.setUint16(32, 2, true); buf.setUint16(34, 16, true); str(36, 'data'); buf.setUint32(40, n * 2, true);
   for (let i = 0; i < n; i++) buf.setInt16(44 + i * 2, Math.sin(i / rate * freq * 2 * Math.PI) * 8000, true);
@@ -35,4 +35,5 @@ const ground = new THREE.Mesh(new THREE.PlaneGeometry(50, 50).rotateX(-Math.PI /
 engine.add(ground);
 window.engine = engine; window.THREE = THREE;   // the spec makes an Object3D for a positional sound to follow
 window.toneUrl = a;   // the content-audio spec registers it as an asset pack sound
+window.wav = wav;     // the memory spec makes long sounds
 engine.start();

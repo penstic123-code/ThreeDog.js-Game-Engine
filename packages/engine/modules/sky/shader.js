@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { NOISE_GLSL } from '../../render/effects.js';
 import { resolveClouds, cloudUniforms, CLOUD_UNIFORM_DECL } from './clouds.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { SKY as K, glslFloat as f } from '../../render/fxNumbers.js';
 import { isWebGPU, webgpuPart } from '../../render/backend.js';
 
@@ -81,8 +81,9 @@ export function skyNodes(engine) {
 /** Panorama skybox (engine.sky.replace(name)): hides the gradient dome once the texture is wanted, becomes the scene background when loaded */
 export function loadSkybox(sky, name) {
   const e = sky.engine;
-  sky.dome.visible = false;
-  e.assets.useTexture(name, t => { t.mapping = THREE.EquirectangularReflectionMapping; e.scene.background = t; sky.skybox = t; sky._oBg?.mark(); },
+  sky.dome.visible = false; sky._panorama = name;
+  // the load can end after another replace(): only the panorama still asked for is shown
+  e.assets.useTexture(name, t => { if (sky._panorama !== name) return; t.mapping = THREE.EquirectangularReflectionMapping; e.scene.background = t; sky.skybox = t; sky._oBg?.mark(); },
     { where: 'sky skybox', instead: 'no panorama shows (the gradient dome stays hidden)' });
 }
 

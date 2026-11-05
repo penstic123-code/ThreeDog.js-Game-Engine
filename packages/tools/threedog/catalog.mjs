@@ -1,27 +1,15 @@
 // threedog catalog [id]: prints engine.catalog() from the running page and adds what only the file system knows (api page, recipes,
 // examples, the source file that defines the module or op). Why split this way: the page has the live registrations (the single source),
 // node has the files; neither side keeps its own list.
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { abs, rel, ENGINE, DOCS_REL, API_DIR_REL, EXAMPLES_REL, MODULES_REL, SKIP_DIRS } from '../paths.mjs';
+import { abs, rel, ENGINE, DOCS_REL, API_DIR_REL, EXAMPLES_REL, MODULES_REL } from '../paths.mjs';
+import { walk } from '../lib/text.mjs';
 
 const MAX_FILES = 3, MAX_TEXT = 6000, MAX_SIZE = 200_000;
-const SKIP = new Set([...SKIP_DIRS, 'tests', 'generated']);
 
 /** Every .js / .mjs / .md under dir (skipping build output, tests and dependencies) */
-function files(dir, ext = /\.(m?js|md)$/) {
-  const out = [];
-  const walk = d => {
-    let list; try { list = readdirSync(d, { withFileTypes: true }); } catch { return; }
-    for (const f of list) {
-      const p = join(d, f.name);
-      if (f.isDirectory()) { if (!SKIP.has(f.name) && !f.name.startsWith('.')) walk(p); }
-      else if (ext.test(f.name)) out.push(p);
-    }
-  };
-  walk(dir);
-  return out;
-}
+const files = (dir, exts = /\.(m?js|md)$/) => walk(dir, { exts, skip: ['tests', 'generated'], skipDir: n => n.startsWith('.') });
 const read = p => { try { return statSync(p).size < MAX_SIZE ? readFileSync(p, 'utf8') : ''; } catch { return ''; } };
 const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -40,7 +28,7 @@ function find(dirs, re, ext, max = MAX_FILES) {
 }
 
 /** Where an entry is defined and documented. Module: api page by name, recipes and examples that use engine.<id>, source with name: '<id>' */
-export function locate(id, kind, gameDir) {
+function locate(id, kind, gameDir) {
   const codeDirs = [abs(MODULES_REL), join(ENGINE, 'core'), gameDir].filter(d => d && existsSync(d));
   const docs = [abs(`${DOCS_REL}/recipes`)], examples = [abs(EXAMPLES_REL)];
   if (kind === 'op') {
@@ -58,7 +46,7 @@ export function locate(id, kind, gameDir) {
 }
 
 /** Names in the api page's "Methods and properties" section (the public surface); null when the module has no page */
-export function publicApi(id) {
+function publicApi(id) {
   const f = abs(`${API_DIR_REL}/${id}.md`);
   if (!existsSync(f)) return null;
   const sec = (read(f).split(/^## /m).find(x => x.startsWith('Methods and properties')) ?? '').split(/\r?\n/);
@@ -70,7 +58,7 @@ const MAX_API = 40;
 
 /** Option docs of a module from its api page ("- Options `X`:" lines, generated from the JSDoc / d.ts): { key: { type, desc } } or null.
  *  Why read the page and not keep text in the schema: the type and the sentence live once, in the JSDoc; the schema keeps names, defaults, checks. */
-export function optionDocs(id) {
+function optionDocs(id) {
   const f = abs(`${API_DIR_REL}/${id}.md`);
   if (!existsSync(f)) return null;
   const lines = read(f).split(/\r?\n/), at = lines.findIndex(l => /^- Options\b/.test(l));
@@ -84,7 +72,7 @@ export function optionDocs(id) {
 }
 
 /** Fill type / desc of params from docs (the schema's own desc wins); returns the keys with no description anywhere */
-export function mergeDocs(params, docs) {
+function mergeDocs(params, docs) {
   const missing = [];
   for (const [k, s] of Object.entries(params || {})) {
     const d = docs?.[k];
@@ -132,7 +120,7 @@ function moduleText(x, where) {
     out.push(`requires: ${list(x.requires)} · optional: ${list(x.optional.map(o => o.name + (o.installed ? '' : ' (missing)')))}`);
   if (x.params) out.push('params:', ...Object.entries(x.params).map(([k, s]) => paramLine(k, s)));
   if (x.ops?.length) out.push('ops:', ...x.ops.map(opLine));
-  else if (x.kind === 'capability') out.push(`now: ${JSON.stringify(x.facts)}`);
+  if (x.kind === 'capability') out.push(`now: ${JSON.stringify(x.facts)}`);
   else out.push(`saves: ${list(x.saves.map(p => `${p.key} v${p.version}`))}`);
   if (x.time) out.push(`time: hooks ${list(x.time.hooks)} · steps in ${x.time.step} · skip hook ${x.time.skip ? 'yes' : x.time.noSkip ? 'no (noSkip: ' + x.time.noSkip + ')' : 'no'}`);
   const q = x.queries, qs = q ? [q.describe, ...q.extra].filter(Boolean) : [];
@@ -149,7 +137,6 @@ function opText(o, where) {
   return [...out, ...filesLines(where)].join('\n');
 }
 
-/** Bridge command: r is the page result { data, ids, ops } of engine.catalog(id) */
 /** catalog --find: this game's hits, then the library's (not installed yet, so they carry the way to pull them); no hit in either says so */
 function findText(rows, library, { find, full }) {
   const lib = Array.isArray(library) ? library : [], failed = library?.error ? `(the library could not be read: ${library.error})` : '';
@@ -158,6 +145,7 @@ function findText(rows, library, { find, full }) {
     ...lib.map(e => `library: ${e.name} [${e.kind}] ${e.summary} (threedog lib pull ${e.name})`), failed].filter(Boolean).join('\n');
 }
 
+/** Bridge command: r is the page result { data, ids, ops } of engine.catalog(id) */
 export function catalogCommand(r, id, opt, dir, library = null) {
   const max = opt.max || MAX_TEXT, cut = s => s.length > max ? s.slice(0, max) + '\n… (--max N for more, --json for the data)' : s;
   if (!id && opt.find) return { ok: true, text: cut(findText(r.data, library, opt)), data: { rows: r.data, library } };

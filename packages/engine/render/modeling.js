@@ -4,7 +4,7 @@
 // cached / baked with the model) or anywhere else.
 import * as THREE from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { mulberry32 } from '../core/mulberry32.js';
+import { mulberry32 } from '../core/base/mulberry32.js';
 /** @import { BufferGeometry } from '../types/common' */
 
 /**

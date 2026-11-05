@@ -1,6 +1,6 @@
 // [guard] picture check facts about hand-written materials and light layout (packages/tools/picture/check.mjs): real renders through the same page probe as
 // threedog shot, so a fact only appears when the pixels show it. A shader that does take fog and tone, and a pair that does not depend on order, must stay silent.
-import { probePicture, pictureHints, pictureNumbers } from '@threedog/tools/picture-check';
+import { probeSource, pictureHints, pictureNumbers } from '@threedog/tools/picture-check';
 
 const PAGE = '/tests/threads/';
 const VERT = 'void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
@@ -14,7 +14,7 @@ async function probe(ev, src, build) {
   return ev(async ([src, build]) => {
     window.__probePicture = (0, eval)('(' + src + ')');
     const { mk } = threedogThreads, A = threedogThreads.all;
-    const E = mk(A.createEngine, 'picture-own-draws'), T = E.THREE;
+    const E = mk(A.createEngine, 'picture-own-draws'), T = __threedogThree;
     E.renderer.toneMapping = T.ACESFilmicToneMapping;
     E.scene.fog = new T.Fog(0x808080, 100, 300);
     E.scene.background = new T.Color(0x202020);
@@ -53,7 +53,7 @@ export const specs = [
     name: '[guard] picture facts: a ShaderMaterial without fog or tone is named from pixels, one with them is not',
     url: PAGE, software: true,
     async run({ check, ev }) {
-      const src = probePicture.toString();
+      const src = probeSource;
       const build = code => `(T, E) => { const m = new T.ShaderMaterial(${code}); m.name = 'mine'; E.scene.add(new T.Mesh(new T.BoxGeometry(3, 3, 3), m)); }`;
       const plain = await probe(ev, src, build(`{ vertexShader: ${JSON.stringify(VERT)}, fragmentShader: ${JSON.stringify(PLAIN)} }`));
       const h = hintsOf(plain.p), fog = h.find(x => x.id === 'shader-no-fog'), tone = h.find(x => x.id === 'shader-no-tone');
@@ -73,7 +73,7 @@ export const specs = [
     name: '[guard] picture facts: transparent pair by swapped pixels, light layout from the light watch',
     url: PAGE, software: true,
     async run({ check, ev }) {
-      const src = probePicture.toString();
+      const src = probeSource;
       const pair = blend => `(T, E) => { const mk = (c, x, n) => { const m = new T.Mesh(new T.PlaneGeometry(4, 4), new T.MeshBasicMaterial({ color: c, transparent: true, opacity: 0.5, depthWrite: false, blending: ${blend}, fog: false })); m.name = n; m.position.x = x; E.scene.add(m); }; mk(0xff0000, -0.5, 'red'); mk(0x00ff00, 0.5, 'green'); }`;
       const normal = await probe(ev, src, pair('T.NormalBlending'));
       const t = hintsOf(normal.p).find(x => x.id === 'transparent-order');
@@ -82,7 +82,7 @@ export const specs = [
       check('[guard] additive pairs overlap too, but order changes no pixel: no fact', add.p.transparent?.pairs === 1 && add.p.transparent.swapped.length === 0 && !ids(hintsOf(add.p)).includes('transparent-order'), JSON.stringify(add.p.transparent));
       const lights = await ev(async src => {
         window.__probePicture = (0, eval)('(' + src + ')');
-        const { mk } = threedogThreads, A = threedogThreads.all, E = mk(A.createEngine, 'picture-own-lights'), T = E.THREE;
+        const { mk } = threedogThreads, A = threedogThreads.all, E = mk(A.createEngine, 'picture-own-lights'), T = __threedogThree;
         E.scene.add(new T.Mesh(new T.BoxGeometry(2, 2, 2), new T.MeshStandardMaterial()));
         E.camera.position.set(0, 0, 8); E.camera.lookAt(0, 0, 0);
         await E.start(); E.haltLoop(); E.step(1 / 30); E.step(1 / 30);

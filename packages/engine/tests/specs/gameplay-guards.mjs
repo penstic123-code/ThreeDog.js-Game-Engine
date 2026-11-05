@@ -141,14 +141,14 @@ export const specs = [
     },
   },
   {
-    // guard for the shared xz index (core/cells.js) under interactions: picks must equal a full scan of every item (fixed, following an Object3D, on a
+    // guard for the shared xz index (core/stream/cells.js) under interactions: picks must equal a full scan of every item (fixed, following an Object3D, on a
     // moving NPC or pickup model, ties to the earlier added), and a pick must not measure every far item again (the index is not bypassed)
     name: '[guard] interactions index: nearest pick equals a full scan for fixed, followed, NPC and moved pickup items across 24 spots; a model moved far from its record is found where it stands; ties go to the earlier added; far items are not measured per pick',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev, page }) {
       await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 });
       const r = await ev(async () => {
-        const THREE = engine.THREE, I = engine.interactions, A = fn => engine.ops.allow(fn), h = engine.actorPosition().clone();
+        const THREE = __threedogThree, I = engine.interactions, A = fn => engine.ops.allow(fn), h = engine.actorPosition().clone();
         engine.haltLoop();
         I.pickMode = 'nearest';
         engine.inventory.define('ix-berry', { name: 'berry' });
@@ -197,6 +197,67 @@ export const specs = [
       check('a pickup model moved 45+ m from its record is found where it stands (same as a full scan)', r.moved.got === r.moved.want && r.moved.want === r.moved.mid && Math.abs(r.moved.rec) > 2, JSON.stringify(r.moved));
       check('a tie goes to the earlier added', r.tieGot === 'ix-tie-a', JSON.stringify(r));
       check('a pick far from the crowd measures only followed objects and nearby candidates', r.calls <= 25, String(r.calls));
+    },
+  },
+  {
+    name: '[guard] gameplay read: a part-fit pickup leaves the rest, a saved seat drives again, wander and placeAt drop stale paths, a line listener may end the dialogue, a late items list refills, a short rigid save is refused, newGame frees NPC names (open world)',
+    url: '/?threedog-headless',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const e = engine, I = e.inventory, W = e.world, R = e.rigid, A = fn => e.ops.allow(fn), out = {}, step = s => e.step(s, { render: false, describe: false });
+        const { x, y, z } = e.player.position, at = [x, y, z];
+
+        I.define('gr-arrow', { name: 'arrow', stack: 5, weight: 1 });
+        const bag = I.of(); bag.maxWeight = bag.weight + 3;
+        e.pickups.spawn(at, { give: 'gr-arrow', count: 5, id: 'gr-pick', radius: 5 });
+        const took = e.ops.run('pickup.take', { id: 'gr-pick' });
+        out.pick = { ok: took.ok, got: I.count('gr-arrow'), left: W.get('gr-pick')?.count };
+        bag.maxWeight = Infinity;
+
+        const npc = A(() => e.npcs.add({ id: 'gr-w', behavior: 'wander', mind: { radius: 30, pause: [0, 0] }, position: [x + 4, 0, z + 4] }));
+        W.refresh(); step(0.1);
+        const rec = W.get('gr-w'), old = [{ x: 9999, z: 9999 }];
+        rec.mind.target = null; rec.mind.wait = 0; rec.nav.path = old;
+        step(1 / 60);
+        out.wander = { built: !!npc.character, kept: rec.nav.path === old };
+
+        const s = A(() => e.npcs.add({ id: 'gr-s', position: [x + 6, 0, z - 4], schedule: [{ at: 0, position: [x + 30, 0, z - 4] }] }));
+        W.refresh();
+        let req = null;
+        for (let i = 0; i < 30 && !req; i++) { step(1 / 60); req = s.character?._pathReq ?? null; }
+        A(() => s.placeAt([x + 6, 0, z + 6]));
+        out.placeAt = { asked: !!req, dropped: !!req?.canceled && s.character._pathReq === null };
+
+        e.dialogue.define('gr-d', { start: { text: 'hi', next: 'end' } });
+        const off = e.events.on('dialogue:line', () => e.dialogue.end());
+        try { A(() => e.dialogue.start('gr-d')); out.dialogue = !e.dialogue.active; } catch (err) { out.dialogue = err.message; }
+        off.remove();
+
+        A(() => { I._containers.load({ 'gr-late': [] }); I.container('gr-late', { items: { 'gr-arrow': 2 } }); I._containers.load({}); });
+        out.refill = I.container('gr-late').count('gr-arrow');
+
+        try { R._loadState({ 'gr-short': [1, 2] }); out.short = 'loaded'; } catch (err) { out.short = err.code ?? err.message; }
+
+        const src = R.bodies.find(b => b.mesh?.isMesh).mesh, car = R.addWheeled(new src.constructor(src.geometry, src.material), { id: 'gr-car', wheels: [{ position: [-1, 0, 1.5], radius: 0.35, steer: true }, { position: [1, 0, 1.5], radius: 0.35, steer: true }, { position: [-1, 0, -1.5], radius: 0.35, drive: true }, { position: [1, 0, -1.5], radius: 0.35, drive: true }] });
+        A(() => { e.characters.removePlayer(); W.add({ id: 'player', kind: 'player', position: at, vehicle: 'gr-car' }); });
+        const p = e.characters.createPlayer({ control: 'camera', cameraFollow: true });
+        out.car = { seated: p.vehicle === car, keys: e.input.holders.some(h => h.context === 'vehicle'), camera: e.cameraRig?.target === car.mesh };
+        A(() => { p.exit(); car.remove(); });
+
+        A(() => e.npcs.add({ name: 'gr-bob', position: [x + 8, 0, z] }));
+        await e.session.newGame();
+        try { A(() => e.npcs.add({ name: 'gr-bob', position: [x + 8, 0, z] })); out.again = true; } catch (err) { out.again = err.message; }
+        return out;
+      });
+      check('a bag with room for 3 of 5 takes 3 and 2 stay on the ground', r.pick.ok && r.pick.got === 3 && r.pick.left === 2, JSON.stringify(r.pick));
+      check('a wander NPC picking a new target drops what is left of the old path', r.wander.built && !r.wander.kept, JSON.stringify(r.wander));
+      check('npc.placeAt drops a path answer still on its way', r.placeAt.asked && r.placeAt.dropped, JSON.stringify(r.placeAt));
+      check('a dialogue:line listener may end the dialogue', r.dialogue === true, String(r.dialogue));
+      check('a container a load made first gets its items list: a save without it refills it', r.refill === 2, String(r.refill));
+      check('a rigid body state of the wrong length is refused', r.short === 'save-bad-record', String(r.short));
+      check('a player created from a record in a car gets the driving keys and the camera', r.car.seated && r.car.keys && r.car.camera, JSON.stringify(r.car));
+      check('newGame frees the names: setup adding them again is no same-name error', r.again === true, String(r.again));
     },
   },
 ];

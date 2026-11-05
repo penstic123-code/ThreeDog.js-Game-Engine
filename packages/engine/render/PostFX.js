@@ -5,16 +5,16 @@
 // node() (a TSL node under WebGPURenderer), so callers never see which backend runs.
 //
 // This file is the backend-free part (list, slots, ownership); the chain itself is postWebGL.js (EffectComposer) or, on WebGPURenderer,
-// render/fx/postWebGPU.tsl.js (RenderPipeline). Why the WebGPU side is looked up on a global and not imported: importing it here would put
+// render/fx/postWebGPU.tsl.js (RenderPipeline). Why the WebGPU side is looked up (render/backend.js webgpuPart) and not imported: importing it here would put
 // three/webgpu into every WebGL game's bundle; it registers itself when threedog/tsl loads, the way patchNodes.tsl.js does for patches,
 // and stays synchronous (a dynamic import would leave the first frames without post and make _sync async).
 import * as THREE from 'three';
 import { webglPost } from './postWebGL.js';
-import { codedError } from '../core/errorHints.js';
-import { warnOnce } from '../core/validate.js';
-import { readParams, keysSchema } from '../core/params.js';
+import { codedError } from '../core/base/errorHints.js';
+import { warnOnce } from '../core/base/validate.js';
+import { readParams, keysSchema } from '../core/base/params.js';
 import { isWebGPU, backendName, webgpuPart, ownMsaa } from './backend.js';
-import { defineOwned } from '../core/owned.js';
+import { defineOwned } from '../core/ops/owned.js';
 import { watchOwnFrame } from './ownFrame.js';
 /** @import { Engine } from '../types/core' */
 
@@ -47,7 +47,7 @@ import { watchOwnFrame } from './ownFrame.js';
  * @typedef {{ name: string, create?: (ctx: PostContext) => object, node?: (input: any, ctx: PostNodeContext) => any, fuse?: PostFuse, slot?: PostSlot | (string & {}), order?: number, enabled?: boolean,
  *   needsDepth?: boolean, needsBuffers?: ('normal' | 'diffuse' | 'velocity')[], backend?: 'webgpu', skipOnLowTier?: boolean, facts?: () => Record<string, any> | null,
  *   params?: Record<string, any>, update?: (impl: any, params: Record<string, any>) => void }} PostEffect
- *   node (WebGPURenderer): returns the effect's output color node built on input (the color node so far); called again only when a param
+ *   An effect as data, the form post.add() takes. node (WebGPURenderer): returns the effect's output color node built on input (the color node so far); called again only when a param
  *   that is not a number, boolean, color or vector changes (those are live in ctx.p). An effect with only create cannot run on WebGPURenderer (it throws by name).
  *   create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass); optional when fuse is given.
  *   fuse: see PostFuse; effects with a fuse in the same slot next to each other are merged (never in slot 'scene'), their params
@@ -113,6 +113,7 @@ export class PostFX {
   /**
    * MSAA on. Writing it takes effect like setAntialias.
    * @type {boolean}
+   * @experimental
    */
   get antialias() { return this._aa; }
   set antialias(on) { this.setAntialias(on); }
@@ -223,7 +224,7 @@ export class PostFX {
     // a create() that throws or an order that breaks depth leaves no half-added effect behind
     try { this._change(() => this._list.push(h), () => { freeImpl(h); this._list = this._list.filter(e => e !== h); }); }
     catch (err) { point.onChange = null; if (!this._kept.has(h.name)) this._seq.delete(h.name); throw err; }
-    this.engine._picture?.added('post effect', h, h.name);   // dev: a picture part removed with this still on is reported (core/pictureWriters.js)
+    this.engine._picture?.added('post effect', h, h.name);   // dev: a picture part removed with this still on is reported (core/inspect/pictureWriters.js)
     return h;
   }
   /**

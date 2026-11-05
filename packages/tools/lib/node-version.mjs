@@ -3,6 +3,9 @@
 // Why: on an older Node vite fails deep inside its own code with an unrelated-looking error; this check names the version and the fix first.
 
 export const NODE_RANGE = '^20.19.0 || >=22.12.0';
+/** Why vite cannot work from this folder, or null. It reads a path as a URL, so a # ends the path: the build stops and the dev page never gets its game. Measured on vite 8, build and dev @param {string} dir */
+export const pathProblem = dir => dir.includes('#') ? `${dir}: the path has a #, and vite cannot build or serve a folder like that. Rename the folder (or the folder above it) without the #` : null;
+
 export const NODE_FIX = 'install the current Node LTS from https://nodejs.org (Windows: winget install OpenJS.NodeJS.LTS), then close and reopen the terminal';
 
 /** True when `version` ("20.19.1" or "v22.12.0") is inside NODE_RANGE */

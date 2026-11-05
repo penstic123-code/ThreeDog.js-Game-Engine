@@ -1,5 +1,6 @@
 // Performance panel + time/weather debugging. Collapsed by default; the action 'debugPanel' shows/hides it (presets.bindings.debug binds F3; debug({ open: true }) shows it at start). Quality, view distance and density are in the settings menu. Do not install this module in a release.
-import { readParams, keysSchema } from '../../core/params.js';
+import { Vector2 } from 'three';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { esc } from '../../ui/UI.js';
 import { stats } from '../../render/backend.js';
 /** @import { ModuleDef } from '../../types/core' */
@@ -47,7 +48,7 @@ export class DebugPanel {
     </div>
     <div class="res k" data-k="budget" hidden></div>
     <div class="res k" data-k="startup" hidden></div>
-    <details ${engine.renderer.getSize(new engine.THREE.Vector2()).x > 600 ? 'open' : ''}><summary>Debug</summary><div class="c">
+    <details ${engine.renderer.getSize(new Vector2()).x > 600 ? 'open' : ''}><summary>Debug</summary><div class="c">
       <div class="r"><label>Time scale</label><input data-i="ts" type="range" min="0" max="60" step="1"><output data-o="ts"></output></div>
       <div class="r"><label>Time</label><input data-i="tod" type="range" min="0" max="1" step="0.005"><output data-o="tod"></output></div>
       <div class="r"><label>Weather</label><select data-s="weather" style="grid-column:span 2;font:inherit;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:3px">

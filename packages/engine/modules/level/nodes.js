@@ -1,8 +1,8 @@
 // Level nodes that become world records: nodes tagged with the custom property template or id (Blender -> glTF extras -> userData) leave the level root
 // and are placed as authored records `<level>/<node>` once the level is processed. Created per level module by levelNodes(e, getRoot, getCurrent).
 import * as THREE from 'three';
-import { warnOnce } from '../../core/validate.js';
-import { codedError } from '../../core/errorHints.js';
+import { warnOnce, fmt } from '../../core/base/validate.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const STRINGS_DEV = {
   noWorld: '[level] nodes with the custom property template or id become world records: install world() (the openWorld() preset has it); until then they stay in the level as plain scenery (ground, collision, rays like any node)',
@@ -48,14 +48,13 @@ export function levelNodes(e, getRoot, getCurrent) {
   const OWN = ['template', 'id', 'name', 'hlod'];   // userData keys that are not record fields (three's glTF loader keeps the node name in userData.name)
   /** Taken nodes -> authored world records, id `<level>/<node>`: a template instance (custom property template) or the node itself (custom property id) */
   function place() {
-    if (!taken.length) return;
-    if (!e.world) return;   // takeNodes took nothing then (the nodes stayed in the level)
+    if (!taken.length) return;   // also without world(): take left the nodes in the level
     const level = levelName(), zone = e.world.zone;
     for (const o of taken.splice(0)) {
       const id = `${level}/${o.name}`, ud = o.userData, node = o.name, { x, y, z } = o.position;
       const fields = Object.fromEntries(Object.entries(ud).filter(([k, v]) => !OWN.includes(k) && (v == null || typeof v !== 'object' || Array.isArray(v) || v.constructor === Object)));
       if (ud.template != null) {
-        if (!e.content) throw codedError('level-node', STRINGS_DEV.noContent.replace('{id}', id));
+        if (!e.content) throw codedError('level-node', fmt(STRINGS_DEV.noContent, { id }));
         const yaw = new THREE.Euler().setFromQuaternion(o.quaternion, 'YXZ').y, state = Object.keys(e.content.template(ud.template).state ?? {});
         const own = Object.fromEntries(Object.entries(fields).filter(([k]) => state.includes(k)));
         e.content.placeNode({ template: ud.template, id, x, z, floor: y, ...(yaw && { rot: yaw }), ...(o.scale.x !== 1 && { scale: o.scale.x }), ...own }, zone, { level, node });
@@ -63,7 +62,7 @@ export function levelNodes(e, getRoot, getCurrent) {
         presentNodes();
         nodes.set(id, o);
         const rec = e.world.add({ ...fields, id, kind: 'levelNode', position: { x, y, z }, ...(zone != null && { zone }), level, node }, { initial: true });
-        if (rec && rec.kind !== 'levelNode') throw codedError('level-node', STRINGS_DEV.clash.replace('{id}', id).replace('{kind}', rec.kind));
+        if (rec && rec.kind !== 'levelNode') throw codedError('level-node', fmt(STRINGS_DEV.clash, { id, kind: rec.kind }));
       }
       e.world.setOrigin(id, { level, node });
     }
@@ -74,7 +73,7 @@ export function levelNodes(e, getRoot, getCurrent) {
     presented = e.world.present('levelNode', {
       build(rec) {
         const o = nodes.get(rec.id);
-        if (!o) throw codedError('level-node', STRINGS_DEV.notLoaded.replace('{id}', rec.id));
+        if (!o) throw codedError('level-node', fmt(STRINGS_DEV.notLoaded, { id: rec.id }));
         o.userData.unstatic = e.rays.addStatic(o);
         return o;
       },

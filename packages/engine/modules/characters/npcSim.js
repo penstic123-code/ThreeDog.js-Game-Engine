@@ -7,6 +7,7 @@
 // See the top of NPC.js for record fields.
 
 import { standAt } from './movers/support.js';
+import { nextPoint } from './moveHelpers.js';
 
 /** Fixed steps an NPC waits for a findPathAsync answer before asking again (answers normally land 4 steps later; a long queue adds perStep batches) */
 const PATH_WAIT = 300;
@@ -121,17 +122,22 @@ export function goTo(e, W, rec, ch, goal, dt) {
       req.goal = goal; req.at = e.time.tick;
       nav.repath = rec.repath;
     }
+    // arriving is judged above, so a point counts as reached no farther out than arriveDistance: else an NPC with a small one stopped short for good, asking for a path every repath
+    const reach = Math.min(0.8, rec.arriveDistance);
+    let wp = null;
     if (nav.path?.length) {
-      const wp = nav.path[0], dx = wp.x - p.x, dz = wp.z - p.z, d = Math.hypot(dx, dz);
-      if (d < 0.8) { nav.path.shift(); if (!nav.path.length) nav.path = null; }
-      else {
-        const ox = p.x, oz = p.z;
-        ch.move(dx / d, dz / d, false, dt);
-        if (Math.hypot(p.x - ox, p.z - oz) < 0.002 && ch.moveAmount < 0.2) nav.path = null;   // stuck: re-pathfind
-      }
+      const next = nextPoint(nav.path, 0, p.x, p.z, reach);
+      if (next) nav.path.splice(0, next);   // the path stays one saved list: what is behind the NPC leaves it
+      wp = nav.path[0];
+      if (Math.hypot(wp.x - p.x, wp.z - p.z) < reach) { nav.path = null; wp = null; }
     }
+    if (wp) {
+      const dx = wp.x - p.x, dz = wp.z - p.z, d = Math.hypot(dx, dz), ox = p.x, oz = p.z;
+      ch.move(dx / d, dz / d, false, dt);
+      if (Math.hypot(p.x - ox, p.z - oz) < 0.002 && ch.moveAmount < 0.2) nav.path = null;   // stuck: re-pathfind
+    } else ch.move(0, 0, false, dt);   // waiting for a path: gravity, the idle pose and slowing down go on, it must not hang in the air walking on the spot
   }
-  if (!e.nav?.crowd) e.npcs.avoid.push(rec, ch, dt);   // keep clear of other NPCs and the player (with crowd, the agents handle it)
+  e.npcs.avoid.push(rec, ch, dt);   // keep clear of other NPCs and the player (with crowd, the agents handle it: push adds nothing)
   // position belongs to the mover: copy the model position back to data here (world also copies at the end of each fixed step; copying now means later
   // simulation and saves this step see the latest)
   rec.motion = ch.saveMotion(rec.motion ?? {});
@@ -144,10 +150,10 @@ export function goTo(e, W, rec, ch, goal, dt) {
 // The agent belongs to the model (stored on the character) and is deleted with it (dispose in npcView.js); the agent itself does not guarantee identical results
 // after load.
 function crowdMove(e, ch, goal, dt) {
-  const nav = e.nav, crowd = nav.crowd, p = ch.root.position;
+  const crowd = e.nav.crowd, p = ch.root.position;
   // nav mesh was rebuilt: the old agent was destroyed with the old crowd
-  if (ch._agent && ch._navVersion !== nav.version) { ch._agent = null; ch._agentGoal = null; }
-  ch._navVersion = nav.version;
+  if (ch._agent && ch._navVersion !== e.nav.version) { ch._agent = null; ch._agentGoal = null; }
+  ch._navVersion = e.nav.version;
   if (!ch._agent) ch._agent = crowd.addAgent({ x: p.x, y: p.y, z: p.z }, { radius: ch.radius, height: e.movement.height, maxSpeed: ch.speed, maxAcceleration: ch.acceleration * ch.speed });
   const a = ch._agent;
   if (ch._agentGoal !== goal) { a.requestMoveTarget({ x: goal.x, y: e.surface(goal.x, goal.z), z: goal.z }); ch._agentGoal = goal; }

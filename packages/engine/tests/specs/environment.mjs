@@ -34,7 +34,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const s = engine.sky, cal = engine.calendar, sc = engine.scene, THREE = engine.THREE, out = {};
+        const s = engine.sky, cal = engine.calendar, sc = engine.scene, THREE = __threedogThree, out = {};
         cal.dayLength = Infinity;                     // the time is the calendar's: hold it, only the test moves it
         engine.weather.setAuto(false); engine.weather.set('clear', { seconds: 0.01 });   // cloud cover follows the weather, hold it too
         engine.step(1, { render: false });
@@ -73,14 +73,14 @@ export const specs = [
     },
   },
   {
-    name: '[guard] engine.sky.environment: the default interval is 4 times longer on low tier, a given one stands; sky({ environment }) throws naming the call',
+    name: '[guard] engine.sky.environment: the default interval is 4 times longer on low tier, a given one stands',
     url: '/tests/threads/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const { mk } = threedogThreads, T = threedogThreads.all, err = f => { try { f(); return ''; } catch (e) { return e.message; } };
+        const { mk } = threedogThreads, T = threedogThreads.all;
         const E = mk(T.createEngine, 'sky-env-tier');
         E.use(T.sky({ time: '12:00' }));
-        const out = { opt: err(() => T.sky({ environment: { source: 'sky' } })) };
+        const out = {};
         await E.start();
         const tier = Object.getOwnPropertyDescriptor(E, 'tier');
         Object.defineProperty(E, 'tier', { value: 'low', configurable: true });
@@ -92,7 +92,6 @@ export const specs = [
         return out;
       });
       check('a given interval stands on both tiers, the default is x 4 on low', r.low === 2 && r.high === 2 && r.lowDefault === 4, JSON.stringify(r));
-      check('sky({ environment }) throws naming engine.sky.environment', /engine\.sky\.environment/.test(r.opt), r.opt);
     },
   },
 ];

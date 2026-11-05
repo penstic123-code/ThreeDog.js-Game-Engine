@@ -23,16 +23,16 @@
 // body: { shape: 'box' | 'ball' | 'hull', mass?, friction?, restitution?, damping?, angularDamping? } makes each copy a rigid body (needs rigid()):
 //   it can be pushed, the model moves itself and its position is copied back to the record, so a pushed crate's place is saved like any other change.
 // Ids: an instance with state (state / container / interact / body) should have a written id (ids.js); without one dev warns.
-import { checkOptions, freezeDef, missingText, fmt, DEV } from '../../core/validate.js';
-import { xzOf } from '../../core/math.js';
-import { placeY } from '../../core/ground.js';
-import { buildModel, settle, fitKey, unbuildModel } from './models.js';
+import { checkOptions, freezeDef, missingText, fmt, DEV } from '../../core/base/validate.js';
+import { xzOf } from '../../core/base/math.js';
+import { placeY } from '../../core/scene/ground.js';
+import { buildModel, settle, fits, unbuildModel } from './models.js';
 import { srcOf, stateful, templateId } from './ids.js';
 import { PLACEMENT_FIELDS, collideProblem } from './rules.js';
 import { fieldsShape } from './fields.js';
-import { whyBad, readParams, keysSchema } from '../../core/params.js';
+import { whyBad, readParams, keysSchema } from '../../core/base/params.js';
 import { stagesProblems, stagedFields, growStages } from './stages.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const DEF_KEYS = ['model', 'collide', 'occluder', 'static', 'lod', 'interact', 'container', 'sound', 'animate', 'state', 'fields', 'body', 'stages', 'update', 'canGrow'];
 const BODY_KEYS = ['shape', 'mass', 'friction', 'restitution', 'damping', 'angularDamping'];
@@ -99,7 +99,7 @@ export function defineTemplates(e, api, st, defs) {
     limitContainers(e, st, name);
   }
   // a save brings back runtime instances and their goods, but container limits are definition data: put them back from the template
-  st.templateLoad ??= e.events.on('world:load', () => { for (const name of st.templates.keys()) limitContainers(e, st, name); });
+  st.templateLoad ??= st.track(e.events.on('world:load', () => { for (const name of st.templates.keys()) limitContainers(e, st, name); }));
 }
 
 /** The definition of a template, or a dev error listing the known ones. @internal */
@@ -174,7 +174,7 @@ function present(e, api, st, name) {
   st.templateViews.add(name);
   const def = () => st.templates.get(name);   // a later load may replace the definition: always read the current one
   const body = !!def().body;   // a physics body moves the model itself: the record follows the model (positionFrom 'view'), so a pushed position is saved
-  e.world.present(name, {
+  st.track(e.world.present(name, {   // tracked: without content there is no definition to build from, and a new content() must be able to present the kind
     radius: () => Math.max(e.world.radius, e.stream.activeRadius),   // same build distance as props
     positionFrom: body ? 'view' : 'record',
     async build(rec) {
@@ -196,12 +196,12 @@ function present(e, api, st, name) {
       // a stage that names another model: tear this copy down, world builds the new one next frame (the record, and so the save, is untouched)
       if (d.stages && !sameModel(o.userData, d, rec)) { e.world.rebuild(rec.id); return; }
       const mul = stageScale(d, rec);
-      if (!d.body && o.userData.fit !== fitKey(rec, mul)) settle(e, rec, o, d, mul);   // a body places itself; a stage scale re-aligns collision too
+      if (!d.body && !fits(o, rec, mul)) settle(e, rec, o, d, mul);   // a body places itself; a stage scale re-aligns collision too
       else if (d.body) restBody(e, rec, o);
       d.animate?.(rec, o, dt);
     },
     dispose(rec, o) { o.userData.use?.remove(); o.userData.body?.remove(); unbuildModel(e, o); },
-  });
+  }));
 }
 
 /**
@@ -231,11 +231,6 @@ function restBody(e, rec, o) {
   if (b.isSleeping()) e.world.rest(rec.id, p, SETTLE);
 }
 
-/** The model a copy shows: its stage's model, else the nearest earlier stage's, else the template's (so it never depends on what was built before) */
-function modelOf(d, rec) {
-  for (let i = Math.min(rec.stage ?? 0, (d.stages?.length ?? 0) - 1); i >= 0; i--) if (d.stages[i].model) return d.stages[i].model;
-  return d.model;
-}
 /**
  * Which definition and which stage supplied the model (the stage index, -1 for the template's own). Two equal keys always mean the same model, so
  * the per-frame check compares one object and one number instead of serializing the model of every instance every frame.
@@ -244,6 +239,8 @@ function modelSource(d, rec) {
   for (let i = Math.min(rec.stage ?? 0, (d.stages?.length ?? 0) - 1); i >= 0; i--) if (d.stages[i].model) return { d, at: i };
   return { d, at: -1 };
 }
+/** The model a copy shows: its stage's model, else the nearest earlier stage's, else the template's (so it never depends on what was built before) */
+function modelOf(d, rec) { const { at } = modelSource(d, rec); return at < 0 ? d.model : d.stages[at].model; }
 /** Same model as when built? Same definition + same source stage is a yes without serializing; only a reloaded definition falls back to comparing text */
 function sameModel(ud, d, rec) {
   const k = modelSource(d, rec), b = ud.modelFrom;
@@ -257,7 +254,7 @@ const stageScale = (d, rec) => d.stages?.[rec.stage ?? 0]?.scale ?? 1;
 
 /**
  * Gameplay of a template kind on the fixed step (world.simulate, once per name; each step reads the current definition, so a later load replaces it).
- * Growth runs near and far (far catches up in game seconds, several stages at once); update runs near only: a far copy only grows.
+ * Growth runs near and far (far catches up in calendar seconds, several stages at once); update runs near only: a far copy only grows.
  */
 function simulate(e, st, name) {
   if (st.templateSims.has(name)) return;
@@ -270,10 +267,10 @@ function simulate(e, st, name) {
     e.world.set(rec.id, next);   // through world.set: world:change fires and the save keeps it, like any other gameplay change
     e.events.emit('template:stage', { id: rec.id, template: name, stage: next.stage, name: d.stages[next.stage].name });
   };
-  e.world.simulate(name, {
+  st.track(e.world.simulate(name, {
     near: (rec, dt) => { grow(rec); st.templates.get(name)?.update?.(rec, dt, e); },
     far: rec => grow(rec),
-  });
+  }));
 }
 
 const label = (e, l, rec) => typeof l === 'function' ? l(rec, e) : l && e.i18n.has(l) ? e.t(l) : l;

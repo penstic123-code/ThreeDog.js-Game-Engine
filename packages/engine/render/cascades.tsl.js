@@ -75,9 +75,9 @@ class CascadeNode extends CSMShadowNode {
     cam.updateMatrixWorld();
     if (updateEvery <= 1) return;
     // not updating every frame: also update early when the camera left a quarter of the nearest cascade (teleport, fast travel)
-    const near = this.breaks[0] * Math.min(cam.far, this.maxFar), p = cam.position, d = (p.x - this._at.x) ** 2 + (p.y - this._at.y) ** 2 + (p.z - this._at.z) ** 2;
-    if (force || d > (near / 4) ** 2) { setShadowUpdate(e.renderer, e.scene, { now: true }); this._at = { x: p.x, y: p.y, z: p.z }; }
-    else if (shadowUpdatePending(e.renderer, e.scene)) this._at = { x: p.x, y: p.y, z: p.z };
+    const near = this.breaks[0] * Math.min(cam.far, this.maxFar), w = cam.matrixWorld.elements, p = { x: w[12], y: w[13], z: w[14] }, d = (p.x - this._at.x) ** 2 + (p.y - this._at.y) ** 2 + (p.z - this._at.z) ** 2;
+    if (force || d > (near / 4) ** 2) { setShadowUpdate(e.renderer, e.scene, { now: true }); this._at = p; }
+    else if (shadowUpdatePending(e.renderer, e.scene)) this._at = p;
   }
   /** Switch off: the cascade lights and maps go, the light gets its plain shadow back */
   drop() {

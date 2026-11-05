@@ -3,7 +3,8 @@
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { checkGame, loadGame } from '../content-check.mjs';
+import { checkGame } from '../content-check.mjs';
+import { loadGame } from '../content-check/load.mjs';
 import { kindMapLines } from '../content-check/kinds.mjs';
 
 export const name = 'content-check: game content kinds (rules.js kinds), quest all / optional / fail, positions with floor';
@@ -32,24 +33,47 @@ const FILES = {
 /** What the page really loads: the same content folder under different content/index.js files */
 async function listedCases(dir, check) {
   const index = join(dir, 'content', 'index.js');
-  const try_ = async src => { writeFileSync(index, src); const { errors, warnings } = await checkGame(dir); return { errors: errors.filter(e => /index\.js: /.test(e)), warnings }; };
+  const try_ = async src => { writeFileSync(index, src); const { errors, warnings } = await checkGame(dir); return { errors: errors.filter(e => /index\.js: /.test(e)), all: errors, warnings }; };
   const head = "import items from './items.js'; import waves from './waves.js'; import recipes from './recipes.js'; import quests from './quests.js'; import props from './props.js';\n";
   const noRules = await try_(head + 'export default { items, waves, recipes, quests, props };\n');
   check('[guard] a kind listed in content/index.js without `rules` is an error: a green check means the page can load its content',
     noRules.errors.some(e => /lists "waves" but not `rules`.*unknown content "waves"/.test(e)), noRules.errors.join('\n'));
   const ok = await try_(head + "import rules from './rules.js';\nexport default { items, waves, recipes, quests, props, rules };\n");
   check('with `rules` listed the same game has no index error, and no file is called unlisted', !ok.errors.length && !ok.warnings.some(w => /not listed/.test(w)), [...ok.errors, ...ok.warnings].join('\n'));
+  check('[guard] a file the index leaves out is no content: one warning, no error',
+    !ok.all.some(e => /enemies\.js/.test(e)) && ok.warnings.filter(w => /enemies\.js/.test(w)).length === 1, [...ok.all, ...ok.warnings].join('\n'));
+  const listsIt = await try_("import enemies from './enemies.js';\nexport default { enemies };\n");
+  check('[guard] the same file listed in the index is the unknown-content error', listsIt.all.some(e => /enemies\.js: unknown content "enemies"/.test(e)), listsIt.all.join('\n'));
   const glob = await try_("import { contentParts } from 'threedog';\nconst props = contentParts(import.meta.glob('./props/*.js', { eager: true }));\nexport default { props, /* waves, */ waves2: 1 };\n");
   check('index.js is read as source, so import.meta.glob is fine, comments are skipped, and an unknown name is the loader\'s error',
     glob.errors.some(e => /unknown content "waves2"/.test(e)) && !glob.errors.some(e => /waves"/.test(e)), glob.errors.join('\n'));
   const short = await try_("import items from './items.js';\nimport rules from './rules.js';\nexport default { items, rules };\n");
   check('an engine file or a kind with load that index.js leaves out is a warning naming the file', short.warnings.some(w => /quests\.js: is not listed/.test(w)) && short.warnings.some(w => /waves\.js: is not listed/.test(w)) && !short.errors.length, short.warnings.join('\n'));
+  // the shape lib pull writes: a spread inside a value is no spread of the export, and the names after a nested } still count
+  const nested = await try_("import items from './items.js';\nimport waves from './waves.js';\nimport rules from './rules.js';\nexport default { items: { ...items, extra: 1 }, rules, waves };\n");
+  check('[guard] content/index.js is read past a nested object: names after it are listed, a file left out is still named', nested.warnings.some(w => /quests\.js: is not listed/.test(w)) && !nested.warnings.some(w => /waves\.js: is not listed/.test(w)), nested.warnings.join('\n'));
   const spread = await try_("import rest from './rest.js';\nexport default { ...rest };\n");
   check('an export that spreads something in is not guessed at', !spread.errors.length && !spread.warnings.some(w => /not listed/.test(w)), spread.warnings.join('\n'));
   rmSync(index);
 }
 
+/** What the flag warnings and the props shape say, on a game of their own */
+async function flagCases(check) {
+  const dir = mkdtempSync(join(tmpdir(), 'threedog-flags-'));
+  try {
+    mkdirSync(join(dir, 'content'));
+    writeFileSync(join(dir, 'main.js'), "if (flags.seen === true) go();\n");
+    writeFileSync(join(dir, 'content/dialogues.js'), "export default { a: { nodes: { start: { text: 'x', choices: [{ text: 'y', if: { flag: 'seen' } }, { text: 'z', if: { notFlag: 'never' } }] } } } };\n");
+    writeFileSync(join(dir, 'content/props.js'), "export default { a: { model: 'm' } };\n");
+    const { errors, warnings } = await checkGame(dir);
+    check('[guard] a flag code only compares is still never set', warnings.some(w => /story flag seen.*can never be met/.test(w)), warnings.join('\n'));
+    check('[guard] notFlag of a flag nothing sets always holds, it is not "never met"', warnings.some(w => /story flag never.*always holds/.test(w)), warnings.join('\n'));
+    check('[guard] props.js that exports an object is the "must export a list" error', errors.some(e => /props\.js must export a list/.test(e)), errors.join('\n'));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 export async function run({ check }) {
+  await flagCases(check);
   const dir = mkdtempSync(join(tmpdir(), 'threedog-kinds-'));
   try {
     mkdirSync(join(dir, 'content'));

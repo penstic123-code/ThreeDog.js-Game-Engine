@@ -1,6 +1,6 @@
 import { mergeCommon } from '../../render/mergeCommon.js';
 import { copyPatches } from '../../render/patches.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 // Multi-material model (bark trunk + alpha-cut leaf cards) -> one geometry with a group per mesh + a material array, so a species stays
 // one InstancedMesh: instance matrices, felling and LOD swaps work unchanged for every part. Only attributes all meshes share are kept.

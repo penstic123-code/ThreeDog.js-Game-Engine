@@ -1,6 +1,6 @@
 // Minimal skinned glTF built in code (no downloaded file): a body and an arm with a hand bone, exported to GLB by three's GLTFExporter.
 // Why export instead of handing the Object3D over: the test then goes through the real import path (download, GLTFLoader, SkeletonUtils clone,
-// clips in userData.animations), the same as a file from Blender. Clips are named the way Blender exports them ('Armature|Idle'),
+// clips in root.animations), the same as a file from Blender. Clips are named the way Blender exports them ('Armature|Idle'),
 // and there are both Idle and Idle_Armed, so a mapping that picks Idle_Armed proves the character's default 'Idle' does not shadow it.
 //   Slash (1 s): the arm is straight up at 0.3 s and swung down by 0.6 s; the hand bone's world height shows where the swing is.
 import * as THREE from 'three';

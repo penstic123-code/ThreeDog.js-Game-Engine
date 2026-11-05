@@ -1,5 +1,5 @@
 // Music rule evaluation (helper of Music.js): which rule wins, and when to switch (debounced by `hold`, immediate on request). `m` is the Music instance.
-import { reportError } from '../../core/errors.js';
+import { reportError } from '../../core/base/errors.js';
 
 export function pickTrack(m) {
   if (!m._rules) return undefined;

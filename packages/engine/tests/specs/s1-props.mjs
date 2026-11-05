@@ -58,7 +58,7 @@ export const specs = [
         const waiting = W.get('s1-resp')?.until != null && !resp.object;   // same record gets until written, show says no model
         P.placeAt({ x: home.x + 600, z: home.z }); engine.step(3);
         const away = { rock: !!W.view('prop:rock:3'), rockData: !!W.get('prop:rock:3'), pickupView: !!W.view('pickup:feather:0') };
-        engine.step(35, { render: false });   // far away: 30 game seconds pass, the waiting pickup returns on time
+        engine.step(35, { render: false });   // far away: 30 calendar seconds pass, the waiting pickup returns on time
         const wokeFar = !!W.get('s1-resp') && W.get('s1-resp').until == null;
         P.placeAt({ x: home.x, z: home.z }); engine.step(3); await tick();
         const back = { rock: !!W.view('prop:rock:3'), rockSolid: solid('prop:rock:3'), mine: !!W.get('s1-mine') || !!mine.object, resp: !!resp.object };
@@ -128,7 +128,7 @@ export const specs = [
         const c = engine.terrain.chunks.get(t.cx + ',' + t.cz);
         const drawnGone = () => { const im = engine.vegetationDraw.mesh(c, t.species), i = im.userData.plants.ids.indexOf(t.id); return im.instanceMatrix.array[i * 16 + 15] === 0; };
         out.hiddenInView = c.hidden?.[t.species]?.size > 0 && drawnGone();
-        engine.step(40, { render: false });   // regrows after 30 game seconds
+        engine.step(40, { render: false });   // regrows after 30 calendar seconds
         out.regrown = !gone() && !c.hidden?.[t.species] && !drawnGone();
         return out;
       });

@@ -7,7 +7,7 @@ const READY = { timeout: 60000 };
 // Inside the page: walk on autopilot to learn the walking direction, put a 1 m crate 1.5 m ahead on that line, walk 3 s more, report how far the
 // crate moved along the walk and where the player ended up relative to it (pushed ahead = crate stays in front, moved forward)
 async function walkIntoCrate() {
-  const e = window.engine, R = e.rigid, T = e.THREE;
+  const e = window.engine, R = e.rigid, T = __threedogThree;
   e.haltLoop();
   e.input.autopilot = { x: 0, y: 1, speed: 1 };
   const p0 = e.player.position.clone();

@@ -1,12 +1,12 @@
 // What state the running game is in, as data (runtime) and as one plain sentence (trailer). Every bridge command result carries it, so an AI that
 // just pressed a key knows at once whether the game now runs, is halted (and how to resume) or is frozen by a menu, without a second command.
-//   runtime = { ready, mode: 'running' | 'halted' | 'frozen' | null, tick, headless, blockedBy: string[], run: { state, by, blockedBy } }
-//   mode null = no engine could be read (server down, page still loading). run and blockedBy are copied as-is from engine.runState (core/holds.js), the
+//   runtime = { ready, mode: 'running' | 'halted' | 'frozen' | null, tick, headless, blockedBy: string[], run: { state, owners, blockedBy } }
+//   mode null = no engine could be read (server down, page still loading). run and blockedBy are copied as-is from engine.runState (core/ops/holds.js), the
 //   one source for "why is it not advancing" (before, this file rebuilt its own list with other names): blockedBy entries are the opaque input contexts
 //   ('win-settings', 'ui-title', 'dialogue', 'cutscene'...), 'error' and 'loading'.
 
 /** Runs in the page (self-contained, sent as source). Reads only public engine fields, never waits, never throws. */
-export const RUNTIME_FN = () => {
+const RUNTIME_FN = () => {
   const e = window.engine;
   if (!e) return { attached: false };
   let run = null;
@@ -20,8 +20,8 @@ export const RUNTIME_FN = () => {
 export const NONE = Object.freeze({ ready: false, mode: null, tick: null, headless: false, blockedBy: Object.freeze([]) });
 
 /** Raw page reading → runtime. Without an engine: ready false, mode null */
-export function toRuntime(raw) {
-  if (!raw?.attached) return { ...NONE, blockedBy: [] };
+function toRuntime(raw) {
+  if (!raw?.attached) return NONE;
   return { ready: raw.ready, mode: raw.frozen ? 'frozen' : raw.halted ? 'halted' : 'running', tick: raw.tick, headless: raw.headless, blockedBy: raw.blockedBy, run: raw.run ?? null };
 }
 
@@ -30,7 +30,7 @@ export async function readRuntime(driver, ms = 5000) {
   try {
     const raw = await Promise.race([driver.evaluate(RUNTIME_FN.toString()), new Promise((_, no) => setTimeout(no, ms).unref())]);
     return { runtime: toRuntime(raw), raw };
-  } catch { return { runtime: { ...NONE, blockedBy: [] }, raw: null }; }
+  } catch { return { runtime: NONE, raw: null }; }
 }
 
 /** What each blocker means for the player and how to clear it */

@@ -4,11 +4,12 @@
 // Once installed: engine.collision (real physics is another module, rigid() → engine.rigid).
 // Positions are always a single argument (Vector3 / Object3D / [x, y, z] / { x, z }); sizes go in the options object:
 //   const h = engine.collision.addBox(house, { halfWidth: 3, halfDepth: 2, rotation: 0.3 });   h.remove();
-import { xzOf } from '../../core/math.js';
+import { Box3, Vector3 } from 'three';
+import { xzOf } from '../../core/base/math.js';
 
-import { readParams, keysSchema } from '../../core/params.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { CollisionGrid, gridBlocks } from './grid.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 /** One axis of the slab test: narrows S.t0 / S.t1 to where the ray is inside |o + d t| <= h; false when it misses */
 function slab(S, o, d, h) {
@@ -43,6 +44,8 @@ export class Collision {
     this._camS = { from: null, to: null, ux: 0, uz: 0, len: 0, pad: 0, want: 0, best: 0, t0: 0, t1: 0 };   // cameraDistance scratch for its callbacks
     this._lineS = { t0: 0, t1: 0 };   // lineClear slab scratch
     this._onCamCircle = (a, b, c) => this._camCircle(a, b, c);
+    this._gb = { x: 0, z: 0, radius: 0, hit: false };   // _groundBlocks scratch: it runs in the inner loop of A*
+    this._onBlockCircle = (cx, cz, r) => { const G = this._gb; if (Math.hypot(G.x - cx, G.z - cz) < G.radius + r) G.hit = true; };
   }
   /** Iterate all manually added static colliders (for the physics module): fn('box' | 'circle', data) */
   forEachStatic(fn) { for (const b of this._boxes) fn('box', b); for (const c of this._circles) fn('circle', c); }
@@ -129,7 +132,7 @@ export class Collision {
   addObject(obj, { pad = 0, occluder = true } = {}) {
     obj.updateMatrixWorld(true);
     // a THREE.LOD is measured by its full model: a low level may stick out a little, and collision must not change with which levels exist
-    const THREE = this.engine.THREE, box = new THREE.Box3().setFromObject(obj.isLOD ? obj.levels[0].object : obj), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+    const box = new Box3().setFromObject(obj.isLOD ? obj.levels[0].object : obj), c = box.getCenter(new Vector3()), s = box.getSize(new Vector3());
     return this.addBox(c, { halfWidth: s.x / 2 + pad, halfDepth: s.z / 2 + pad, height: s.y, occluder });
   }
 
@@ -166,6 +169,7 @@ export class Collision {
         const it = list[i];
         if (it._b) this._pushBox(pos, it, radius); else this._pushCircle(pos, it.x, it.z, it.r, radius);
       }
+      if (!this._rHit) break;   // nothing pushed: a second pass would ask the same questions at the same spot (most steps of most walkers)
     }
     const hit = this._rHit;
     this._rPos = sPos; this._rRad = sRad;
@@ -246,9 +250,10 @@ export class Collision {
   }
   /** Does one of the ground's own colliders (terrain trees) block this spot */
   _groundBlocks(x, z, radius) {
-    let blocked = false;
-    this.engine.ground.forEachCollider?.(x, z, radius + 1, (cx, cz, r) => { if (!blocked && Math.hypot(x - cx, z - cz) < radius + r) blocked = true; });
-    return blocked;
+    const G = this._gb;
+    G.x = x; G.z = z; G.radius = radius; G.hit = false;
+    this.engine.ground.forEachCollider?.(x, z, radius + 1, this._onBlockCircle);
+    return G.hit;
   }
 
   /** A camera above the canopy is not blocked by trees: is the line of sight at distance tc above it over (x, z) */

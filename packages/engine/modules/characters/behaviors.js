@@ -1,12 +1,12 @@
 // Built-in NPC behaviors: schedule (go to each stop by schedule), wander (roam near home).
 // Behavior = { near(rec, dt, npc), far(rec, dt) }, registered by engine.npcs.behavior(name, …) and selected by behavior in NPC data (see NPC.js).
 // Like npcSim.js it keeps no state of its own: wander target and pause live in rec.mind (plain values), so it continues after model teardown or loading.
-import { warnOnce } from '../../core/validate.js';
+import { warnOnce, fmt } from '../../core/base/validate.js';
 import { advance, nearStep, goTo, settle } from './npcSim.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const NO = 'no NPC behavior named "{name}". Registered: {known}. Register a custom behavior first: engine.npcs.behavior("{name}", { near(rec, dt, npc) { … }, far(rec, dt) { … } })';
-const noBehavior = (name, map) => NO.replace(/\{name\}/g, name).replace('{known}', [...map.keys()].join(', '));
+const noBehavior = (name, map) => fmt(NO, { name: String(name), known: [...map.keys()].join(', ') });
 
 /** Behavior registry: name -> { near, far } (code, not saved; data only stores the name) */
 export class Behaviors extends Map {
@@ -34,7 +34,6 @@ function builtinBehaviors(e, W) {
   };
   const homeOf = (rec, m) => { m.home ??= { x: rec.position.x, z: rec.position.z }; };
 
-
   // wander: pick a random point near home, walk there, pause, pick the next. Randomness uses engine.random (same seed, same result, saved)
   const wanderFar = (rec, dt) => {
     const m = rec.mind;
@@ -60,7 +59,7 @@ function builtinBehaviors(e, W) {
       if (!rec.busy) {
         if (m.wait > 0) m.wait -= dt;
         else {
-          if (!m.target) m.target = pick(e, m);
+          if (!m.target) { m.target = pick(e, m); rec.nav.path = null; rec.nav.repath = 0; }   // what is left of the last path leads to the last target
           if (Math.hypot(m.target.x - ch.root.position.x, m.target.z - ch.root.position.z) < rec.arriveDistance) { m.target = null; m.wait = pauseOf(e, m); }
           else goal = m.target;
         }

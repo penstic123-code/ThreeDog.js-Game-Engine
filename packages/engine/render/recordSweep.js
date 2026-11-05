@@ -6,9 +6,9 @@
 // It reads a private three.js field, so the shape is checked on every sweep: a three upgrade that moves it turns the sweep off with one coded warning, never a crash
 // (tests/specs/webgpu-release.mjs fails on the same change).
 // Plain three.js equivalent: mesh.dispatchEvent({ type: 'dispose' }) after removing a mesh for good.
-import { warnOnce } from '../core/validate.js';
-import { coded } from '../core/errorHints.js';
-import { notePatch, patchOn } from '../core/threePatches.js';
+import { warnOnce } from '../core/base/validate.js';
+import { coded } from '../core/base/errorHints.js';
+import { notePatch, patchOn } from '../core/scene/threePatches.js';
 import { isWebGPU } from './backend.js';
 
 // Why 4: long enough that a pooled mesh out for a moment is left alone, short enough that the records of a fast flight stay a small constant. Costs nothing between sweeps
@@ -44,7 +44,7 @@ const drawnWithoutScene = ro => ro.object.isQuadMesh === true || ro.scene.childr
 /** Whether a record's object has left every Scene. A live render bundle replays its records whatever its children did, so the bundle decides for them. @param {any} ro */
 const detached = ro => !drawnWithoutScene(ro) && !inScene(ro.bundle ?? ro.object);
 
-/** core/Engine.js builds one per WebGPURenderer; core/loop.js steps it after each draw; tests read it */
+/** core/engine/Engine.js builds one per WebGPURenderer; core/engine/loop.js steps it after each draw; tests read it */
 class RecordSweep {
   /** @param {any} renderer */
   constructor(renderer) {

@@ -6,7 +6,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.haltLoop();
-        const T = engine.THREE;
+        const T = __threedogThree;
         // level built in code: ground + a bridge deck 3 m above it (only names containing ground / road are treated as walkable by level)
         engine.assets.manifest({ models: { 's1-bridge': () => {
           const g = new T.Group();

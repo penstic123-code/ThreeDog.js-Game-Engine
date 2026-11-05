@@ -50,10 +50,9 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
   //     would take that entry's state away). Level-node targets (`<level>/<node>`) live in the glb and are checked at runtime (dev warning).
   const renames = c.renames || {};
   if (Object.keys(renames).length) {
-    const list = v => (Array.isArray(v) ? v : [v]);
     const ids = new Set([...Object.keys(c.npcs || {}), ...Object.keys(c.containers || {})]);
     (Array.isArray(c.pickups) ? c.pickups : []).forEach((p, i) => ids.add(pickupId(p, i)));
-    (Array.isArray(c.props) ? c.props : []).forEach((p, i) => ids.add(p?.template ? templateId(p, i) : p?.id ?? `prop:${list(p?.model)[0]}:${i}`));
+    (Array.isArray(c.props) ? c.props : []).forEach((p, i) => ids.add(p?.template ? templateId(p, i) : p?.id ?? `prop:${[p?.model].flat()[0]}:${i}`));
     for (const [a, b] of Object.entries(renames)) {
       if (ids.has(a)) err('renames', `${a} is renamed but content still defines it: remove the rename, or change that entry's id to ${b ?? '(deleted)'}`);
       if (b === null) continue;
@@ -70,15 +69,13 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
 
   // 11. Props (a missing place is reported by checkPos; a wrong-typed source by fields.mjs, from the field table)
   const props = c.props || [];
-  if (props.length) {
-    if (!Array.isArray(props)) err('props', 'props.js must export a list [{ model, place, x, z }, …]');
-    else props.forEach((p, i) => {
-      const where = `prop #${i + 1}`, m = [p?.model].flat()[0], collide = collideProblem(p?.collide);
-      if (collide) err('props', `${where}: collide ${collide}`);
-      if (p?.template) { if (!templates[p.template]) err('props', `${where} uses template ${p.template}, which templates.js does not define (existing: ${known(templates)})`); }
-      else if (!m) err('props', `${where} has no model (the model name), or a template`);
-      else checkModel('props', where, m);
-      checkPos('props', where, p);
-    });
-  }
+  if (!Array.isArray(props)) err('props', 'props.js must export a list [{ model, place, x, z }, …]');
+  else props.forEach((p, i) => {
+    const where = `prop #${i + 1}`, m = [p?.model].flat()[0], collide = collideProblem(p?.collide);
+    if (collide) err('props', `${where}: collide ${collide}`);
+    if (p?.template) { if (!templates[p.template]) err('props', `${where} uses template ${p.template}, which templates.js does not define (existing: ${known(templates)})`); }
+    else if (!m) err('props', `${where} has no model (the model name), or a template`);
+    else checkModel('props', where, m);
+    checkPos('props', where, p);
+  });
 }

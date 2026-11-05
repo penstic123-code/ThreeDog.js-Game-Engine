@@ -5,8 +5,9 @@
 // light.shadow.autoUpdate / needsUpdate (WebGPU), WEBGL_debug_renderer_info (WebGL) or GPUDevice.adapterInfo (WebGPU).
 // Imports nothing from three (only engine files that do not either): threedog/tsl (render/fx) registers the WebGPU classes here, so WebGL games never load three/webgpu.
 
-import { codedError } from '../core/errorHints.js';
-import { notePatch, patchOn } from '../core/threePatches.js';
+import { codedError } from '../core/base/errorHints.js';
+import { notePatch, patchOn } from '../core/scene/threePatches.js';
+import { isShown } from '../core/base/util.js';
 
 /** Samples of the MSAA the post chain's targets use, on both renderers */
 export const MSAA_SAMPLES = 4;
@@ -44,7 +45,7 @@ export const programList = r => isWebGPU(r) ? [] : r.info.programs ?? [];
 const NODE_PROGRAMS = new WeakMap(), RECENT = [], RECENT_MAX = 256;
 notePatch('node-builder-hook', "renderer.debug.onNodeBuilderCreated of a WebGPURenderer: remembers the render object built per material, a game's own hook still runs (render/backend.js)", () => {},
   { scope: 'engine renderer', lost: 'on WebGPU: shader errors no longer name the material, and shaderCost and the program costs in inspect.perf stay empty' });
-/** @internal core/Engine.js: on WebGPURenderer, remember the render object three builds per material (a game's own hook still runs) @param {any} r */
+/** @internal core/engine/Engine.js: on WebGPURenderer, remember the render object three builds per material (a game's own hook still runs) @param {any} r */
 export function watchNodePrograms(r) {
   const d = r?.debug;
   if (!isWebGPU(r) || !d || d._threedogPrograms) return;
@@ -119,7 +120,7 @@ export function setShadowUpdate(r, scene, { auto, now } = {}) {
 }
 
 /**
- * The lights with a shadow in a scene, kept up to date on add / remove (core/sceneDelta.js) instead of walking the scene.
+ * The lights with a shadow in a scene, kept up to date on add / remove (core/scene/sceneDelta.js) instead of walking the scene.
  * Why: these are asked for every frame (the cascades' early update, the budget's shadow pass count); a full
  * scene walk each time costs more than the frame's game code in a large, streaming world.
  * @param {any} scene @returns {Set<any>}
@@ -127,7 +128,7 @@ export function setShadowUpdate(r, scene, { auto, now } = {}) {
 function shadowLights(scene) {
   let w = LIGHTS.get(scene);
   if (!w) {
-    if (!VISITOR.fn) throw codedError('engine-misuse', '[threedog] render/backend.js shadowLights: core/sceneDelta.js is not loaded (the engine core registers it)');
+    if (!VISITOR.fn) throw codedError('engine-misuse', '[threedog] render/backend.js shadowLights: core/scene/sceneDelta.js is not loaded (the engine core registers it)');
     const set = new Set();
     w = { set, view: VISITOR.fn(scene, { enter: o => { if (o.isLight && o.shadow) set.add(o); }, leave: o => { set.delete(o); } }) };
     LIGHTS.set(scene, w);
@@ -136,9 +137,9 @@ function shadowLights(scene) {
   return w.set;
 }
 const LIGHTS = new WeakMap();   // scene -> { set, view }
-// core/sceneDelta.js hands its sceneVisitor in (it patches three's Object3D, so importing it here would pull 'three' into threedog/tsl)
+// core/scene/sceneDelta.js hands its sceneVisitor in (it patches three's Object3D, so importing it here would pull 'three' into threedog/tsl)
 const VISITOR = { fn: null };
-/** @internal core/sceneDelta.js at load @param {Function} fn */
+/** @internal core/scene/sceneDelta.js at load @param {Function} fn */
 export function useSceneVisitor(fn) { VISITOR.fn = fn; }
 
 /**
@@ -157,8 +158,9 @@ export function holdShadowRedraw(r, scene) {
 
 /** Whether a shadow redraw is already requested for the next render @param {any} r @param {any} scene @returns {boolean} */
 export function shadowUpdatePending(r, scene) {
-  if (!isWebGPU(r)) return !!r.shadowMap.needsUpdate || [...shadowLights(scene)].some(o => o.castShadow && o.shadow.needsUpdate);
+  if (!isWebGPU(r) && r.shadowMap.needsUpdate) return true;
   for (const o of shadowLights(scene)) {
+    if (!isWebGPU(r)) { if (o.castShadow && o.shadow.needsUpdate) return true; continue; }
     // with cascades the light's own map is never drawn, so its needsUpdate is never cleared: only the cascades' flags count
     const c = cascadeShadows(o);
     if ((c.length ? c : [o.shadow]).some(s => s.needsUpdate)) return true;
@@ -173,9 +175,6 @@ export function shadowUpdatePending(r, scene) {
  */
 const cascadeShadows = light => light.shadow.shadowNode?.lights?.map(l => l.shadow) ?? [];
 
-/** visible itself and every parent (what traverseVisible checks), O(depth) @param {any} o */
-const shown = o => { for (let p = o; p; p = p.parent) if (!p.visible) return false; return true; };
-
 /**
  * The shadow maps the next render draws, as [{ shadow, faces }] (faces: 6 for a point light's cube map, else 1). Why one list for both
  * renderers: on WebGL every cascade is a DirectionalLight in the scene, while on WebGPURenderer a cascade shadow node draws one map per
@@ -188,7 +187,7 @@ export function shadowMaps(r, scene) {
   /** @type {{ shadow: any, faces: number }[]} */ const out = [];
   if (!r.shadowMap?.enabled) return out;
   for (const o of shadowLights(scene)) {
-    if (!o.castShadow || !shown(o)) continue;
+    if (!o.castShadow || !isShown(o)) continue;
     const node = isWebGPU(r) ? o.shadow.shadowNode : null;
     if (node?.cascades > 0 && Array.isArray(node.lights)) {
       const c = cascadeShadows(o);
@@ -351,7 +350,7 @@ export async function readLayer(r, rt, w, h, layer) {
 export function rebuildShadow(light) { light.dispatchEvent({ type: 'dispose' }); }
 
 /** A text that changes when the camera's projection does, for "did it change" checks @param {any} cam @returns {string} */
-export const projectionKey = cam => (cam.isPerspectiveCamera ? `${cam.fov},${cam.aspect},${cam.near},${cam.far},${cam.zoom}` : `${cam.left},${cam.right},${cam.near},${cam.far},${cam.zoom}`);
+export const projectionKey = cam => (cam.isPerspectiveCamera ? `${cam.fov},${cam.aspect},${cam.near},${cam.far},${cam.zoom}` : `${cam.left},${cam.right},${cam.top},${cam.bottom},${cam.near},${cam.far},${cam.zoom}`);
 
 // ---------- the WebGPU route (createEngine({ renderer: 'webgpu' }); docs/plans/2026-11-03-webgpu-phase2.md section 1) ----------
 
@@ -385,7 +384,7 @@ export function swapWebGPUPart(name, impl) { const prev = PARTS.get(name) ?? nul
 
 // Parts built for the renderer before start() knew the backend. createEngine({ renderer: 'webgpu', fallback: 'webgl' }) swaps the
 // WebGPURenderer for a WebGLRenderer inside start(), after modules installed and built node materials (the sky dome). Each such part
-// registers a rebuild here; start() runs them right after the swap (core/startup.js), so no part keeps a node material WebGL cannot draw.
+// registers a rebuild here; start() runs them right after the swap (core/engine/startup.js), so no part keeps a node material WebGL cannot draw.
 const SWAP = new WeakMap();   // engine -> Set of rebuilds
 /**
  * @internal Run fn when the engine's renderer is replaced in start() (fallback 'webgl'); returns { remove() }
@@ -397,7 +396,7 @@ export function onRendererSwap(engine, fn) {
   set.add(fn);
   return { remove: () => { set.delete(fn); } };
 }
-/** @internal core/startup.js after the swap: rebuild every registered part for engine.renderer @param {any} engine */
+/** @internal core/engine/startup.js after the swap: rebuild every registered part for engine.renderer @param {any} engine */
 export function rendererSwapped(engine) { for (const fn of [...(SWAP.get(engine) ?? [])]) fn(); }
 
 /**

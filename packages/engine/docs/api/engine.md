@@ -1,6 +1,6 @@
 # engine — createEngine and the Engine class (core)
 
-- `createEngine(opts: EngineOptions) → Engine` — Create an engine (core only). canvas is required; style is the game's style (see recipes/09-materials-lights-models.md)
+- `createEngine(opts: EngineOptions) → Engine` — Create an engine (core only). canvas is required
 - Options `EngineOptions`:
   - `canvas?: HTMLCanvasElement | HTMLElement` Canvas element (required unless renderer is given), e.g. document.getElementById('view')
   - `renderer?: 'webgl' | 'webgpu' | EngineRenderer` 'webgl' (default): the engine builds a WebGLRenderer. 'webgpu': it builds three's WebGPURenderer (needs import 'threedog/tsl' first) and start() awaits its init(). Or a ready three.js renderer (WebGLRenderer or WebGPURenderer) used as is; canvas then defaults to renderer.domElement.
@@ -19,10 +19,10 @@
   - `saveKey?: string` Save name prefix; must differ when several games share one site, default 'game'
   - `joystick?: 'auto' | boolean` On-screen joystick: 'auto' (only on touch devices) / true / false
   - `headless?: boolean` Headless mode: no real-time loop and no per-frame rendering, advances only on step() (for tests and screenshots). Adding ?threedog-headless to the URL also turns it on
-  - `validate?: boolean` Check parameter names at runtime and warn on misspelled names (the console prints "did you mean xxx"), default true; a release build can write false to turn it off
-  - `decoders?: string` Directory of Draco/KTX2 decoders (a URL containing draco/ and basis/), for when they live on a CDN. Normally not needed: the decoders bundled with three are packed by vite automatically
+  - `validate?: boolean` (experimental) Check parameter names at runtime and warn on misspelled names (the console prints "did you mean xxx"), default true; a release build can write false to turn it off
+  - `decoders?: string` (experimental) Directory of Draco/KTX2 decoders (a URL containing draco/ and basis/), for when they live on a CDN. Normally not needed: the decoders bundled with three are packed by vite automatically
   - `budget?: BudgetLimits` Performance budget limits, e.g. { drawCalls: 250, fps: 55 }; only the given categories are checked; off by default
-  - `urlState?: boolean` Set up a scenario from URL parameters (?time=18:30&weather=rain&pos=40,-20), default on only in development
+  - `urlState?: boolean` (experimental) Set up a scenario from URL parameters (?time=18:30&weather=rain&pos=40,-20), default on only in development
   - `seed?: number` Seed for engine.random; default 1 in headless mode (reproducible), the current time for live runs (different every game)
   - `movement?: Partial<MovementProfile>` Shared "can walk there" parameters (meters / degrees): collision, the Rapier capsule, navigation and level steps all read them by default. Default { radius: 0.4, height: 1.8, maxSlope: 48, stepHeight: 0.45 }
   - `threads?: 'auto' | number | false` (experimental) Worker pool size for engine.threads: 'auto' (default: cores - 1, at most 4), a worker count, or false (all on the main thread, same results, no workers created)
@@ -34,8 +34,8 @@
 - `engine.actorPosition(id?: string) → { x, y, z } | null` — Where an actor is now (default engine.actor): the player's position for 'player' (engine.focus without a player), else its model or world record position; null when unknown. Example: `engine.actor = 'boat_1'; engine.actorPosition()`
 - `engine.catalog(id?: string | { find?: string }) → any` — What this game can do, read from the existing registrations (modules, ops, save parts, describe, params schemas). No argument: the short list, an ARRAY of { id, kind, label, ops, saves, ... } (read .id, not Object.keys); a module id / op name: that entry expanded (null if unknown); { find }: the short list filtered. recipes/51-capability-catalog.md. Example: `engine.catalog().map(s => s.id);   engine.catalog('shop').ops[0].failures   // ['soldOut', 'noMoney']`
 - `engine.takeCamera(owner: string | ({ owner: string } & Partial<CameraOverride>), opts?: Partial<CameraOverride>) → OwnerHandle` — Take the camera over (camera modules leave it alone) until remove(); the latest holder is in charge, releasing hands it back to the previous one
-- `engine.mod(name: string, opts: import('./gameplay').ModOptions) → import('./gameplay').ModHandle` — The one way several systems change a shared quantity: an entry per owner, combined by layer, ended by its handle; nothing remembers an old value. Example: `engine.time.channel('enemies'); engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 })   // bullet time on a channel the game made`
-- `engine.wrap(target: T, method: string, fn: (next, args) => any, opts?: { owner?: string }) → Handle` — The one way to change what a module's public method does without copying the module: fn(next, ...args) runs instead of it; call next(...args) for the method (do work before, after, or skip it). Several wrappers compose (the last wrapped runs first); remove() takes one out; listed in describe().wraps. Private (_) methods throw. The methods a module promises are its contract.js api. Example: `engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) => carried() + weightOf(id) * n > 30 ? false : next(id, n, o), { owner: 'weight' })`
+- `engine.mod(name: string, opts: import('./gameplay').ModOptions) → import('./gameplay').ModHandle` — (experimental) The one way several systems change a shared quantity: an entry per owner, combined by layer, ended by its handle; nothing remembers an old value. Example: `engine.time.channel('enemies'); engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 })   // bullet time on a channel the game made`
+- `engine.wrap(target: T, method: string, fn: (next, args) => any, opts?: { owner?: string }) → Handle` — (experimental) The one way to change what a module's public method does without copying the module: fn(next, ...args) runs instead of it; call next(...args) for the method (do work before, after, or skip it). Several wrappers compose (the last wrapped runs first); remove() takes one out; listed in describe().wraps. Private (_) methods throw. The methods a module promises are its contract.js api. Example: `engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) => carried() + weightOf(id) * n > 30 ? false : next(id, n, o), { owner: 'weight' })`
 - `engine.setCamera(kind: CameraKind, opts?: object) → CameraRig` — Switch the camera at runtime between kinds, once a camera module is installed (openWorld installs followCamera; with none it throws camera-none naming the module to install, e.g. engine.use(fixedCamera({ position, lookAt }))): the target and horizontal heading carry over; the first-person camera hides the character body automatically (the shadow stays) and locks / releases the mouse; the camera switched out is kept, with its parameters, for switching back. Passing opts rebuilds this kind of camera with the new parameters. A wrong kind throws and lists the available options. Example: `engine.onFrame(() => { if (engine.input.pressedRaw('toggleView')) engine.setCamera(engine.cameraRig.kind === 'follow' ? 'firstPerson' : 'follow'); });`
 - `engine.use(...mods: (ModuleInput | { replaces })[])` — Install one or more modules (in order; dependencies must be installed first). A last argument { replaces: 'slot' } swaps the module that holds that exclusive slot: it is unloaded first (its handles, changes and dispose) and put back if the new install fails. Example: `engine.use(myInventory(), { replaces: 'inventory' })`
 - `engine.unuse(name: string)` — Unload one installed module: its tracked handles, its slots and ctx.mod entries, its dispose. What it added some other way stays (dev reports a picture module's leftovers). Throws while another module still requires it. To swap a holder use engine.use(mine(), { replaces: 'slot' }). Example: `engine.unuse('rain');`
@@ -47,7 +47,7 @@
 - `engine.waterAt(x: number, z: number) → number` / `waterAt(at: PositionLike) → number` — Water surface height at (x, z): standalone water bodies first, otherwise the global water level; -Infinity when there is no water. A position or object also works
 - `engine.snapToGround(obj: T, offset?: number) → T` — Put an object on the ground under it (y = ground height + offset) and return the object. With multi-layer ground the object's current y is the reference height
 - `engine.addWaterBody(opts: WaterBodyOptions) → Handle & { body: WaterBody }` — Add a water body (give radius for a circle, halfWidth / halfDepth for a rectangle) and return a handle { body, remove() }. The water module draws it
-- `engine.t(key: string, params?: Record<string, any>) → string` — Get UI text (i18n)
+- `engine.t(key: string, params?: Record<string, any>) → string` — Get UI text (i18n): {name} in the text takes params.name, {key:action} the label of the key bound to that action; a key with no text comes back as itself. Example: `engine.t('shop.buy', { name: 'Fish' });`
 - `engine.add(obj: T, ...more: (Object3D | { id?, save? })[]) → T` — Add objects to the scene and register them (engine.thing), returns the first one. The last argument may be { id?, save? }: id makes thing.set / thing.remove changes saved (unique, no '#', one object per call); without it a unique obj.name is used, else a session id obj#n. save: true asks dev to warn when it cannot be saved. engine.scene.add adds without registering. Example: `engine.add(windmill, { id: 'windmill' });`
 - `engine.thing(idOrObj: string | Object3D) → Thing` — What a thing is and what a save keeps: a world record id, an engine.add id or name, or any Object3D (its registered ancestor). object is the live Object3D (not enumerable). Throws with the closest id when nothing matches. Change it with ops.run('thing.set' / 'thing.remove', { id, ... }). Example: `engine.thing('windmill').saved   // 'code'`
 - `engine.remove(...objs: Object3D[])` — Fully delete an object (use it when you no longer want the object): removes it from its parent, unregisters rays, and releases the geometry and materials of it and its children (textures and geometry / materials shared by assets are not released)
@@ -79,18 +79,18 @@
 - `engine.counts() → EngineCounts` — Counts for leak hunting: they should not keep growing after repeatedly entering / leaving levels or opening / closing windows. geometries / textures come from three.js renderer.info.memory (counted only after rendering)
 
 ## engine properties (module properties are on each module page)
-- `THREE: typeof import('three')` three.js (a game can also import { THREE } from 'threedog' directly)
+- `validate: boolean` False when createEngine({ validate: false }) turned the development checks off for this engine
 - `renderer: EngineRenderer` three.js renderer: WebGLRenderer, or WebGPURenderer on the WebGPU route (EngineRenderer)
 - `tier: 'low' | 'high'` Device tier: 'low' (phones, integrated graphics) / 'high'. A headless page takes it from ?threedog-tier=low/high (threedog shot / gallery / capture pass high, shot --tier low checks the low tier)
 - `scene: import('three').Scene` three.js scene
 - `lights: { sun, hemi }` Placeholder lights: neutral and still, nothing moves them (the sky only gives signals). createEngine({ lights: false }) leaves them out of the scene
-- `camera: import('three').PerspectiveCamera` three.js PerspectiveCamera (class EngineCamera, core/engineCamera.js): a camera rig with projection: 'orthographic' switches it to an orthographic matrix in place (orthoSize; describe().camera.projection says which)
+- `camera: import('three').PerspectiveCamera` three.js PerspectiveCamera (class EngineCamera, core/scene/engineCamera.js): a camera rig with projection: 'orthographic' switches it to an orthographic matrix in place (orthoSize; describe().camera.projection says which)
 - `focus: Vector3` Camera focus, updated every frame by the camera module: terrain, models etc. load around it. The center of gameplay simulation is world.anchor (the player by default), which does not follow the camera
 - `ground: Ground` Current ground
 - `movement: Readonly<MovementProfile>` Shared parameters for whether a character can walk somewhere (set by createEngine({ movement }), read-only); same-named options of individual modules are only overrides
 - `player: Character | null` The player (exists only after characters.createPlayer()). Its position belongs to the character's mover: other systems request movement (placeAt / move / vehicle enter), don't modify position directly
 - `actor: string` World record id of the one the local user controls (default 'player'): interactions, trigger zones, marker distances, the world simulation center and ops (ctx.actor) use it. Set it to hand control to a vehicle or squad member
-- `phase: 'constructed' | 'loading' | 'ready' | 'running' | 'disposed'` Where the engine is in its life: 'constructed' (start() not called) -> 'loading' (start() running: frame hooks only, no fixed step, so no game time passes and every machine opens at tick 0) -> 'ready' (world built: fixed steps run, engine:ready fires) -> 'running' (start() resolved) -> 'disposed'. engine.step() during loading runs frame hooks only
+- `phase: 'constructed' | 'starting' | 'loading' | 'ready' | 'running' | 'disposed'` Where the engine is in its life: 'constructed' (start() not called) -> 'starting' (modules init) -> 'loading' (assets and the world; in both frame hooks only, no fixed step, so no game time passes and every machine opens at tick 0) -> 'ready' (world built: fixed steps run, engine:ready fires) -> 'running' (start() resolved) -> 'disposed'.
 - `ready: boolean` phase is 'ready' or 'running': the world is built and the loading screen is gone (every "is it ready" in the engine is such a boolean property)
 - `disposed: boolean` phase is 'disposed'
 - `moduleOrder: string[]` (experimental) Execution order of module hooks (module names, first -> last), for debugging "who runs before whom"
@@ -118,12 +118,12 @@
 - `cameraOverride: CameraOverride | null` The camera holder in charge (latest engine.takeCamera claim), null when nobody holds it. Read-only
 - `runState: RunState` Why the page is (not) advancing; the dev bridge and MCP tools copy it as-is
 - `clock: Clock` Calendar clock: calendar seconds now, after / every, the rate (clock-time / season timers are on engine.calendar)
-- `stacks: import('./gameplay').Stacks` Every shared quantity by name; define your own with engine.stacks.define(name, { base })
+- `stacks: import('./gameplay').Stacks` (experimental) Every shared quantity by name; define your own with engine.stacks.define(name, { base })
 - `control: Control` Who decides where each character goes: one holder in charge per character, layers base < script < cutscene < physics < net; a higher one pauses the lower until it ends. engine.control.take(ch, { owner, layer, step }) / .of(ch). Recipe 57. Example: `const h = engine.control.take(npc, { owner: 'escort', layer: 'script', step: () => ({ x: 0, z: 1 }) }); ... h.remove();`
 - `time: import('./gameplay').Time` Time channels: read seconds with time.now('real' / 'ambient' / 'calendar' / a channel such as 'world'), speeds with scale(ch, id?)
 - `vars: Vars` Story flags and counters (autosaved)
 - `budget: Budget` Performance budget (off by default)
-- `plugins: { add, off, on, list }` The plugins folder: files in the game's plugins/ plugged at start by what they export (core/plugins.js); describe().slots lists them (add() off() on() list())
+- `plugins: { add, off, on, list }` The plugins folder: files in the game's plugins/ plugged at start by what they export (core/engine/plugins.js); describe().slots lists them (add() off() on() list())
 - `rays: Rays` Ray registry (what engine.raycast hits)
 - `jobs: Jobs` Frame-spread job scheduler
 - `commits: Commits` (experimental) Background results that affect gameplay take effect on a fixed tick (chunk collision, spread jobs with apply...), see Commits
@@ -140,10 +140,10 @@
 - `shadows: Shadows` Shadow engineering on lights you hand in: enabled, cascades, box, budget, include (recipes/45): core, always there
 - `autoView: View` The camera and drawing-buffer values the engine changes on its own: manual() takes one (recipes/52): core, always there
 - `shaderTerms: Terms` Your own cloud shadow or season tint in place of the engine's (recipes/52): core, always there
-- `stateApplied: boolean` Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been applied. Tests and screenshots wait for it: page.waitForFunction(() => window.engine?.stateApplied)
-- `stateRefused: { key: string, value: any, reason: string }[]` What the URL parameters or the latest applyState could not do, e.g. ?weather=typo. Read it after stateApplied
+- `stateApplied: boolean` (experimental) Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been applied. Tests and screenshots wait for it: page.waitForFunction(() => window.engine?.stateApplied)
+- `stateRefused: { key: string, value: any, reason: string }[]` (experimental) What the URL parameters or the latest applyState could not do, e.g. ?weather=typo. Read it after stateApplied
 - `headless: boolean` Whether in headless mode (createEngine({ headless: true }))
-- `halted: boolean` Whether paused (headless mode is paused by default, only step() advances)
+- `halted: boolean` Whether the real-time loop is stopped: only step() advances the game (headless mode starts this way)
 - `fps: number` Smoothed frame rate
 - `frozen: boolean` Is anyone freezing gameplay?
 - `still: boolean` True while a freeze asked for a full still (freeze(owner, { ambient: true })): frame code that moves things reads this, as animation and particles do
@@ -153,7 +153,7 @@
 ## Module definition (engine.use(myModule()))
 - **ModuleDef** A module (the argument of engine.use). The name is the property name on the engine once installed. Per-frame hook order follows stage, then before / after within a stage, then install order.
   - `name: string` Module name; after install, access the object returned by install through engine[name]
-  - `type?: ModuleType` What the module owns (default 'rules'; core/moduleTypes.js): 'world' state, records, ops (draws nothing) / 'picture' what is seen and heard (changes no game state: no ops, no world record writes) / 'actor' characters / 'rules' game logic / 'ui' panels and menus (binds no keys, no game save part) / 'net' multiplayer / 'tool' a one-shot job.
+  - `type?: ModuleType` What the module owns (default 'rules'; core/engine/moduleTypes.js): 'world' state, records, ops (draws nothing) / 'picture' what is seen and heard (changes no game state: no ops, no world record writes) / 'actor' characters / 'rules' game logic / 'ui' panels and menus (binds no keys, no game save part) / 'net' multiplayer / 'tool' a one-shot job.
   - `label?: string` Display name (used by the loading screen)
   - `requires?: string[]` Capabilities this depends on: slot names another module provides ('inventory', 'world', 'sky'), never a particular module. Missing throws with both fixes: install the engine's part of that name first, or your own module with provides: ['inventory']
   - `provides?: (PictureSlot | (string & {}))[]` Capabilities this module holds while installed ("only one may hold this": 'sky', 'inventory'); engine.<slot> is its API too, so dependents keep working when a game swaps it: engine.use(mine(), { replaces: 'inventory' }). A second provider throws shared-taken. describe().shared shows the holder.
@@ -162,6 +162,9 @@
   - `before?: string[]` Hooks run before these modules, inside one stage (ignored if not installed; use() throws on a cycle, or when the other module's stage already runs earlier)
   - `after?: string[]` Hooks run after these modules, inside one stage (ignored if not installed; use() throws on a cycle, or when the other module's stage already runs later)
   - `critical?: boolean` The game cannot run without this module (default false): when its init() fails, engine.start() rejects with the module name and reason instead of starting a broken game. Without it a failed init is reported by severity (type picture / ui: disabled and the game carries on; other types: error tiers) and start() goes on. Example: `engine.use({ name: 'saveSlots', type: 'rules', critical: true, async init(e) { await loadSlots(); } })`
+  - `noSkip?: string` Why a module with a fixed hook has no skip hook: engine.catalog shows it instead of a warning
+  - `params?: any` The option schema (core/base/params.js): engine.catalog shows it, and dev checks the module's options against it
+  - `docs?: string` Where its docs live, shown by engine.catalog
   - `explain?: Record<string, (e: Engine, value: any, query: Record<string…` Optional: answer engine.explain({ key: value }) for your own keys, e.g. explain: { quest: (e, id) => ({ ok: false, text: 'waits on step 2: ...' }) }
   - `stateKeys?: string[]` Optional: the applyState keys this module handles; a key no module handles is reported in applyState's refused list. Leave out to count for every key
   - `install(e: Engine, ctx: ModuleCtx) → Api` — Install: create and return the object the game uses (engine.name). Register listeners / timers through ctx.track so they leave with the module (a use() batch that rolls back, a failed init, engine.dispose). Example: `install(e, ctx) { ctx.track(e.events.on('item:add', onAdd)); return api; }`
@@ -218,11 +221,11 @@
   - `play?: string | boolean` Present (?play, any value): leave the title screen the way its Start does (engine.session.newGame(), the title part closes; flow leaves its start state) before wait; nothing when no title is up
   - `fresh?: string | boolean` Delete every save of this page first (no Continue on the title); on a running page also end the run and go back to the title. ?fresh in the URL
 - **StartupReport** Startup timing (milliseconds): totalMs page open to playable, startMs start() to playable, preloadMs preloading, streamMs the nearby builds required by stream registrations finished, compileMs shader compilation before the first frame, modules is the init / ready time of each module. With a budget on and startupMs (open to playable) / moduleMs (a single module) given, the slowest module is reported in the console when exceeded. firstFrameMs: page open to the end of the first frame drawn after the loading screen (null until that frame, and headless); phases add up to it: script (page open until createEngine), construct (createEngine), setup (game code until start()), init (saves, renderer, module init), preload, world (scenario parameters, nearby builds), compile (shaders + hidden warm-up frame), draw (ready until the first frame's draw calls were submitted)
-  - `totalMs: number`
-  - `startMs: number`
-  - `preloadMs: number`
-  - `streamMs: number | null`
+  - `totalMs: number` (experimental) 
+  - `startMs: number` (experimental) 
+  - `preloadMs: number` (experimental) 
+  - `streamMs: number | null` (experimental) 
   - `compileMs: number`
   - `modules: Record<string, { init?: number; ready?: number }>`
-  - `firstFrameMs: number | null`
-  - `phases: { script, construct, setup, init, preload, world, … }`
+  - `firstFrameMs: number | null` (experimental) 
+  - `phases: { script, construct, setup, init, preload, world, … }` (experimental) 

@@ -21,7 +21,7 @@ export function fileReport(doc, manifest) {
 }
 
 /** World-space box of all mesh positions ([min, max] or null): from accessor min / max and each node's world matrix, no vertex data is read */
-export function sceneBounds(doc) {
+function sceneBounds(doc) {
   let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity], any = false;
   for (const n of doc.getRoot().listNodes()) {
     const mesh = n.getMesh(); if (!mesh) continue;

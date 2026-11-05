@@ -6,18 +6,18 @@ Real physics, Rapier (rigid() module, needs collision)
   - `gravity?: number` Gravity (m/s², negative points down), default -9.81
   - `terrainRing?: number` How many rings of chunks around the player get terrain colliders, default 1. A body outside them freezes until the player comes near (entry.enabled false, describe().rigid.frozen), because it would fall through the ground: raise this for a car or ball that must keep moving far away
   - `buoyancy?: boolean` Whether there is buoyancy, default true
-  - `buoyancyForce?: number` Buoyancy strength (1 = just floats), default 1.6
-  - `waterDrag?: number` Drag in water, default 2.5
-  - `floatLine?: number` Buoyancy "waterline": an object starts floating when its center is this many meters below the water surface, default 0.3
-  - `floatDepth?: number` Buoyancy reaches its maximum this many meters further down, default 0.8
-  - `treeColliderHeight?: number` Height (meters) of vegetation collision pillars (tree trunks), default 6
-  - `treeRadius?: number` Trunks get collision cylinders only in chunks within this many meters of the player or a moving rigid body (the rest are covered by engine.collision for characters), default 16
-  - `playerCapsule?: { halfHeight: number; radius: number }` Player capsule size (meters), default computed from engine.movement radius / height
+  - `buoyancyForce?: number` (experimental) Buoyancy strength (1 = just floats), default 1.6
+  - `waterDrag?: number` (experimental) Drag in water, default 2.5
+  - `floatLine?: number` (experimental) Buoyancy "waterline": an object starts floating when its center is this many meters below the water surface, default 0.3
+  - `floatDepth?: number` (experimental) Buoyancy reaches its maximum this many meters further down, default 0.8
+  - `treeColliderHeight?: number` (experimental) Height (meters) of vegetation collision pillars (tree trunks), default 6
+  - `treeRadius?: number` (experimental) Trunks get collision cylinders only in chunks within this many meters of the player or a moving rigid body (the rest are covered by engine.collision for characters), default 16
+  - `playerCapsule?: { halfHeight: number; radius: number }` (experimental) Player capsule size (meters), default computed from engine.movement radius / height
 
 ## Methods and properties
 - `rigid.addBox(mesh: Object3D, opts?: RigidBoxOptions) → RigidEntry | null` — Add a box (crate). Physics is ready after engine.start() (or on engine:ready): called before, it throws in development, a release build warns once and returns null
-- `rigid.addBall(mesh: Object3D, opts?: RigidBallOptions) → RigidEntry | null` — Add a ball; null only as in addBox: a release build, called before physics is ready
-- `rigid.addHull(mesh: Object3D, opts?: RigidBodyOptions) → RigidEntry | null` — Add a convex hull (irregular objects such as rocks and barrels); null only as in addBox: a release build, called before physics is ready
+- `rigid.addBall(mesh: Object3D, opts?: RigidBallOptions) → RigidEntry | null` — (experimental) Add a ball; null only as in addBox: a release build, called before physics is ready
+- `rigid.addHull(mesh: Object3D, opts?: RigidBodyOptions) → RigidEntry | null` — (experimental) Add a convex hull (irregular objects such as rocks and barrels); null only as in addBox: a release build, called before physics is ready
 - `rigid.ragdoll(who: any, opts?: RagdollOptions) → Ragdoll | null` — (experimental) Turn a skinned character limp in one call; rd.remove() returns it to animation. who: a Character, an NPC handle, a character id or a skinned Object3D. Its mover, animator, capsule and camera yield until then; calling again on the same one pushes it again and returns the same ragdoll. Not saved: any load ends it. A skeleton it cannot read throws, naming the missing parts.
 - `rigid.impulse(entry: RigidEntry, impulse: Vec3Like)` — Give it a push: impulse vector impulse (Vector3 / [x, y, z] / { x, y, z }), e.g. impulse(ball, [0, 3, 5])
 - `rigid.setPosition(entry: RigidEntry, position: PositionLike)` — Teleport to position (velocity is zeroed)
@@ -25,12 +25,20 @@ Real physics, Rapier (rigid() module, needs collision)
 - Properties:
   - `ready: boolean` Is the physics engine ready (downloaded and initialized at start())
   - `bodies: RigidEntry[]` All physics bodies
+  - `terrainRing: number` (experimental) 
+  - `buoyancy: boolean` (experimental) 
+  - `buoyancyForce: number` (experimental) 
+  - `waterDrag: number` (experimental) 
+  - `floatLine: number` (experimental) 
+  - `floatDepth: number` (experimental) 
+  - `treeColliderHeight: number` (experimental) 
+  - `treeRadius: number` (experimental) 
   - `rapier: any` (experimental) The Rapier library itself: its shape follows the Rapier version
   - `world: any` (experimental) The Rapier world: its shape follows the Rapier version
   - `playerBody: any` (experimental) The player's Rapier kinematic body and capsule collider (follow the player position every step; used for collision when mover: 'rapier'; the capsule is off while driving)
   - `playerCollider: any` (experimental) The capsule collider on playerBody
-  - `playerCapsule: { halfHeight: number; radius: number }` Player capsule size (meters)
-  - `vehicles: Vehicle[]` All vehicles
+  - `playerCapsule: { halfHeight: number; radius: number }` (experimental) Player capsule size (meters)
+  - `vehicles: Vehicle[]` (experimental) All vehicles
   - `stats: { bodies: number; active: number; colliders: number }` Statistics
 
 ## Data structures

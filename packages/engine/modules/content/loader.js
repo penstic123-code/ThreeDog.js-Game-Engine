@@ -4,16 +4,15 @@
 // a world coordinate.
 // Optional floor (reference height on multi-layer ground) and y (meters above that ground): see content.where.
 import { toast } from '../../ui/UI.js';
-import { vegetationModel } from '../../core/namedModel.js';
+import { vegetationModel } from '../../core/assets/namedModel.js';
 import { addProps, needWorld } from './props.js';
 import { defineTemplates } from './templates.js';
 import { srcOf, applyRenames, pickupId } from './ids.js';
-import { DEV, warnOnce } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { DEV, warnOnce } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent } from './rules.js';
-import { list } from '../../core/util.js';
-import { codedError, coded } from '../../core/errorHints.js';
-import { reportError } from '../../core/errors.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
+import { reportError } from '../../core/base/errors.js';
 
 const each = (o, fn) => Object.entries(o || {}).forEach(([k, v]) => fn(k, v));
 const all = (o, fn) => Object.entries(o || {}).every(([k, n]) => fn(k, n));
@@ -80,15 +79,15 @@ export function loadContent(e, api, c, st, ids) {
   // a pack's actions are the game's own (owner 'game'): loading the pack again replaces them, it is not a second binder
   each(c.actions, (name, a) => e.input.action(name, { label: a.label, keys: a.keys, ...(a.context ? { context: a.context } : {}) }));
 
-  // audio: sounds / footsteps by name into engine.audio.config, rules to ambience() / music() (core/audioRules.js). A pack loaded again
+  // audio: sounds / footsteps by name into engine.audio.config, rules to ambience() / music() (core/audio/audioRules.js). A pack loaded again
   // replaces its own rules (hot reload): a named pack by its name, an unnamed one by the data object itself, so loading the same object
   // twice never stacks its rules (a fresh key per load did); two different unnamed objects both keep theirs
   if (c.audio) e.audio.contentPack(c.name ? 'pack:' + c.name : c, c.name ? `pack "${c.name}"` : 'pack (no name)', c.audio);
 
-  // views: named fixed camera views (core/Views.js); defining a name again replaces it, so a hot reload just works
+  // views: named fixed camera views (core/scene/Views.js); defining a name again replaces it, so a hot reload just works
   each(c.views, (name, v) => e.views.define(name, v));
 
-  // vegetation: model names resolve through vegetationModel (core/namedModel.js, the same resolver vegetation.define uses for a name); register all
+  // vegetation: model names resolve through vegetationModel (core/assets/namedModel.js, the same resolver vegetation.define uses for a name); register all
   // kinds at the same moment once all models are ready
   // (each registration rebuilds terrain chunks; registering one by one would rebuild several times at start). content's isReady waits for them
   const veg = [];
@@ -160,7 +159,7 @@ export function loadContent(e, api, c, st, ids) {
       ...(q.fail && { fail: () => api.test(q.fail) }), ...(q.onFail && { onFail: () => api.run(q.onFail) }),
     });
     st.startOn.get(id)?.remove();   // loading the same quest again: replace the old listener instead of attaching twice
-    if (q.startOn) st.startOn.set(id, e.events.on(q.startOn, () => e.quests.start(id)));
+    if (q.startOn) st.startOn.set(id, st.track(e.events.on(q.startOn, () => e.quests.start(id))));
   });
 
   // trigger zones: fromLevel = the level's trigger_<tag> marker; otherwise placed by position. Enter/exit effects look up the merged table, and the listener is

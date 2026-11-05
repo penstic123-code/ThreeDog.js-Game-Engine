@@ -188,6 +188,8 @@ HUD text follows the engine locale (`createEngine({ locale })`, default `'auto'`
 engine.use(settings({ sections: ['game', 'graphics', 'audio', 'controls', 'camera'] }));   // default: graphics, audio, controls, language, saves
 // optional built-ins by name: 'game' (resume / load / back to title), 'camera' (sensitivity, invert Y, field of view; re-applied on 'camera:change')
 engine.settings.addSection('camera');
+// leave graphics rows out: the entry { id: 'graphics', omit } in the list; an omitted row stays the game's value, and no preset or stored value moves it
+settings({ sections: [{ id: 'graphics', omit: ['pixelRatio', 'antialias', 'adaptive'] }, 'audio', 'controls', 'language', 'saves'] });
 
 // a tab of your own: render gets tools with the control helpers (row / toggle / range / segmented) already bound
 engine.settings.define('subtitles', true, on => { document.body.dataset.subtitles = String(on); });

@@ -32,12 +32,11 @@ export const specs = [
     },
   },
   {
-    name: '[守] 资源包 name / base / builder；玩法计时不进 sky()（perf 页）',
+    name: '[守] 资源包 name / base / builder（perf 页）',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
         const { createEngine, sky, worldArt } = threedogTest, out = {};
-        out.hours = (() => { try { sky({ hoursPerDay: 10 }); return ''; } catch (err) { return err.message; } })();
         const e3 = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'packs-test-3' });
         const A = e3.assets;
         A.manifest(worldArt);
@@ -50,7 +49,6 @@ export const specs = [
         e3.dispose();
         return out;
       });
-      check('sky({ hoursPerDay }) 报错并点名 calendar()（玩法计时不是天空的选项）', /calendar\(\{ hoursPerDay/.test(r.hours), r.hours);
       check('资源包：生成函数可查 builder，base 只解析相对路径，/ 开头和完整网址原样，name 标在条目上', r.assets.pine === 'function' && r.assets.oak === null && /\/packs\/forest\/oak\.glb$/.test(r.assets.oakUrl) && r.assets.abs === '/m/abs.glb' && r.assets.cdn === 'https://x.test/a.glb' && /\/packs\/forest\/bark\.png$/.test(r.assets.bark) && r.assets.list === 'forest', JSON.stringify(r.assets));
       check('manifest 写错键名开发时报错并给 did you mean', r.typo);
     },
@@ -64,7 +62,7 @@ export const specs = [
         const msg = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const mk = key => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: key });
         out.world = { level: msg(() => water({ level: 3 })), sea: msg(() => water({ sea: false })), size: msg(() => water({ size: 10 })), segments: msg(() => water({ segments: 50 })),
-          terrain: msg(() => terrain({ seed: 1 })), shading: msg(() => terrain({ shading: 'flat' })), color: msg(() => water({ color: 1 })) };
+          terrain: msg(() => terrain({ seed: 1 })), shading: msg(() => terrain({ shading: 'flat' })) };
         const lake = mk('bound-water'); lake.use(water({ sea: false })); lake.water.material.color.set(0x123456);
         out.world.written = lake.water.material.color.getHex() === 0x123456; lake.dispose();
         const a = mk('bound-a');
@@ -80,7 +78,7 @@ export const specs = [
       });
       const w = r.world;
       check('water({ level / sea / size / segments }) 和 terrain({ seed / shading }) 都是这两个模块自己的选项', w.level === '' && w.sea === '' && w.size === '' && w.segments === '' && w.terrain === '' && w.shading === '', JSON.stringify(w));
-      check('water({ color }) 报错点名 engine.water.material，写在那里生效', /engine\.water\.material\.color/.test(w.color) && w.written, JSON.stringify(w));
+      check('写 engine.water.material.color 生效', w.written, JSON.stringify(w));
       check('engine.assets.palette 一处改色：改 pine 后松树锥体是新色，树干等没改的键保持，旧色消失；不改时和原来一样；手工调 models.pine() 用默认色', r.pal.redHas && r.pal.redKeepsBark && r.pal.redNoOldPine && r.pal.defHas && r.pal.hand, JSON.stringify(r.pal));
     },
   },

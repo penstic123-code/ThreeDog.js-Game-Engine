@@ -2,9 +2,9 @@
 // shows neutral gray instead of black (P5). Nothing moves them with the time of day: the sky only gives signals. A game lights its own world with
 // createEngine({ lights: false }) and its own three.js lights, before engine.start(): a light count that changes during play recompiles shaders
 // (recipes/09 "Lights and stalls", lightPool() for many lights).
-import { engineOwned } from '../core/things.js';
+import { engineOwned } from '../core/scene/things.js';
 import * as THREE from 'three';
-import { defineOwned } from '../core/owned.js';
+import { defineOwned } from '../core/ops/owned.js';
 
 const BOX = 30, SNAP = 0.5;
 
@@ -13,7 +13,7 @@ export function createDefaultLights(engine, { add = true } = {}) {
   const hemi = new THREE.HemisphereLight(0xffffff, 0x555555, 1.2);
   const sun = new THREE.DirectionalLight(0xffffff, 2);
   sun.position.set(40, 80, 30);   // above and to the side, so faces read with some shading
-  sun.castShadow = true;          // the engine's light casts; whether anything draws shadows is engine.shadows.enabled (core/shadows.js)
+  sun.castShadow = true;          // the engine's light casts; whether anything draws shadows is engine.shadows.enabled (render/shadows.js)
   // the one place these defaults live: nothing writes them later, a sky included, so what a game writes on engine.lights.sun stays.
   // baseline shadow box: 2048 map over 60 m around engine.focus (~3 cm texels; 1024 on a low-tier device, a quarter of the fill cost), PCF with a small blur
   // radius = soft edges; bias / normalBias keep acne off flat ground and slopes without visible peter-panning at this texel size. bias is in the shadow
@@ -24,14 +24,14 @@ export function createDefaultLights(engine, { add = true } = {}) {
   sun.shadow.bias = -0.0001; sun.shadow.normalBias = 0.04; sun.shadow.radius = 3;
   // add: false (createEngine({ lights: false })): the objects still exist so engine.lights.sun / hemi and the sky module never hit undefined, but they
   // are not in the scene, so nothing is lit by them and they cost no shader light slots; the game brings all its own lights
-  engineOwned('lights', hemi, sun, sun.target);   // the module's, not the game's, when the scene adopts what is added (core/things.js)
+  engineOwned('lights', hemi, sun, sun.target);   // the module's, not the game's, when the scene adopts what is added (core/scene/things.js)
   if (add) engine.scene.add(hemi, sun, sun.target);
   return { sun, hemi };
 }
 
 /**
  * Baseline sun follow (no sky module): keep the shadow box around engine.focus, snapped to SNAP m so it only moves in steps (no shimmer while still).
- * Under a sky, or after engine.shadows.box(engine.lights.sun), that box does it (core/shadows.js). Called before the main render.
+ * Under a sky, or after engine.shadows.box(engine.lights.sun), that box does it (render/shadows.js). Called before the main render.
  * @param {any} e
  */
 export function followFocus(e) {
@@ -43,7 +43,7 @@ export function followFocus(e) {
   const held = e._owned?.get('shadow.follow');
   if (held && held !== e._oBaseFollow) return;
   // registered again whenever it is not the current one (a box came and went)
-  const o = held && held === e._oBaseFollow ? e._oBaseFollow : (e._oBaseFollow = defineOwned(e, {
+  const o = held ?? (e._oBaseFollow = defineOwned(e, {
     id: 'shadow.follow', part: 'shadow', key: 'follow', read: () => sun.target.position.toArray(), objects: [sun.target, sun.target.position],
     levels: { manual: 'engine.shadows.box(engine.lights.sun, { follow: false })', back: "engine.shadows.box(engine.lights.sun, { follow: 'focus' })" } }));
   if (!o._snap) o.mark();

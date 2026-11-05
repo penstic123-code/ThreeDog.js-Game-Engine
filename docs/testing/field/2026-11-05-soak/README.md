@@ -61,3 +61,20 @@ Simulated, 20 min: counts flat as above; heap within an engine 21.8, 35.2, 38.7,
 ## Release use
 
 `docs/plans/release-checklist.md` lists both commands. A number that rises after warm-up in any column is a bug to fix before release.
+
+## 0.8.0 release run (2026-11-05, branch release/0.8.0)
+
+Simulated only: `soak '{"minutes":20,"simulated":true,"stepsPerAction":3000,"recreateEvery":10,"sampleEvery":2}'`. The 30-minute real-time run was skipped for this release and runs before 1.0.
+
+20.1 min wall, 209 rounds, 42 WebGPU devices, RTX 5060 Laptop GPU. Not a quiet machine: the long fuzz, the packed install and other test runs shared it, and those test runs rebuilt the same `dist` folder this run was served from. The run finished with `aborted: null` and no page error. Its console log has one 404 and one `threads-crash` (a worker fell back to the main thread); the rebuild is the likely cause, not confirmed.
+
+| series | start / quarter / half / three quarters / end |
+| --- | --- |
+| listeners, hooks, timers, statics, stream entries, jobs, geometries, textures, scene children | flat (20, 0/1, 0, 1, 36, 0, 24, 7, 60) |
+| tracked GPU MB | 69 all along (35 after a re-create) |
+| true VRAM (GPU counter), MB | 192.8 to 227.2, no trend (193 at the start, 219.5 at the end) |
+| JS heap after gc, right after a re-create, MB | 23.3, 29.4, 29.5, 29.9, 29.9 (28.0 to 30.9 after warm-up) |
+| JS heap after gc, within an engine, MB | 32.7, 34.5, 40.3, 41.6, 44.2, a sawtooth (34.9 to 44.2 in the second half) |
+| tracked GPU buffers after a re-create | 10 to 48, about 1 per engine, as in the first run |
+
+No count the engine owns rises. Heap after a re-create still drifts about 0.14 MB per engine after warm-up (about 2 MB over 15 minutes), the same shape as the first run's 26.9 to 29.5. It is small and inside the noise of this run, so it is not called a leak and not called flat: the 30-minute real-time run before 1.0 should look at it.

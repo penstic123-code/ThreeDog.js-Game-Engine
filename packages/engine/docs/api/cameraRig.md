@@ -11,13 +11,13 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `minDistance?: number` Zoom range (meters)
   - `maxDistance?: number`
   - `height?: number` How high above the character to look at (meters), default 1.4
-  - `smoothing?: number` Follow smoothing, default 10
+  - `smoothing?: number` (experimental) Follow smoothing, default 10
   - `sensitivity?: number` Drag sensitivity, default 1
   - `minPitch?: number` Pitch range (radians)
-  - `maxPitch?: number`
-  - `zoomStep?: number` Zoom ratio per wheel notch, default 0.1
-  - `groundClearance?: number` Minimum camera height above the ground (meters), default 1.2
-  - `invertY?: boolean` Invert vertical
+  - `maxPitch?: number` (experimental) 
+  - `zoomStep?: number` (experimental) Zoom ratio per wheel notch, default 0.1
+  - `groundClearance?: number` (experimental) Minimum camera height above the ground (meters), default 1.2
+  - `invertY?: boolean` (experimental) Invert vertical
   - `lockPitch?: boolean` Lock the pitch angle (top-down games)
   - `shoulder?: number` Over-the-shoulder offset: meters to the right of the target the camera aims (negative = left shoulder), default 0
   - `pointerLock?: boolean` Click locks the mouse; mouse motion turns the view without dragging (Esc releases), default false
@@ -31,28 +31,28 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `sensitivity?: number` Mouse sensitivity, default 1
   - `fov?: number | null` Field of view (degrees); unchanged if omitted
   - `headBob?: number` Walking bob amplitude (meters), 0 off, default 0.04
-  - `bobFrequency?: number` Bobs per meter
-  - `hideTarget?: boolean` Hide the character itself (its shadow remains), default true
+  - `bobFrequency?: number` (experimental) Bobs per meter
+  - `hideTarget?: boolean` (experimental) Hide the character itself (its shadow remains), default true
   - `hideLayer?: number` Layer number used for hiding 0–31
   - `pointerLock?: boolean` Click to lock the mouse, default true
   - `swallowLockClick?: boolean` The press that locks the mouse is not delivered as Mouse0 / a click (default true); false delivers it too
   - `yaw?: number` Initial heading (radians)
   - `pitch?: number` Initial look angle (radians), default 0 = level. Positive looks up, negative down: the opposite of followCamera's pitch
   - `minPitch?: number` Look down / up limit (radians), default -1.45 / 1.45
-  - `maxPitch?: number`
-  - `yawLimits?: number[] | null` Turn range left / right [min, max] (radians), unlimited by default
-  - `smoothing?: number` Smoothing of the camera following the body
-  - `invertY?: boolean` Invert vertical
+  - `maxPitch?: number` (experimental) 
+  - `yawLimits?: number[] | null` (experimental) Turn range left / right [min, max] (radians), unlimited by default
+  - `smoothing?: number` (experimental) Smoothing of the camera following the body
+  - `invertY?: boolean` (experimental) Invert vertical
 - fixedCamera options `FixedCameraOptions` (also includes the fields of Partial<CameraShot>):
   - `shots?: Record<string, CameraShot>` Shots: name → shot
   - `start?: string | null` Initial shot name
   - `auto?: false | 'nearest'` Automatic switching: false / 'nearest' (pick the one nearest to the player)
-  - `autoInterval?: number` Check interval for automatic switching (seconds)
+  - `autoInterval?: number` (experimental) Check interval for automatic switching (seconds)
   - `hysteresis?: number` How many meters closer a new shot must be to switch (prevents flipping back and forth)
-  - `triggerBlend?: number` Transition seconds for trigger-zone switches (0 = hard cut)
-  - `trackHeight?: number` How high above the character a track shot looks (meters)
-  - `trackSmoothing?: number` Head-follow smoothing
-  - `holdDirection?: boolean` Keep the direction when switching shots until the direction key is released
+  - `triggerBlend?: number` (experimental) Transition seconds for trigger-zone switches (0 = hard cut)
+  - `trackHeight?: number` (experimental) How high above the character a track shot looks (meters)
+  - `trackSmoothing?: number` (experimental) Head-follow smoothing
+  - `holdDirection?: boolean` (experimental) Keep the direction when switching shots until the direction key is released
   - `ease?: Ease` Transition easing
 - rtsCamera options `RtsCameraOptions`:
   - `height?: number` Camera height above the focus (meters), default 30
@@ -60,17 +60,17 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `maxHeight?: number`
   - `pitch?: number` Pitch down angle (radians, π/2 = straight down), default 0.95
   - `yaw?: number` Initial horizontal heading (radians)
-  - `panSpeed?: number` Pan speed multiplier
-  - `dragPan?: boolean` Drag with the mouse to pan, default true
-  - `edgePan?: boolean` Pan at the screen edge, default false
-  - `edgeSize?: number` Edge width (fraction of the screen)
+  - `panSpeed?: number` (experimental) Pan speed multiplier
+  - `dragPan?: boolean` (experimental) Drag with the mouse to pan, default true
+  - `edgePan?: boolean` (experimental) Pan at the screen edge, default false
+  - `edgeSize?: number` (experimental) Edge width (fraction of the screen)
   - `bounds?: { minX?, maxX?, minZ?, maxZ? } | null` Focus range (meters)
   - `rotate?: boolean` false: no turning. Default true: declares the actions rotateLeft / rotateRight (no keys; presets.bindings.rtsRotate binds Q / R)
-  - `rotateSpeed?: number` Rotation speed (radians/second)
-  - `zoomStep?: number` Zoom ratio per wheel notch
-  - `smoothing?: number` Smoothing
+  - `rotateSpeed?: number` (experimental) Rotation speed (radians/second)
+  - `zoomStep?: number` (experimental) Zoom ratio per wheel notch
+  - `smoothing?: number` (experimental) Smoothing
   - `fov?: number | null` Field of view (degrees); unchanged if omitted
-  - `followLock?: boolean` Manual panning is not allowed while following
+  - `followLock?: boolean` (experimental) Manual panning is not allowed while following
   - `start?: PositionLike | null` Initial focus (position)
 
 ## Methods and properties
@@ -103,7 +103,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `cam.cut(name: string)` — Cut to a shot immediately
   - `cam.blend(name: string, opts?: { seconds?: number; ease?: Ease }) → Promise<void>` — Transition smoothly to a shot ({ seconds = 1, ease }); the Promise resolves when done
   - `cam.nearest(p: Vector3) → string | null` — Name of the shot nearest to a point
-  - `shots: Record<string, any>` All shots
+  - `shots: Record<string, any>` All shots. A shot stays where it was placed: for a view that pans at a fixed angle use followCamera({ mouseLook: false }) (recipe 21 section 6)
   - `current: string | null` Current shot name
   - `auto: false | 'nearest'`
   - `autoInterval: number`

@@ -1,5 +1,5 @@
 // Part of content validation (called by content-check.mjs): content/views.js -> { name: { position: [x, y, z], target?: [x, y, z], fov? } }.
-// The same rules core/Views.js enforces at run time (it throws on a bad position), reported here before the game starts.
+// The same rules core/scene/Views.js enforces at run time (it throws on a bad position), reported here before the game starts.
 // Unknown keys and the fov range come from the placement field table (rules.js PLACEMENT_FIELDS.views, the one engine.content.fields('views')
 // returns); written here by hand is only what a table cannot say: position is required, and it is exactly [x, y, z].
 import { pathToFileURL } from 'node:url';

@@ -4,7 +4,7 @@ paths:
   - "**/picture/**"
   - "packages/engine/render/**"
   - "packages/engine/ui/**"
-  - "packages/engine/core/I18n.js"
+  - "packages/engine/core/base/I18n.js"
 ---
 
 # Styles, rendering, UI and i18n

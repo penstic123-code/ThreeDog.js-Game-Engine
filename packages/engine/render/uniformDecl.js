@@ -1,6 +1,6 @@
 // Declares style-supplied GLSL uniforms. For sky clouds, wind: { uTint: new THREE.Color(...), uK: 0.4, uPaper: texture } -> GLSL lines + { name: { value } }.
 import * as THREE from 'three';
-import { codedError } from '../core/errorHints.js';
+import { codedError } from '../core/base/errorHints.js';
 
 const vec = a => a.length === 2 ? new THREE.Vector2(...a) : a.length === 3 ? new THREE.Vector3(...a) : new THREE.Vector4(...a);
 function glslType(label, name, v) {

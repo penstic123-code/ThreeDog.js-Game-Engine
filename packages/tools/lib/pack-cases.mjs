@@ -3,13 +3,13 @@
 //   copyTemplate: the new-game template into a folder, as new-game does (game name 'external'); usePost: the game brings bloom() as a file in its plugins/ folder
 //   engineAlone:  the engine folder installed by path with npm install --install-links, only three and vite next to it, a plain vite config builds
 //   vendored:     the engine vendored under vendor/threedog (tests included) as a file: dependency; check and types read only the game's sources
-import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync, readdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, existsSync, cpSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { ENGINE, TOOLS, addonDir } from '../paths.mjs';
 import { copyTemplates } from './scaffold.mjs';
 
 /** Copy the game template into dir as new-game --open-world does (game name 'external'), without its package.json (the test writes its own) */
-export function copyTemplate(_from, to) {
+export function copyTemplate(to) {
   copyTemplates(to, { name: 'external', openWorld: true }, { skipPackage: true });
 }
 
@@ -53,7 +53,7 @@ export async function vendored(tmp, tools, check, { npm, cli }) {
   // the template uses optional packages (the terrain generator and post-effects): vendored next to the engine
   for (const [src, name] of [[addonDir('terrain-noise'), 'terrain-noise'], [addonDir('post-effects'), 'post-effects']])
     cpSync(src, join(dir, 'vendor', name), { recursive: true, filter: p => !/(^|[\\/])node_modules([\\/]|$)/.test(relative(src, p)) });
-  copyTemplate(join(TOOLS, 'templates', 'game'), dir);
+  copyTemplate(dir);
   mkdirSync(join(dir, 'notes'));
   // a file the game excluded: a type error and a startup placement that would fail check if it were scanned
   writeFileSync(join(dir, 'notes', 'scratch.js'), "// @ts-check\nconst n = 1;\nn.normalise();\nengine.add(n);\n");
@@ -73,7 +73,7 @@ export async function vendored(tmp, tools, check, { npm, cli }) {
 export function packageContents(check, { eng, tools, terrainPkg }) {
   const engFiles = eng.files.map(f => f.path), toolFiles = tools.files.map(f => f.path);
   const has = (pkg, ...names) => names.every(n => pkg.files.some(x => x.path === n));
-  const need = ['index.js', 'index.d.ts', 'README.md', 'docs/AI.md', 'core/errorHints.js', 'core/pureWorker.js', 'modules/terrain/chunkWorker.js'];
+  const need = ['index.js', 'index.d.ts', 'README.md', 'docs/AI.md', 'core/base/errorHints.js', 'core/threads/pureWorker.js', 'modules/terrain/chunkWorker.js'];
   const hidden = engFiles.filter(f => /^(tests|public)\//.test(f));
   check('engine tarball has entry points, types, docs, workers', need.every(f => engFiles.includes(f)), need.filter(f => !engFiles.includes(f)).join(', '));
   check('engine tarball has no tests/ or public/', hidden.length === 0, hidden.slice(0, 3).join(', '));

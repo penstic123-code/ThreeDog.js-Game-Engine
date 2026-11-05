@@ -7,13 +7,13 @@
 // (engine.use(myGround, { replaces: 'terrain-draw' })) and keep everything that plays. A replacement draw part does what this file does:
 //   install(e, ctx) { ctx.track(e.terrain.view({ add(c) {...c.data.pos...}, change(c) {...}, remove(c) {...}, show(c, visible) {...} })); }
 // This file never changes chunk data; it only reads it.
-import { engineOwned } from '../../core/things.js';
-import { needMaterial } from '../../core/validate.js';
+import { engineOwned } from '../../core/scene/things.js';
+import { needMaterial } from '../../core/base/validate.js';
 import * as THREE from 'three';
 import { terrainMaterial } from '../../render/materials.js';
 import { patchesOf, unpatchMaterial } from '../../render/patches.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { codedError } from '../../core/errorHints.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { mountColorMap, updateColorMap, disposeColorMap } from './terrainTexture.js';
 import { SHADINGS, NORMALS } from './terrainDefaults.js';
 
@@ -79,13 +79,15 @@ export class TerrainDraw {
     this.engine.scene.add(engineOwned('terrain', rec.group));
     this.engine.budget.cost.end('build', t0);
   }
-  /** @internal view hook: an edit rebuilt the chunk's arrays (same vertex count) */
+  /** @internal view hook: an edit rebuilt the chunk's arrays */
   change(c) {
     const rec = this.meshes.get(c); if (!rec) return;
     const g = rec.mesh.geometry, t = c.data;
+    // the rim of a shape with diagonal 'adaptive': the diagonal follows the heights and cuts a boundary cell into a different number of triangles
+    if (g.attributes.position.array.length !== t.pos.length || (g.groups.length && g.groups[0].count !== t.top)) { this.remove(c); this.add(c); return; }
     for (const [n, a] of [['position', t.pos], ['normal', t.nor], ['color', t.col], ['uv', t.uv]]) { g.attributes[n].array.set(a); g.attributes[n].needsUpdate = true; }
     if (t.tex && rec.colorTex) updateColorMap(rec, t.tex);
-    g.computeBoundingSphere(); g.boundingBox = null;
+    g.boundingSphere = g.boundingBox = null;   // only rays read them (chunks are not frustum culled): worked out again when asked
   }
   /** @internal view hook: the chunk was released */
   remove(c) {
@@ -133,7 +135,7 @@ export class TerrainDraw {
     if (!baked.length) return;
     const next = { ...this._config.get() };
     for (const k of baked) if (o[k] == null) delete next[k]; else next[k] = o[k];
-    next.shading ??= this._shading;
+    if (next.shading == null && this._shading != null) next.shading = this._shading;   // a key holding undefined would hide createTerrain's default
     this._config.set(next);
     this.w.reinit(next, this._config.species());
   }
@@ -151,5 +153,5 @@ export class TerrainDraw {
     return rest && (t.tex || this.sideMat) ? [mat, this.sideMat ?? this.material] : mat;
   }
 
-  dispose() { this._view.remove(); }
+  dispose() { this._view.remove(); this._own.dispose(); }
 }

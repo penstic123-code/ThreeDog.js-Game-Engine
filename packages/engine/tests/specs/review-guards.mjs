@@ -22,8 +22,11 @@ export const specs = [
         out.brakeOpt = err(() => T.characters({ brakeKeys: ['KeyB'] }));
         out.presetKeys = 'keys' in presets;
         // modules leave with their actions (ctx-tracked, also the rts camera's and the grid preview's)
+        const albumUrl = URL.createObjectURL(new Blob(['x'])), revoked = [], revoke = URL.revokeObjectURL; E.photo.album.push({ url: albumUrl });
+        URL.revokeObjectURL = u => { revoked.push(u); revoke.call(URL, u); };
         for (const n of ['inventory', 'quests', 'photo', 'interactions', 'cameraRig', 'characters']) E._unuse(n);
         out.left = acts.filter(a => E.input.actions.has(a));
+        URL.revokeObjectURL = revoke; out.photoGone = [E.ops.defs.has('photo.take'), revoked.includes(albumUrl)];
         const F = mk(createEngine, 'rg-keys2', { bindings: { ...presets.bindings.walk, ...presets.bindings.inventory, ...presets.bindings.brake } });
         F.use(T.world(), T.inventory());
         out.invKeys = F.input.keysOf('inventory'); out.jump = F.input.keysOf('jump'); out.brake = F.input.keysOf('brake');
@@ -38,6 +41,7 @@ export const specs = [
       check('[guard] no module binds a key by itself', r.bound.length === 0, JSON.stringify(r.bound));
       check('[guard] keys / brakeKeys options are unknown options; presets.keys is gone', r.keysOpt.every(x => x === 'module-params') && r.brakeOpt === 'module-params' && !r.presetKeys, JSON.stringify(r));
       check('[guard] module actions leave with the module (rts camera and characters too)', r.left.length === 0, JSON.stringify(r.left));
+      check('[guard] photo takes its op and its album blob URLs with it', r.photoGone[0] === false && r.photoGone[1], JSON.stringify(r.photoGone));
       check('presets.bindings: inventory I + Y, walk Space + A, brake B + LT', r.invKeys.includes('KeyI') && r.invKeys.includes('PadY') && r.jump.includes('PadA') && r.brake.includes('PadLT'), JSON.stringify(r));
       check('[guard] core adds no gamepad key to jump / interact / run; confirm keeps PadA', !r.gJump.some(k => k.startsWith('Pad')) && !r.gInteract.some(k => k.startsWith('Pad')) && !r.gRun.some(k => k.startsWith('Pad')) && r.confirmPad, JSON.stringify(r));
     },
@@ -191,6 +195,91 @@ export const specs = [
         return { a, b, player: !!engine.player };
       });
       check('[guard] input.autopilot.speed sets the player move.speed (owner autopilot) and is released when autopilot ends', r.player && r.a[0] === 3.5 && r.a[1] && r.a[2] === undefined && r.b === false, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'review guard: render and ui leftovers (a part of a placed object refreshes, skip list sees a swap, cascades see an ortho height, box follows a camera on a rig, nothing stays behind a modal or an unloaded module)',
+    url: PAGE,
+    software: true,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, createEngine, THREE: H } = threedogThreads, T = threedogThreads.all, out = {};
+        const E = mk(createEngine, 'rg-render');
+        E.use(T.settings(), T.hud());
+        await E.start(); E.haltLoop();
+        // batching: refresh() of a part keeps the placed object; a swap that keeps the count reaches the draw list
+        const B = E.batching, g = new H.BoxGeometry(), m = new H.MeshBasicMaterial(), roots = [];
+        for (let i = 0; i < 10; i++) { const o = new H.Group(); o.userData.batch = true; o.add(new H.Mesh(g, m)); o.add(new H.Group()); E.scene.add(o); roots.push(o); }
+        E.step(1 / 30);
+        const part = roots[0].children[0];
+        out.batched = B.of(roots[0]).length;
+        B.refresh(part); E.step(1 / 30);
+        out.afterRefresh = B.of(roots[0]).length;
+        B.skip(); B.unskip();
+        const P = roots[1], old = P.children[1], fresh = new H.Group();
+        P.remove(old); P.add(fresh);
+        B.skip(); out.drawn = P.children.includes(fresh) && !P.children.includes(old); B.unskip();
+        // tint on a plain mesh: the table must not hold the mesh for ever
+        out.weakOrig = B.orig instanceof WeakMap;
+        // a box following a camera on a rig is centered on the camera's world position
+        const sun = new H.DirectionalLight(); sun.castShadow = true; sun.position.set(5, 10, 5); E.scene.add(sun, sun.target);
+        const rig = new H.Group(); rig.position.set(300, 0, -200); E.scene.add(rig); rig.add(E.camera); E.camera.position.set(0, 2, 5);
+        const box = E.shadows.box(sun, { follow: 'camera', extent: 20, snap: 0 });
+        E.step(1 / 30);
+        out.boxAt = [Math.round(sun.target.getWorldPosition(new H.Vector3()).x), Math.round(sun.target.getWorldPosition(new H.Vector3()).z)];
+        box.remove(); rig.remove(E.camera); E.scene.add(E.camera);
+        // a title list that throws leaves no freeze or input hold behind
+        E.ui.values.set('title', { items: ['no-such-item'] }); E.ui.live.delete('title');
+        let threw = false; try { E.ui.open('title'); } catch { threw = true; }
+        out.title = { threw, open: E.ui.isOpen('title'), top: T.uiFocus(E).top };
+        // mergeColored leaves a non-indexed input as it was
+        const flatIn = new H.BoxGeometry().toNonIndexed(), before = Array.from(flatIn.attributes.normal.array);
+        flatIn.attributes.normal.array.fill(0.5); const same = Array.from(flatIn.attributes.normal.array);
+        T.mergeColored([[flatIn, 0xffffff]]);
+        out.input = Array.from(flatIn.attributes.normal.array).every((v, i) => v === same[i]) && before.length > 0;
+        // hud leaves the screen with its module; settings no longer answers the back key
+        E.hud.counter('c', { value: 1 }); E.hud.marker({ x: 0, z: 0 });
+        out.hudThere = !!E.uiRoot.querySelector('.threedog-hud');
+        E._unuse('hud'); out.hudGone = !E.uiRoot.querySelector('.threedog-hud');
+        const m0 = (E.use(T.music({ tracks: { a: '/none.ogg' } })), E.music); m0.play('a');
+        E._unuse('music'); out.music = [m0.current, m0.pending];
+        E.use(T.flow()); E.flow.go('paused');
+        const flowHolds = () => [E.stacks.get('freeze').has('flow'), E.input.holders.some(h => h.context === 'flow')];
+        out.flowHolds = flowHolds(); E._unuse('flow'); out.flowFreed = flowHolds();
+        E._unuse('settings');
+        const real = E.input.pressedRaw;
+        E.input.pressedRaw = function (a) { return a === 'cancel' || real.call(this, a); };
+        E.step(1 / 30); E.input.pressedRaw = real;
+        out.focusTop = T.uiFocus(E).top;
+        // the chain's targets give their memory back while nothing is on, and a Color background is left alone while the game clears itself
+        const h = E.post.add({ name: 'dim', fuse: { glsl: 'color.rgb *= 0.9;' }, slot: 'ldr' });
+        E.step(1 / 30);
+        let freed = 0; E.post.object().renderTarget1.addEventListener('dispose', () => freed++);
+        h.enabled = false; out.freed = E.post.active ? 'active' : freed;
+        h.enabled = true; E.step(1 / 30); h.remove();
+        const color = new H.Color(0.2, 0.4, 0.6); let seen = null;
+        E.scene.background = color; E.renderer.toneMapping = H.ACESFilmicToneMapping; E.renderer.autoClear = false;
+        E.scene.onBeforeRender = () => { seen = E.scene.background; };
+        E.renderOnce(); E.renderer.autoClear = true; E.scene.onBeforeRender = () => {};
+        out.bgKept = seen === color;
+        E.dispose();
+        return out;
+      });
+      const J = JSON.stringify(r), { projectionKey } = await import('../../render/backend.js');
+      const ortho = (top) => projectionKey({ left: -1, right: 1, top, bottom: -top, near: 0.1, far: 10, zoom: 1 });
+      check('[guard] a new height of an orthographic camera is a new projection', ortho(1) !== ortho(2));
+      check('[guard] batching.refresh(part) puts the placed object back in its batch', r.batched === 1 && r.afterRefresh === 1, J);
+      check('[guard] a remove + add under a batched parent reaches the draw list', r.drawn, J);
+      check('[guard] the tint table is weak', r.weakOrig, J);
+      check('[guard] shadows.box follow camera uses the world position (camera on a rig)', r.boxAt[0] === 300 && r.boxAt[1] === -195, J);
+      check('[guard] a modal part whose data throws leaves no hold', r.title.threw && !r.title.open && r.title.top === null, J);
+      check('[guard] mergeColored flat leaves a non-indexed input alone', r.input, J);
+      check('[guard] hud leaves the screen with its module', r.hudThere && r.hudGone, J);
+      check('[guard] music stops with its module', r.music[0] === null && r.music[1] === null, J);
+      check('[guard] flow unloaded while paused ends its freeze and input lock', r.flowHolds.every(Boolean) && !r.flowFreed.some(Boolean), J);
+      check('[guard] an unloaded settings menu no longer answers the back key', r.focusTop === null, J);
+      check('[guard] the chain frees its targets when nothing is on', r.freed > 0, J);
+      check('[guard] a Color background stays a clear while the game owns autoClear', r.bgKept, J);
     },
   },
 ];

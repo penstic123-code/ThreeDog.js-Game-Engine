@@ -6,7 +6,7 @@
 
 Each module's requires, order, params, ops, saves: `threedog catalog <module>`.
 
-Type = what the module may own (core/moduleTypes.js): world, picture, actor, rules, ui, net, tool.
+Type = what the module may own (core/engine/moduleTypes.js): world, picture, actor, rules, ui, net, tool.
 
 | Module (engine.xxx) | Type | File |
 |---|---|---|
@@ -40,153 +40,34 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - index.js: Engine entry
 
 **core/**
-- Animator.js: Animation state machine: assets.animate(model, config) retu…
-- Assets.js: Asset management: Asset manifest: register every model, tex…
-- Audio.js: Audio core: buses (master, music, sfx, ambience, ui + the g…
-- Baked.js: Code-generated model <-> GLB file (shared by the auto-cache…
-- Batching.js: Automatic batching, engine.batching: the same static model …
-- Budget.js: Performance budget, engine.budget: the game sets limits (on…
-- Clock.js: Calendar clock, engine.clock: the calendar view of the time…
-- Commits.js: How background results take effect: engine.commits
-- DebugOverrides.js: engine.debug: diagnostic overrides with an owner ("show me …
-- Describe.js: Game state description: engine.describe() returns a plain o…
-- Engine.js: Engine core: what every 3D web game needs (rendering and po…
-- Events.js: Event bus: modules do not call each other directly; they "s…
-- I18n.js: i18n
-- Input.js: Input: read by "action", not by "key"
-- Inspect.js: engine.inspect / engine.explain: questions an AI asks while…
-- InspectMaterials.js: engine.inspect.materials(): every material in the scene wit…
-- InspectPerf.js: engine.inspect.perf(): one frame's cost in numbers, each ag…
-- InspectScene.js: engine.inspect.scene(): "the mesh exists but I do not see i…
-- Jobs.js: engine.jobs: a frame-sliced job scheduler
-- Loading.js: engine.loading: one observable view of everything startup (…
-- MaterialInfo.js: Material provenance for engine.inspect.scene(): "why is thi…
-- Ops.js: One entry point for actions: engine.ops
-- Random.js: Seeded random numbers, engine.random: gameplay randomness (…
-- Rays.js: Rays: engine.raycast / engine.pick, with the registry engin…
-- SaveStore.js: Save storage layer: uses the browser's native IndexedDB (no…
-- Saves.js: Saves: each module registers "how to save and load", and sa…
-- Stream.js: Spatial stream-in, engine.stream: entries are only register…
-- Threads.js: engine.threads: a small worker pool
-- UrlState.js: engine.applyState: one-call scenarios
-- Vars.js: Story flags and counters, engine.vars (saved automatically …
-- Views.js: Named fixed camera views declared by the game, so a screens…
-- actor.js: Who acts for the local user
-- adaptive.js: Adaptive resolution by frame cost
-- assetEntry.js: The life of one engine.assets entry, split from Assets.js (…
-- assetHot.js: Asset hot swap (dev): an edited generator (art/tree.js, a f…
-- assetLoad.js: File loading for engine.assets, split into the phases engin…
-- assetLod.js: engine.assets.lod(name) and a prop's `lod: true` (helper of…
-- assetManifest.js: engine.assets.manifest(pack) (helper of Assets.js): registe…
-- assetReport.js: Import report of a loaded glTF (engine.assets.report): what…
-- audioRules.js: Audio rule data: conditions and measures
-- audioVoice.js: One playing sound (a "voice") of engine.audio.sfx / play: s…
-- batchGroups.js: InstancedMesh side of engine.batching (core/Batching.js): b…
-- canvasBox.js: The canvas's CSS box and the UI root laid over it (split ou…
-- catalog.js: engine.catalog(): what this game can do, read from the regi…
-- cells.js: Shared xz grid index
-- checks.js: Consistency checks a game (or an AI) can call in dev and te…
-- chunkStream.js: Chunk streaming shared by every chunk table (terrain chunks…
-- control.js: engine.control: who decides where a character goes
-- copies.js: Two copies of the engine on one page (e.g
-- dayTime.js: 'HH:MM' <-> day fraction
-- debugView.js: Diagnostic view modes behind engine.debug.view('albedo' / '…
-- describeRender.js: describe().picture: what three.js holds right now, read str…
-- describeText.js: engine.describeText(): write describe() as plain English fo…
-- easing.js: Easing functions: input progress 0..1, output 0..1 (back/el…
-- engineCamera.js: engine.camera's class: a THREE.PerspectiveCamera that can a…
-- errorCodes.js: Stable error codes: errors the engine raises by name end th…
-- errorHints.js: Error hints: "what to do + which doc to read" for any error…
-- errors.js: Error tiers
-- events.generated.js: Generated, do not edit by hand: npm run map generates it fr…
-- gameLights.js: Plain three.js lights are adopted (docs/plans/2026-11-03-sl…
-- geometryWatch.js: Dev-only check (called from loop.js after each render once …
-- grayMap.js: Gray images as data maps over the ground: a terrain height …
-- grid.js: 2D grid fields: sampleGrid turns an array of numbers laid o…
-- gridLoad.js: Load an image file as grid data (assets.gridFromImage)
-- ground.js: Ground API (part of Engine, mixed into Engine.prototype): w…
-- headlessLoad.js: Headless loading after start: a headless engine (?threedog-…
-- holds.js: Who holds the engine still: freeze and the loop halt (each …
-- inputContext.js: Input contexts
-- inputDefaults.js: The one default key preset and its labels
-- inputPad.js: Gamepad buttons
-- inputPointer.js: The mouse / touch pointer part of input: drag to look, whee…
-- inputTouch.js: The touch part of input: which on-screen controls the game …
-- lifecycle.js: Engine lifecycle: dispose() and counts() for leak hunting
-- lightWatch.js: Dev-only check (called from loop.js after each render once …
-- loop.js: Main loop (part of Engine, mixed into Engine.prototype): fi…
-- math.js: Small shared helpers
-- moduleSlots.js: Exclusive slots for modules ("only one may hold this": 'sky…
-- moduleTypes.js: Module types: what a module may own (a module's `stage` onl…
-- modules.js: Module installation (part of Engine, mixed into Engine.prot…
-- movement.js: One shared definition of "can walk there": character radius…
-- mulberry32.js: mulberry32, the one copy (engine.random and terrain placeme…
-- namedModel.js: A model, used by name: the one path for "a model made in co…
-- opsAtomic.js: Atomic ops (op definition atomic: true): world records, inv…
-- opsCheck.js: Dev checks for engine.ops (split out of Ops.js): op definit…
-- opsFail.js: Structured op failures
-- opsGuard.js: The dev guard of engine.ops (split out of Ops.js): reports …
-- opsHistory.js: The history of engine.ops (split out of Ops.js): a ring of …
-- opsRun.js: ops.run itself (split out of Ops.js)
-- owned.js: One ownership model for every property the engine writes on…
-- page.js: engine.page: the one place that listens to the browser wind…
-- params.js: Param schemas: one plain-object description per field, shar…
-- pictureSlots.js: The names of the picture values only one writer may hold: t…
-- pictureWriters.js: "Who wrote this picture value": the last file:line that cha…
-- plugins.js: engine.plugins: the plugins folder (docs/plans/2026-11-03-s…
-- pureWorker.js: Worker that runs pure-function batches for engine.threads (…
-- saveApply.js: Applying a save (split out of Saves.js): every part is chec…
-- saveFiles.js: Save files (.json download / restore), split out of Saves.j…
-- saveIds.js: Record ids inside save data, for upgrade steps (saves.regis…
-- saveValues.js: Load-time number checks
-- saveVersions.js: Save format and per-part versions
-- scatter.js: Scatter by rule: where instances go in one ground chunk (pl…
-- sceneDelta.js: What entered and left a scene since the last frame, so syst…
-- sceneMethods.js: Scene and render settings on the engine (split out of Engin…
-- screenToGround.js: Screen point -> ground point
-- services.js: Engine services: the objects every engine owns besides rend…
-- session.js: engine.session: one playthrough, from "new game" or "load" …
-- shaderCost.js: Approximate shader cost per compiled program, for engine.de…
-- shadowTypes.js: three 0.187 shadow filters
-- shadows.js: engine.shadows: the shadow engineering in three.js shape: e…
-- sharedPoint.js: Shared points: the ONE way several owners change a shared t…
-- skip.js: engine.skip: jump time in segments
-- stackFrames.js: Read 'file.js:50' places out of an Error stack: where a thi…
-- stacks.js: engine.stacks: the registry of every shared point (the poin…
-- startup.js: Startup (part of Engine, mixed into Engine.prototype): star…
-- streamCells.js: Per-chunk view of stream sources for loaders that sync whol…
-- streamSources.js: Stream sources (internal half of engine.stream): the places…
-- targeting.js: Target selection: pure functions (no camera, input or engin…
-- textureBytes.js: Estimated GPU bytes of a three.js texture (engine.inspect.m…
-- thingExplain.js: engine.thing(id).explain(): everything known about one id i…
-- thingOps.js: engine.thing and the two built-in ops on things (thing.set …
-- things.js: Object registry behind engine.thing: every root handed to e…
-- threadPure.js: Pure functions for workers: a function is sent as its sourc…
-- threadServe.js: Worker side of engine.threads lanes: serve(handler) answers…
-- threePatches.js: Every change the engine makes to three.js itself or to the …
-- tier.js: Device tier: tool pages' forced tier, render scale per tier
-- time.js: engine.time: the one time source
-- uiClock.js: UI timers on the page clock
-- util.js: Small shared core helpers
-- validate.js: Runtime checks: when an option or name is misspelled, print…
-- view.js: engine.autoView: the camera and drawing-buffer values the e…
-- wrap.js: engine.wrap: the one entry for changing what a module's pub…
+- assets/ Asset management: Asset manifest: register every model, tex… — Animator.js, Assets.js, Baked.js, assetEntry.js, assetHot.js, assetLoad.js, assetLod.js, assetManifest.js, assetReport.js, namedModel.js
+- audio/ Audio core: buses (master, music, sfx, ambience, ui + the g… — Audio.js, audioRules.js, audioVoice.js
+- base/ Stable error codes: errors the engine raises by name end th… — Events.js, I18n.js, Random.js, Vars.js, easing.js, errorCodes.js, errorHints.js, errors.js, events.generated.js, math.js, mulberry32.js, params.js, util.js, validate.js
+- engine/ Engine core: what every 3D web game needs (rendering and po… — Engine.js, Loading.js, copies.js, headlessLoad.js, lifecycle.js, loop.js, moduleSlots.js, moduleTypes.js, modules.js, page.js, plugins.js, services.js, startup.js
+- input/ Input: read by "action", not by "key" — Input.js, inputContext.js, inputDefaults.js, inputPad.js, inputPointer.js, inputTouch.js
+- inspect/ "Who wrote this picture value": the last file:line that cha… — Budget.js, DebugOverrides.js, Describe.js, Inspect.js, InspectMaterials.js, InspectPerf.js, InspectScene.js, MaterialInfo.js, UrlState.js, catalog.js, checks.js, debugView.js, describeRender.js, describeText.js, geometryWatch.js, lightWatch.js, pictureWriters.js, shaderCost.js, textureBytes.js
+- ops/ Shared points: the ONE way several owners change a shared t… — Ops.js, actor.js, control.js, holds.js, opsAtomic.js, opsCheck.js, opsFail.js, opsGuard.js, opsHistory.js, opsRun.js, owned.js, sharedPoint.js, stackFrames.js, stacks.js, wrap.js
+- saves/ Saves: each module registers "how to save and load", and sa… — SaveStore.js, Saves.js, saveApply.js, saveFiles.js, saveIds.js, saveValues.js, saveVersions.js, session.js
+- scene/ Object registry behind engine.thing: every root handed to e… — Rays.js, Views.js, adaptive.js, canvasBox.js, engineCamera.js, gameLights.js, grayMap.js, grid.js, gridLoad.js, ground.js, movement.js, pictureSlots.js, sceneDelta.js, sceneMethods.js, screenToGround.js, stepPoses.js, targeting.js, thingExplain.js, thingOps.js, things.js, threePatches.js, tier.js, view.js
+- stream/ Automatic batching, engine.batching: the same static model … — Batching.js, Stream.js, batchGroups.js, cells.js, chunkStream.js, scatter.js, streamCells.js, streamSources.js
+- threads/ engine.threads: a small worker pool — Commits.js, Jobs.js, Threads.js, pureWorker.js, threadPure.js, threadServe.js
+- time/ engine.time: the one time source — Clock.js, dayTime.js, skip.js, time.js, uiClock.js
 
 **modules/** (one line per folder: what it does; its files besides the index.js / contract.js every module has)
 - ambience/ Ambience module: a rule table of background sounds — Ambience.js
 - calendar/ calendar() hooks, saves, scenario time — Calendar.js, schedule.js, seasons.js
 - camera/ Camera module collection — FirstPersonCamera.js, FixedCamera.js, FollowCamera.js, RtsCamera.js, common.js, projection.js
-- characters/ Characters module: player (keyboard/stick control, camera follo… — Character.js, NPC.js, assetModel.js, astar.js, behaviors.js, footsteps.js, moveHelpers.js, movers/common.js, movers/manual.js, movers/rapier.js, movers/simple.js, movers/support.js, npcAvoid.js, npcSim.js, npcView.js, pathAsync.js, pathJob.js, pathWorker.js, playerStrings.js, proceduralRig.js, useModel.js, vehicle.contract.js, walkTo.js
+- characters/ Characters module: player (keyboard/stick control, camera follo… — Character.js, NPC.js, assetModel.js, astar.js, behaviors.js, footsteps.js, moveHelpers.js, movers/common.js, movers/manual.js, movers/rapier.js, movers/simple.js, movers/support.js, npcAvoid.js, npcSim.js, npcView.js, pathAsync.js, pathJob.js, pathWorker.js, player.js, playerStrings.js, proceduralRig.js, useModel.js, vehicle.contract.js, walkTo.js
 - collision/ Lightweight collision: characters are upright cylinders, trees/… — Collision.js, grid.js
-- content/ Content loader: game data files into the engine — explain.js, fields.js, ids.js, loader.js, models.js, packs.js, parts.js, props.js, rules.js, stages.js, templates.js
+- content/ Content loader: game data files into the engine — explain.js, fields.js, ids.js, loader.js, markers.js, models.js, packs.js, parts.js, places.js, props.js, rules.js, stages.js, templates.js, words.js
 - debug/ Performance panel + time/weather debugging — DebugPanel.js
 - flow/ Game flow: states and scene transitions — 
 - gameplay/ Interactions module: a prompt appears near an object ("E · Talk… — Container.js, Containers.js, Dialogue.js, Interactions.js, Inventory.js, Quests.js, boxOps.js, dialogue.contract.js, dialogueBox.js, dialogueBubbles.js, interactionPrompt.js, interactions.contract.js, inventory.contract.js, inventoryOps.js, pickups.js, questLog.js, questSave.js, quests.contract.js
 - grid/ grids() module: placement grids — Grid.js, Layer.js, ops.js, preview.js, strings.js, tiles.js
 - hlod/ HLOD: far buildings as a few proxy meshes — 
 - hud/ Objective markers and a simple HUD — parts.js
-- level/ Level module: load a hand-built scene (glTF/GLB from Blender, o… — geometry.js, heightfield.js, nodes.js
-- lights/ Light pool: many sources, a few real lights — 
+- level/ Level module: load a hand-built scene (glTF/GLB from Blender, o… — geometry.js, heightfield.js, load.js, meshes.js, nodes.js
+- lights/ Light pool: many sources, a few real lights — slots.js, sources.js
 - music/ Background music module entry — Music.js, rules.js
 - nav/ Navmesh (Recast): generated after a level loads; engine.charact… — navPath.js
 - net/ net() module: optional co-op multiplayer, host-authoritative st… — Client.js, Host.js, Net.js, sync.js, transports.js
@@ -234,10 +115,11 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - recordSweep.js: WebGPURenderer keeps one RenderObject per drawn mesh in a s…
 - shaderErrors.js: Shader errors naming the patch and slot
 - shadowCache.tsl.js: Kept shadows on WebGPURenderer: what stays still is drawn i…
+- shadowTypes.js: three 0.187 shadow filters
+- shadows.js: engine.shadows: the shadow engineering in three.js shape: e…
 - slots.js: Semantic patch slots
 - terms.js: Built-in material terms a game can take over whole: the clo…
 - uniformDecl.js: Declares style-supplied GLSL uniforms
-- uniformRenames.js: The engine uniforms renamed for 0.8 (MIGRATING-0.8.md)
 
 **ui/**
 - Focus.js: UI focus stack and choice cursor
@@ -253,10 +135,10 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 
 | Event | Emitted by | Listened by |
 |---|---|---|
-| anim:end | core/Animator.js | — |
-| audio:ready | core/Audio.js | — |
+| anim:end | core/assets/Animator.js | — |
+| audio:ready | core/audio/Audio.js | — |
 | camera:change | camera | settings |
-| camera:shot | core/Views.js, camera | lights |
+| camera:shot | core/scene/Views.js, camera | lights |
 | character:fall | characters | — |
 | character:jump | characters | — |
 | character:land | characters | characters |
@@ -269,19 +151,19 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 | dialogue:end | gameplay | music |
 | dialogue:line | gameplay | — |
 | dialogue:start | gameplay | music |
-| engine:error | core/errors.js | — |
-| engine:ready | core/startup.js | content, flow, rigid |
+| engine:error | core/base/errors.js | — |
+| engine:ready | core/engine/startup.js | content, flow, rigid |
 | flow:change | flow | — |
 | flow:transition | flow | — |
 | ground:change | terrain | characters |
-| i18n:change | core/I18n.js | core/inputTouch.js, gameplay, hud, settings, timeline, ui/UI.js |
-| input:context | core/inputContext.js | — |
-| input:rebind | core/Input.js | gameplay, timeline, ui/UI.js |
+| i18n:change | core/base/I18n.js | core/input/inputTouch.js, gameplay, hud, settings, timeline, ui/UI.js |
+| input:context | core/input/inputContext.js | — |
+| input:rebind | core/input/Input.js | gameplay, timeline, ui/UI.js |
 | interaction:hold | gameplay | — |
 | interaction:interrupt | gameplay | — |
 | item:use | gameplay | — |
-| level:loaded | level | characters, grid, hlod, nav |
-| module:disabled | core/errors.js | — |
+| level:loaded | level | characters, hlod, nav |
+| module:disabled | core/base/errors.js | — |
 | music:change | music | — |
 | music:stinger | music | — |
 | net:close | net | — |
@@ -290,11 +172,11 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 | net:open | net | — |
 | net:result | net | — |
 | net:sync | net | — |
-| page:blur | core/page.js | core/Input.js |
-| page:contextlost | core/page.js | — |
-| page:contextrestored | core/page.js | sky |
-| page:focus | core/page.js | — |
-| page:pointerlock | core/page.js | camera, ui/Focus.js |
+| page:blur | core/engine/page.js | core/input/Input.js |
+| page:contextlost | core/engine/page.js | — |
+| page:contextrestored | core/engine/page.js | sky |
+| page:focus | core/engine/page.js | — |
+| page:pointerlock | core/engine/page.js | camera, ui/Focus.js |
 | photo:denied | photo | — |
 | photo:taken | photo | — |
 | pickup:take | gameplay | — |
@@ -304,39 +186,39 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 | quest:start | gameplay | — |
 | quest:step | gameplay | — |
 | rigid:rebuilt | rigid | rigid |
-| save:imported | core/saveFiles.js | photo |
-| save:loaded | core/saveApply.js | characters |
-| save:written | core/Saves.js | — |
+| save:imported | core/saves/saveFiles.js | photo |
+| save:loaded | core/saves/saveApply.js | characters |
+| save:written | core/saves/Saves.js | — |
 | season:change | calendar | calendar |
-| session:end | core/session.js | core/skip.js, flow, gameplay, hud, music, rigid, timeline |
-| session:failed | core/session.js | flow, rigid |
-| session:start | core/session.js | core/things.js, camera, flow |
+| session:end | core/saves/session.js | core/time/skip.js, flow, gameplay, hud, music, rigid, timeline |
+| session:failed | core/saves/session.js | flow, rigid |
+| session:start | core/saves/session.js | core/scene/things.js, camera, flow |
 | settings:change | settings | — |
-| settings:shadows | core/shadows.js | vegetation |
-| state:applied | core/UrlState.js | — |
-| state:placed | core/UrlState.js | camera |
+| settings:shadows | render/shadows.js | vegetation |
+| state:applied | core/inspect/UrlState.js | — |
+| state:placed | core/inspect/UrlState.js | camera |
 | template:stage | content | — |
 | terrain:chunkFailed | terrain | — |
 | terrain:void | rigid, terrain | — |
-| time:skip | core/skip.js | — |
+| time:skip | core/time/skip.js | — |
 | timeline:end | timeline | — |
 | timeline:start | timeline | — |
 | trigger:enter | triggers | camera, content |
 | trigger:exit | triggers | content |
-| ui:close | ui/Parts.js, ui/UI.js | core/services.js, settings |
-| ui:open | ui/Parts.js, ui/UI.js | core/services.js, settings |
+| ui:close | ui/Parts.js, ui/UI.js | core/engine/services.js, settings |
+| ui:open | ui/Parts.js, ui/UI.js | core/engine/services.js, settings |
 | vegetation:remove | vegetation | — |
 | vegetation:restore | vegetation | — |
 | vehicle:enter | characters | characters |
 | vehicle:exit | characters | characters |
-| water:add | core/ground.js | water |
-| water:remove | core/ground.js | water |
+| water:add | core/scene/ground.js | water |
+| water:remove | core/scene/ground.js | water |
 | weather:change | weather | — |
 | weather:lightning | weather | weather |
 | world:add | world | gameplay, grid |
 | world:change | world | gameplay, grid |
 | world:load | world | characters, content, gameplay, grid, rigid |
-| world:remove | world | core/stacks.js, characters, gameplay, grid |
+| world:remove | world | core/ops/control.js, core/ops/stacks.js, characters, gameplay, grid |
 
 ## Input actions (engine.input)
 
@@ -344,16 +226,16 @@ Modules declare actions without keys; the game binds them (createEngine({ bindin
 
 | Action | Context | Text key | Declared at |
 |---|---|---|---|
-| moveForward (default KeyW, ArrowUp) | walk | input.moveForward | core/inputDefaults.js |
-| moveBack (default KeyS, ArrowDown) | walk | input.moveBack | core/inputDefaults.js |
-| moveLeft (default KeyA, ArrowLeft) | walk | input.moveLeft | core/inputDefaults.js |
-| moveRight (default KeyD, ArrowRight) | walk | input.moveRight | core/inputDefaults.js |
-| confirm (default Space, Enter, PadA) | walk | input.confirm | core/inputDefaults.js |
-| cancel (default Escape, PadB) | walk | input.cancel | core/inputDefaults.js |
-| uiUp (default ArrowUp, KeyW, PadUp) | walk | input.uiUp | core/inputDefaults.js |
-| uiDown (default ArrowDown, KeyS, PadDown) | walk | input.uiDown | core/inputDefaults.js |
-| uiLeft (default ArrowLeft, KeyA, PadLeft) | walk | input.uiLeft | core/inputDefaults.js |
-| uiRight (default ArrowRight, KeyD, PadRight) | walk | input.uiRight | core/inputDefaults.js |
+| moveForward (default KeyW, ArrowUp) | walk | input.moveForward | core/input/inputDefaults.js |
+| moveBack (default KeyS, ArrowDown) | walk | input.moveBack | core/input/inputDefaults.js |
+| moveLeft (default KeyA, ArrowLeft) | walk | input.moveLeft | core/input/inputDefaults.js |
+| moveRight (default KeyD, ArrowRight) | walk | input.moveRight | core/input/inputDefaults.js |
+| confirm (default Space, Enter, PadA) | walk | input.confirm | core/input/inputDefaults.js |
+| cancel (default Escape, PadB) | walk | input.cancel | core/input/inputDefaults.js |
+| uiUp (default ArrowUp, KeyW, PadUp) | walk | input.uiUp | core/input/inputDefaults.js |
+| uiDown (default ArrowDown, KeyS, PadDown) | walk | input.uiDown | core/input/inputDefaults.js |
+| uiLeft (default ArrowLeft, KeyA, PadLeft) | walk | input.uiLeft | core/input/inputDefaults.js |
+| uiRight (default ArrowRight, KeyD, PadRight) | walk | input.uiRight | core/input/inputDefaults.js |
 | rotateLeft | walk | camera.rotateLeft | camera |
 | rotateRight | walk | camera.rotateRight | camera |
 | jump | walk | input.jump | characters |
@@ -372,14 +254,14 @@ Modules declare actions without keys; the game binds them (createEngine({ bindin
 
 ## i18n key groups (engine.t; full keys are in each string table)
 
-- core/I18n.js: common.* (8), loading.* (6), input.* (13), key.* (5), ground.* (1), shop.* (1)
-- core/page.js: page.* (3)
-- core/saveFiles.js: saves.* (8)
+- core/base/I18n.js: common.* (8), loading.* (6), input.* (14), key.* (5), ground.* (1), shop.* (1)
+- core/engine/page.js: page.* (3)
+- core/saves/saveFiles.js: saves.* (8)
 - modules/ambience/Ambience.js: module.* (1)
 - modules/calendar/index.js: module.* (1)
 - modules/camera/common.js: module.* (1), camera.* (2)
 - modules/characters/index.js: module.* (1)
-- modules/characters/playerStrings.js: npc.* (1), input.* (2)
+- modules/characters/playerStrings.js: npc.* (1), input.* (1)
 - modules/collision/Collision.js: module.* (1)
 - modules/content/index.js: module.* (1)
 - modules/debug/DebugPanel.js: debug.* (1), module.* (1)

@@ -8,8 +8,10 @@ import * as P from '../paths.mjs';
 import { ROOT, rel, abs } from '../paths.mjs';
 import { walk as walkFiles } from '../lib/text.mjs';
 
+// The game folders once per run: R18 asks for every code span of every doc, and each P.gameDirs() lists the folders again (about half of a whole check)
+let gameRels = null;
 /** How hard a doc finding lands: a game's own docs (a plan names files that do not exist yet, docs cannot break a game) warn, engine docs fail */
-export const docLevel = doc => P.MODE === 'game' || /^games\//.test(doc) || P.gameDirs().some(d => doc.startsWith(`${rel(d)}/`)) ? 'warn' : 'error';
+export const docLevel = doc => P.MODE === 'game' || /^games\//.test(doc) || (gameRels ??= P.gameDirs().map(d => `${rel(d)}/`)).some(d => doc.startsWith(d)) ? 'warn' : 'error';
 
 export { ts, ROOT, rel, abs, P };
 
@@ -20,9 +22,12 @@ export const OPT_NAMES = new Set(['opts', 'options', 'all']);
 /** The function around node n (the module factory of a module definition), methods skipped */
 export function factoryOf(n) { for (let p = n.parent; p; p = p.parent) if (ts.isFunctionLike(p) && !ts.isMethodDeclaration(p)) return p; return null; }
 
-/** Recursively list files (paths relative to ROOT); exts is an array of suffixes */
+const walked = new Map();
+/** Recursively list files (paths relative to ROOT); exts is an array of suffixes. Listed once per run, since the rules ask for the same folders again and again: treat the list as read-only */
 export function walk(dir, exts = ['.js']) {
-  return walkFiles(abs(dir), { exts: { test: p => exts.some(e => p.endsWith(e)) } }).map(rel);
+  const key = `${dir}|${exts}`;
+  if (!walked.has(key)) walked.set(key, walkFiles(abs(dir), { exts: { test: p => exts.some(e => p.endsWith(e)) } }).map(rel));
+  return walked.get(key);
 }
 
 const textCache = new Map();
@@ -130,9 +135,9 @@ export function stringArray(sf, node, depth = 0) {
   return { vals, complete };
 }
 
-/** Resolve an import path to a project file (relative paths and site paths starting with /); null if it cannot be resolved */
 let exportsMap = null;
 const engineExports = () => exportsMap ??= JSON.parse(readFileSync(join(P.ENGINE, 'package.json'), 'utf8')).exports;
+/** Resolve an import path to a project file (relative paths and site paths starting with /); null if it cannot be resolved */
 export function resolveImport(fromFile, spec) {
   let p;
   if (spec.startsWith('.')) p = resolve(dirname(abs(fromFile)), spec);

@@ -12,7 +12,7 @@ export function particles(opts?: ParticlesOptions): ModuleDef<Particles>;
 /** @import { ParticleEffect, ParticleEmitter, ParticleOptions, ParticlesOptions } from '../../../gameplay' */
 /** engine.particles */
 export class Particles {
-    /** Defined effects @type {Map<string, ParticleEffect>} */
+    /** Defined effects @type {Map<string, ParticleEffect>} @experimental */
     effects: Map<string, ParticleEffect>;
     /**
      * Define an effect (same name replaces it, and emitters attached to it move to the new definition); params sit on top of particles({ effects,

@@ -1,8 +1,9 @@
 // The reading part of content validation (used by packages/tools/content-check.mjs and gamemap.mjs): find game folders, read content/ data, find duplicate keys in one object, read the game's asset packs (assets.js).
-import { readdirSync, existsSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ROOT, rel, abs, gameDirs, CONTENT_RULES_REL } from '../paths.mjs';
+import { balanced, splitTop } from '../lib/text.mjs';
 import { withDomStub } from './dom-stub.mjs';
 
 // The engine's content vocabulary (path read from paths.mjs); content-check.mjs and gamemap.mjs also take mergeRules etc. from here
@@ -19,29 +20,51 @@ let loadSeq = 0;
 export const importFresh = path => import(pathToFileURL(path).href + '?t=' + Date.now() + '-' + (++loadSeq));
 
 /** The files of one content kind in load order: [path] for content/<kind>.js, the folder's *.js by file name for content/<kind>/ (index.js skipped) */
-export function kindParts(cdir, name) {
+function kindParts(cdir, name) {
   const folder = join(cdir, name);
   if (existsSync(folder) && statSync(folder).isDirectory()) return readdirSync(folder).filter(f => f.endsWith('.js') && f !== 'index.js').sort().map(f => join(folder, f));
   return [join(cdir, name + '.js')];
 }
 
 /**
- * Read all content files of a game: { data: { items, … }, files: { items: path }, parts: { items: [{ path, from, count }] }, errors }
+ * The names `export default { ... }` of content/index.js hands over, or null when it is not an object written out; spread = it also spreads something in.
+ * shortcut: reads the source, not the module: index.js may use import.meta.glob (recipe 30), which only runs under vite. A computed export is not read.
+ */
+export function listedNames(dir) {
+  const path = join(dir, 'content', 'index.js');
+  if (!existsSync(path)) return null;
+  // the whole object, nested values included: lib pull merges a system in as `items: { ...items, ...tide.items }`, and a spread inside a value hands over no name of its own.
+  // comments are stripped from the object only: a glob string like './props/*.js' reads as the start of one
+  const text = readFileSync(path, 'utf8'), at = [...text.matchAll(/export\s+default\s*\{/g)].at(-1);
+  const body = at && balanced(text, '{', at.index);
+  if (body == null) return null;
+  const parts = splitTop(body.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ' '));
+  return { names: new Set(parts.filter(p => !p.startsWith('...')).map(p => p.match(/^['"]?([\w$-]+)/)?.[1]).filter(Boolean)), spread: parts.some(p => p.startsWith('...')) };
+}
+
+/**
+ * Read all content files of a game: { data: { items, … }, files: { items: path }, parts: { items: [{ path, from, count }] }, errors, warnings }
  * A kind is one file (content/props.js) or a folder (content/props/forest.js, town.js…: arrays joined, objects merged, in file-name order, the
  * order the runtime contentParts() joins them). files[kind] is the file or the folder; parts says which file holds which entries (from = index of
  * its first entry in the joined array), so a tool can go from "props[731]" to "content/props/town.js[31]".
  */
 export async function loadGame(dir) {
-  const data = {}, files = {}, parts = {}, errors = [];
+  const data = {}, files = {}, parts = {}, errors = [], warnings = [], listed = listedNames(dir);
   const cdir = join(dir, 'content');
-  if (!existsSync(cdir)) return { data, files, parts, errors };
+  if (!existsSync(cdir)) return { data, files, parts, errors, warnings };
   // arrangements/ is read by `content stamp` only, never at runtime, so it is no content kind. rules.js first: its kinds decide which other names are known (the same contentFiles() the engine loader uses)
   const names = readdirSync(cdir).filter(f => f !== 'index.js' && (f.endsWith('.js') || statSync(join(cdir, f)).isDirectory()))
     .map(f => f.replace(/\.js$/, '')).filter((f, i, a) => a.indexOf(f) === i && f !== 'arrangements').sort((a, b) => (b === 'rules') - (a === 'rules'));
   for (const name of names) {
     const folder = join(cdir, name), isFolder = existsSync(folder) && statSync(folder).isDirectory();
     if (isFolder && existsSync(folder + '.js')) { errors.push(`${rel(folder)}: both content/${name}.js and the folder content/${name}/ exist: keep one (move the file into the folder)`); continue; }
-    if (!contentFiles(data.rules)[name]) { errors.push(`${rel(isFolder ? folder : folder + '.js')}: ${unknownContent(name, data.rules)}`); continue; }
+    if (!contentFiles(data.rules)[name]) {
+      const at = rel(isFolder ? folder : folder + '.js');
+      // index.js is what the page loads: a name it leaves out never reaches the loader, so it is the game's own file, not a broken one
+      if (listed && !listed.spread && !listed.names.has(name)) warnings.push(`${at}: content/index.js does not load it and it is no content kind, so the engine never reads it: move a game's own data out of content/ (recipe 20), or register a kind in content/rules.js`);
+      else errors.push(`${at}: ${unknownContent(name, data.rules)}`);
+      continue;
+    }
     const list = [];
     for (const path of kindParts(cdir, name)) {
       try { list.push({ path, mod: await importFresh(path) }); }
@@ -73,7 +96,7 @@ export async function loadGame(dir) {
     }
     data[name] = joined;
   }
-  return { data, files, parts, errors };
+  return { data, files, parts, errors, warnings };
 }
 
 /** Which file holds entry `index` of a joined array kind: { path, index (in that file) } or null */

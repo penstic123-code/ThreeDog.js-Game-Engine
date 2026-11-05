@@ -6,10 +6,10 @@
 - `ground.has(x: number, z: number) → boolean` — Is there ground at (x, z). Always true except off the outline of terrain({ shape }), where height is -Infinity and slope 0. Example: `if (engine.ground.has(x, z)) engine.snapToGround(chest);`
 - `ground.voidY() → number` — Height below which something has fallen out of the world (terrain:void): engine.terrain.voidY with terrain({ shape }), else -Infinity
 - `ground.forEachCollider(x: number, z: number, range: number, fn: (cx, cz, r) => void)` — Optional: iterate the circular colliders (tree trunks etc.) within range meters of (x, z)
-- `ground.viewRange() → number` — Optional: how far (meters) the ground is shown around a stream source now; stream entries build within it by default (else engine.uniforms.uViewDistance)
-- `ground.chunkCollision(cx: number, cz: number) → any` — Optional: collision data of a chunk (used by the physics module)
-- `ground.staticTrimeshes() → { positions, indices }[]` — Optional: static triangle mesh (the level module provides it for physics)
-- `ground.staticVersion() → number` — Optional: version number of the static mesh; rebuild when it changes
+- `ground.viewRange() → number` — (experimental) Optional: how far (meters) the ground is shown around a stream source now; stream entries build within it by default (else engine.uniforms.uViewDistance)
+- `ground.chunkCollision(cx: number, cz: number) → any` — (experimental) Optional: collision data of a chunk (used by the physics module)
+- `ground.staticTrimeshes() → { positions, indices }[]` — (experimental) Optional: static triangle mesh (the level module provides it for physics)
+- `ground.staticVersion() → number` — (experimental) Optional: version number of the static mesh; rebuild when it changes
 - Properties:
   - `waterLevel: number` Global water level (meters); -Infinity when there is no water
   - `chunkSize?: number` Optional: chunk edge length (meters)

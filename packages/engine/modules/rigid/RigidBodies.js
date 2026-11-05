@@ -15,15 +15,16 @@
 //
 // Rapier is downloaded on demand at start() (about 1.5MB); games without physics never load it.
 import * as THREE from 'three';
-import { vec3, xzOf } from '../../core/math.js';
+import { vec3, xzOf } from '../../core/base/math.js';
 
-import { readParams, keysSchema } from '../../core/params.js';
-import { cellsChanged } from '../../core/streamCells.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { cellsChanged } from '../../core/stream/streamCells.js';
 import { createVehicle, VEHICLE_KEYS, STRINGS } from './Vehicles.js';
 import { syncTerrain, syncTrees, treesChanged, syncGroundTrees, syncStatics, syncLevel, recordLocks, carryBody, carryCollider } from './sync.js';
 import { Ragdolls } from './ragdoll.js';
-import { codedError, coded } from '../../core/errorHints.js';
-import { warnOnce, DEV } from '../../core/validate.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
+import { refuseSave, saveNumberOk, SAVE_MAX } from '../../core/saves/saveValues.js';
+import { warnOnce, DEV } from '../../core/base/validate.js';
 // Params of addBox / addBall / addHull
 const PHYSICS = { physics: true };   // stream source filter (shared, not rebuilt every step)
 const BODY_KEYS = ['id', 'mass', 'friction', 'restitution', 'damping', 'angularDamping', 'fixed'];
@@ -185,6 +186,7 @@ export class RigidBodies {
     entry.remove = () => this._remove(entry);
     recordLocks(entry, body);
     this.bodies.push(entry); this._byHandle = null;
+    this.engine._poses.add(mesh);
     // a loaded save holds this body's state (it is built after the load, e.g. by a world presenter): it continues from there, not from the record's pose
     const s = id != null && this._saved.get(id);
     if (s) { this._saved.delete(id); putState(entry, s); }
@@ -267,6 +269,7 @@ export class RigidBodies {
   _remove(entry) {
     const i = this.bodies.indexOf(entry); if (i < 0) return;
     this.world.removeRigidBody(entry.body); this.bodies.splice(i, 1); this._byHandle = null;
+    this.engine._poses.remove(entry.mesh);
   }
   /** Push: impulse vector v (Vector3 / [x, y, z] / { x, y, z }) */
   impulse(entry, v) { const { x, y, z } = vec3(v); entry.body.wakeUp(); entry.body.applyImpulse({ x, y, z }, true); }
@@ -305,7 +308,12 @@ export class RigidBodies {
     return out;
   }
   /** @internal Load: bodies here now take their state in afterLoad (after _fresh rebuilt them); the rest when they are added */
-  _loadState(d) { this._saved = new Map(Object.entries(d ?? {})); this._ragdolls?.load(); }
+  _loadState(d) {
+    // a body past float precision (x = -1e308) sends the ground loops around it spinning and the page never comes back: damage, refused like a damaged world record (world/persist.js)
+    for (const [id, s] of Object.entries(d ?? {}))
+      if (!Array.isArray(s) || s.length !== 14 || !s.every(v => typeof v === 'boolean' || saveNumberOk(v))) refuseSave('rigid', `body '${id}'`, `must be a list of 14 numbers within ±${SAVE_MAX}`, s);
+    this._saved = new Map(Object.entries(d ?? {})); this._ragdolls?.load();
+  }
   /** @internal afterLoad: hand the loaded state to the bodies that exist (vehicles, bodies the game keeps across a load) */
   _claimSaved() {
     for (const b of this.bodies) { const s = b.id != null && this._saved.get(b.id); if (s) { this._saved.delete(b.id); putState(b, s); } }
@@ -410,7 +418,7 @@ export function rigid(opts = {}) {
   readParams('rigid', RIGID_PARAMS, opts);
   let r = null;
   return {
-    name: 'rigid', type: 'world', provides: ['rigid'], params: RIGID_PARAMS, options: opts, label: 'Physics', noSkip: 'bodies rest while time jumps (stepping seconds of physics would only scatter them)', optional: ['interactions'], requires: ['collision'],
+    name: 'rigid', type: 'world', provides: ['rigid'], params: RIGID_PARAMS, options: opts, label: 'Physics', noSkip: 'bodies rest while time jumps (stepping seconds of physics would only scatter them)', optional: ['interactions', 'cameraRig'], requires: ['collision'],
     install(e, ctx) {
       e.i18n.add(STRINGS); e.i18n.add({ 'zh-CN': { 'module.rigid': '物理引擎' }, en: { 'module.rigid': 'physics' } }); r = new RigidBodies(e, opts);
       r._wasm().catch(() => {});   // start loading now (see _wasm); a failure surfaces in init, which awaits the same promise
@@ -436,7 +444,7 @@ export function rigid(opts = {}) {
       return { ready: r.ready, bodies: B.length, dynamic: n(b => !b.fixed), fixed: n(b => b.fixed), sleeping: n(b => b.enabled && b.body.isSleeping()),
         frozen: n(b => !b.enabled), vehicles: r.vehicles.length, colliders: r.world ? r.world.colliders.len() : 0, ...(r._ragdolls?.live.size && { ragdolls: r._ragdolls.live.size }) };
     },
-    fixed(dt) { if (r.ready) r.step(dt); },
+    fixed(dt) { r.step(dt); },
     dispose() { r._ragdolls?.dispose(); r.world?.free(); r.world = null; },
   };
 }

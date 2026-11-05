@@ -34,16 +34,16 @@
 import * as THREE from 'three';
 import { CHARACTER_KEYS } from './Character.js';
 import { buildNpcView, unbuildNpcView, defineTalk } from './npcView.js';
-import { warnOnce, fmt, DEV } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { warnOnce, fmt, DEV } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { NpcAvoid } from './npcAvoid.js';
-import { parseClock } from '../../core/dayTime.js';
-import { xzOf, yOf } from '../../core/math.js';
+import { parseClock } from '../../core/time/dayTime.js';
+import { xzOf, yOf } from '../../core/base/math.js';
 import { placeAtHeight } from './movers/support.js';
 import { stopIndex, timeOfDay, npcChannel } from './npcSim.js';
 import { Behaviors } from './behaviors.js';
-import { codedError } from '../../core/errorHints.js';
-import { isModelName } from '../../core/util.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { isModelName } from '../../core/base/util.js';
 
 const STRINGS = {
   noInteract: 'NPC "{name}" has interact set, but the interactions() module is not installed: nothing can use it',
@@ -111,7 +111,7 @@ export class NPC {
   placeAt(position) {
     const e = this._m.engine, W = this._m.world, rec = this.data; if (!rec) return this;
     const [x, z] = xzOf(position), ch = this.character;
-    if (ch) ch.placeAt(position);
+    if (ch) { ch.placeAt(position); ch._pathReq?.remove(); ch._pathReq = null; }   // an answer still on its way starts from where it stood
     W.move(this.id, { x, y: ch ? ch.root.position.y : placeAtHeight(e, `npc.placeAt() (${this.id})`, x, z, yOf(position), rec.look?.stepHeight ?? e.movement.stepHeight, rec.position.y).y, z });
     rec.nav.path = null; rec.nav.repath = 0;
     return this;
@@ -137,6 +137,10 @@ export class NPCManager {
     /** @internal */ this._b = new Behaviors();   // behavior name -> { near, far } (code, not saved)
     /** @internal */ this._tiers = null;   // { fullRadius, nearEvery } from tiers(), null = every near NPC every step
     /** @internal */ this._byName = new Set();  // NPCs added this run without id, using the name as id (to detect same names in dev)
+    // on the event, not in remove(): world.remove(id) and thing.remove take NPCs too, and a later add of that id must not inherit the old model or trip the same-name check
+    track(engine.events.on('world:remove', ({ id }) => { this._runtime.delete(id); this._handles.delete(id); this._byName.delete(id); }));
+    // a load or new game is a new run, and it fires no world:remove: setup code adding the same names again is not a clash
+    track(engine.events.on('world:load', () => this._byName.clear()));
   }
   get world() { const W = this.engine.world; if (!W) throw codedError('module-needs', STRINGS.noWorld); return W; }
 
@@ -174,7 +178,7 @@ export class NPCManager {
     this._register();
   }
   /**
-   * @internal Run an NPC's behavior as the base holder of its control slot (core/control.js, owner 'npcs'): only while nothing above holds it.
+   * @internal Run an NPC's behavior as the base holder of its control slot (core/ops/control.js, owner 'npcs'): only while nothing above holds it.
    * A walkTo, a quest script or a cutscene on the NPC pauses its schedule / wander (near and far) and the behavior carries on when they end;
    * the behavior's own character.move() calls pass the bypass check because they run inside this. A character another machine drives (net)
    * is never taken: its behavior does not run here.
@@ -274,7 +278,6 @@ export class NPCManager {
     const id = typeof npc === 'string' ? this.get(npc)?.id : npc?.id;
     if (id == null || this.world.get(id)?.kind !== KIND) return false;
     this.world.remove(id);
-    this._runtime.delete(id); this._handles.delete(id); this._byName.delete(id);
     return true;
   }
   /** Find by id or name (id first) */

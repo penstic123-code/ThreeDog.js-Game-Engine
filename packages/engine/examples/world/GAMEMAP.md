@@ -120,7 +120,7 @@ Starting inventory: film×12. Pickups: 8: feather×3, berry×5 (respawn after 12
 - Place river: nearest riverside to the cabin (found at startup; the old fisherman goes here in the morning)
 - Place water: the water just past that riverside (found at startup; the barrel floats here)
 
-## Conditions/effects the game adds (content/rules.js)
+## Conditions the game adds (content/rules.js)
 
 - Condition **timeAfter** (clock): the day has passed this clock time
 

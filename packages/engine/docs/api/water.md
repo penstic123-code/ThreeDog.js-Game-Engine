@@ -17,7 +17,7 @@ Water surface (water() module)
   - `patches: import("../../render/patches.js").ShaderPatch[]` The engine's water shader patches (waves, waterSurface when asked for, fresnel), so a game material keeps the behavior: applyEffects(mat, { patches: engine.water.patches })
   - `uniforms: Record<string, { value: any }>` Shader values, written directly and live: uWave, uWaveScale, uWaveSpeed, uFresnel, uTime; with depthColor / foam uWaterShallow, uWaterDeep, uWaterCurve, uFoamColor, uFoamStart, uFoamEnd, uFoamOpacity; and what shader({ uniforms }) declared
   - `bodies: Map<WaterBody, THREE.Mesh>` Water body → mesh
-  - `sea: THREE.Mesh | null` Global water mesh (null when absent)
+  - `sea: THREE.Mesh | null` (experimental) Global water mesh (null when absent)
   - `material: THREE.Material` Water material, shared by all water. Reading gives the plain three.js material in use (a neutral MeshLambertMaterial until you set one); setting swaps it on every water mesh and draws it as given: no engine patch is added, so a material that should keep the waves goes through applyEffects(m, { patches: engine.water.patches })
 
 ## Data structures

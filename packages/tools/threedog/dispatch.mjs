@@ -32,10 +32,10 @@ export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
   // a mistyped command name is answered as that, not as "no dev server" (which is what the bridge check below would say first)
   if (!ALL[cmd]) {
     const text = `✗ no command "${cmd}"\nAvailable: ${Object.keys(ALL).filter(c => !c.startsWith('picture-')).join(', ')}, session`;
-    return { ok: false, code: 'command-error', summary: `no command "${cmd}"`, runtime: { ...NONE, blockedBy: [] }, data: null, text };
+    return { ok: false, code: 'command-error', summary: `no command "${cmd}"`, runtime: NONE, data: null, text };
   }
   // the answer to --help needs no page, and a dead or absent page must not stand in the way of reading it
-  if ((args.includes('--help') || args.includes('-h')) && cmd !== 'snap') return { ok: true, code: 'ok', summary: ALL[cmd], runtime: { ...NONE, blockedBy: [] }, data: null, text: `threedog ${cmd}: ${ALL[cmd]}` };
+  if ((args.includes('--help') || args.includes('-h')) && cmd !== 'snap') return { ok: true, code: 'ok', summary: ALL[cmd], runtime: NONE, data: null, text: `threedog ${cmd}: ${ALL[cmd]}` };
   let r, driver, runtime = null, thrown = false, code = null;
   try {
     if (cmd === 'play') r = await play(dir, { page, stop: args.includes('--stop') });
@@ -44,8 +44,7 @@ export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
     else if (cmd === 'errors') r = { kind: 'blocked', ...await run(null, cmd, args, { dir }) };   // .threedog/errors.log, no page: a stuck page or a stopped server must not keep it from answering
     else {
       devServer(dir);
-      const base = bridgeDriver(dir, { page });
-      driver = base;
+      driver = bridgeDriver(dir, { page });
       r = cmd === 'verify' ? await verify(driver, dir, args[0]) : cmd === 'scenario' ? await scenarioReport(driver, dir, args[0]) : await run(driver, cmd, args, { dir });
     }
     runtime = r.runtime ?? null;
@@ -58,7 +57,7 @@ export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
     if (dx) driver = null;
   }
   if (driver) runtime = (await readRuntime(driver)).runtime;
-  const rt = runtime ?? { ...NONE, blockedBy: [] };
+  const rt = runtime ?? NONE;
   // code tells the three kinds of "not ok" apart without reading prose: blocked (the command ran and was refused / found a problem), not-ready (the page is not
   // ready), a connection cause (no-server | starting | busy | page-error | no-bridge), command-error (bad arguments or an exception in the page)
   code ??= r.ok ? 'ok' : r.kind ?? (rt.ready ? 'blocked' : 'not-ready');

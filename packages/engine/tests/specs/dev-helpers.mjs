@@ -5,7 +5,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const THREE = engine.THREE, cv = document.createElement('canvas'); cv.width = cv.height = 64;
+        const THREE = __threedogThree, cv = document.createElement('canvas'); cv.width = cv.height = 64;
         const color = new THREE.CanvasTexture(cv); color.name = 'dh-color';   // colorSpace left at NoColorSpace: wrong for map
         const normal = new THREE.CanvasTexture(cv); normal.name = 'dh-normal'; normal.colorSpace = THREE.SRGBColorSpace;   // wrong for normalMap
         const m = new THREE.MeshStandardMaterial({ map: color, normalMap: normal }); m.name = 'dh-mat';
@@ -36,7 +36,7 @@ export const specs = [
           const mesh = []; engine.scene.traverse(o => { if (o.isMesh && o.material && !Array.isArray(o.material)) mesh.push(o); });
           const real = new Map(mesh.map(o => [o, o.material]));
           const ov = engine.debug.view('overdraw'); R.render(engine.scene, engine.camera);
-          const overdraw = { mode: ov.mode, additive: engine.scene.overrideMaterial?.blending === engine.THREE.AdditiveBlending, what: ov.what };
+          const overdraw = { mode: ov.mode, additive: engine.scene.overrideMaterial?.blending === __threedogThree.AdditiveBlending, what: ov.what };
           const sc = engine.debug.view('shaderCost'); R.render(engine.scene, engine.camera);
           const colors = new Set(mesh.map(o => o.material.color?.getHex()));
           const stand = mesh.every(o => o.material.userData._dbgOf === real.get(o));
@@ -57,7 +57,7 @@ export const specs = [
       const r = await ev(async () => {
         await __t.frames(3);
         const a = engine.inspect.perf();
-        const THREE = engine.THREE, m = new THREE.MeshPhysicalMaterial({ color: 0x123456, sheen: 1 }), o = new THREE.Mesh(new THREE.BoxGeometry(), m);
+        const THREE = __threedogThree, m = new THREE.MeshPhysicalMaterial({ color: 0x123456, sheen: 1 }), o = new THREE.Mesh(new THREE.BoxGeometry(), m);
         o.position.copy(engine.camera.position).add(engine.camera.getWorldDirection(new THREE.Vector3()).multiplyScalar(4));
         engine.scene.add(o);
         await __t.frames(3);   // a new program compiles during play: a stall frame
@@ -89,7 +89,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();
-        const THREE = engine.THREE, R = engine.renderer;
+        const THREE = __threedogThree, R = engine.renderer;
         const wrap = body => `// threedog:begin file=shaders/test.frag\n${body}\n// threedog:end`;
         const v1 = wrap('void main() {\n  gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);\n}');
         const m = new THREE.ShaderMaterial({ fragmentShader: v1 }); m.name = 'dh-hot';

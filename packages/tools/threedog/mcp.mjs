@@ -13,7 +13,7 @@ import { command, ENGINE } from '../paths.mjs';
 import { pagePath as pageArg } from '../lib/cli-args.mjs';
 import { join } from 'node:path';
 import { execute } from './dispatch.mjs';
-import { EXTRA_TOOLS, STATIC_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA, situationGuide, shortData } from './mcp-extra.mjs';
+import { EXTRA_TOOLS, STATIC_TOOLS, label, RESULT_SHAPE, OUTPUT_SCHEMA, situationGuide, shortData, pairs } from './mcp-extra.mjs';
 import { NONE } from './runtime.mjs';
 
 // stdout carries protocol messages only: anything else that prints goes to stderr
@@ -32,9 +32,6 @@ const num = description => ({ type: 'number', description });
 const obj = (properties = {}, required = [], extra = {}) => ({ type: 'object', properties, required, ...extra });
 const SNAP_WIDTH = 480;   // screenshots come back small: numbers first, one image per round (recipe 35)
 const MAX = num('Output cap in characters (default 500)');
-/** op arguments object → key=value strings; commands.mjs converts them back by the op's args shape */
-const pairs = args => Object.entries(args
-  || {}).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v !== null && typeof v === 'object' ? JSON.stringify(v) : v}`);
 const opt = (name, v) => v === undefined || v === null || v === '' ? [] : [name, String(v)];
 
 /** name → { description, schema, args(input) → command line args, cmd? (bridge command, default the name) } */
@@ -47,8 +44,8 @@ const TOOLS = {
     args: a => [...(a.full ? ['--full'] : []), ...(a.all ? ['--all'] : []), ...(a.path ? [a.path] : []), ...opt('--max', a.max)],
   },
   step: {
-    description: 'Advance game time N seconds, deterministically (a real page is halted first; resume afterwards). Changes this session only, not the level (edit content/*.js for that).',
-    schema: obj({ seconds: num('Game seconds to advance (default 1)') }),
+    description: 'Advance the game N real seconds, deterministically (a real page is halted first; resume afterwards). Changes this session only, not the level (edit content/*.js for that).',
+    schema: obj({ seconds: num('Real seconds to advance (default 1)') }),
     args: a => [String(a.seconds ?? 1)],
   },
   press: {
@@ -57,20 +54,20 @@ const TOOLS = {
     args: a => [a.key, ...opt('--for', a.for)],
   },
   hold: {
-    description: 'Hold an input action or key for N game seconds (e.g. moveForward 1.5 to walk). Pauses a real page.',
-    schema: obj({ key: str('Action name or key code'), seconds: num('How long to hold, in game seconds (default 1)') }, ['key']),
+    description: 'Hold an input action or key for N real seconds (e.g. moveForward 1.5 to walk). Pauses a real page.',
+    schema: obj({ key: str('Action name or key code'), seconds: num('How long to hold, in real seconds (default 1)') }, ['key']),
     args: a => [a.key, String(a.seconds ?? 1)],
   },
   skip: {
     description: 'Jump the clock like sleeping (to a time of day or by N seconds); the sky clock and time-keeping modules catch up. Pauses a real page.',
-    schema: obj({ to: str('Clock time to jump to, e.g. "06:00" (give to OR seconds)'), seconds: num('Game seconds to jump (give seconds OR to)'),
+    schema: obj({ to: str('Clock time to jump to, e.g. "06:00" (give to OR seconds)'), seconds: num('Calendar seconds to jump (give seconds OR to)'),
       fade: num('Optional fade length in seconds, e.g. 0.6'), save: str('Optional: "auto" to save after the jump') }),
     args: a => Object.entries(a).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${v}`),
   },
   state: {
     description: 'Jump the scene to a state (like URL parameters) to set up a test situation. For gameplay actions use op.',
     schema: obj({ time: str('Clock time, e.g. "18:30"'), weather: str('Weather name, e.g. "rain"'), pos: str('Player position "x,z", e.g. "40,-20"'),
-      wait: str('Game seconds to advance after applying'), cutscene: str('"skip" to skip cutscenes'), save: str('Save slot name to load (this does not write a save)'),
+      wait: str('Real seconds to advance after applying'), cutscene: str('"skip" to skip cutscenes'), save: str('Save slot name to load (this does not write a save)'),
         state: str('A named state (engine.defineState)') },
     [], { additionalProperties: { type: 'string' } }),
     args: a => Object.entries(a).filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : v}`),
@@ -186,11 +183,11 @@ async function callTool(name, input = {}) {
   if (!t) return { content: [{ type: 'text',
     text: `No tool "${name}". Available: ${Object.keys(TOOLS).join(', ')}${name === 'js' ? ' (js needs threedog mcp --allow-js)' : ''}` }],
     structuredContent: { ok: false, code: 'command-error', summary: `No tool "${name}"`, runtime: NONE, data: null }, isError: true };
-  if (t.run) {   // static (how, check): read the files, never touch the dev server
+  if (t.run) {   // static (STATIC_TOOLS): read the files, never touch the dev server
     try {
       const r = await t.run(dir, input);
       return { content: [{ type: 'text', text: r.text }], structuredContent: { ok: r.ok, code: r.ok ? 'ok' : 'blocked', summary: r.text.split('\n')[0].replace(/^[✓✗]\s*/, ''),
-        runtime: { ...NONE, blockedBy: [] }, data: r.data ?? null }, isError: !r.ok };
+        runtime: NONE, data: r.data ?? null }, isError: !r.ok };
     } catch (e) {
       return { content: [{ type: 'text', text: '✗ ' + e.message }], structuredContent: { ok: false, code: 'command-error', summary: e.message, runtime: NONE, data: null }, isError: true };
     }

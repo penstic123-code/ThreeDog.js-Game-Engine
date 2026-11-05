@@ -6,8 +6,8 @@
 //   2. requires names a module that does not exist.
 //   3. requires forms a cycle (a needs b, b needs a, neither can be installed).
 //   4. A file in modules/<A>/ imports a file from modules/<B>/ (B ≠ A; static or dynamic import(), the path resolved, so '../../modules/B/x.js' counts) although no module of B is in A's requires / optional: a hidden code dependency
-//      GAMEMAP cannot see. Move a helper several modules share to core/ (core/screenToGround.js), declare the dependency, or list the file in SHARED.
-// Two more checks at runtime: use() errors if requires are not installed first, and before / after cycles error; start() hints when an optional written as { module: 'what is lost if missing' } is absent (core/modules.js).
+//      GAMEMAP cannot see. Move a helper several modules share to core/ (core/scene/screenToGround.js), declare the dependency, or list the file in SHARED.
+// Two more checks at runtime: use() errors if requires are not installed first, and before / after cycles error; start() hints when an optional written as { module: 'what is lost if missing' } is absent (core/engine/modules.js).
 import { ts, parse, visit, walk, read, codeOnly, strValue, importSpecs, moduleTarget, P } from './_lib.mjs';
 
 // Allowlist: [folder, accessed module, reason]
@@ -71,7 +71,7 @@ export default {
           const theirs = folders.get(t.folder).defs.map(d => d.name);
           if (theirs.some(n => declared.has(n))) continue;
           out.push({ level: 'error', file: f, line: i + 1, msg: `folder ${folder} imports ${t.path} but declares no dependency on module ${theirs.join(' / ') || t.folder}`,
-            fix: `move the shared code to core/ (like core/screenToGround.js), add '${theirs[0] ?? t.folder}' to requires / optional, or list '${t.path}' in SHARED with a reason` });
+            fix: `move the shared code to core/ (like core/scene/screenToGround.js), add '${theirs[0] ?? t.folder}' to requires / optional, or list '${t.path}' in SHARED with a reason` });
         }
       });
     }

@@ -38,7 +38,7 @@ export const specs = [
         out.disposed = E.phase;
         return out;
       });
-      check('phase goes constructed -> loading -> running -> disposed', r.constructed === 'constructed' && r.loading === 'loading' && r.after === 'running' && r.disposed === 'disposed', JSON.stringify(r));
+      check('phase goes constructed -> starting -> running -> disposed', r.constructed === 'constructed' && r.loading === 'starting' && r.after === 'running' && r.disposed === 'disposed', JSON.stringify(r));
       check('while loading: no tick, clock, elapsed or onFixed / module fixed hook, on the real-time path and in step()',
         r.during.tick === 0 && r.during.clock === 0 && r.during.elapsed === 0 && r.during.onFixed === 0 && r.during.fixedSlow === 0 && r.during.fixedLate === 0, JSON.stringify(r));
       check('engine.step during an unawaited start() warns in dev', r.stepWarn, JSON.stringify(r));
@@ -341,6 +341,30 @@ export const specs = [
       });
       check('a failed later part restores the earlier part (hp 100, not 5)', r.ok === false && r.hp === 100, JSON.stringify(r));
       check('a save() returning something structuredClone cannot copy refuses the load and changes nothing', r.ok2 === false && r.hp2 === 100, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'Lifecycle: a hook that disposes the engine ends the real-time frame; dispose frees every kind of scene object',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, createEngine, THREE } = threedogThreads;
+        const E = mk(createEngine, 'lc-gone');
+        await E.start();
+        const b = new THREE.BatchedMesh(1, 3, 3, new THREE.MeshBasicMaterial()), free = b.dispose;
+        let batched = 0, steps = 0, jobs = 0, begun = 0;
+        b.dispose = function () { batched++; return free.call(this); };
+        E.scene.add(b);
+        const run = E.jobs.run, begin = E.time._beginStep;
+        E.jobs.run = function (o) { jobs++; return run.call(this, o); };
+        E.time._beginStep = function () { begun++; return begin.call(this); };
+        E.onFixed(() => { steps++; E.dispose(); });
+        const n = E._catchUp(0.1);   // what the real-time loop does with a long frame, then its frame part
+        E._frameHooks(0.1);
+        return { n, steps, begun, jobs, batched };
+      });
+      check('the fixed step that disposed is the last one, and the frame part does nothing', r.n === 1 && r.steps === 1 && r.begun === 1 && r.jobs === 0, JSON.stringify(r));
+      check('dispose frees a BatchedMesh in the scene (its matrix textures)', r.batched === 1, JSON.stringify(r));
     },
   },
   {

@@ -80,6 +80,12 @@ async function parts(renderer) {
     out.hlod = farBefore && !h.cells[0].far && h.cells[0].proxy.every(p => !p.visible);
     house.visible = true; H.hlod.update();
     out.hlodBack = h.cells[0].far;
+    // a building the game removed is not drawn far away either; a mirrored mesh would turn inside out in a proxy, so it keeps its own draw
+    house.removeFromParent(); H.hlod.update();
+    out.hlodRemoved = !h.cells[0].far && h.cells[0].proxy.every(p => !p.visible);
+    const mirrored = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), new THREE.MeshBasicMaterial());
+    mirrored.scale.x = -1; mirrored.position.set(500, 0, 0); H.scene.add(mirrored);
+    out.hlodMirror = H.hlod.add(mirrored, { near: 50 }).cells.length === 0;
     H.dispose();
   }
 }
@@ -90,10 +96,46 @@ function checks(check, r, tag) {
   check(`${tag} 换掉外观：碰撞、高度、树的碰撞圈照旧`, r.collision && r.surface && r.trees > 0, s);
   check(`${tag} 换掉植被外观：游戏的外观收到每块的摆放、引擎不画；砍树照样藏起来并去掉树干碰撞`, r.plants?.gone && r.plants.told > 0 && r.plants.engineMeshes === 0 && r.plants.felled && r.plants.trunk, s);
   check(`${tag} 改密度：地面碰撞不重建，树重新摆放且仍有碰撞`, r.densityKeeps, s);
-  check(`${tag} hlod：游戏藏起来的楼不会被远处代理画出来，显示回来后恢复合批`, r.hlod && r.hlodBack, s);
+  check(`${tag} hlod：游戏藏起来的楼不会被远处代理画出来，显示回来后恢复合批`, r.hlod && r.hlodBack && r.hlodRemoved && r.hlodMirror, s);
 }
 
 export const specs = [
+  {
+    name: '[guard] terrain chunks: a species defined while chunks are on their way reaches them, and readyAt waits for it; dispose releases the chunks and their tickets',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, terrain, vegetation, THREE } = threedogTerrain;
+        const F = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'terrain-inflight', threads: false });
+        const step = () => F.step(1 / 60, { describe: false, render: false }), geometry = new THREE.BoxGeometry(1, 1, 1);
+        F.use(terrain({ height: () => 0, viewChunks: 2 }), vegetation());
+        F.vegetation.define('first', { geometry, rule: { perChunk: 30 } });
+        // what a named model's define() does once its model is in: a density image of its own arrives during init, and start waits for it too
+        const white = Object.assign(document.createElement('canvas'), { width: 1, height: 1 }), pen = white.getContext('2d'); pen.fillStyle = '#fff'; pen.fillRect(0, 0, 1, 1);
+        F.vegetation._pending.push(Promise.resolve().then(() => F.vegetation.define('mapped', { geometry, rule: { perChunk: 1 }, densityMap: { url: white.toDataURL(), size: [10, 10] } })));
+        await F.start();
+        const mapped = F.vegetation.get('mapped').density.at(0, 0) > 0;
+        F.focus.set(4000, 0, 4000); step();   // new chunks: their jobs are sent, and the replies come after this tick
+        const T = F.terrain, inFlight = [...T.chunks.values()].filter(c => c.state === 'pending');
+        F.vegetation.define('late', { geometry, rule: { perChunk: 30 } });
+        for (let i = 0; i < 400 && !(T.readyAt(F.focus, { rings: 2 }) && !T.inFlight && !T.ready.length); i++) { step(); await new Promise(res => setTimeout(res, 0)); }
+        const out = { inFlight: inFlight.length, missing: inFlight.filter(c => !c.plants.late?.n).length, counted: inFlight.filter(c => c.regrow).length };
+        out.map = mapped;
+        const held = T.chunks.size;
+        F.focus.set(8000, 0, 8000); step();   // chunks wanted, collision booked, nothing generated yet
+        for (const n of ['vegetationDraw', 'vegetation', 'terrainDraw', 'terrain']) F._unuse(n);
+        out.released = [held > 0, T.chunks.size];
+        out.live = F.commits.queue.filter(t => !t.canceled).length;
+        F.dispose();
+        return out;
+      });
+      const s = JSON.stringify(r);
+      check('some chunks were on their way when the species was defined', r.inFlight > 0, s);
+      check('each of them got its plants, and none stays counted as waiting', r.missing === 0 && r.counted === 0, s);
+      check('a density image added while init waits is in when start ends', r.map, s);
+      check('unloading the terrain releases its chunks and withdraws their collision tickets', r.released[0] && r.released[1] === 0 && r.live === 0, s);
+    },
+  },
   {
     name: '[守] 地形拆分：换掉地形和植被外观后碰撞、高度、砍树照旧；改密度地面碰撞不丢；hlod 不画游戏藏起来的楼',
     url: PAGE,

@@ -11,7 +11,7 @@ Game flow and scene transitions (flow() module)
 - `flow.transition(fn: () => any, opts?: FlowTransitionOptions) → Promise<void>` — Scene transition: lock input -> fade to black -> fade out music -> autosave -> fn() -> wait for modules to be ready -> fade in -> unlock; multiple calls queue up
 - Properties:
   - `state: string` Current state name
-  - `transitioning: boolean` A scene transition is in progress
+  - `transitioning: boolean` (experimental) A scene transition is in progress
 
 ## Data structures
 - **FlowStateDef** A flow state (title, playing, paused, game over...)

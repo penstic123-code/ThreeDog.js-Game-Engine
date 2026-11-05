@@ -99,7 +99,7 @@ it by name, and use the name everywhere. Later a `.glb` registered under the sam
   (a Mesh or a Group, with any number of meshes and materials, used as it is). It may be `async`.
 - Arguments: `model: ['name', ...args]` in content passes them as written (each argument list is its own cached model). Or declare a schema,
   `{ build, params: { height: { type: 'number', min: 1, max: 8, default: 3 }, leaf: { type: 'color', default: 0x4a7a3a } } }` (the
-  `core/params.js` format, plus `'color'`): the generator then gets one object, defaults < dev panel values < a call's own `['pine', { height: 5 }]`,
+  `core/base/params.js` format, plus `'color'`): the generator then gets one object, defaults < dev panel values < a call's own `['pine', { height: 5 }]`,
   and a typo or wrong type throws naming the field.
 - Written as `function` (not an arrow), `this` is `{ palette, engine }`: `this.palette` = `engine.assets.palette`, `this.engine` = the engine.
 - Shadows: `{ build, castShadow: false }` in the manifest turns them off for every mesh. Without it, a generator that set `castShadow` or

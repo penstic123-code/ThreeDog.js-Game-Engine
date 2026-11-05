@@ -38,7 +38,7 @@ export default function threedogLive() {
     },
     // Asset hot swap: the game's assets.js (its asset packs, <root>/assets.js) accepts its own updates. Saving an art module it imports (art/tree.js)
     // re-runs that module and assets.js only (Vite's HMR chain), so only those generators are new functions; engine.debug.reloadAssets(new packs)
-    // rebuilds them and swaps every live copy in place (core/assetHot.js). Why this file: it is the one place a game registers its models, so
+    // rebuilds them and swaps every live copy in place (core/assets/assetHot.js). Why this file: it is the one place a game registers its models, so
     // no game code has to opt in. A file the game's main.js also imports directly has another chain to the root: Vite reloads the page then.
     transform(code, id) {
       if (id.split('?')[0].replaceAll('\\', '/') !== join(root, 'assets.js').replaceAll('\\', '/')) return null;

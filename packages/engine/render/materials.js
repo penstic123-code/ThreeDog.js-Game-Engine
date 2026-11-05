@@ -1,7 +1,7 @@
 // Shader effects on plain three.js materials (shadows, fog and tone mapping kept): wind sway, cloud shadows, season tint, ground detail texture,
 // light shaping; plus the terrain's base material and vertex-colored merging. A material's picture is the game's: this file only adds effects to it.
 import * as THREE from 'three';
-import { oneForm } from '../core/validate.js';
+import { oneForm } from '../core/base/validate.js';
 import { patchMaterial, sharedPatch } from './patches.js';
 import { declareUniforms } from './uniformDecl.js';
 import { EFFECTS } from './effects.js';
@@ -9,7 +9,7 @@ import { cloudsPatch, seasonPatch, trackTerms } from './terms.js';
 import { detailPatch } from './detail.js';
 import { lightingPatch } from './lighting.js';
 import { neutralMaterial } from './neutral.js';
-import { codedError } from '../core/errorHints.js';
+import { codedError } from '../core/base/errorHints.js';
 /** @import { ColorLike, Material, BufferGeometry } from '../types/common' */
 
 // Live engines in creation order: applyEffects called without an engine (a game's module-level code) uses the first one's assets and terms
@@ -83,12 +83,12 @@ export function applyEffects(material, { wind, clouds = true, season, detail, li
  * @param {{ assets: any }} [engine]
  * @param {{ effects?: boolean, detail?: import('./detail.js').DetailOptions | null }} [o]
  * @returns {Material}
+ * @experimental
  */
 export function terrainMaterial(base = null, engine = undefined, { effects = true, detail = null } = {}) {
   if (base && effects === false) return base;
-  const e = engine ?? ENGINES[0], on = detail && ((detail.texture && e?.assets) || detail.noise || detail.glsl);
   return applyEffects(base || neutralMaterial('terrain', { vertexColors: true }),
-    { season: 'ground', engine: e ?? undefined, ...(on && { detail }) });
+    { season: 'ground', engine: engine ?? ENGINES[0], ...(detail && { detail }) });
 }
 
 /**
@@ -107,7 +107,7 @@ export function mergeColored(parts, { flat = true } = {}) {
   const keepUV = parts.every(([g]) => g.attributes.uv);
   for (const [g0, hex] of parts) {
     if (!flat && !g0.attributes.normal) g0.computeVertexNormals();
-    const g = g0.index ? g0.toNonIndexed() : g0;
+    const g = g0.index ? g0.toNonIndexed() : flat ? g0.clone() : g0;   // flat rewrites normals: never on the caller's geometry
     if (flat) g.computeVertexNormals();
     const c = new THREE.Color(hex), p = g.attributes.position.array, n = g.attributes.normal.array;
     for (let i = 0; i < p.length; i++) { pos.push(p[i]); nor.push(n[i]); }

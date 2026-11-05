@@ -64,6 +64,8 @@ export const specs = [
         const offs = [engine.events.on('trigger:enter', d => log.push('+' + d.tag)), engine.events.on('trigger:exit', d => log.push('-' + d.tag + (d.who ? '' : '!')))];
         const go = (x, z, steps = 1) => { P.set(x, 0, z); for (let i = 0; i < steps; i++) T.update(0.1); };
         const take = () => log.splice(0).join(' ');
+        const height = engine.ground.height; engine.ground.height = () => -Infinity;   // off a shaped terrain's outline
+        const offIsland = T.add({ position: { x: 1, z: 1 } }); out.offGroundY = offIsland.y; offIsland.remove(); engine.ground.height = height;
         go(500, 500);
         // added next to the actor after it stood still: found at once; removed while occupied: exit with who = null
         const a = T.add({ position: { x: 500, y: -1, z: 500 }, radius: 2, tag: 'a' });
@@ -102,6 +104,7 @@ export const specs = [
         return out;
       });
       check('zone added beside a standing actor enters at once; removing it exits with who = null', r.add === '+a' && r.remove === '-a!' && r.afterRemove === '', JSON.stringify([r.add, r.remove, r.afterRemove]));
+      check('a zone placed off the ground gets a finite height', Number.isFinite(r.offGroundY), r.offGroundY);
       check('edge of a zone on a cell border still counts', r.edge === '+edge contains' && r.edgeOut === '-edge!', JSON.stringify([r.edge, r.edgeOut]));
       check('rotated box reaching into a neighbouring cell', r.rot === '+rot', r.rot);
       check('function / object who: zones fire far from the actor and leave again', r.who === '+obj +fn' && r.whoOut === '-fn!', JSON.stringify([r.who, r.whoOut]));

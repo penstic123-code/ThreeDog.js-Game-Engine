@@ -3,13 +3,49 @@
 
 export const specs = [
   {
+    name: 'Animator: a settled layer keeps its weight; fade 0 shows no bind pose; states may share a clip; a repeat action keeps the way back; action on a looping state does not lock',
+    url: '/tests/anim/index.html',
+    async run({ page, check, ev }) {
+      await page.waitForFunction(() => window.ready === true, null, { timeout: 20000 });
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const a = engine.player.anim, clip = a.clips[0].name, other = a.clips[1].name;
+        const model = engine.player.root.children.find(o => o.animations.length);
+        const m = engine.assets.animate(model, { states: {
+          one: { clip }, two: { clip }, other: { clip: other }, loopy: { clip: other }, shot: { clip: other, loop: false },
+        } });
+        const ws = [];
+        m.go('one', { fade: 0 }); for (let i = 0; i < 4; i++) { m.update(1 / 60); ws.push(m._layers[0].w); }
+        m.update(0); const frozen = m._layers[0].w;
+        m.go('other', { fade: 0.1 }); m.update(0.2); m.go('one', { fade: 0.1 }); m.update(0.2);
+        const a1 = m._layers.find(l => l.name === 'one').actions[0].a;
+        m.go('two', { fade: 0.05 }); m.update(0.2);   // same clip as 'one'
+        const shared = { running: a1.isRunning(), weight: a1.getEffectiveWeight() };
+        m.go('one', { fade: 0 }); m.update(1 / 60);
+        m.action('shot'); m.action('shot');
+        const back = m._return;
+        m.go('one', { fade: 0 });
+        m._layers.forEach(l => { l.once = false; l.done = true; });
+        m.go('one', { fade: 0 }); m.action('loopy'); m.go('one', { fade: 0 });
+        const unlocked = m.state;
+        m.dispose();
+        return { ws, frozen, shared, back, unlocked };
+      });
+      check('fade 0: the weight stays 1 every frame', r.ws.every(w => w === 1), JSON.stringify(r));
+      check('a zero-length frame keeps a number', r.frozen === 1, JSON.stringify(r));
+      check('the layer fading out leaves the shared action running at full weight', r.shared.running && Math.abs(r.shared.weight - 1) < 1e-6, JSON.stringify(r));
+      check('a second press of a one-shot keeps the state to go back to', r.back === 'one', JSON.stringify(r));
+      check('action on a looping state does not lock go()', r.unlocked === 'one', JSON.stringify(r));
+    },
+  },
+  {
     name: '骨骼动画链路：映射、过渡、sync 由玩法时间驱动、写错报错、describe',
     url: '/tests/anim/index.html',
     async run({ page, check, ev }) {
       await page.waitForFunction(() => window.ready === true, null, { timeout: 20000 });
       const r = await ev(async () => {
         engine.haltLoop();
-        const p = engine.player, a = p.anim, model = p.root.children.find(o => o.userData.animations);
+        const p = engine.player, a = p.anim, model = p.root.children.find(o => o.animations.length);
         const wrist = model.getObjectByName('WristR')   /* GLTFLoader drops the dot of Wrist.R */, v = new THREE.Vector3();
         const wristAt = () => { model.updateMatrixWorld(true); return wrist.getWorldPosition(v).clone(); };
         const { warns } = await __t.warns(() => engine.step(0.5));
@@ -42,7 +78,12 @@ export const specs = [
           a.sync('atack', 0.1); a.go('atack');
           const bad = engine.assets.animate(model.clone(), { states: { slash: { clip: 'Sword_Slashh' } } }); bad.dispose();
         });
-        return { mapped, fading, held, ended, viaDescribe, moved: w1.distanceTo(w2), same: w1.distanceTo(w3), lateSync: w2.distanceTo(w4), peak, back, errs, boneCount: model.getObjectByProperty('isSkinnedMesh', true)?.skeleton.bones.length };
+        // a clone animates: its clips came through three's own copy, not through userData's JSON
+        const copy = engine.assets.animate(model.clone(), { states: { idle: { clip: 'Idle_Sword' } } });
+        copy.go('idle'); copy.mixer.update(0.1);
+        const cloned = { clips: copy.clips.length, real: copy.clips.every(c => c instanceof THREE.AnimationClip), state: copy.state };
+        copy.dispose();
+        return { cloned, mapped, fading, held, ended, viaDescribe, moved: w1.distanceTo(w2), same: w1.distanceTo(w3), lateSync: w2.distanceTo(w4), peak, back, errs, boneCount: model.getObjectByProperty('isSkinnedMesh', true)?.skeleton.bones.length };
       });
       check('映射：Idle_Sword 找到 "CharacterArmature|Idle_Sword"，无报错', r.mapped.idle === 'idle' && r.mapped.clip === 'Idle_Sword' && r.mapped.bad === 0, JSON.stringify(r.mapped));
       check('sync 进入时按过渡淡入（idle 与 attack 同时有权重）', r.fading.attack > 0 && r.fading.attack < 1 && r.fading.idle > 0, JSON.stringify(r.fading));
@@ -52,6 +93,7 @@ export const specs = [
       check('a later onFrame sync shows the same frame', r.lateSync < 1e-4, String(r.lateSync));
       check('挥砍对上判定段：手腕最高点在 0.16 附近，判定段内完成七成以上的下砍', r.peak.apexT >= 0.12 && r.peak.apexT <= 0.2 && r.peak.inActive > 0.7, JSON.stringify(r.peak));
       check('sync(null) 交还控制，角色回 idle', r.back.state === 'idle' && !r.back.driven, JSON.stringify(r.back));
+      check('a clone of a model keeps real clips and animates', r.cloned.clips > 0 && r.cloned.real && r.cloned.state === 'idle', JSON.stringify(r.cloned));
       check('写错动作名报错并给出 `attack`', r.errs.some(m => m.includes('"atack"') && m.includes('`attack`')), JSON.stringify(r.errs));
       check('映射到不存在的资源报错，指出 states.slash 和相近名字', r.errs.some(m => m.includes('states.slash') && m.includes('Sword_Slash')), JSON.stringify(r.errs));
     },

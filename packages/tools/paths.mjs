@@ -52,14 +52,14 @@ export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/calendar/Calendar.js`, `${ENGINE_REL}/modules/calendar/index.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/sky/skyModule.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/weather/weatherDraw.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/swarm/Swarm.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
   `${ENGINE_REL}/modules/net/Net.js`, `${ENGINE_REL}/modules/net/index.js`, `${ENGINE_REL}/modules/net/transports.js`,
   `${ENGINE_REL}/modules/world/World.js`, `${ENGINE_REL}/modules/world/index.js`, `${ENGINE_REL}/modules/grid/index.js`, `${ENGINE_REL}/modules/grid/Grid.js`, `${ENGINE_REL}/modules/grid/Layer.js`,
-  `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Views.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Rays.js`, `${ENGINE_REL}/core/DebugOverrides.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/audioVoice.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
-  `${ENGINE_REL}/core/control.js`,
+  `${ENGINE_REL}/core/base/Random.js`, `${ENGINE_REL}/core/threads/Commits.js`, `${ENGINE_REL}/core/threads/Threads.js`, `${ENGINE_REL}/core/ops/Ops.js`, `${ENGINE_REL}/core/scene/Views.js`, `${ENGINE_REL}/core/threads/Jobs.js`, `${ENGINE_REL}/core/base/Events.js`, `${ENGINE_REL}/core/stream/Stream.js`, `${ENGINE_REL}/core/stream/Batching.js`, `${ENGINE_REL}/core/scene/Rays.js`, `${ENGINE_REL}/core/inspect/DebugOverrides.js`, `${ENGINE_REL}/core/base/I18n.js`, `${ENGINE_REL}/core/audio/Audio.js`, `${ENGINE_REL}/core/audio/audioVoice.js`, `${ENGINE_REL}/core/input/Input.js`, `${ENGINE_REL}/core/saves/Saves.js`, `${ENGINE_REL}/core/saves/session.js`, `${ENGINE_REL}/core/engine/page.js`, `${ENGINE_REL}/core/inspect/Budget.js`,
+  `${ENGINE_REL}/core/ops/control.js`,
 ];
 // ── Optional add-on packages ───────────────────────
 // Gameplay-side add-ons such as the terrain generator (world shape is not a picture, so it may not live in a style) and shared post effects:
 // npm name `@threedog/<name>`, monorepo folder packages/<name>/ (one workspace each). Listed by name so rules scan them.
 /** Add-on package names (without the @threedog/ scope) */
-export const ADDON_PKGS = ['terrain-noise', 'post-effects'];
+const ADDON_PKGS = ['terrain-noise', 'post-effects'];
 /** Absolute folder of an add-on package (monorepo: packages/<name>; game mode: node_modules/@threedog/<name>) */
 export const addonDir = name => MODE === 'monorepo' ? abs(`packages/${name}`) : join(abs('node_modules/@threedog'), name);
 /** Add-on folders scanned as project source, relative to ROOT (game mode: the installed copies under node_modules/@threedog) */
@@ -76,9 +76,9 @@ export const API_MD_REL = `${DOCS_REL}/API.md`;
 export const API_DIR_REL = `${DOCS_REL}/api`;
 export const CODEMAP_REL = `${DOCS_REL}/CODEMAP.md`;
 export const RECIPES_REL = `${DOCS_REL}/recipes`;
-export const EVENTS_GEN_REL = `${CORE_REL}/events.generated.js`;
+export const EVENTS_GEN_REL = `${CORE_REL}/base/events.generated.js`;
 export const CORE_DTS_REL = `${TYPES_REL}/core.d.ts`;
-export const I18N_CORE_REL = `${CORE_REL}/I18n.js`;
+export const I18N_CORE_REL = `${CORE_REL}/base/I18n.js`;
 export const CONTENT_RULES_REL = `${MODULES_REL}/content/rules.js`;
 /** Content field tables (placement fields, template / kind fields): content-check validates entries with them */
 export const CONTENT_FIELDS_REL = `${MODULES_REL}/content/fields.js`;
@@ -86,7 +86,7 @@ export const CONTENT_FIELDS_REL = `${MODULES_REL}/content/fields.js`;
 export const CONTENT_IDS_REL = `${MODULES_REL}/content/ids.js`;
 /** Template stages rules (Node-safe): content-check accepts the same stages the engine does */
 export const CONTENT_STAGES_REL = `${MODULES_REL}/content/stages.js`;
-export const BAKED_REL = `${CORE_REL}/Baked.js`;
+export const BAKED_REL = `${CORE_REL}/assets/Baked.js`;
 /** Package name games use to import the engine (the d.ts types hang on this package too) */
 export const ENGINE_PKG = 'threedog';
 
@@ -107,7 +107,7 @@ export const SKIP_DIRS = ['node_modules', 'dist', '.threedog', 'public', 'shots'
  *   "threedog": { "src": ["main.js", "src", "content"], "exclude": ["notes"] }
  * Defaults: src = the whole folder; always excluded: node_modules (SKIP_DIRS), vendor/, and every local-path dependency (file: / link: specs).
  */
-export const GAME_EXCLUDE_DEFAULT = ['vendor'];
+const GAME_EXCLUDE_DEFAULT = ['vendor'];
 function gameScope() {
   const pkg = readJson(join(ROOT, 'package.json')) ?? {}, cfg = pkg.threedog ?? {};
   const local = Object.values({ ...pkg.dependencies, ...pkg.devDependencies, ...pkg.optionalDependencies, ...pkg.peerDependencies })
@@ -139,7 +139,7 @@ export const GAME_CODE_DIRS_REL = [EXAMPLES_REL, GAMES_REL];
 /** Generated docs and declarations (not edited by hand, exempt from size checks) */
 export const GENERATED = [
   new RegExp(`^${DOCS_REL}/API\\.md$`), new RegExp(`^${API_DIR_REL}/`), new RegExp(`^${DOCS_REL}/CODEMAP\\.md$`), /\/GAMEMAP\.md$/,
-  new RegExp(`^${TYPES_GEN_REL}/`), new RegExp(`^${ENGINE_REL}/llms\.txt$`),
+  new RegExp(`^${TYPES_GEN_REL}/`), new RegExp(`^${ENGINE_REL}/llms\\.txt$`),
 ];
 
 /** Every game folder (with a main.js), absolute paths (see project().gameDirs) */

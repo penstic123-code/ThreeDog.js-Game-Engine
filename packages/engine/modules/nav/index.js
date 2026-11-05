@@ -10,11 +10,11 @@
 // The mesh is built once per level: ground edits (engine.terrain.edit, 'ground:change') do not update it, so paths keep following the ground as it was
 // at level load (rebuilding all tiles per edit is too slow to do automatically). A game that reshapes walkable ground at runtime leaves nav out:
 // characters.findPath then uses A*, which resamples the edited area (its rasters are dropped on 'ground:change').
-import { readParams, keysSchema } from '../../core/params.js';
-import { xzOf } from '../../core/math.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { xzOf } from '../../core/base/math.js';
 import { navSearch } from './navPath.js';
-import { warnOnce } from '../../core/validate.js';
-import { coded } from '../../core/errorHints.js';
+import { warnOnce } from '../../core/base/validate.js';
+import { coded } from '../../core/base/errorHints.js';
 
 const NAV_PARAMS = keysSchema(['cellSize', 'agentRadius', 'agentHeight', 'maxClimb', 'maxSlope', 'tileSize', 'crowd', 'debug', 'maxObstacles', 'maxAgents', 'arrive']);
 
@@ -132,7 +132,7 @@ export function nav(opts = {}) {
   function flush() { queued = 0; for (let i = 0; i < 256 && !api.tileCache.update(api.navMesh).upToDate; i++); }
 
   return {
-    name: 'nav', type: 'world', provides: ['nav'], optional: { collision: 'walls and obstacles are not cut out of the navmesh' }, params: NAV_PARAMS, options: opts, label: 'Navmesh',
+    name: 'nav', type: 'world', provides: ['nav'], optional: { collision: 'walls and obstacles are not cut out of the navmesh', level: 'no walkable mesh to build from, so paths stay on A*' }, params: NAV_PARAMS, options: opts, label: 'Navmesh',
     install(engine, ctx) {
       e = engine;
       e.i18n.add({ 'zh-CN': { 'module.nav': '导航网格' }, en: { 'module.nav': 'navmesh' } });
@@ -140,6 +140,7 @@ export function nav(opts = {}) {
       ({ agentRadius = mv.radius, agentHeight = mv.height, maxClimb = mv.stepHeight, maxSlope = mv.maxSlope } = opts);
       api.agent = { radius: agentRadius, height: agentHeight, maxClimb, maxSlope };
       ctx.track(e.events.on('level:loaded', () => { if (lib) build(); else pending = true; }));
+      pending = !!e.level?.ready;   // installed after the level loaded: that event is gone, init builds the mesh
       // fetch and compile the WASM from install on, so it loads while the page builds the world instead of inside start()'s module inits
       wasm = Promise.all([import('@recast-navigation/core'), import('@recast-navigation/generators')]).then(async ([l, g]) => { await l.init(); return [l, g]; });
       wasm.catch(() => {});   // a failure is reported by init (which awaits the same promise), not as an unhandled rejection here

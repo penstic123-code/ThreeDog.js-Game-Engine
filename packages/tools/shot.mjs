@@ -22,7 +22,7 @@
 //   --weather name  clear / cloudy / overcast / rain / storm / snow / fog (needs the weather module)
 //   --pos x,z      put the player here (on the ground; the same pos as applyState({ pos }) and ?pos=). The camera's own spot is --view
 //   --view name    a named camera view: engine.views.define(name, { position, target, fov }) (camera position and target [x, y, z]) in any game, or a page's own ?view= (the style test: overview, character, water, room, path, ui)
-//   --wait seconds  game seconds to advance after setup (default 1)
+//   --wait seconds  real seconds to advance after setup (default 1)
 //   --load-timeout s  wall seconds to wait for loading (engine.loading) to finish before the shot, default 120; on timeout it fails naming what is pending
 //   --size WxH      screenshot resolution, default 960x540
 //   --tier low|high  the device tier the page renders at (default high, the desktop tier: the headless browser would detect low, and a game that reads engine.tier would leave out what weak devices skip)
@@ -42,13 +42,13 @@
 //   --no-picture      skip the numbers and hints
 //   --json         print one JSON object (file, picture numbers, probe facts, hints, describe text) instead of text; for MCP / the dev bridge
 //   --compare before.png  after the shot, print both file names, a pixel-diff number (0 = identical) and the picture differences; take `before` with --keep
-//   --no-build     do not rebuild, use the last dist/ (saves a few seconds when code did not change)
+//   --no-build     do not rebuild, use the last tool build in .threedog/tool-build/ (saves a few seconds when code did not change)
 //   --gpu / --software  force the renderer (default: the hardware GPU when headless can reach it, else SwiftShader; also THREEDOG_RENDER=gpu|software)
 //   -w name         which workspace (engine, my-game…); default the one containing the current directory, then the engine package
 process.env.THREEDOG_TEST = '1';
 import { launchBrowser, newGamePage, buildAndPreview } from './browser.mjs';
 import { mkdirSync } from 'node:fs';
-import { join, dirname, resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { cli, rel } from './paths.mjs';
 import { waitEngine, waitLoaded, sceneCounts, refuseState } from './wait-engine.mjs';
 import { shotName, shotFile, viewSize, wrongServer } from './lib/shot-name.mjs';
@@ -80,14 +80,16 @@ async function imageOnly(opt) {
     return 0;
   } catch (e) { console.log('✗ ' + e.message); return 1; }
 }
-// The device tier the page renders at (core/tier.js ?threedog-tier). Default high: the headless browser reports SwiftShader or an integrated GPU,
+// The device tier the page renders at (core/scene/tier.js ?threedog-tier). Default high: the headless browser reports SwiftShader or an integrated GPU,
 // which detection calls low, and the shot then showed what a game gives weak devices; --tier low checks exactly that
 const tier = opt.tier === undefined ? 'high' : String(opt.tier);
 if (!['low', 'high'].includes(tier)) { console.log(`✗ --tier ${opt.tier}: use low or high`); process.exit(1); }
 const say = json ? () => {} : (...a) => console.log(...a), result = {};   // --json: stdout is the one JSON object
-if (/^[\w-]+$/.test(url)) url = `/${url}.html`;   // a bare name is a page: shot styletest
+if (/^[\p{L}\p{N}_-]+$/u.test(url)) url = `/${url}.html`;   // a bare name is a page: shot styletest
 let W, H; try { [W, H] = viewSize(opt.size); } catch (e) { console.log('✗ ' + e.message); process.exit(1); }
 const wait = opt.wait !== undefined ? +opt.wait : 1;
+const loadTimeout = opt['load-timeout'] !== undefined ? +opt['load-timeout'] : 120;
+if (!(loadTimeout > 0)) { console.log(`✗ --load-timeout ${opt['load-timeout']}: a number of seconds`); process.exit(1); }   // NaN never times out
 
 // a full URL: the page already runs (dev server, another host). Why: the demos screenshotted their running dev server with their own script and
 // skipped the picture check; pointing shot at that same URL keeps the check without a build
@@ -106,7 +108,7 @@ const errors = [];
 const page = await newGamePage(browser, { errors, viewport: { width: W, height: H } });
 
 try {
-  // Time, weather, position, skipping cutscenes and advancing are all left to the engine's URL parameters (engine.applyState, see packages/engine/core/UrlState.js)
+  // Time, weather, position, skipping cutscenes and advancing are all left to the engine's URL parameters (engine.applyState, see packages/engine/core/inspect/UrlState.js)
   const q = new URLSearchParams({ 'threedog-tier': tier });
   for (const k of ['time', 'weather', 'pos', 'at', 'view']) if (opt[k]) q.set(k, opt[k]);
   q.set('wait', String(wait));
@@ -119,7 +121,7 @@ try {
   // A picture taken while terrain / models are still arriving shows a half-built world that looks like an art bug, so finish loading first.
   // Headless only advances on step, so step (no render) until engine.loading says nothing is pending; past the limit fail with what it is still waiting for
   // then the game's own code after `await engine.start()` (lamps added after a later await): a shot never shows the scene before it ran
-  const { tail } = await waitLoaded(page, { timeout: (opt['load-timeout'] !== undefined ? +opt['load-timeout'] : 120) * 1000 });
+  const { tail } = await waitLoaded(page, { timeout: loadTimeout * 1000 });
   result.afterStart = tail;
   const grew = [['objects', tail.objects], ['lights', tail.lights], ['materials', tail.materials]].filter(([, n]) => n).map(([k, n]) => `${n > 0 ? '+' : ''}${n} ${k}`);
   if (!tail.quiet) say(`  The scene was still changing ${Math.round(tail.ms / 1000)} s after start() resolved (${grew.join(', ') || 'requests still open'}); shot as it is now`);
@@ -131,6 +133,8 @@ try {
     const stamp = opt.keep && (!opt.out || opt.out === true) ? '_' + new Date().toISOString().replace(/\D/g, '').slice(4, 14) + String(Date.now() % 1000).padStart(3, '0') : '';
     // --out: a bare name goes into .threedog/shots/ too, a path with a directory is kept as given (lib/shot-name.mjs)
     const file = shotFile(dir, opt.out === true ? undefined : opt.out, shotName(url, opt, wait), stamp);
+    // the same file on both sides: the new shot would replace the "before" and the diff would read identical
+    if (opt.compare && opt.compare !== true && resolve(opt.compare) === resolve(file)) throw new Error(`--compare ${opt.compare} is the file this shot writes: copy it first, or use --keep or --out`);
     mkdirSync(dirname(file), { recursive: true });
     const pictured = await sceneCounts(page);
     await page.screenshot({ path: file });
@@ -176,7 +180,7 @@ Pixel diff: ${diff} (0 = identical, 1 = black vs white)`);
   result.describe = text;
   // under a picture only what bears on it (the same PICTURE lines as threedog snap); --describe-only and --json keep the whole describeText
   if (opt['describe-only']) say('\n' + text);
-  else { result.picture = await ev(`(${PICTURE})(window.engine)`); say('\n' + result.picture.join('\n')); }
+  else { result.pictureLines = await ev(`(${PICTURE})(window.engine)`); say('\n' + result.pictureLines.join('\n')); }   // result.picture holds the numbers
 } catch (e) { errors.push(String(e?.message ?? e)); }   // whole message: the wait/loading failures put the reason on the following lines
 finally { await browser.close(); await server.close(); }
 if (errors.length) say('\nPage errors:\n  ' + errors.slice(0, 5).join('\n  '));

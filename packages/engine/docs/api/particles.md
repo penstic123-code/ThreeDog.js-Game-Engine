@@ -14,7 +14,7 @@ Particles (particles() module)
 - `particles.count(name?: string) → number` — Live particle count (no name = all)
 - `particles.clear(name?: string)` — Clear one effect's (or all) particles
 - Properties:
-  - `effects: Map<string, ParticleEffect>` Defined effects
+  - `effects: Map<string, ParticleEffect>` (experimental) Defined effects
 
 ## Data structures
 - **ParticleOptions** Particle effect parameters (define(), and each entry of particles({ effects, default })). All optional

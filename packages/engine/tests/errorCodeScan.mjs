@@ -26,7 +26,7 @@ export function usedCodes() {
 
 /** Codes raised in the source but not registered, as "code (files)" lines */
 export async function unregistered() {
-  const { ERROR_CODES } = await import(new URL('../core/errorCodes.js', import.meta.url).href);
+  const { ERROR_CODES } = await import(new URL('../core/base/errorCodes.js', import.meta.url).href);
   return [...usedCodes()].filter(([k]) => !ERROR_CODES[k]).map(([k, f]) => `${k} (${f.join(', ')})`);
 }
 

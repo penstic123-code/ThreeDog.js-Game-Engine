@@ -1,7 +1,7 @@
 // Ragdoll skeleton reading: recognise each tool's bone names (Mixamo, Blender, Unreal, Bip01, VRM, Quaternius...) as 11 parts, then measure each segment's real length and thickness.
 // Why this is apart from ragdoll.js: it only reads, never writes, and never touches Rapier, so it can be tested without physics.
 import * as THREE from 'three';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const PARTS = ['hips', 'chest', 'head', 'upperArmL', 'lowerArmL', 'upperArmR', 'lowerArmR', 'upperLegL', 'lowerLegL', 'upperLegR', 'lowerLegR'];
 // Compare after dropping the prefix words an export tool adds. Trailing digits are stripped first (mixamorig1, Bip01)
@@ -99,7 +99,7 @@ export function shapeParts(mesh, map) {
   const right = v1.subVectors(rest.upperLegR.p, rest.upperLegL.p).clone().normalize();
   const up = new THREE.Vector3().subVectors(rest.chest.p, rest.hips.p).normalize();
   const forward = new THREE.Vector3().crossVectors(up, right).normalize();
-  const childEnd = (bone, p) => {   // Hand or foot: the end is the first child bone; with no child, extend along the previous segment's direction (end is corrected from vertices later)
+  const childEnd = bone => {   // Hand or foot: the end is the first child bone; with no child, extend along the previous segment's direction (end is corrected from vertices later)
     const c = bone.children.find(o => o.isBone && sk.bones.includes(o));
     return c ? restOf(sk, c).p : null;
   };
@@ -111,7 +111,7 @@ export function shapeParts(mesh, map) {
     else if (kind === 'upperArm') end = rest['lowerArm' + side].p;
     else if (kind === 'upperLeg') end = rest['lowerLeg' + side].p;
     else if (name === 'head') end = null;
-    else end = childEnd(map[name], r.p) ?? new THREE.Vector3().subVectors(r.p, rest[(kind === 'lowerArm' ? 'upperArm' : 'upperLeg') + side].p).add(r.p);
+    else end = childEnd(map[name]) ?? new THREE.Vector3().subVectors(r.p, rest[(kind === 'lowerArm' ? 'upperArm' : 'upperLeg') + side].p).add(r.p);
     let parent = null;
     for (let o = map[name].parent; o && !parent; o = o.parent) parent = PARTS.find(n => map[n] === o) ?? null;
     if (name !== 'hips' && !parent) throw codedError('rigid-misuse', `rigid.ragdoll(): bone '${map[name].name}' (${name}) is not under hips ('${map.hips.name}'), so nothing holds it. Fix: pass bones: { hips: '<the bone every body part hangs from>' }`);

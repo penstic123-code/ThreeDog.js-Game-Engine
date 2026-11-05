@@ -11,9 +11,9 @@ import { capture, stamp } from '../content-stamp.mjs';
 
 export const name = 'content capture: a named group in the running game becomes an arrangement; children with no named model stop it by name';
 
-// runs in the page: engine.THREE and a code-built model by name, as a game that started in plain three.js and named its models would have them
+// runs in the page: __threedogThree and a code-built model by name, as a game that started in plain three.js and named its models would have them
 const SETUP = `async () => {
-  const e = window.engine, T = e.THREE, box = () => new T.Mesh(new T.BoxGeometry(1, 1, 1));
+  const e = window.engine, T = __threedogThree, box = () => new T.Mesh(new T.BoxGeometry(1, 1, 1));
   e.assets.manifest({ name: 'cap', models: { capBox: { build: box } } });
   const a = await e.assets.model('capBox');
   a.name = 'crate'; a.position.set(1, 0, -2); a.rotation.y = 2.5;   // past 90 degrees: an Euler y alone would read it wrong

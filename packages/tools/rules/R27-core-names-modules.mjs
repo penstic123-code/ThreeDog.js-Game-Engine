@@ -14,7 +14,7 @@ const ALLOW = [
 ];
 // render/ files that import a module file: [file, reason] (the import check has no module name to allow by). Empty: keep it so
 const IMPORT_ALLOW = [];
-// A module's display name ('module.terrain': '地形') is the module's own text: it registers it with its other strings, so core/I18n.js holds none
+// A module's display name ('module.terrain': '地形') is the module's own text: it registers it with its other strings, so core/base/I18n.js holds none
 const NAME_KEY = /'module\.(\w+)':/g;
 
 // What every game has, with or without modules: core, the renderer layer and the UI layer (review 0.4 E: the check used to scan core/ only)
@@ -35,7 +35,7 @@ export default {
     const out = [], names = moduleNames();
     const re = /\b(?:e|engine|this)\.(\w+)\b/g;
     for (const f of DIRS.flatMap(d => walk(d))) {
-      const base = f.slice(P.ENGINE_REL.length + 1).replace(/^core\//, '');   // core files keep their bare name in ALLOW; render/ and ui/ files are 'render/x.js'
+      const base = f.slice(P.ENGINE_REL.length + 1).replace(/^core\/[^/]+\//, '');   // core files keep their bare name in ALLOW; render/ and ui/ files are 'render/x.js'
       lines(f).forEach((raw, i) => {
         if (/^\s*\*/.test(raw)) return;   // JSDoc body line
         // an import of a module file is the hard form of the same dependency: core would not even load without that module

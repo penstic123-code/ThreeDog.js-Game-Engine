@@ -250,7 +250,7 @@ export const specs = [
   },
   {
     // Why a guard: adding a species used to drop every own-ground chunk (the whole map lost its trees and tree collision until placed again),
-    // and the ground chunks rebuilt their source list every frame. Both tables now share one streaming helper (core/chunkStream.js).
+    // and the ground chunks rebuilt their source list every frame. Both tables now share one streaming helper (core/stream/chunkStream.js).
     name: '[guard] vegetation ground streaming: a species added later keeps the loaded chunks and their plants, a quiet frame keeps its source list',
     url: '/tests/terrain-edit/',
     async run({ check, ev }) {
@@ -280,7 +280,7 @@ export const specs = [
     },
   },
   {
-    name: '[guard] vegetation ground streaming: one chunk-streaming implementation (core/chunkStream.js) used by terrain and own-ground vegetation',
+    name: '[guard] vegetation ground streaming: one chunk-streaming implementation (core/stream/chunkStream.js) used by terrain and own-ground vegetation',
     url: '/tests/terrain-edit/',
     async run({ check }) {
       const ENGINE = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -291,7 +291,7 @@ export const specs = [
       const walk = d => readdirSync(join(ENGINE, d), { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(join(d, e.name)) : e.name.endsWith('.js') ? [join(d, e.name)] : []);
       const hits = ['core', 'modules'].flatMap(walk).filter(f => !/chunkStream\.js$/.test(f) && tells.some(t => t.test(read(f))));
       const users = ['modules/terrain/ChunkManager.js', 'modules/vegetation/groundChunks.js'].filter(f => /new ChunkStream\(this/.test(read(f)));
-      check('no file but core/chunkStream.js carries chunk streaming code', hits.length === 0, JSON.stringify(hits));
+      check('no file but core/stream/chunkStream.js carries chunk streaming code', hits.length === 0, JSON.stringify(hits));
       check('terrain chunks and own-ground vegetation chunks both stream through ChunkStream', users.length === 2, JSON.stringify(users));
     },
   },

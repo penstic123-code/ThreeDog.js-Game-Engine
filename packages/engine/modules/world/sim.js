@@ -22,10 +22,10 @@
 // mover cost every step. Buckets follow the hashed id and the step count (both saved), not distances measured on frame boundaries, so a loaded save runs the
 // same records on the same steps as a live run.
 
-import { DEV } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { DEV } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { FarFlights } from './simFar.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 /** Near simulation order: by id (independent of insertion order and loading) */
 const byId = (a, b) => a.rec.id < b.rec.id ? -1 : 1;

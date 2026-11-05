@@ -13,16 +13,17 @@
 // A game's own calendar (a turn counter, a lunar calendar) replaces this module by meeting modules/calendar/contract.js.
 // Time of day and day are views of the engine's 'calendar' time channel (engine.time.now('calendar') = engine.clock.now), not a second counter:
 // the calendar keeps an origin (the day and time of day at channel second t0) and reads the rest from the channel. Why: one time source
-// (core/time.js); a calendar that added its own dt drifted from clock timers, and skip had to advance both. Writing timeOfDay or day moves the
+// (core/time/time.js); a calendar that added its own dt drifted from clock timers, and skip had to advance both. Writing timeOfDay or day moves the
 // origin. day:start / season:change and the clock timers fire right after the channel moves (engine.time.onMove), on a step and on a skip alike.
 import { parseSeasons, seasonIndexOf, dayOfSeasonOf, seasonProgressOf } from './seasons.js';
-import { formatClock, parseClock, sunHeightAt } from '../../core/dayTime.js';
+import { formatClock, parseClock, sunHeightAt } from '../../core/time/dayTime.js';
 import { Schedule } from './schedule.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { fmt } from '../../core/base/validate.js';
 /** @import { CalendarOptions, CalendarAtOptions, CalendarBetweenOptions } from '../../types/world' */
 /** @import { Handle } from '../../types/common' */
 const STRINGS = {
-  badDayLength: 'calendar({ dayLength }): game seconds per day must be a number > 0 (Infinity = the time of day never moves); got {got}',
+  badDayLength: 'calendar({ dayLength }): calendar seconds per day must be a number > 0 (Infinity = the time of day never moves); got {got}',
   noSeason: "calendar.onSeason('{name}'): the calendar has no such season (seasons: {list}). " +
     "Seasons are off by default: calendar({ seasons: ['spring', 'summer', 'autumn', 'winter'] })",
 };
@@ -35,18 +36,16 @@ export class Calendar {
    */
   constructor(engine, { time = 0.33, dayLength = Infinity, day = 1, daysPerSeason = 7, seasons = [], hoursPerDay = 24 } = {}) {
     /** @internal */ this.engine = engine;
-    if (!(dayLength > 0)) throw codedError('calendar-option', STRINGS.badDayLength.replace('{got}', String(dayLength)));
+    if (!(dayLength > 0)) throw codedError('calendar-option', fmt(STRINGS.badDayLength, { got: String(dayLength) }));
     // the origin: day _day0 at time of day _tod0 when the calendar channel read _t0 (kept apart, so a time just set reads back exactly)
     /** @internal */ this._day0 = day;
     /** @internal */ this._tod0 = parseClock(time, hoursPerDay) % 1;
     /** @internal */ this._t0 = engine.clock.now;
     /** @internal */ this._dayLength = dayLength;
     /** @internal the day the last move saw (day:start fires when a move changes it) */ this._lastDay = day;
-    /** Hours per day (clock notation 'HH:MM', schedules, at / between) @type {number} */
+    /** Hours per day (clock notation 'HH:MM', schedules, at / between) @type {number} @experimental */
     this.hoursPerDay = hoursPerDay;
-    /** Days per season for seasons given by name only @type {number} */
-    this.daysPerSeason = daysPerSeason;
-    /** Season names, [] when the game has no seasons (the default) @type {string[]} */
+    /** Season names, [] when the game has no seasons (the default) @type {string[]} @experimental */
     this.seasons = [];
     // kept as names plus the day each season ends (cumulative), so seasons of different lengths cost one short loop in the getters
     /** @internal */ this._ends = [];
@@ -61,7 +60,7 @@ export class Calendar {
   /** @internal move the origin to `day` at `tod` now */
   _origin(day, tod) { this._day0 = day; this._tod0 = tod; this._t0 = this.engine.clock.now; }
   /**
-   * Time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength game seconds (the unit of engine.clock.now). Writing it later
+   * Time of day: 0-1 (0 midnight, 0.25 6am, 0.5 noon, 0.75 6pm); one day = dayLength calendar seconds (the unit of engine.clock.now). Writing it later
    * in the day counts as time passing (at timers crossed fire); writing it earlier only resets the timers' baseline @type {number}
    */
   get timeOfDay() { const x = this._x(); return x - Math.floor(x); }
@@ -70,12 +69,12 @@ export class Calendar {
   get day() { return this._day0 + Math.floor(this._x()); }
   set day(v) { this._origin(v, this.timeOfDay); this._lastDay = v; }
   /**
-   * Game seconds per day (1 hour = dayLength / hoursPerDay game seconds; at clock.rate 1 calendar seconds equal real seconds); Infinity = the time of
+   * Calendar seconds per day (1 hour = dayLength / hoursPerDay calendar seconds; at clock.rate 1 calendar seconds equal real seconds); Infinity = the time of
    * day never moves. Changing it keeps the current time of day @type {number}
    */
   get dayLength() { return this._dayLength; }
   set dayLength(v) {
-    if (!(v > 0)) throw codedError('calendar-option', STRINGS.badDayLength.replace('{got}', String(v)));
+    if (!(v > 0)) throw codedError('calendar-option', fmt(STRINGS.badDayLength, { got: String(v) }));
     this._origin(this.day, this.timeOfDay); this._dayLength = v;
   }
   /** Clock text, e.g. "18:00" */
@@ -84,15 +83,15 @@ export class Calendar {
   get daylight() { return Math.max(0, sunHeightAt(this.timeOfDay)); }
   /** Whether it is daytime by the clock (06:00-18:00 of the day's hours) */
   get isDay() { return this.daylight > 0; }
-  /** Current season index, -1 without seasons */
+  /** Current season index, -1 without seasons @experimental */
   get seasonIndex() { return seasonIndexOf(this); }
   /** Current season name, e.g. 'spring'; null without seasons @type {string | null} */
   get season() { return this.seasons[this.seasonIndex] ?? null; }
-  /** Day within the season (1-based); 0 without seasons */
+  /** Day within the season (1-based); 0 without seasons @experimental */
   get dayOfSeason() { return dayOfSeasonOf(this); }
-  /** Fraction of the season elapsed, 0-1 (includes time of day); 0 without seasons */
+  /** Fraction of the season elapsed, 0-1 (includes time of day); 0 without seasons @experimental */
   get seasonProgress() { return seasonProgressOf(this); }
-  /** Total game time in days (fractional), for growth, cooldowns and the like */
+  /** Total game time in days (fractional), for growth, cooldowns and the like @experimental */
   get totalDays() { return this._day0 - 1 + this._x(); }
 
   /**
@@ -150,12 +149,13 @@ export class Calendar {
   onSeason(name, fn) {
     // a season the calendar does not have would never fire: say so now instead of waiting forever
     if (!this.seasons.includes(name))
-      throw codedError('calendar-option', STRINGS.noSeason.replace('{name}', name).replace('{list}', this.seasons.length ? this.seasons.join(', ') : 'none'));
+      throw codedError('calendar-option', fmt(STRINGS.noSeason, { name: String(name), list: this.seasons.length ? this.seasons.join(', ') : 'none' }));
     return this._sched.onSeason(name, fn);
   }
   /**
-   * Game seconds until the next clock mark (midnight, at times, between edges); engine.skip ends a segment there; Infinity when the time of day never moves
+   * Calendar seconds until the next clock mark (midnight, at times, between edges); engine.skip ends a segment there; Infinity when the time of day never moves
    * @returns {number}
+   * @experimental
    */
   untilMark() { return Number.isFinite(this.dayLength) ? this._sched.untilNext() * this.dayLength : Infinity; }
   /** Number of registered clock-time / season timers, for engine.counts() @internal */

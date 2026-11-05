@@ -1,7 +1,7 @@
 // [守] shot 的画面检查（packages/tools/picture/check.mjs）：真引擎、真渲染，跑和 threedog shot 同一个页内探针 probePicture，再用同一个 pictureHints 出提示。
 // 守的是"不许绕开"：不是喂假数字给 pictureHints，而是让探针自己把阴影强度调 0 对比像素，
 // 所以 bias 把影子推没了这种"设置说有、画面没有"的矛盾，只有真量到才会报；正常场景不许报任何矛盾。
-import { probePicture, pictureHints, pictureNumbers } from '@threedog/tools/picture-check';
+import { probeSource, pictureHints, pictureNumbers } from '@threedog/tools/picture-check';
 
 const PAGE = '/tests/threads/';
 
@@ -37,7 +37,7 @@ export const specs = [
     software: true,
     url: PAGE,
     async run({ check, ev }) {
-      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probePicture.toString());
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probeSource);
       const r = await ev(async () => {
         const { mk, THREE } = threedogThreads, { createEngine } = threedogThreads.all;
         const E = mk(createEngine, 'picture-picture-code', { lights: false });
@@ -53,6 +53,10 @@ export const specs = [
         E.step(1 / 30);
         const p = await window.__probePicture(E, { time: false });
         delete p.pixels;
+        // a built page: no three.js under the private name. What needs a class says so, the rest still runs
+        const three = globalThis.__threedogThree; delete globalThis.__threedogThree;
+        const built = await window.__probePicture(E, { time: false }).finally(() => { globalThis.__threedogThree = three; });
+        p.built = { error: built.error, unread: built.unread, keys: Object.keys(built) };
         // a Standard material reads scene.environment: with the engine's lights off the room map must not come in for it
         E.scene.add(new THREE.Mesh(new THREE.SphereGeometry(1), new THREE.MeshStandardMaterial({ metalness: 1, roughness: 0.2 })));
         E.step(1 / 30); E.step(1 / 30);
@@ -63,6 +67,8 @@ export const specs = [
         E.dispose();
         return p;
       });
+      check('a built page (no three.js for the tools): no error, what needs a class is named, shadows, key and lights are still read',
+        !r.built.error && r.built.unread?.length === 4 && ['shadows', 'key', 'lights'].every(k => r.built.keys.includes(k)), JSON.stringify(r.built));
       check('lights: false: no room environment either, even for a Standard material', r.envAfter === true);
       check('the game set toneMapping: describe().owned no longer says the engine writes it', r.tone.owned && r.tone.owned !== 'engine', JSON.stringify(r.tone));
       const lamp = r.lights.find(l => l.name === 'my-lamp');
@@ -80,7 +86,7 @@ export const specs = [
     software: true,
     url: PAGE,
     async run({ check, ev }) {
-      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probePicture.toString());
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probeSource);
       const r = await ev(async () => {
         const { mk, THREE, bloom } = threedogThreads, { createEngine } = threedogThreads.all;
         const E = mk(createEngine, 'picture-nan');
@@ -117,7 +123,7 @@ export const specs = [
     software: true,
     url: PAGE,
     async run({ check, ev }) {
-      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probePicture.toString());
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probeSource);
       const r = await ev(async () => {
         const { mk, THREE } = threedogThreads, { createEngine } = threedogThreads.all;
         const E = mk(createEngine, 'picture-black');
@@ -160,7 +166,7 @@ export const specs = [
     software: true,   // picture check measures rendered pixels
     url: PAGE,
     async run({ check, ev }) {
-      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probePicture.toString());
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probeSource);
       const r = await ev(async () => {
         const { mk, THREE } = threedogThreads, T = threedogThreads.all, { createEngine } = T;
         const E = mk(createEngine, 'picture-check');
@@ -190,7 +196,7 @@ export const specs = [
         const was = E.lights.sun.shadow.bias;
         E.lights.sun.shadow.bias = -0.05;   // 阴影深度 0-1 里的 -0.05，乘上几百米的深度范围就是十几米：影子全没了
         E.step(1 / 30); aim();
-        // scene.background 是引擎建场景时写的底色灰 #8c8c8c（core/Engine.js），穹顶盖在它上面：不许当成"夜里还亮着的东西"报出来。
+        // scene.background 是引擎建场景时写的底色灰 #8c8c8c（core/engine/Engine.js），穹顶盖在它上面：不许当成"夜里还亮着的东西"报出来。
         // 不能自己赋一个新 Color 进去：那算游戏接管背景，天空会让出并藏起穹顶，底色就真露出来了
         // time of day is a view of the time channel now: steps advance it, so the value to compare is the one right before the probe (it must not move)
         const tod = E.calendar.timeOfDay;
@@ -233,7 +239,7 @@ export const specs = [
     software: true,   // picture check measures rendered pixels
     url: PAGE,
     async run({ check, ev }) {
-      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probePicture.toString());
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probeSource);
       const r = await ev(async () => {
         const { mk, THREE } = threedogThreads, T = threedogThreads.all, { createEngine } = T;
         const E = mk(createEngine, 'picture-check-caster');
@@ -262,7 +268,7 @@ export const specs = [
     software: true,
     url: PAGE,
     async run({ check, ev }) {
-      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probePicture.toString());
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probeSource);
       const r = await ev(async () => {
         const { mk, THREE } = threedogThreads, { createEngine } = threedogThreads.all;
         const E = mk(createEngine, 'picture-own-lights', { lights: false });

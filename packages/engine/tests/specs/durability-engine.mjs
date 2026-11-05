@@ -96,7 +96,7 @@ export const specs = [
   {
     name: 'durability-engine: a missing sound fails with asset-load naming the path; an uncaught rejection shows once in describe().unhandled (audio test page)',
     url: '/tests/audio/',
-    expectErrors: /404|Not Found|nothing caught it|Sound failed/,
+    expectErrors: /404|Not Found|nothing caught it/,
     async run({ check, ev }) {
       const r = await ev(async () => {
         const err = async p => { try { await p; return null; } catch (e) { return { code: e.code, message: e.message }; } };

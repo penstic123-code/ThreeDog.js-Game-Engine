@@ -151,4 +151,30 @@ export const specs = [
       check('an unknown name lists what fields() knows', /field table/.test(r.unknown ?? '') && /props\.grid/.test(r.unknown ?? ''), r.unknown);
     },
   },
+  {
+    // engine.unuse says tracked handles go with the module: these were not, so a new content() could not present its own template kind ('taken')
+    name: '[guard] engine.unuse(content) takes its quest listeners and template presenters with it; a new content() loads the same templates',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk } = threedogThreads, T = threedogThreads.all, out = {};
+        const E = mk(T.createEngine, 'tpl-unuse');
+        E.use(T.world(), T.quests(), T.content());
+        await E.start(); E.haltLoop();
+        const data = () => ({ templates: { tBox: { model: 'rock' } }, quests: { tq: { title: 'q', steps: [{ text: 's', done: { flag: 'never' } }], startOn: 'test:tq' } } });
+        E.content.load(data());
+        out.before = E.world.presents('tBox');
+        E.unuse('content');
+        out.after = E.world.presents('tBox');
+        E.ops.allow(() => E.events.emit('test:tq', {}));
+        out.started = E.quests.state('tq');
+        E.use(T.content());
+        out.again = (() => { try { E.content.load(data()); return E.world.presents('tBox'); } catch (x) { return x.message; } })();
+        E.dispose();
+        return out;
+      });
+      check('the presenter goes with the module and comes back with a new one', r.before === true && r.after === false && r.again === true, JSON.stringify(r));
+      check('the startOn listener went too: the event starts nothing', !r.started?.active, JSON.stringify(r));
+    },
+  },
 ];

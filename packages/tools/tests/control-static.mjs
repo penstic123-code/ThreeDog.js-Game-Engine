@@ -1,5 +1,5 @@
 // Character control, static half (the browser half is packages/engine/tests/specs/control.mjs): inside the engine, a character's move() is
-// called only by the control slot (core/control.js: a holder's step or handle.move) and by NPC behaviours, which run inside control.runAs
+// called only by the control slot (core/ops/control.js: a holder's step or handle.move) and by NPC behaviours, which run inside control.runAs
 // (npcSim.js). Any other engine file calling ch.move( / player.move( is a second driver beside the holder: the bug control exists to remove.
 // Why a source scan and not only the runtime control-bypass error: the runtime check fires only in dev and only on the path a test walks.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -9,7 +9,7 @@ import { ENGINE } from '../paths.mjs';
 export const name = 'character control: only the control slot and NPC behaviours call a character\'s move() in engine code';
 
 // files allowed to call a character's move(): the slot itself, and the behaviour helpers it runs as the NPC's base holder
-const ALLOW = new Set(['core/control.js', 'modules/characters/npcSim.js']);
+const ALLOW = new Set(['core/ops/control.js', 'modules/characters/npcSim.js']);
 // receivers that name a character (world.move, mover.move, a touch stick's move are other things)
 const CHAR = /(?:^|[^\w$.])((?:e\.|engine\.|this\.)?(?:ch|chr|character|player|rider|npc\.character\??|p))\.move\(/;
 const DIRS = ['core', 'modules', 'ui', 'render'];
@@ -35,7 +35,7 @@ export async function run({ check }) {
       if (CHAR.test(code)) hits.push(`${rel}:${i + 1}: ${line.trim().slice(0, 100)}`);
     });
   }
-  check('[guard] no engine file outside core/control.js and npcSim.js calls a character\'s move()', hits.length === 0, hits.join('\n'));
+  check('[guard] no engine file outside core/ops/control.js and npcSim.js calls a character\'s move()', hits.length === 0, hits.join('\n'));
   // the scan itself: it must see a direct call, and must not count world.move, the slot's own handle or a quoted call
   check('the scan catches ch.move( and player.move(, ignores world.move( / ctl.move( / strings', CHAR.test('  ch.move(1, 0, false, dt);') && CHAR.test('e.player.move(0, 0)')
     && !CHAR.test('W.move(id, p)') && !CHAR.test('ctl.move(x, z)') && !CHAR.test('this.mover.move(x)') && !CHAR.test("fix: 'character.move() was called'".replace(STRINGS, "''")));

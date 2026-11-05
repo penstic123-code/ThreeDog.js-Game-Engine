@@ -1,8 +1,8 @@
 // A 组测试页：压缩资源、射线（BVH）、流式生成、烘焙往返、网址设定现场。用代码搭的街区当关卡。
 //   /tests/a/?state=corner   → defineState('corner') 的现场（玩家到 (30, 30)）
 import { createEngine, presets, world, collision, characters, level, THREE } from '../../index.js';
-import { toGLB, fromGLTF } from '../../core/Baked.js';
-import { defineOwned, allowOwned } from '../../core/owned.js';
+import { toGLB, fromGLTF } from '../../core/assets/Baked.js';
+import { defineOwned, allowOwned } from '../../core/ops/owned.js';
 import { buildTestBlock, buildHeavy } from '../fixtures/block.js';
 
 const engine = createEngine({ bindings: { ...presets.bindings.walk }, canvas: document.getElementById('view'), ui: { loading: false }, saveKey: 'test-a' });

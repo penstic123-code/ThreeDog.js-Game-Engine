@@ -42,6 +42,7 @@ engine.camera.position.set(0, 8, 10); engine.camera.lookAt(0, 0, 0);
 await engine.start();   // first: a body needs Rapier, which start() loads
 engine.content.load(data, { places: data.places });
 Object.assign(window, { engine });
+document.body.insertAdjacentHTML('beforeend', '<div style="position:fixed;inset:0;z-index:50;background:#123"></div>');   // a title made by hand
 `,
   'content/index.js': "import places from './places.js';\nimport props from './props.js';\nimport templates from './templates.js';\nimport grids from './grids.js';\nimport npcs from './npcs.js';\nimport items from './items.js';\nimport pickups from './pickups.js';\nexport default { places, props, templates, grids, npcs, items, pickups };\n",
   'content/items.js': "export default { apple: { name: 'Apple' } };\n",
@@ -83,7 +84,7 @@ async function onWebGPU(dir, check) {
       for (let i = 0; i < d.length; i += 4) if (d[i] > 170 && d[i + 1] < 90 && d[i + 2] < 90) n++;
       return n;
     }, { b64, p });
-    const at = await recordOf(page, 'barrel'), reach = await page.evaluate(at => { const c = window.engine.camera; return c.position.distanceTo(new window.engine.THREE.Vector3(at.x, at.y, at.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.45; }, at);
+    const at = await recordOf(page, 'barrel'), reach = await page.evaluate(at => { const c = window.engine.camera; return c.position.distanceTo(new __threedogThree.Vector3(at.x, at.y, at.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.45; }, at);
     const arrow = await toScreen(page, { ...at, x: at.x + reach }), bare = await shot();
     await selectEntry(page, 'barrel');
     await page.waitForFunction(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
@@ -100,7 +101,7 @@ async function onWebGPU(dir, check) {
 
 /** Screen point of a world point, in page pixels */
 const toScreen = (page, p) => page.evaluate(p => {
-  const e = window.engine, v = new e.THREE.Vector3(p.x, p.y, p.z).project(e.camera), r = e.renderer.domElement.getBoundingClientRect();
+  const e = window.engine, v = new __threedogThree.Vector3(p.x, p.y, p.z).project(e.camera), r = e.renderer.domElement.getBoundingClientRect();
   return { x: r.left + (v.x + 1) / 2 * r.width, y: r.top + (1 - v.y) / 2 * r.height };
 }, p);
 const recordOf = (page, id) => page.evaluate(id => { const p = window.engine.world.get(id).position; return { x: p.x, y: p.y, z: p.z }; }, id);
@@ -114,7 +115,7 @@ async function dragEntry(page, id, axis, by, during = null) {
   const at = await recordOf(page, id);
   await fresh(page);
   const grab = await page.evaluate(at => {
-    const c = window.engine.camera, d = c.position.distanceTo(new window.engine.THREE.Vector3(at.x, at.y, at.z));
+    const c = window.engine.camera, d = c.position.distanceTo(new __threedogThree.Vector3(at.x, at.y, at.z));
     return d * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.45;   // TransformControls' on-screen size (size 1), then most of the way up its arrow
   }, at);
   const from = await toScreen(page, { ...at, [axis]: at[axis] + grab }), to = await toScreen(page, { ...at, [axis]: at[axis] + grab + by });
@@ -135,13 +136,17 @@ async function selectEntry(page, id) {
   await page.mouse.click(p.x, p.y);
   await until(async () => { const s = await state(page); return s.state === 'selected' && s.text.includes(id); });
 }
+/** A row the file leaves empty may wait behind More */
+const openMore = page => page.click('#threedog-editor details:not([open]) summary', { timeout: 500 }).catch(() => {});
 /** Type into a property row and leave it, as a user does */
 async function setRow(page, key, value) {
   await fresh(page);
+  await openMore(page);
   await page.fill(`[data-field="${key}"]`, value);
   await page.press(`[data-field="${key}"]`, 'Tab');
   return stateIs(page, 'saved');
 }
+const refusedRow = async (page, key, value) => { await fresh(page); await page.fill(`[data-field="${key}"]`, value); await page.press(`[data-field="${key}"]`, 'Tab'); return stateIs(page, 'refused'); };
 const press = async (page, keys) => { await fresh(page); await page.evaluate(() => document.activeElement?.blur()); await page.keyboard.press(keys); };
 const button = async (page, name) => { await fresh(page); await page.click(`#threedog-editor-${name}`); };
 const modelAt = (page, id) => page.evaluate(id => { const o = window.engine.world.view(id); return o ? { x: o.position.x, y: o.position.y, z: o.position.z, scale: o.scale.x, yaw: o.rotation.y } : null; }, id);
@@ -166,6 +171,7 @@ export async function run({ check, browser }) {
     await page.evaluate(() => { window.__sameLoad = true; });
     const was = await recordOf(page, 'crate');
     check('[guard] the title screen goes when the editor opens: it covers the canvas, and a new game always has one', await page.evaluate(() => !window.engine.ui.isOpen('title') && !document.querySelector('.threedog-title')));
+    check('[guard] a title the game wrote by hand is out of the way too: the canvas takes the clicks', await page.evaluate(() => { const r = window.engine.renderer.domElement.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === window.engine.renderer.domElement; }));
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
     check('[guard] Esc does not open the game\'s menu over the scene', await page.evaluate(() => !window.engine.settings.isOpen));
@@ -256,6 +262,18 @@ export async function run({ check, browser }) {
     const refused = await modelAt(page, 'barrel');
     check('[guard] a refused write puts the model back where the file has it', near(refused.x, slid.x) && near(refused.y, slid.y) && text() === fileBefore, JSON.stringify({ refused, slid }));
 
+    // [guard] a click on another entry ends the typing, so the refusal of that save comes back with the selection already moved: it was dropped without a word
+    await page.route('**/__threedog/design', r => (JSON.parse(r.request().postData()).op === 'write' ? r.fulfill({ json: { ok: false, conflict: true, error: 'changed by someone else' } }) : r.continue()));
+    await selectEntry(page, 'barrel');
+    await page.fill('[data-field="scale"]', '3');
+    const other = await toScreen(page, await recordOf(page, 'crate'));
+    await fresh(page);
+    await page.mouse.click(other.x, other.y);
+    await stateIs(page, 'refused');
+    const lost = await state(page);
+    await page.unroute('**/__threedog/design');
+    check('[guard] a refused save stays on screen when the selection moves on', /barrel not saved: changed by someone else/.test(lost.text), JSON.stringify(lost));
+
     // 7. height and turning
     await dragEntry(page, 'barrel', 'y', 1);
     await stateIs(page, 'saved');
@@ -263,7 +281,7 @@ export async function run({ check, browser }) {
     check('[guard] the height handle writes y, metres above the ground, and the model stands there', !!raised && Math.abs(+raised[1] - 1) < 0.3 && near(up.y, up.x / 4 + +raised[1]), text() + JSON.stringify(up));
     await selectEntry(page, 'lamp');
     await button(page, 'turn');
-    const ring = await page.evaluate(id => { const e = window.engine, p = e.world.get(id).position, c = e.camera; return c.position.distanceTo(new e.THREE.Vector3(p.x, p.y, p.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.5; }, 'lamp');
+    const ring = await page.evaluate(id => { const e = window.engine, p = e.world.get(id).position, c = e.camera; return c.position.distanceTo(new __threedogThree.Vector3(p.x, p.y, p.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.5; }, 'lamp');
     const lampAt = await recordOf(page, 'lamp'), yawWas = (await modelAt(page, 'lamp')).yaw;
     const spin = a => toScreen(page, { x: lampAt.x + ring * Math.sin(a), y: lampAt.y, z: lampAt.z + ring * Math.cos(a) });
     const r0 = await spin(0), r1 = await spin(0.4), r2 = await spin(0.8);
@@ -278,7 +296,7 @@ export async function run({ check, browser }) {
     // would stand there is no handle: a drag there must move the camera and write nothing. Comparing the camera is what proves the drag was not on a handle that happened to write the same
     const turnedText = text(), camWas = await page.evaluate(() => window.engine.camera.position.toArray());
     const outer = await page.evaluate(id => {
-      const e = window.engine, p = e.world.get(id).position, c = e.camera, s = c.position.distanceTo(new e.THREE.Vector3(p.x, p.y, p.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.75;
+      const e = window.engine, p = e.world.get(id).position, c = e.camera, s = c.position.distanceTo(new __threedogThree.Vector3(p.x, p.y, p.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.75;
       c.updateMatrixWorld();
       const m = c.matrixWorld.elements, pt = a => ({ x: p.x + s * (m[0] * Math.cos(a) + m[4] * Math.sin(a)), y: p.y + s * (m[1] * Math.cos(a) + m[5] * Math.sin(a)), z: p.z + s * (m[2] * Math.cos(a) + m[6] * Math.sin(a)) });
       return [Math.PI, Math.PI + 0.4, Math.PI + 0.8].map(pt);   // the left side: the right one lies under the panel, where a drag never reaches the canvas
@@ -291,7 +309,7 @@ export async function run({ check, browser }) {
     await page.mouse.down(); await page.mouse.move(o[1].x, o[1].y, { steps: 4 }); await page.mouse.move(o[2].x, o[2].y, { steps: 4 }); await page.mouse.up();
     await until(async () => (await state(page)).state !== 'waiting', 1000);
     const tilt = await page.evaluate(() => { const r = window.engine.world.view('lamp').rotation; return { x: r.x, y: r.y, z: r.z }; });
-    const camMoved = await page.evaluate(was => window.engine.camera.position.distanceTo(new window.engine.THREE.Vector3(...was)) > 0.05, camWas);
+    const camMoved = await page.evaluate(was => window.engine.camera.position.distanceTo(new __threedogThree.Vector3(...was)) > 0.05, camWas);
     check('[guard] a drag where the outer ring would stand moves the camera, and the file and the model keep the turn they had', camMoved && text() === turnedText && near(tilt.x, 0, 0.01) && near(tilt.z, 0, 0.01) && near(tilt.y, yawNow, 0.01), JSON.stringify({ tilt, yawNow, camMoved, same: text() === turnedText }));
     await page.evaluate(was => window.engine.camera.position.fromArray(was), camWas);   // the steps below aim from this view, and the reload keeps the view
     await page.reload();
@@ -321,6 +339,8 @@ export async function run({ check, browser }) {
     await until(async () => (await state(page)).text.includes('guard'));
     const guard = await recordOf(page, 'guard'), wrote = +/start: \{ x: ([-\d.]+)/.exec(npcs())?.[1];
     check('[guard] an NPC moves by its start; the page reloads, keeps the selection, and stands it there', wrote > -1 && near(guard.x, wrote) && /z: 1 \}/.test(npcs()) && (await state(page)).text.includes('guard'), npcs() + JSON.stringify(guard));
+    const npcsMoved = npcs();
+    check('[guard] an NPC keeps its start: without one the game stops at load, with no editor to undo in', await refusedRow(page, 'start', '') && npcs() === npcsMoved, npcs());
     await page.evaluate(() => { window.__sameLoad = true; });
     await press(page, 'Control+z');
     await until(() => npcs() === npcsWas);
@@ -336,6 +356,7 @@ export async function run({ check, browser }) {
     check('[guard] only that entry\'s line changed, and it is design, not a saved change', notCart(text()) === notCart(plain) && !(await saveText(page)).includes('cart'), text());
     const beforeBad = text();
     await fresh(page);
+    await openMore(page);
     await page.fill('[data-field="place"]', 'nowhere');
     await page.press('[data-field="place"]', 'Tab');
     check('[guard] a value the game cannot load does not stay in the file: the panel says why, the model still stands', await stateIs(page, 'refused') && text() === beforeBad && /not kept/.test((await state(page)).text) && !!(await modelAt(page, 'cart')), text() + JSON.stringify(await state(page)));
@@ -364,6 +385,8 @@ export async function run({ check, browser }) {
     await page.selectOption('#threedog-editor-pick', { label: 'box' });
     await button(page, 'add');
     await stateIs(page, 'saved');
+    const centre = await page.evaluate(() => { const p = window.engine.world.get('box-1').position, c = p.clone?.() ?? new __threedogThree.Vector3(p.x, p.y, p.z); return c.project(window.engine.camera).toArray(); });
+    check('[guard] add stands on the ground under the middle of the view, which engine.pick cannot see', near(centre[0], 0, 0.02) && near(centre[1], 0, 0.02), JSON.stringify(centre));
     check('[guard] add writes a new line from what the game has, and the model is there without a reload', /\{ id: 'box-1', model: 'box', x: [-\d.]+, z: [-\d.]+ \}/.test(text()) && !!(await modelAt(page, 'box-1')) && (await state(page)).text.includes('box-1') && await sameLoad(page), text());
     await button(page, 'add');
     await stateIs(page, 'saved');
@@ -417,7 +440,7 @@ export async function run({ check, browser }) {
     // 12. a quarter turn for a grid item
     await selectEntry(page, 'bed-1');
     await button(page, 'turn');
-    const bedAt = await recordOf(page, 'bed-1'), bedRing = await page.evaluate(p => { const e = window.engine, c = e.camera; return c.position.distanceTo(new e.THREE.Vector3(p.x, p.y, p.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.5; }, bedAt);
+    const bedAt = await recordOf(page, 'bed-1'), bedRing = await page.evaluate(p => { const e = window.engine, c = e.camera; return c.position.distanceTo(new __threedogThree.Vector3(p.x, p.y, p.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.5; }, bedAt);
     const bedSpin = a => toScreen(page, { x: bedAt.x + bedRing * Math.sin(a), y: bedAt.y, z: bedAt.z + bedRing * Math.cos(a) });
     const b0 = await bedSpin(Math.PI), b1 = await bedSpin(Math.PI + 0.6), b2 = await bedSpin(Math.PI + 1.2);   // the far side: the near side of the ring lies below the bottom edge of the view
     await page.mouse.move(b0.x, b0.y);
@@ -428,6 +451,8 @@ export async function run({ check, browser }) {
     const turned = +/id: 'bed-1',.*\brotation: (\d)/.exec(text())?.[1], bedRot = await page.evaluate(() => window.engine.world.get('bed-1').rot), bedYaw = await until(async () => { const y = (await modelAt(page, 'bed-1')).yaw; return near(((y % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2), turned * Math.PI / 2, 0.02) ? y : 0; }, 3000);
     const tau = Math.PI * 2, wrapped = ((bedYaw % tau) + tau) % tau;
     check('[guard] the turn handle of a grid item writes rotation in quarter turns, and the model faces that way', [1, 2, 3].includes(turned) && near(wrapped, turned * Math.PI / 2, 0.02) && /cell: \[3, 1\]/.test(text()), text() + JSON.stringify({ turned, bedYaw, bedRot, now: await modelAt(page, 'bed-1') }));
+    const gridText = text();
+    check('[guard] a cell typed in the row is asked of the grid like a drag', await refusedRow(page, 'cell', '[99, 1]') && text() === gridText, text());
     await button(page, 'move');
     await press(page, 'Control+z'); await stateIs(page, 'saved');
     check('undo of the turn takes rotation out again', !/id: 'bed-1'.*rotation/.test(text()), text());
@@ -436,6 +461,7 @@ export async function run({ check, browser }) {
     await selectEntry(page, 'lamp');
     const lampLine = text();
     check('an empty row cuts a field from the middle of the entry', await setRow(page, 'x', '') && !/id: 'lamp'.*\bx: 1,/.test(text()), text());
+    check('[guard] the panel says the row went back to its default and that undo brings the value back', /x emptied.*default.*Undo brings back/.test((await state(page)).text), (await state(page)).text);
     await press(page, 'Control+z'); await stateIs(page, 'saved');
     check('[guard] undo puts the cut field back in front of the one that followed it', text() === lampLine, text());
     await selectEntry(page, 'gear');

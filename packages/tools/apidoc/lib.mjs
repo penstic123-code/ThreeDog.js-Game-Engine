@@ -1,6 +1,6 @@
 // Shared parts of the API doc generator (used by packages/tools/apidoc.mjs): parsing d.ts, JSDoc and type text, member rendering, the page table.
 // Split out of apidoc.mjs: this is "how to read a declaration and write one line", apidoc.mjs is "which pages to generate and what goes on each".
-import { readFileSync, writeFileSync, readdirSync, mkdirSync, existsSync, rmSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
 import { ROOT, abs, API_MD_REL, API_DIR_REL, TYPES_REL, TYPES_GEN_REL, INDEX_DTS_REL } from '../paths.mjs';
@@ -87,7 +87,6 @@ export function first(s, max = 160) {
   if (t.length > max && t.includes(';')) t = balance(t.split(';')[0]);
   return t.length > max + 30 ? balance(t.slice(0, max + 29)) + '…' : t;
 }
-// Short description: used in field tables, up to the first "," / ";"
 // Used in pages: the whole description, truncated only if too long
 // Too long is cut at a sentence end (pages never show half a sentence); only a first sentence that is itself too long is hard-cut
 export function full(s, max = 900) {
@@ -97,6 +96,7 @@ export function full(s, max = 900) {
 }
 // When ". Example: …" follows, drop the sentence-final period to avoid ".."
 const noEnd = s => s.replace(/\.$/, '');
+// Short description for the index lines, up to the first "," / ";"
 export const brief = s => { const t = balance(first(s, 70).split(/[,;]/)[0]); return t.length > 56 ? balance(t.slice(0, 55)) + '…' : t; };
 
 export const raw = n => n.getText().replace(/\s+/g, ' ').replace(/;\s*\}/g, ' }');
@@ -225,7 +225,7 @@ export const fnLine = name => {
 export const idx = [];            // packages/engine/docs/API.md
 
 // Data structures attached to each page
-export const STRUCTS = {
+const STRUCTS = {
   engine: ['Handle', 'StateParams', 'StartupReport'], calendar: ['CalendarAtOptions', 'CalendarBetweenOptions'],
     collision: ['CircleColliderOptions', 'BoxColliderOptions'], budget: ['BudgetLimits', 'BudgetReport', 'BudgetOver'],
   audio: ['AudioConfig', 'SoundDef', 'AmbienceRule'], rays: ['RaycastOptions', 'RayHit'], stream: ['StreamEntryOptions', 'StreamHandle'], saves: ['SaveProvider'],
@@ -239,7 +239,7 @@ export const STRUCTS = {
   flow: ['FlowStateDef', 'FlowTransitionOptions'], content: ['ContentConditionDef'], hud: ['HudMarkerOptions', 'HudMarker', 'HudAnchor'],
   hlod: ['HlodAddOptions', 'HlodCell', 'HlodHandle'], lightPool: ['LightSourceOptions', 'LightSourcePatch', 'LightSource'], water: ['WaterBodyOptions', 'WaterBody'],
     vegetation: ['VegetationOptions', 'VegetationRule'], terrain: ['FlattenZone'],
-  cameraRig: ['CameraShot'], music: ['MusicRule'], settings: ['SettingsSection'], level: ['LevelMarker'],
+  post: ['PostEffect'], cameraRig: ['CameraShot'], music: ['MusicRule'], settings: ['SettingsSection'], level: ['LevelMarker'],
   timeline: ['TimelinePlayOptions', 'CameraPose'], tools: ['WindowOptions', 'UIWindow', 'ScreenPoint'],
 };
 export const structs = (lines, file) => { const list = STRUCTS[file]; if (!list) return; lines.push('',

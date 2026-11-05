@@ -173,6 +173,10 @@ async function saveCases(e) {
   out.same = JSON.stringify(keep._save()) === before;
   out.rows = [keep.count, keep.row(a) >= 0, d.hp[keep.row(a)], d.x[keep.row(b)], d.hp[keep.row(b)], d.r[keep.row(a)]];
   out.staleDead = keep.row(gone);
+  const damaged = e.swarm({ name: 'damaged', capacity: 4, save: true });
+  damaged._load({ serial: 9, id: [-5, 2 ** 20], cols: {} });
+  out.damagedId = [damaged.count, damaged._slot[0]];   // a negative id is left out; the good one keeps its slot
+  damaged.dispose();
   out.shotsCleared = shots.count;
   const next = keep.spawn({ x: 9 });
   out.newHandle = next !== a && next !== b && next !== gone && keep.count === 3;
@@ -227,6 +231,18 @@ async function draw(e, label) {
   e.step(1 / 60);
   const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.4, 0.7, 1.1, 'YXZ')), want = new THREE.Matrix4().compose(new THREE.Vector3(d.x[0], d.y[0], d.z[0]), q, new THREE.Vector3(2, 2, 2));
   out.matrixDiff = Math.max(...want.elements.map((v, i) => Math.abs(v - m.instanceMatrix.array[i])));
+  // a frame with nothing new uploads nothing; a row taken over by a swap-remove draws the new object's turn, not the kept one
+  e.step(2 / 60);
+  const v0 = [m.instanceMatrix.version, m.instanceColor.version];
+  e.step(2 / 60);
+  out.idle = [m.instanceMatrix.version - v0[0], m.instanceColor.version - v0[1]];
+  const a1 = s.spawn({ x: 5, yaw: 0.3, color: 0x00ff00 }), a2 = s.spawn({ x: 6, yaw: 1.2, color: 0x0000ff });
+  e.step(1 / 60);
+  s.free(a1);
+  e.step(1 / 60);
+  const rt = s.row(a2);
+  out.swapped = [+m.instanceMatrix.array[rt * 16].toFixed(4), +Math.cos(1.2).toFixed(4), m.instanceColor.array[rt * 3 + 2]];
+  s.free(a2);
   // interpolation must not draw a line from the row's previous object
   s.free(h);
   const far = s.spawn({ x: 1000, y: 0, z: 1000, color: 0xff0000 });

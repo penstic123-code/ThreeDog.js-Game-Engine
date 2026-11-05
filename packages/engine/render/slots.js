@@ -1,4 +1,5 @@
-import { codedError } from '../core/errorHints.js';
+import { codedError } from '../core/base/errorHints.js';
+import { isObject } from '../core/base/util.js';
 // Semantic patch slots. The one table that says where a patch's code goes. A patch names a slot ('position', 'color', 'lighting'...),
 // this table maps the slot to a GLSL injection point on WebGLRenderer (a three.js `#include <chunk>` plus before / after / replace) and to where
 // render/fx/patchNodes.tsl.js puts the patch's tsl on a NodeMaterial (`node`: { prop } a node property, { setup } code run inside that three
@@ -70,9 +71,8 @@ export const LIGHT_HOOKS = ['start', 'light', 'direct', 'after'];
 /** Slots a patch's tsl can use (the node column is not null) */
 const NODE_SLOTS = SLOT_NAMES.filter(n => SLOTS[n].node);
 
-const isObj = v => v != null && typeof v === 'object' && !Array.isArray(v);
 /** Whether a patch uses the slot form (slot: / glsl keyed by slot names) rather than raw anchors (glsl: { vertex, fragment }) */
-const slotForm = p => p.slot != null || typeof p.glsl === 'string' || (isObj(p.glsl) && !('vertex' in p.glsl) && !('fragment' in p.glsl));
+const slotForm = p => p.slot != null || typeof p.glsl === 'string' || (isObject(p.glsl) && !('vertex' in p.glsl) && !('fragment' in p.glsl));
 const EXIT = "or the raw-anchor exit glsl: { vertex|fragment: { <three.js chunk>: code } } (WebGL only)";
 
 /** Marker comments around injected code, so a compile error can be traced back to the patch and slot (render/shaderErrors.js) */
@@ -127,7 +127,7 @@ export function toAnchors(p) {
     // pars goes first in each stage: same JSON as the hand-written anchor form { pars, <chunk>: code }, so the cacheKey "same key, same code" check recognizes it as the same piece
     const put = (st, text) => { glsl[st] = { pars: text, ...glsl[st] }; };
     if (typeof p.pars === 'string') for (const st of used) put(st, p.pars);
-    else if (isObj(p.pars)) for (const st of /** @type {const} */ (['vertex', 'fragment'])) { if (p.pars[st]) put(st, p.pars[st]); }
+    else if (isObject(p.pars)) for (const st of /** @type {const} */ (['vertex', 'fragment'])) { if (p.pars[st]) put(st, p.pars[st]); }
     else throw codedError('shader-patch', `[threedog] patch '${p.name}': pars is GLSL declarations as a string, or { vertex, fragment }`);
   }
   const { slot, pars, ...rest } = p;
@@ -145,8 +145,8 @@ export function toAnchors(p) {
  */
 function tslSlots(p) {
   // slot: 'lighting' + tsl: { start, light, direct, after } is that slot's hook object, not a slot map (no slot has those names)
-  const hooks = isObj(p.tsl) && p.slot != null && Object.keys(p.tsl).length > 0 && Object.keys(p.tsl).every(k => LIGHT_HOOKS.includes(k));
-  const by = typeof p.tsl === 'function' || hooks ? (p.slot != null ? { [p.slot]: p.tsl } : null) : isObj(p.tsl) ? p.tsl : undefined;
+  const hooks = isObject(p.tsl) && p.slot != null && Object.keys(p.tsl).length > 0 && Object.keys(p.tsl).every(k => LIGHT_HOOKS.includes(k));
+  const by = typeof p.tsl === 'function' || hooks ? (p.slot != null ? { [p.slot]: p.tsl } : null) : isObject(p.tsl) ? p.tsl : undefined;
   if (by === null) throw codedError('shader-patch', `[threedog] patch '${p.name}' has a tsl function but no slot; add slot: ${SLOT_NAMES.join(' | ')}, or write tsl: { <slot>: (ctx) => node }`);
   if (by === undefined) throw codedError('shader-patch', `[threedog] patch '${p.name}': tsl is (ctx) => node with slot:, or { <slot>: (ctx) => node }; got ${typeof p.tsl}`);
   for (const name of Object.keys(by)) {

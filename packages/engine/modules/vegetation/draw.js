@@ -7,15 +7,15 @@
 // (engine.use(myPlants, { replaces: 'vegetation-draw' })) and keep everything that plays. A replacement draw part does what this file does:
 //   install(e, ctx) { ctx.track(e.vegetation.view({ species(sp) {...}, change(c, name) {...c.plants[name]...}, ring(c, ring) {...}, show(c, v) {...}, drop(c) {...} })); }
 // This file never changes placement data; it only reads it.
-import { engineOwned } from '../../core/things.js';
-import { needMaterial, oneForm } from '../../core/validate.js';
+import { engineOwned } from '../../core/scene/things.js';
+import { needMaterial, oneForm } from '../../core/base/validate.js';
 import * as THREE from 'three';
 import { fromModel } from './modelGeometry.js';
 import { applyEffects, windCustom } from '../../render/materials.js';
 import { neutralMaterial } from '../../render/neutral.js';
 import { patchMaterial, unpatchMaterial } from '../../render/patches.js';
 import { EFFECTS, hashText } from '../../render/effects.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { isWebGPU } from '../../render/backend.js';
 import { nearFadePatch } from './nearFade.js';
 
@@ -44,13 +44,10 @@ export class VegetationDraw {
   get material() { return this._game ?? this._base; }
   set material(m) {
     if (m != null) needMaterial('vegetation-option', 'vegetation.material', m, ' (null gives the neutral default back)');
-    const was = this._game;
     this._game = m || null;
     for (const sp of this.v.list()) {
       const old = this.kinds.get(sp.name);
-      if (!old?.shared) continue;
-      this.species(sp);
-      if (old.material !== was) old.material.dispose();   // a neutral copy of ours; the game's stays the game's
+      if (old?.shared) this.species(sp);
     }
     for (const rec of this.meshes.values()) for (const n in rec.ims) { const k = this.kinds.get(n); if (k) rec.ims[n].material = k.material; }
   }
@@ -109,13 +106,16 @@ export class VegetationDraw {
     const own = [nf?.patch, this._color].filter(Boolean);
     const fx = m => o.effects === false ? m : applyEffects(m, { wind, season: 'foliage', engine: e, patches: own.length ? own : undefined });
     const mdl = o.model && fromModel(o.model, label);
-    let lod = o.lodGeometry?.isObject3D ? fromModel(o.lodGeometry, label + '.lodGeometry').geometry : o.lodGeometry || null;
+    const lodMdl = o.lodGeometry?.isObject3D ? fromModel(o.lodGeometry, label + '.lodGeometry') : null;
+    let lod = lodMdl ? lodMdl.geometry : o.lodGeometry || null;
     if (mdl && lod && !lod.groups.length) { lod = lod.clone(); lod.addGroup(0, Infinity, 0); }   // a material array draws nothing without groups
     const shared = !mdl && !o.material, game = shared ? this._game : null;
-    this.kinds.set(sp.name, {
-      geometry: mdl ? mdl.geometry : o.geometry, lodGeometry: lod, fadeUniforms: game ? null : nf?.uniforms ?? null, shared,
-      material: game ?? (mdl ? mdl.materials.map(fx) : fx(o.material ?? this._neutral(o))),
-    });
+    const material = game ?? (mdl ? mdl.materials.map(fx) : fx(o.material ?? this._neutral(o)));
+    // what was built here and is ours to free (the game's geometry and materials stay the game's); a mesh still drawing the old ones uploads them again
+    const made = [...(lodMdl?.materials ?? []), ...(lod && lod !== o.lodGeometry ? [lod] : []), ...(mdl ? [mdl.geometry, ...material] : shared && !game ? [material] : [])];
+    const old = this.kinds.get(sp.name);
+    this.kinds.set(sp.name, { geometry: mdl ? mdl.geometry : o.geometry, lodGeometry: lod, fadeUniforms: game ? null : nf?.uniforms ?? null, shared, material, made });
+    for (const d of old?.made ?? []) d.dispose();
   }
   _neutral(o) {
     const m = neutralMaterial('vegetation', { vertexColors: true, side: o.doubleSided ? THREE.DoubleSide : THREE.FrontSide });
@@ -188,5 +188,9 @@ export class VegetationDraw {
     return rec;
   }
 
-  dispose() { this._view.remove(); this.kinds.clear(); }
+  dispose() {
+    this._view.remove();
+    for (const k of this.kinds.values()) for (const d of k.made) d.dispose();
+    this.kinds.clear(); this._base.dispose();
+  }
 }

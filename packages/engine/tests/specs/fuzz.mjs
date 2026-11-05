@@ -183,9 +183,43 @@ export const specs = [
         out.motion = { ok: await S.load('fzr-motion'), err: engine.error?.message };
         try { engine.step(0.3, { describe: false }); } catch (e) { out.motion.step = e.message; }
         out.motion.err ??= engine.error?.message; clear();
+        // 5. an NPC whose nav is a number (FC_SEED=11188): the NPC step threw "Cannot create property 'stop' on number" and froze the game. Refused at load, as an authored NPC's change and as a saved record
+        const npc = engine.world.query({ kind: 'npc' })[0].id;
+        await edit('fzr-nav', s => { (s.parts.world.changed[npc] ??= {}).set = { ...s.parts.world.changed[npc]?.set, nav: 25 }; delete s.parts.world.records[npc]; });
+        await edit('fzr-nav2', s => { s.parts.world.records['fzr-npc'] = { kind: 'npc', position: { x: 0, y: 0, z: 0 }, nav: 25 }; });
+        out.nav = { changed: await S.load('fzr-nav'), record: await S.load('fzr-nav2'), err: engine.error?.message };
+        try { engine.step(0.3, { describe: false }); } catch (e) { out.nav.step = e.message; }
+        out.nav.err ??= engine.error?.message; clear();
+        // 6. a record with no position (FC_SEED=1143): the cell index threw inside the load, a code error instead of a refusal. Refused as a damaged save
+        await edit('fzr-pos', s => { delete s.parts.world.records.player.position; });
+        out.pos = { ok: await S.load('fzr-pos'), err: engine.error?.message }; clear();
+        // 7. content marks that are not a list of lists (FC_SEED=23445): the load threw a code error. Refused as a damaged save
+        await edit('fzr-marks', s => { s.parts.content.marks = [9]; });
+        out.marks = { ok: await S.load('fzr-marks'), err: engine.error?.message }; clear();
+        // 8. a speed or a path point of the wrong type (FC_SEED=20864): the load passed and a step later world.move froze the game on a NaN position. Refused at load
+        await edit('fzr-speed', s => { s.parts.world.records.player.vz = { x: 1, z: 2 }; });
+        await edit('fzr-fast', s => { s.parts.world.records.player.vz = 1e300; });
+        await edit('fzr-path', s => { s.parts.world.records['fzr-npc'] = { kind: 'npc', position: { x: 0, y: 0, z: 0 }, nav: { stop: null, path: [0], repath: 0 } }; });
+        out.speed = { speed: await S.load('fzr-speed'), fast: await S.load('fzr-fast'), path: await S.load('fzr-path'), err: engine.error?.message };
+        try { engine.step(0.3, { describe: false }); } catch (e) { out.speed.step = e.message; }
+        out.speed.err ??= engine.error?.message; clear();
+        // 9. an interactions part of the wrong shape (FC_SEED=29257): the load threw a code error. Refused as a damaged save
+        await edit('fzr-int', s => { s.parts.interactions = { spent: {}, counted: null }; });
+        out.int = { ok: await S.load('fzr-int'), err: engine.error?.message }; clear();
+        // 10. a physics body at x = -1e308 (FC_SEED=4242): the page hung for good. Refused at load, and the game steps on
+        await edit('fzr-body', s => { const id = Object.keys(s.parts.rigid)[0]; s.parts.rigid[id][0] = -1e308; });
+        out.body = { ok: await S.load('fzr-body'), err: engine.error?.message };
+        try { engine.step(0.2, { describe: false }); } catch (e) { out.body.step = e.message; }
+        clear();
         return out;
       });
+      check('[guard] a physics body far past float precision is refused at load, and the game steps on', r.body.ok === false && !r.body.err && !r.body.step, JSON.stringify(r.body));
+      check('[guard] a damaged interactions part is refused: load false, no gameplay error', r.int.ok === false && !r.int.err, JSON.stringify(r.int));
       check('[guard] a world record with a number as its motion is refused at load (load false), and the fixed step raises no gameplay error', r.motion.ok === false && !r.motion.err && !r.motion.step, JSON.stringify(r.motion));
+      check('[guard] an NPC with a number as its nav is refused at load (load false), and the fixed step raises no gameplay error', r.nav.changed === false && r.nav.record === false && !r.nav.err && !r.nav.step, JSON.stringify(r.nav));
+      check('[guard] a record with no position is refused at load: load false, no gameplay error', r.pos.ok === false && !r.pos.err, JSON.stringify(r.pos));
+      check('[guard] damaged content marks are refused: load false, no gameplay error', r.marks.ok === false && !r.marks.err, JSON.stringify(r.marks));
+      check('[guard] a player speed or an NPC path point of the wrong type is refused at load, and the fixed step raises no gameplay error', r.speed.speed === false && r.speed.fast === false && r.speed.path === false && !r.speed.err && !r.speed.step, JSON.stringify(r.speed));
       check('[guard] a damaged scene part is refused: load false, no gameplay error', r.scene.ok === false && !r.scene.err, JSON.stringify(r.scene));
       check('[guard] a record with a number where the jump state goes loads and steps without a gameplay error', !r.jump.err && !r.jump.step, JSON.stringify(r.jump));
       check('[guard] a record with a bad jump / safe is reported once, naming the field, and the game keeps running', r.jumpWarns.length >= 1 && r.jumpWarns.some(m => /'jump'/.test(m)), JSON.stringify(r.jumpWarns));

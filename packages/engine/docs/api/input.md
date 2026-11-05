@@ -6,12 +6,12 @@
 - `input.simulate(action: string, down?: boolean)` — Press (down true) or release an action from code, through the same path as a real key: tests, AI drivers, replays. Presses the action's first bound key and holds it until simulate(action, false), so the player walks like with a held key. Takes action names (moveForward, moveLeft, run, interact, ...; engine.input.actions lists them), not keys; an unknown name throws unknown-name with the closest one. Example: `engine.input.simulate('moveForward'); engine.step(1); engine.input.simulate('moveForward', false)`
 - `input.rebind(action: string, keys: string | string[] | null)` — The player's rebinding (the settings menu calls this and saves it): replaces the game's keys on the settings layer of 'input.keys'. keys null takes the player's choice away (the game's or the default keys show again). Works before the action is declared (a saved binding is restored at start, the module declaring the action comes later). Example: `engine.input.rebind('jump', ['KeyJ']);   engine.input.rebind('jump', null);   // back to the game's keys`
 - `input.rebound() → Record<string, string[]>` — The player's rebindings now in effect: { action: keys } (what the settings menu saves)
-- `input.keysOf(action: string) → readonly string[]` — All keys bound to an action: the player's rebinding, else the game's bind, else the default preset (basics only); plus its touch button
+- `input.keysOf(action: string) → readonly string[]` — (experimental) All keys bound to an action: the player's rebinding, else the game's bind, else the default preset (basics only); plus its touch button
 - `input.isUnbound(action: string) → boolean` — True when an action needs a key and has none, so no player input can fire it. Not for an optional action, and not for one bound to [] on purpose (a mouse-only game): "no key at all" is the fault, whichever key the game or the player chose is not. Example: `if (engine.input.isUnbound('interact')) engine.input.bind(presets.bindings.interact);`
 - `input.label(action: string) → string` — Key name shown in the UI, e.g. "E"
 - `input.down(action: string) → boolean` — Held (a snapshot of this step in fixed, the latest state in frame)
 - `input.pressed(action: string) → boolean` — Just pressed. Read in onFixed / module fixed: pressed since the previous fixed step, true only for this step (counted once however the frame rate varies, never lost); read in onFrame / module frame: pressed this frame (UI keys only). Read gameplay keys in fixed. Example: `engine.onFixed(() => { if (engine.input.pressed('jump')) player.jump(); });`
-- `input.released(action: string) → boolean` — Just released (which copy is read is the same as pressed; for things like release-to-fire after charging). Example: `if (engine.input.released('fire')) shoot(charge);`
+- `input.released(action: string) → boolean` — (experimental) Just released (which copy is read is the same as pressed; for things like release-to-fire after charging). Example: `if (engine.input.released('fire')) shoot(charge);`
 - `input.pressedRaw(action: string) → boolean` — Just pressed, ignoring input contexts (for menus and dialogue themselves, which run while a context blocks the game)
 - `input.push(name: string, opts?: { pass?: boolean; owner?: string }) → { name: string; remove(): void }` — Push an input context (an action group, like a Unity Action Map). The top context shadows lower actions bound to the same key. Opaque by default (nothing below is readable: menus, dialogue, cutscenes); { pass: true } lets unrelated lower actions keep working (vehicle, build mode). Applies at the start of the next fixed step; actions it blocks lose their held state (no stuck keys after a menu closes). Join a context with input.action(name, { context }); menu keys: pressedRaw. Example: `const h = engine.input.push('vehicle', { pass: true });   // vehicle-context actions (brake) work, and shadow gameplay actions on the same key h.remove();`
 - `input.describe() → { stack, unbound, rebound }` — describe().input: the context stack, declared actions nobody bound (unbound: isUnbound) and the player's rebindings
@@ -19,12 +19,12 @@
 - Properties:
   - `look: { dx: number; dy: number; zoom: number }` This frame's look-drag amount (pixels) and wheel notches
   - `pointer: Pointer` Mouse/touch pointer
-  - `stick: { x: number; y: number }` On-screen stick (touch)
+  - `stick: { x: number; y: number }` (experimental) On-screen stick (touch)
   - `autopilot: Autopilot | null` Auto movement (stress tests, test scripts)
   - `actions: Map<string, { labelKey: string; context: string; optional: …` action name -> its declaration: labelKey (string-table key), context, optional, by (who declared it; null = only bound so far). Keys are not here: keysOf(action) reads the shared point 'input.keys'
-  - `lastDevice: "keyboard" | "pad" | "touch"` Most recently used device: UI key hints follow it
-  - `touch: boolean` Is this a touch device?
-  - `contexts: string[]` Names of the active contexts, bottom to top (pending switches apply at the next fixed step)
-  - `holders: { context: string; owner: string; pass: boolean }[]` Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read). Pushes and removes count at once, before the next fixed step applies them: on a halted page a closed window is not a holder any more
+  - `lastDevice: "keyboard" | "pad" | "touch"` (experimental) Most recently used device: UI key hints follow it
+  - `touch: boolean` (experimental) Is this a touch device?
+  - `contexts: string[]` (experimental) Names of the active contexts, bottom to top (pending switches apply at the next fixed step)
+  - `holders: { context: string; owner: string; pass: boolean }[]` (experimental) Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read). Pushes and removes count at once, before the next fixed step applies them: on a halted page a closed window is not a holder any more
   - `enabled: boolean` False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore picture/zoom
   - `axis: { x: number; y: number }` Movement direction: x positive right, y positive forward, length <= 1 (a snapshot of this step in fixed, the latest state in frame)

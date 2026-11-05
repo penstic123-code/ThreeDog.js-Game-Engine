@@ -209,7 +209,7 @@ export const specs = [
         const drive = { vehicle: p.vehicle === car };
         p.exit(); engine.step(0.1);
         const keys = { brake: engine.input.keysOf('brake'), jump: engine.input.keysOf('jump') };
-        const m = new engine.THREE.Mesh(new engine.THREE.BoxGeometry(1, 1, 1), new engine.THREE.MeshBasicMaterial());
+        const m = new __threedogThree.Mesh(new __threedogThree.BoxGeometry(1, 1, 1), new __threedogThree.MeshBasicMaterial());
         m.position.set(0, 3, 0);
         const e = engine.rigid.addBox(m, { mass: 1 }), shadow = m.castShadow || m.receiveShadow;
         e.remove(); engine.remove(m);

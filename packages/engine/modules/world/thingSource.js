@@ -1,6 +1,8 @@
 // What the world module tells core about its records: engine._things.addSource(...) at install. Core knows only this shape (has / get / set / remove /
 // explain, plus idOf / view / ids / restore for the model link and undo), never the World class, so engine.thing, thing.set and the shared id space
 // work the same whether or not this module is installed.
+import { fmt } from '../../core/base/validate.js';
+
 const SAY = {
   defined: 'defined in {at}: edit it there to change the level for good (ops change only this session), or: threedog content set {id} <field> <json>',
   node: 'level {level} node {node}: change it in the level model',
@@ -13,8 +15,8 @@ function describeRecord(w, id) {
   const rec = w.get(id); if (!rec) return null;
   const o = w.origin(id) ?? {}, fields = {};
   for (const k in rec) if (!NOT_FIELDS.has(k)) fields[k] = rec[k];
-  const how = o.definedAt ? SAY.defined.replace('{at}', o.definedAt).replace('{id}', id) : o.node ? SAY.node.replace('{level}', o.level).replace('{node}', o.node)
-    : o.spawned ? SAY.spawned.replace('{op}', o.spawned.op ? ` by op ${o.spawned.op} at tick ${o.spawned.tick}` : '') : null;
+  const how = o.definedAt ? fmt(SAY.defined, { at: o.definedAt, id }) : o.node ? fmt(SAY.node, { level: o.level, node: o.node })
+    : o.spawned ? fmt(SAY.spawned, { op: o.spawned.op ? ` by op ${o.spawned.op} at tick ${o.spawned.tick}` : '' }) : null;
   return { id, kind: rec.kind, template: o.template ?? null, definedAt: o.definedAt ?? null, ...(o.templateAt && { templateAt: o.templateAt }),
     ...(o.node && { level: o.level, node: o.node }), ...(o.spawned && { spawned: o.spawned }), model: o.model ?? rec.model ?? null,
     position: { ...rec.position }, fields, edit: how };

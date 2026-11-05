@@ -40,7 +40,7 @@ window.makeRig = () => {
   const mesh = new THREE.SkinnedMesh(geo, grey(0x999999)); mesh.add(bones[0]); mesh.bind(new THREE.Skeleton(bones));
   const clip = (name, dur, angle) => new THREE.AnimationClip(name, dur, [new THREE.NumberKeyframeTrack('arm.rotation[x]', [0, dur / 2, dur], [0, angle, 0])]);
   const model = new THREE.Group(); model.add(mesh);
-  model.userData.animations = [clip('Idle', 2, 0.1), clip('Walk', 1, 0.8), clip('Run', 0.6, 1.4), clip('Wave', 0.8, 2)];
+  model.animations = [clip('Idle', 2, 0.1), clip('Walk', 1, 0.8), clip('Run', 0.6, 1.4), clip('Wave', 0.8, 2)];
   return model;
 };
 

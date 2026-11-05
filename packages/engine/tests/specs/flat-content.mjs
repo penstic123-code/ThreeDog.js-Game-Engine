@@ -6,7 +6,7 @@ const READY = { timeout: 60000 };
 
 // the same content before and after a reload; drop = entry ids deleted from the content
 const setup = (drop = []) => {
-  const T = engine.THREE, p = engine.player.position, x = Math.round(p.x), z = Math.round(p.z);
+  const T = __threedogThree, p = engine.player.position, x = Math.round(p.x), z = Math.round(p.z);
   engine.assets.manifest({ name: 'fc', models: {
     fcCrate: () => new T.Mesh(new T.BoxGeometry(2, 2, 1).translate(0, 1, 0)),
     fcPost: () => new T.Mesh(new T.CylinderGeometry(0.2, 0.2, 2, 8).translate(0, 1, 0)),

@@ -39,9 +39,19 @@ async function freshGame(dir) {
 function snapshot(dir, paths) {
   const saved = paths.map(path => [path, existsSync(path) ? readFileSync(path, 'utf8') : null]);
   return () => {
-    for (const [path, text] of saved) { if (text == null) rmSync(path, { force: true }); else writeAtomic(path, text); }
+    // only what changed: a file that cannot be written is often the one the batch failed on, and it must not stop the rest going back
+    for (const [path, text] of saved) { if (text == null) rmSync(path, { force: true }); else if (readFileSync(path, 'utf8') !== text) writeAtomic(path, text); }
     rmSync(indexPath(dir), { force: true });   // it described the undone writes; the next write rebuilds it
   };
+}
+
+/** The writes one after another; one refused or thrown puts every file back: { ok: true } or the failure */
+async function batch(dir, undo, writes) {
+  for (const w of writes) {
+    const r = await contentWrite(dir, w).catch(e => ({ ok: false, error: e.message }));
+    if (!r.ok) { undo(); return fail(`${w.id ?? w.entry.id}: ${r.error}. Nothing written`); }
+  }
+  return { ok: true };
 }
 
 /** Make an empty content file when the game has none of this kind yet: contentWrite only adds to files that exist */
@@ -100,11 +110,8 @@ export async function stamp(dir, { arrangement, id, x, z, rot }, opt = {}) {
   const undo = snapshot(dir, [...new Set([...files, join(dir, 'content/places.js'), join(dir, 'content/props.js')])]);
   ensureKindFile(dir, game.parts, 'places', '{\n}');
   ensureKindFile(dir, game.parts, 'props', '[\n]');
-  for (const w of [{ kind: 'places', entry: { id, ...place } }, ...entries.map(entry => ({ kind: 'props', entry }))]) {
-    const r = await contentWrite(dir, { op: 'add', ...w });
-    if (!r.ok) { undo(); return fail(`${w.entry.id}: ${r.error}. Nothing written`); }
-  }
-  return { ok: true, place, entries };
+  const done = await batch(dir, undo, [{ kind: 'places', entry: { id, ...place } }, ...entries.map(entry => ({ kind: 'props', entry }))].map(w => ({ op: 'add', ...w })));
+  return done.ok ? { ok: true, place, entries } : done;
 }
 
 /**
@@ -138,11 +145,8 @@ export async function setBySource(dir, { source, part, fields, expect }, opt = {
   }
   if (opt.dry || !todo.length) return { ok: true, dry: !!opt.dry, changed, same, odd };
   const undo = snapshot(dir, game.parts.props.map(p => p.path));
-  for (const p of todo) {
-    const r = await contentWrite(dir, req(p));
-    if (!r.ok) { undo(); return fail(`${p.id}: ${r.error}. Nothing written`); }
-  }
-  return { ok: true, changed, same, odd };
+  const done = await batch(dir, undo, todo.map(req));
+  return done.ok ? { ok: true, changed, same, odd } : done;
 }
 
 const STAY_IN_CODE = 'or take this child out of the group so it stays in code';

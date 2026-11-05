@@ -6,7 +6,7 @@
 //   unused      no reference of any kind and nothing that could reach it
 //   missing     named or pointed at, and it does not exist
 // When in doubt the answer is not-traced: a false "maybe" costs one line of reading, a false "nobody uses this" gets art deleted.
-import { existsSync, statSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { join, relative, dirname, basename, extname, sep, posix as pp, resolve } from 'node:path';
 import { read, walk, balanced, splitTop } from './lib/text.mjs';
 import { gameAssets } from './content-check/load.mjs';
@@ -16,10 +16,10 @@ import { changeWords, pullStatus } from './lib/lib-records.mjs';
 
 const KIND_OF = [[/\.(glb|gltf)$/i, 'model'], [/\.(png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr|svg)$/i, 'texture'], [/\.(wav|mp3|ogg|m4a)$/i, 'sound'],
   [/\.(woff2?|ttf|otf)$/i, 'font'], [/\.(glsl|vert|frag|wgsl)$/i, 'shader']];
-const ART_FILE = /\.(glb|gltf|png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr|svg|wav|mp3|ogg|m4a|woff2?|ttf|otf|glsl|vert|frag|wgsl)$/i;
+const ART_FILE = new RegExp(KIND_OF.map(([re]) => re.source).join('|'), 'i');
 const SHOWABLE = /\.(png|jpe?g|webp|avif|gif|svg)$/i;
 const PACK_KEYS = [['models', 'model'], ['textures', 'texture'], ['sounds', 'sound'], ['fonts', 'font']];
-export const KINDS = ['model', 'texture', 'sound', 'font', 'material', 'shader', 'library'];
+const KINDS = ['model', 'texture', 'sound', 'font', 'material', 'shader', 'library'];
 const kindOf = f => KIND_OF.find(([re]) => re.test(f))?.[1] ?? null;
 const slash = p => p.split(sep).join('/');
 const quote = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -61,14 +61,14 @@ function source(dir, f) {
 }
 
 /** A written pattern ('/models/tree${i}.glb', './tex/*.png') as a regex over the file path or name it can become (any folder prefix: './' is relative) */
-const patternOf = s => new RegExp('(?:^|/)' + s.replace(/^\.{0,2}\//, '').split(/\$\{[^}]*\}|\*+/).map(quote).join('.*') + '$', 'i');
+const patternOf = s => new RegExp('(?:^|/)' + s.replace(/^(?:\.{0,2}\/)+/, '').split(/\$\{[^}]*\}|\*+/).map(quote).join('.*') + '$', 'i');
 
 /** Where a written path lands in the game folder: candidates relative to it, or null for a URL */
 function candidates(value, fromRel) {
   const v = bare(value);
   if (/^[a-z][a-z\d+.-]*:|^\/\//i.test(v)) return null;
   if (v.startsWith('/')) return ['public' + v, v.slice(1)];
-  return [pp.normalize(pp.join(pp.dirname(fromRel), v)), pp.normalize('public/' + v)];
+  return [pp.normalize(pp.join(pp.dirname(fromRel), v)), pp.normalize('public/' + v), ...(v.startsWith('.') ? [] : [pp.normalize(v)])];   // art/x.png written from a deep file means the game's folder
 }
 
 class Board {
@@ -93,7 +93,7 @@ function scanFiles(b) {
     const rel = slash(relative(b.dir, f));
     // art/models/x.glb is the source of public/optimized/x.glb (threedog assets optimize): one resource with two files, not two with one "unused"
     const built = rel.startsWith('art/models/') ? 'public/optimized/' + rel.slice('art/models/'.length) : null;
-    if (built && b.byFile.has(built)) { b.byFile.get(built).source = rel; continue; }
+    if (built && b.byFile.has(built)) { const it = b.byFile.get(built); it.source = rel; b.byFile.set(rel, it); continue; }   // a path to either file finds it
     const it = b.add({ kind: kindOf(rel), name: basename(rel, extname(rel)), file: rel, size: statSync(f).size });
     b.byFile.set(rel, it);
     if (it.kind === 'shader') it.preview = { type: 'code', text: read(f).split('\n').slice(0, 12).join('\n') };
@@ -148,7 +148,7 @@ async function scanManifests(b, sources) {
     for (const [key, kind] of PACK_KEYS) {
       const k = new RegExp(`\\b${key}\\s*:\\s*\\{`).exec(body);
       for (const part of k ? splitTop(balanced(body, '{', k.index) ?? '') : []) {
-        const e = /^['"]?([\w.-]+)['"]?(?:\s*:\s*(?:(['"`])([^'"`]*)\2)?)?/.exec(part);
+        const e = !part.startsWith('...') && /^['"]?([\w.-]+)['"]?(?:\s*:\s*(?:(['"`])([^'"`]*)\2)?)?/.exec(part);
         if (e && !b.get(kind, e[1])) register(b, kind, e[1], e[3] ?? null, null, defLine(s, e[1], m.index));
       }
     }
@@ -247,6 +247,8 @@ function scanRefs(b, sources) {
     }
     // a folder joined with a name at run time: '/models/' + name + '.glb'
     for (const m of s.text.matchAll(/(['"`])([^'"`\n]*\/)\1\s*\+/g)) b.dynamic.push({ at: s.at(m.index), text: m[2] + '…', re: new RegExp('(?:^|/)' + quote(m[2].replace(/^\.{0,2}\//, '')), 'i') });
+    // the folder held in a variable: dir + name + '.png'. A folder written out ('/decals/' + name + '.png') is the narrower rule above; this one would reach every .png
+    for (const m of s.text.matchAll(/(?<!\/['"`]\s*\+[^'"`\n]*)\+\s*(['"`])(\.\w+)\1/g)) b.dynamic.push({ at: s.at(m.index), text: '…' + m[2], re: new RegExp(quote(m[2]) + '$', 'i') });
     if (s.js) for (const [re2, kind] of DYNAMIC) for (const m of s.text.matchAll(re2)) b.dynamic.push({ at: s.at(m.index), text: m[0].trim().slice(0, 60), kind: kind(m), any: true });
   }
 }
@@ -275,7 +277,7 @@ const LIMITS = [
 
 /** Merge what the running game reports (panel/art.js loadedArt): loaded is proof of use, not loaded proves nothing */
 function mergeLive(b, live) {
-  const stem = u => basename(bare(String(u ?? '')));
+  const stem = u => { const n = basename(bare(String(u ?? ''))); try { return decodeURIComponent(n); } catch { return n; } };   // a url is percent-encoded, a file name is not
   const seen = (kind, name, url, extra) => {
     const it = b.get(kind, name) ?? (url && b.items.find(i => i.kind === kind && i.file && stem(i.file) === stem(url))) ?? b.add({ kind, name, file: url ?? null, extra: { runtimeOnly: true, ...extra } });
     it.loaded = true; it.uses.push({ at: 'running game', how: 'loaded' });

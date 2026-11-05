@@ -4,8 +4,8 @@
 // gets its position in the joined array as id, and content check, write-back and the game must agree on it), and the dev line table must keep
 // naming the right file ("defined in content/props/town.js:14").
 //   content/index.js:  const props = contentParts(import.meta.glob('./props/*.js', { eager: true }));
-import { DEV } from '../../core/validate.js';
-import { codedError } from '../../core/errorHints.js';
+import { DEV } from '../../core/base/validate.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 /**
  * Join the modules of one content folder into one array / object (what a single content/<kind>.js would export).

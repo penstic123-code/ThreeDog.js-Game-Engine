@@ -59,8 +59,10 @@ const JSON_SUB = new Set(['types.mjs', 'content-check.mjs']);   // these two pri
 const runSub = ([file, ...args]) => new Promise(res => {
   const c = spawn(process.execPath, [join(P.TOOLS, file), ...args, ...(opt.json && JSON_SUB.has(file) ? ['--json'] : [])], { cwd: P.ROOT });
   let out = '';
+  c.stdout.setEncoding('utf8'); c.stderr.setEncoding('utf8');   // a character split over two chunks stays whole
   c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d);
-  c.on('close', code => { stage(`${NAMES[file]} finished`); res({ out, code }); });
+  // code is null for a killed process: that part checked nothing, so it must not read as a pass
+  c.on('close', code => { stage(`${NAMES[file]} finished`); res({ out, code: code ?? 1 }); });
 });
 if (SUB.length) stage(`running beside the rules: ${SUB.map(([f]) => NAMES[f]).join(', ')}`);
 const subs = Promise.all(SUB.map(runSub));

@@ -34,7 +34,7 @@ for (const [x, z] of [[-0.55, -0.35], [0.55, -0.35], [-0.55, 0.35], [0.55, 0.35]
 const cup = add(new THREE.CylinderGeometry(0.04, 0.035, 0.1, 24), mat.cup, 0.2, 0.75 + 0.05, 0.1);
 add(new THREE.SphereGeometry(0.07, 24, 16), mat.ball, -0.25, 0.75 + 0.07, -0.1);
 // a small object on the ground, where floating is easiest to see
-const block = add(new THREE.BoxGeometry(0.12, 0.12, 0.12), mat.block, 1.1, 0.06, 0.6);
+add(new THREE.BoxGeometry(0.12, 0.12, 0.12), mat.block, 1.1, 0.06, 0.6);
 // the crate stack: one static merged geometry with baked vertex AO (darker at the floor and between crates). Tessellated boxes: AO is per vertex
 const crate = (/** @type {number} */ s, /** @type {number} */ x, /** @type {number} */ y, /** @type {number} */ z) => new THREE.BoxGeometry(s, s, s, 6, 6, 6).translate(x, y + s / 2, z);
 const stack = mergeGeometries([crate(0.6, 0, 0, 0), crate(0.6, 0.62, 0, 0.05), crate(0.45, 0.3, 0.6, 0)]);

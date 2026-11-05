@@ -1,4 +1,4 @@
-// 所有权（core/owned.js）："不许绕开"的检查。每个登记过的引擎自写属性都必须在 CASES 里有一条用例，
+// 所有权（core/ops/owned.js）："不许绕开"的检查。每个登记过的引擎自写属性都必须在 CASES 里有一条用例，
 // 否则第一条检查就失败——新登记一个属性却不写用例，过不了。每条用例跑三步：
 //   (a) 游戏不接管直接写 → 引擎让开，值留着，恰好一条警告且含接管原文
 //   (b) engine.autoView.manual(key) → 引擎不再写，也不警告
@@ -10,7 +10,7 @@
 const CASES = `({
   'shadow.follow': { poke: () => (engine.lights.sun.target.position.x = 9999), get: () => engine.lights.sun.target.position.x,
     manual: on => engine.shadows.box(engine.lights.sun, { follow: on === false ? 'focus' : false }) },
-  'background': { poke: () => (engine.scene.background = window.__bg ??= new engine.THREE.Color(0.9, 0.1, 0.1)), get: () => engine.scene.background,
+  'background': { poke: () => (engine.scene.background = window.__bg ??= new __threedogThree.Color(0.9, 0.1, 0.1)), get: () => engine.scene.background,
     // with the dome the sky does not write scene.background; it draws over it. Owned means: game takes it -> dome hides, hand back -> dome shows
     // no manual verb: a direct write is the takeover, engine.sky.replace(null) the hand-back
     engineWrites: () => !!engine.sky._backdrop || !!engine.sky.skybox, domeShown: () => engine.sky.dome.visible, handBack: () => engine.sky.replace(null) },
@@ -23,7 +23,7 @@ const CASES = `({
     drive: () => { const a = engine.adaptive, was = { on: a.on, min: a.min }; Object.assign(a, { on: true, cooldown: 0, t: 0, age: 10, min: 0.3 }); engine._adapt(1, 1000, false, true); Object.assign(a, was); } },   // one heavy 1 s window past the startup grace
   // written once at creation, never per frame: drive = describe() (the read that notices a direct write); quiet = the yield warns nothing,
   // because a direct renderer.toneMapping write is the documented way to change the curve; no game verb hands it back (look.tone is gone), the row's own hand-back still writes the creation curve
-  'toneMapping': { poke: () => (engine.renderer.toneMapping = engine.THREE.NeutralToneMapping), get: () => engine.renderer.toneMapping, drive: () => engine.describe(), quiet: true, handBack: () => engine._oTone.manual(false) },
+  'toneMapping': { poke: () => (engine.renderer.toneMapping = __threedogThree.NeutralToneMapping), get: () => engine.renderer.toneMapping, drive: () => engine.describe(), quiet: true, handBack: () => engine._oTone.manual(false) },
   'camera': { skip: 'tests/specs/b.mjs "[guard] Camera" (the vehicle page has a camera module)' },
   // never yields (a write to post.object() is replaced on the next chain change, post-fuse.mjs); manual() is checked on both backends there
   'post.chain': { skip: 'tests/specs/post-webgpu.mjs "[guard] post on WebGPU" (own() stops rebuilds)' },

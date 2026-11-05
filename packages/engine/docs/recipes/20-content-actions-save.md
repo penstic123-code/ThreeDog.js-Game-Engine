@@ -32,7 +32,7 @@ export default {
         for (const [id, r] of Object.entries(data)) if (!ctx.data.items?.[r.makes]) ctx.err(`recipe ${id} makes unknown item ${r.makes}`);
       },
       map: data => Object.entries(data).map(([id, r]) => `${id} -> ${r.makes}`),   // optional GAMEMAP lines
-      // optional: the keys of each entry (core/params.js format, no default); threedog check reports unknown keys, wrong types, out of range
+      // optional: the keys of each entry (core/base/params.js format, no default); threedog check reports unknown keys, wrong types, out of range
       fields: { needs: 'object', makes: 'string', seconds: { type: 'number', min: 0, optional: true, desc: 'crafting time' } },
     },
   },
@@ -44,8 +44,10 @@ export default { bread: { needs: { flour: 2 }, makes: 'bread' } };
 ```
 Add `recipes` to `content/index.js` like any other file, and `rules` too: the loader knows a kind only from the `rules` it is handed (`threedog check`
 says so when one is missing). `load` is optional: a game that imports the file itself leaves it out and still gets the check and the map entry.
-A file in `content/` that is neither an engine file nor a registered kind is an error,
-and so is `content.load({ enemies })` without the kind: both say how to register it. A kind may not reuse an engine file name.
+A name `content/index.js` lists that is neither an engine file nor a registered kind is an error, and so is `content.load({ enemies })` without the kind:
+both say how to register it. A kind may not reuse an engine file name. A file the index does not list is no content, so `threedog check` gives one warning.
+A game's own data that the engine never reads, such as translated story text, belongs outside `content/`: a folder of its own that the game
+imports itself, or `engine.i18n.add()` when it is text the UI fetches with `engine.t`. To have it checked and on the map, register a kind with no `load`.
 
 **Field tables.** Every content entry has one: the engine's own, a template's `fields` (recipes/30-templates.md) or a kind's `fields` as above. `threedog check` validates every entry
 against its table (a misspelled `scael` names `scale`), and `engine.content.fields(name)` returns the same table for tools such as an editor panel.

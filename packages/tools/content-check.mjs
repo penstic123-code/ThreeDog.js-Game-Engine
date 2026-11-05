@@ -1,19 +1,18 @@
 // Content validation: checks that the data in content/ of every game folder (gameDirs in paths.mjs) has no mistakes. npm run check runs it automatically.
 //   Run alone: node packages/tools/content-check.mjs
 // It finds: duplicate ids, references to items/NPCs/dialogues/quests/places/nodes that do not exist, missing required fields, bad clock-time format,
-//   misspelled condition/effect words,
-//        misspelled key names, flags/counters that are only checked and never set (warning), prop/vegetation model names (against the game's style
-//   pack + assets.manifest) and places.
-// Vocabulary (which conditions/effects can be written) = the engine's modules/content/rules.js + the game's own content/rules.js.
+//   misspelled condition/effect words and key names, flags/counters that are only checked and never set (warning), model names (against the asset
+//   packs of assets.js) and places.
+// Vocabulary: conditions = the engine's modules/content/rules.js + the game's own content/rules.js; effects = the engine's only (a game's own action is an op).
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { checkWorldData } from './content-check/world.mjs';
 import { checkQuests } from './content-check/quests.mjs';
 import { checkKinds, checkListed } from './content-check/kinds.mjs';
 import { checkAudio } from './content-check/audio.mjs';
 import { checkViews } from './content-check/views.mjs';
-import { checkFields } from './content-check/fields.mjs';
+import { checkFields, isObj } from './content-check/fields.mjs';
 import { glbLevels } from './content-check/glb.mjs';
 import { writeIndex } from './content-check/index-ids.mjs';
 import { cli, within } from './paths.mjs';
@@ -21,21 +20,18 @@ import { item, result, startJson } from './lib/result.mjs';
 import { KEYBOARD_CODE, gameCodeFiles, read } from './lib/text.mjs';
 import { actionUsed } from './gamemap/codeScan.mjs';
 import { noComments } from './gamemap/text.mjs';
-import { ROOT, rel, findGames, loadGame, dupKeys, gameAssets, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
-export { ROOT, findGames, loadGame, gameAssets, levelIsFile };
+import { rel, findGames, loadGame, dupKeys, gameAssets, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 
-// Mouse buttons and gamepad buttons are keys too (core/inputPointer.js, core/inputPad.js): an attack on Mouse0 or PadX is a normal content action
+// Mouse buttons and gamepad buttons are keys too (core/input/inputPointer.js, core/input/inputPad.js): an attack on Mouse0 or PadX is a normal content action
 const KEY_RE = new RegExp(`^(${KEYBOARD_CODE}|Mouse[0-4]|Pad(A|B|X|Y|LB|RB|LT|RT|Select|Start|L3|R3|Up|Down|Left|Right))$`);
 
 /** Validate one game folder, returning { errors: [], warnings: [] } (English) */
 export async function checkGame(dir) {
-  const { data: c, files, parts, errors } = await loadGame(dir);
-  const warnings = [];
+  const { data: c, files, parts, errors, warnings } = await loadGame(dir);
   const at = kind => rel(files[kind] || join(dir, 'content', kind + '.js'));
   const known = (o, n = 8) => { const ks = Object.keys(o || {}); return ks.length ? ks.slice(0, n).join(', ') + (ks.length > n ? '…' : '') : '(none yet)'; };
   const err = (kind, msg) => errors.push(`${at(kind)}: ${msg}`);
   const warn = (kind, msg) => warnings.push(`${at(kind)}: ${msg}`);
-  const isObj = v => v && typeof v === 'object' && !Array.isArray(v);
 
   // 1. Duplicate ids / keys
   for (const [kind, list] of Object.entries(parts)) for (const { path } of list) {   // every file of a kind (a folder kind has several)
@@ -55,7 +51,7 @@ export async function checkGame(dir) {
   const glb = await glbLevels(dir, c);   // markers read from the level .glb
   errors.push(...glb.errors);
   const places = { ...(c.places || {}), ...markers, ...glb.places };
-  const flagsSet = new Set([...code.matchAll(/flags\.(\w+)\s*=|setFlag\('(\w+)'/g)].map(m => m[1] ?? m[2]));
+  const flagsSet = new Set([...code.matchAll(/flags\.(\w+)\s*=(?!=)|setFlag\('(\w+)'/g)].map(m => m[1] ?? m[2]));
   const countersBumped = new Set([...code.matchAll(/bump\('(\w+)'/g)].map(m => m[1]));
   const flagsUsed = [], countersUsed = [];
   // Model / sound names: the asset packs the game exports from assets.js and registers at run time (one source, no scanning of source text)
@@ -96,7 +92,7 @@ export async function checkGame(dir) {
             if (type === 'itemCounts' && !items[id]) err(kind, `${where} needs item ${id}, which does not exist (existing items: ${known(items)})`);
             if (type === 'counterCounts') countersUsed.push([kind, where, id]);
           }
-        } else if (type === 'flag') { if (word !== 'setFlag') flagsUsed.push([kind, where, val]); }
+        } else if (type === 'flag') { if (word !== 'setFlag') flagsUsed.push([kind, where, val, word]); }
         else if (type === 'quest' && !quests[val]) err(kind, `${where} starts quest ${val}, which does not exist (existing quests: ${known(quests)})`);
         else if (type === 'particles' && !(isObj(val) && val.name && Array.isArray(val.at) && val.at.length === 3))
           err(kind, `particles of ${where} must be written as { name: 'particleName', at: [x, y, z], count: number }`);
@@ -225,15 +221,14 @@ export async function checkGame(dir) {
   // 11. The game's vocabulary and its own content kinds
   checkKinds({ c, err, warn, known });
   checkListed({ dir, c, files, code, err, warn });
-  for (const [group, vocab] of [['conditions', c.rules?.conditions], ['effects', c.rules?.effects]]) for (const [word, d] of Object.entries(vocab || {})) {
-    const fn = group === 'conditions' ? 'test' : 'run';
-    if (typeof d?.[fn] !== 'function') err('rules', `"${word}" in ${group} has no ${fn} function`);
-    if (!d?.desc) warn('rules', `"${word}" in ${group} should have a one-line desc (the game map uses it)`);
+  for (const [word, d] of Object.entries(c.rules?.conditions || {})) {
+    if (typeof d?.test !== 'function') err('rules', `"${word}" in conditions has no test function`);
+    if (!d?.desc) warn('rules', `"${word}" in conditions should have a one-line desc (the game map uses it)`);
   }
 
   // 12. Flags and counters that are only checked, never set
-  for (const [kind, where, f] of flagsUsed) if (!flagsSet.has(f)) warn(kind,
-    `${where} checks story flag ${f}, but nothing sets it (setFlag or flags.${f} = … in code), so this condition can never be met`);
+  for (const [kind, where, f, word] of flagsUsed) if (!flagsSet.has(f)) warn(kind,
+    `${where} checks story flag ${f}, but nothing sets it (setFlag or flags.${f} = … in code), so this condition ${word === 'notFlag' ? 'always holds' : 'can never be met'}`);
   for (const [kind, where, k] of countersUsed) if (!countersBumped.has(k)) warn(kind,
     `${where} checks counter ${k}, but nothing increases it (bump or vars.bump('${k}') in code), so this condition can never be met`);
 

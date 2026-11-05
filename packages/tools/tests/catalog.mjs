@@ -10,6 +10,7 @@ export async function run({ check }) {
   const one = catalogCommand({ data: row, ids: ['sky'], ops: [] }, 'sky', {}, ROOT);
   check('Module text: op with default and failures, files located', /sky\.set\(t:number\?=12\) fails: bad/.test(one.text) && /api: .*api\/sky\.md/.test(one.text)
     && /source: .*modules\/sky\//.test(one.text) && one.data.files.api, one.text);
+  check('[guard] a module with ops still names its saved parts', /saves: sky v1/.test(one.text), one.text);
   const none = catalogCommand({ data: null, ids: ['sky'], ops: ['time.skip'] }, 'nope', {}, ROOT);
   check('Unknown id fails and lists what exists', !none.ok && /Modules: sky/.test(none.text), none.text);
   // options: type and sentence come from the api page's Options lines, a key with no sentence shows (no doc) and is counted in problems

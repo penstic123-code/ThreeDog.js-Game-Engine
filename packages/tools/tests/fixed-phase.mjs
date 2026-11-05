@@ -9,8 +9,8 @@ import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
 const imp = f => import(pathToFileURL(join(ENGINE, f)).href);
-const { loopMethods } = await imp('core/loop.js');
-const { Engine } = await imp('core/Engine.js');
+const { loopMethods } = await imp('core/engine/loop.js');
+const { Engine } = await imp('core/engine/Engine.js');
 
 export const name = 'fixed phase: onFixed early / late around module hooks, player position the same before or after createPlayer';
 
@@ -42,6 +42,8 @@ export async function run({ check }) {
   try { e.onFixed(() => {}, { phase: 'after' }); } catch (x) { msg = x.message; }
   check('an unknown phase throws naming both phases', /'early'/.test(msg) && /'late'/.test(msg), msg);
   // guard: the characters module drives the player only through its own fixed / frame hooks
-  const src = readFileSync(join(ENGINE, 'modules/characters/index.js'), 'utf8');
-  check('characters/index.js registers no engine.onFixed / onFrame (player control is the module hook)', !/\be\.on(Fixed|Frame)\(/.test(src));
+  for (const file of ['index.js', 'player.js']) {
+    const src = readFileSync(join(ENGINE, 'modules/characters', file), 'utf8');
+    check(`characters/${file} registers no engine.onFixed / onFrame (player control is the module hook)`, !/\be\.on(Fixed|Frame)\(/.test(src));
+  }
 }

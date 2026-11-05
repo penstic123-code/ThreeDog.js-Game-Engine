@@ -1,7 +1,7 @@
 // Container internals that need no class state beyond the box they get as `b` (helper of Container.js): the dry runs behind trade / transfer, adding with
 // the room check and its dev messages, and reading a saved list.
 import { toast } from '../../ui/UI.js';
-import { warnOnce, fmt } from '../../core/validate.js';
+import { warnOnce, fmt } from '../../core/base/validate.js';
 
 const STRINGS = {
   full: 'Container {box} has no room for {id} (capacity {cap} slots, maxWeight {mw}): add returns false. Raise capacity / maxWeight, or remove something first',

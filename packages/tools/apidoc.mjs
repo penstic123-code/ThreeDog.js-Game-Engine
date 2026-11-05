@@ -4,6 +4,7 @@
 //   packages/engine/docs/api/<name>.md one page per core object and per module: methods, parameters, properties, data structures (read only the page
 //   you need)
 // Parsed with the TypeScript compiler (not regexes), so regenerating after a declaration change never goes stale.
+//   packages/engine/docs/COMMANDS.md the dev bridge rows, from threedog/command-table.mjs
 //   node packages/tools/apidoc.mjs           generate
 //   node packages/tools/apidoc.mjs --check   check it is up to date (exit code 1 if not)
 import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, rmSync } from 'node:fs';
@@ -11,11 +12,11 @@ import { join } from 'node:path';
 import ts from 'typescript';
 import { pathToFileURL } from 'node:url';
 import { API_MD_REL, API_DIR_REL, RECIPES_REL, CONTENT_RULES_REL, ENGINE, abs, cli } from './paths.mjs';
+import { COMMANDS, EXTRA as EXTRA_COMMANDS } from './threedog/command-table.mjs';
 import {
-  ROOT, OUT, PAGES, TYPES, GEN, files, decls, indexFns, reexported, shown, get, clean,
-  docOf, balance, first, full, brief, raw, typeText, params, ret, sig,
-  INTERNAL, missingDocs, members, split, ext, methodLine, fieldLines, renderApi, renderOptions, renderStruct,
-  names, pages, page, link, fnLine, idx, STRUCTS, structs,
+  ROOT, OUT, PAGES, GEN, decls, indexFns, reexported, shown, get, clean, docOf, first, full, brief, raw, typeText, sig,
+  INTERNAL, missingDocs, split, ext, methodLine, fieldLines, renderApi, renderOptions, renderStruct,
+  names, pages, page, link, fnLine, idx, structs,
 } from './apidoc/lib.mjs';
 
 const { opt: OPT } = cli(process.argv.slice(2), { workspace: false, flags: ['check', 'report'] });
@@ -66,6 +67,7 @@ idx.push('', '## Core objects (engine.xxx, no install needed)');
 for (const [p, t] of CORE_OBJS) {
   const d = docOf(get(t)).text;
   const L = page(p, `engine.${p} (${t})${d ? ' — ' + first(d, 140) : ''}`);
+  if (p === 'i18n') L.push(methodLine('engine.', engApi.methods.find(m => m.name === 't')));   // the everyday call lives on Engine, not on this class
   renderApi(L, t, `${p}.`, { skipProps: ['composer'] });
   if (p === 'events') {
     L.push('', '## Event table (engine.events.on(name, (args…) => …), the [] lists the callback arguments)');
@@ -201,7 +203,12 @@ const llms = ['# threedog', '', '> A web 3D game engine on three.js 0.187 (plain
   '## Start', '', '- [AI.md](docs/AI.md): entry table, commands, verification rules, conventions',
     '- [API.md](docs/API.md): API index; one page per module in docs/api/', '',
   '## Recipes', '', ...recipeNames.map(r => `- [${r}](docs/recipes/${r}.md): ${readFileSync(join(abs(RECIPES_REL), r + '.md'), 'utf8').split('\n')[0].replace(/^#\s*/, '')}`), ''].join('\n');
-const outputs = new Map([[OUT, idx.join('\n')], [LLMS, llms]]);
+// COMMANDS.md: the dev bridge rows come from the command table, the rest of the page is hand-written
+const COMMANDS_DOC = join(ENGINE, 'docs/COMMANDS.md');
+const bridgeRows = ['| Command | What it does |', '|---|---|', ...Object.entries({ ...COMMANDS, ...EXTRA_COMMANDS }).filter(([c]) => !c.startsWith('picture-'))
+  .map(([c, text]) => `| \`threedog ${c}\` | ${text.replaceAll('|', '\\|')} |`)].join('\n');
+const commandsDoc = readFileSync(COMMANDS_DOC, 'utf8').replace(/(<!-- rows written by .*-->\n)[^]*?(<!-- end of generated rows -->)/, (_, top, end) => `${top}${bridgeRows}\n${end}`);
+const outputs = new Map([[OUT, idx.join('\n')], [LLMS, llms], [COMMANDS_DOC, commandsDoc]]);
 for (const [file, lines] of pages) outputs.set(join(PAGES, file + '.md'), [...lines, ''].join('\n'));
 const relp = f => f.slice(ROOT.length + 1);
 if (OPT.check) {

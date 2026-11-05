@@ -1,7 +1,7 @@
 // Collision, real physics, camera.
 import type { Object3D, Vector3, DirXZ, Vec3Like, Ease, Handle, PositionLike } from './common';
 import type { Engine, ModuleDef } from './core';
-import type { Input } from './generated/core/Input';
+import type { Input } from './generated/core/input/Input';
 import type { Character } from './gameplay';
 
 // ======================================================================
@@ -13,11 +13,11 @@ export interface CollisionOptions {
   maxClimb?: number;
   /** A camera above this height (meters) is not considered blocked by trees, default 5 */
   canopyHeight?: number;
-  /** Margin between the camera and obstacles (meters), default 0.5 */
+  /** Margin between the camera and obstacles (meters), default 0.5 @experimental */
   cameraPad?: number;
   /** Nearest camera distance (meters), default 1.5 */
   cameraMin?: number;
-  /** Height above the water surface (meters) at which it counts as walkable, default 0.2 */
+  /** Height above the water surface (meters) at which it counts as walkable, default 0.2 @experimental */
   walkableWaterMargin?: number;
   /** What camera occlusion checks: 'both' (default) | 'colliders' | 'meshes' = static meshes registered with engine.rays.addStatic(mesh, { occluder: true }) */
   cameraOcclusion?: 'colliders' | 'meshes' | 'both';
@@ -54,14 +54,14 @@ export interface BoxColliderOptions {
 
 /** engine.collision (lightweight collision: no walking through things, the camera is not blocked). Real physics is a separate module, engine.rigid */
 export interface Collision {
-  maxClimb: number;
-  canopyHeight: number;
-  cameraPad: number;
-  cameraMin: number;
-  walkableWaterMargin: number;
-  /** What camera occlusion checks (see CollisionOptions.cameraOcclusion) */
+  /** @experimental */ maxClimb: number;
+  /** @experimental */ canopyHeight: number;
+  /** @experimental */ cameraPad: number;
+  /** @experimental */ cameraMin: number;
+  /** @experimental */ walkableWaterMargin: number;
+  /** What camera occlusion checks (see CollisionOptions.cameraOcclusion) @experimental */
   cameraOcclusion: 'colliders' | 'meshes' | 'both';
-  /** +1 each time a static collider is added or removed */
+  /** +1 each time a static collider is added or removed @experimental */
   version: number;
   /** Add a circle collider (pillar, campfire): position is the center, e.g. addCircle(mesh, { radius: 1 }). Returns a handle { remove() } */
   addCircle(position: PositionLike, opts?: CircleColliderOptions): Handle;
@@ -71,13 +71,13 @@ export interface Collision {
   addSegment(a: PositionLike, b: PositionLike, opts?: { thickness?: number; height?: number; y?: number; occluder?: boolean }): Handle;
   /** Mark ground impassable where fn(x, z) is true (river, lava); fn must be pure (no side effects, same answer for the same (x, z)); reading engine.ground in it is fine. findPathAsync caches the answers, so after the ground or your own state changes, remove() and add the field again. bounds { minX, maxX, minZ, maxZ } (world metres, the field's x / z extent) skips fn outside it; give it to keep findPathAsync's ground sampling cheap. Returns a handle { remove() } */
   addBlocked(fn: (x: number, z: number) => boolean, opts?: { bounds?: { minX: number; maxX: number; minZ: number; maxZ: number } }): Handle;
-  /** Is a character of this radius touching addBlocked ground at (x, z) */
+  /** Is a character of this radius touching addBlocked ground at (x, z) @experimental */
   blockedAt(x: number, z: number, radius?: number): boolean;
   /** Add a collider from an object's bounding box, pad expands outward (meters), occluder as in addBox. Returns a handle { remove() } */
   addObject(obj: Object3D, opts?: { pad?: number; occluder?: boolean }): Handle;
-  /** Iterate all static colliders added by hand */
+  /** Iterate all static colliders added by hand @experimental */
   forEachStatic(fn: (type: 'box' | 'circle', data: any) => void): void;
-  /** Keep an outside copy of the static colliders in step (physics colliders, navmesh obstacles): add builds one piece, remove drops one; sync() diffs only when colliders changed and returns whether it compared; clear() forgets every piece without remove (the outside world was thrown away) */
+  /** Keep an outside copy of the static colliders in step (physics colliders, navmesh obstacles): add builds one piece, remove drops one; sync() diffs only when colliders changed and returns whether it compared; clear() forgets every piece without remove (the outside world was thrown away) @experimental */
   mirror<P>(fns: { add(type: 'box' | 'circle', data: any): P; remove(piece: P, data: any): void }): { sync(): boolean; clear(): void; readonly size: number };
   /** Whether someone can stand at this position (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (meters, default engine.movement.radius) */
   walkable(position: PositionLike, opts?: { radius?: number }): boolean;
@@ -98,19 +98,19 @@ export interface RigidOptions {
   terrainRing?: number;
   /** Whether there is buoyancy, default true */
   buoyancy?: boolean;
-  /** Buoyancy strength (1 = just floats), default 1.6 */
+  /** Buoyancy strength (1 = just floats), default 1.6 @experimental */
   buoyancyForce?: number;
-  /** Drag in water, default 2.5 */
+  /** Drag in water, default 2.5 @experimental */
   waterDrag?: number;
-  /** Buoyancy "waterline": an object starts floating when its center is this many meters below the water surface, default 0.3 */
+  /** Buoyancy "waterline": an object starts floating when its center is this many meters below the water surface, default 0.3 @experimental */
   floatLine?: number;
-  /** Buoyancy reaches its maximum this many meters further down, default 0.8 */
+  /** Buoyancy reaches its maximum this many meters further down, default 0.8 @experimental */
   floatDepth?: number;
-  /** Height (meters) of vegetation collision pillars (tree trunks), default 6 */
+  /** Height (meters) of vegetation collision pillars (tree trunks), default 6 @experimental */
   treeColliderHeight?: number;
-  /** Trunks get collision cylinders only in chunks within this many meters of the player or a moving rigid body (the rest are covered by engine.collision for characters), default 16 */
+  /** Trunks get collision cylinders only in chunks within this many meters of the player or a moving rigid body (the rest are covered by engine.collision for characters), default 16 @experimental */
   treeRadius?: number;
-  /** Player capsule size (meters), default computed from engine.movement radius / height */
+  /** Player capsule size (meters), default computed from engine.movement radius / height @experimental */
   playerCapsule?: { halfHeight: number; radius: number };
 }
 /** Parameters for adding a physics body */
@@ -194,20 +194,23 @@ export interface RigidBodies {
   /** All physics bodies */
   bodies: RigidEntry[];
   gravity: number;
-  terrainRing: number;
-  buoyancy: boolean;
-  buoyancyForce: number;
-  waterDrag: number;
-  floatLine: number; floatDepth: number; treeColliderHeight: number; treeRadius: number;
+  /** @experimental */ terrainRing: number;
+  /** @experimental */ buoyancy: boolean;
+  /** @experimental */ buoyancyForce: number;
+  /** @experimental */ waterDrag: number;
+  /** @experimental */ floatLine: number;
+  /** @experimental */ floatDepth: number;
+  /** @experimental */ treeColliderHeight: number;
+  /** @experimental */ treeRadius: number;
   /** The Rapier library itself: its shape follows the Rapier version @experimental */
   rapier: any;
   /** The Rapier world: its shape follows the Rapier version @experimental */
   world: any;
   /** Add a box (crate). Physics is ready after engine.start() (or on engine:ready): called before, it throws in development, a release build warns once and returns null */
   addBox(mesh: Object3D, opts?: RigidBoxOptions): RigidEntry | null;
-  /** Add a ball; null only as in addBox: a release build, called before physics is ready */
+  /** Add a ball; null only as in addBox: a release build, called before physics is ready @experimental */
   addBall(mesh: Object3D, opts?: RigidBallOptions): RigidEntry | null;
-  /** Add a convex hull (irregular objects such as rocks and barrels); null only as in addBox: a release build, called before physics is ready */
+  /** Add a convex hull (irregular objects such as rocks and barrels); null only as in addBox: a release build, called before physics is ready @experimental */
   addHull(mesh: Object3D, opts?: RigidBodyOptions): RigidEntry | null;
   /**
    * Turn a skinned character limp in one call; rd.remove() returns it to animation. who: a Character, an NPC handle, a character id or a skinned Object3D.
@@ -223,9 +226,9 @@ export interface RigidBodies {
   playerBody: any;
   /** The capsule collider on playerBody @experimental */
   playerCollider: any;
-  /** Player capsule size (meters) */
+  /** Player capsule size (meters) @experimental */
   playerCapsule: { halfHeight: number; radius: number };
-  /** All vehicles */
+  /** All vehicles @experimental */
   vehicles: Vehicle[];
   /**
    * Turn a model into a wheeled vehicle (Rapier ray-cast vehicle controller: cars, karts, carts); remove it with vehicle.remove() (anyone inside gets out
@@ -455,18 +458,18 @@ export interface FollowCameraOptions {
   maxDistance?: number;
   /** How high above the character to look at (meters), default 1.4 */
   height?: number;
-  /** Follow smoothing, default 10 */
+  /** Follow smoothing, default 10 @experimental */
   smoothing?: number;
   /** Drag sensitivity, default 1 */
   sensitivity?: number;
   /** Pitch range (radians) */
   minPitch?: number;
-  maxPitch?: number;
-  /** Zoom ratio per wheel notch, default 0.1 */
+  /** @experimental */ maxPitch?: number;
+  /** Zoom ratio per wheel notch, default 0.1 @experimental */
   zoomStep?: number;
-  /** Minimum camera height above the ground (meters), default 1.2 */
+  /** Minimum camera height above the ground (meters), default 1.2 @experimental */
   groundClearance?: number;
-  /** Invert vertical */
+  /** Invert vertical @experimental */
   invertY?: boolean;
   /** Lock the pitch angle (top-down games) */
   lockPitch?: boolean;
@@ -546,9 +549,9 @@ export interface FirstPersonCameraOptions {
   fov?: number | null;
   /** Walking bob amplitude (meters), 0 off, default 0.04 */
   headBob?: number;
-  /** Bobs per meter */
+  /** Bobs per meter @experimental */
   bobFrequency?: number;
-  /** Hide the character itself (its shadow remains), default true */
+  /** Hide the character itself (its shadow remains), default true @experimental */
   hideTarget?: boolean;
   /** Layer number used for hiding 0–31 */
   hideLayer?: number;
@@ -562,12 +565,12 @@ export interface FirstPersonCameraOptions {
   pitch?: number;
   /** Look down / up limit (radians), default -1.45 / 1.45 */
   minPitch?: number;
-  maxPitch?: number;
-  /** Turn range left / right [min, max] (radians), unlimited by default */
+  /** @experimental */ maxPitch?: number;
+  /** Turn range left / right [min, max] (radians), unlimited by default @experimental */
   yawLimits?: number[] | null;
-  /** Smoothing of the camera following the body */
+  /** Smoothing of the camera following the body @experimental */
   smoothing?: number;
-  /** Invert vertical */
+  /** Invert vertical @experimental */
   invertY?: boolean;
 }
 /** First-person camera */
@@ -605,24 +608,24 @@ export interface FixedCameraOptions extends Partial<CameraShot> {
   start?: string | null;
   /** Automatic switching: false | 'nearest' (pick the one nearest to the player) */
   auto?: false | 'nearest';
-  /** Check interval for automatic switching (seconds) */
+  /** Check interval for automatic switching (seconds) @experimental */
   autoInterval?: number;
   /** How many meters closer a new shot must be to switch (prevents flipping back and forth) */
   hysteresis?: number;
-  /** Transition seconds for trigger-zone switches (0 = hard cut) */
+  /** Transition seconds for trigger-zone switches (0 = hard cut) @experimental */
   triggerBlend?: number;
-  /** How high above the character a track shot looks (meters) */
+  /** How high above the character a track shot looks (meters) @experimental */
   trackHeight?: number;
-  /** Head-follow smoothing */
+  /** Head-follow smoothing @experimental */
   trackSmoothing?: number;
-  /** Keep the direction when switching shots until the direction key is released */
+  /** Keep the direction when switching shots until the direction key is released @experimental */
   holdDirection?: boolean;
   /** Transition easing */
   ease?: Ease;
 }
 /** Fixed-shot camera */
 export interface FixedCamera extends CameraRigBase {
-  /** All shots */
+  /** All shots. A shot stays where it was placed: for a view that pans at a fixed angle use followCamera({ mouseLook: false }) (recipe 21 section 6) */
   shots: Record<string, any>;
   /** Current shot name */
   current: string | null;
@@ -654,27 +657,27 @@ export interface RtsCameraOptions {
   pitch?: number;
   /** Initial horizontal heading (radians) */
   yaw?: number;
-  /** Pan speed multiplier */
+  /** Pan speed multiplier @experimental */
   panSpeed?: number;
-  /** Drag with the mouse to pan, default true */
+  /** Drag with the mouse to pan, default true @experimental */
   dragPan?: boolean;
-  /** Pan at the screen edge, default false */
+  /** Pan at the screen edge, default false @experimental */
   edgePan?: boolean;
-  /** Edge width (fraction of the screen) */
+  /** Edge width (fraction of the screen) @experimental */
   edgeSize?: number;
   /** Focus range (meters) */
   bounds?: { minX?: number; maxX?: number; minZ?: number; maxZ?: number } | null;
   /** false: no turning. Default true: declares the actions rotateLeft / rotateRight (no keys; presets.bindings.rtsRotate binds Q / R) */
   rotate?: boolean;
-  /** Rotation speed (radians/second) */
+  /** Rotation speed (radians/second) @experimental */
   rotateSpeed?: number;
-  /** Zoom ratio per wheel notch */
+  /** Zoom ratio per wheel notch @experimental */
   zoomStep?: number;
-  /** Smoothing */
+  /** Smoothing @experimental */
   smoothing?: number;
   /** Field of view (degrees); unchanged if omitted */
   fov?: number | null;
-  /** Manual panning is not allowed while following */
+  /** Manual panning is not allowed while following @experimental */
   followLock?: boolean;
   /** Initial focus (position) */
   start?: PositionLike | null;

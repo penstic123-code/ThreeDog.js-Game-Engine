@@ -4,8 +4,8 @@
 // A step's (or parallel part's) id is its `id` field (quests.define / content: steps: [{ id: 'talk-mayor', text, done }]), else its position as text
 // ('0', '1', ...): give steps ids before shipping, then edits to the step list never move a player's progress.
 // Version 1 saved positions: migrateV1 maps them to ids through the quest definitions known when the save is loaded.
-import { warnOnce } from '../../core/validate.js';
-import { coded } from '../../core/errorHints.js';
+import { warnOnce, fmt } from '../../core/base/validate.js';
+import { coded } from '../../core/base/errorHints.js';
 
 const STRINGS = {
   missing: "quests: the save has quest '{q}' at step '{step}', which its definition no longer has; it restarts from the first step. Keep step ids stable, or add a migrate step to the 'quests' save part",
@@ -44,7 +44,7 @@ export function toSaved(def, s) {
  */
 export function fromSaved(id, def, q) {
   let step = q.done ? def.steps.length : indexOf(def, q.step);
-  if (step < 0) { warnOnce(coded('quest-step', STRINGS.missing.replace('{q}', id).replace('{step}', String(q.step)))); step = 0; }
+  if (step < 0) { warnOnce(coded('quest-step', fmt(STRINGS.missing, { q: id, step: String(q.step) }))); step = 0; }
   const s = { step, done: !!q.done };
   if (q.failed) s.failed = true;
   const st = def.steps[step];

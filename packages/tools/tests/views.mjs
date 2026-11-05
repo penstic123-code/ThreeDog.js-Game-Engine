@@ -1,14 +1,14 @@
-// Named camera views (core/Views.js): define, show moves the camera and takes it over through engine.takeCamera (core/holds.js), release gives it back
+// Named camera views (core/scene/Views.js): define, show moves the camera and takes it over through engine.takeCamera (core/ops/holds.js), release gives it back
 // to whoever held it before (a cutscene keeps its takeover); bad input is rejected with a code.
 import * as THREE from 'three';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
-const { Views } = await import(pathToFileURL(join(ENGINE, 'core/Views.js')).href);
-const { holdMethods } = await import(pathToFileURL(join(ENGINE, 'core/holds.js')).href);
-const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/stacks.js')).href);
-const { Events } = await import(pathToFileURL(join(ENGINE, 'core/Events.js')).href);
+const { Views } = await import(pathToFileURL(join(ENGINE, 'core/scene/Views.js')).href);
+const { holdMethods } = await import(pathToFileURL(join(ENGINE, 'core/ops/holds.js')).href);
+const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/ops/stacks.js')).href);
+const { Events } = await import(pathToFileURL(join(ENGINE, 'core/base/Events.js')).href);
 
 export const name = 'named camera views: define / show / release';
 
@@ -17,7 +17,7 @@ export async function run({ check }) {
   const engine = Object.defineProperties({ camera: new THREE.PerspectiveCamera(60), focus: new THREE.Vector3() }, Object.getOwnPropertyDescriptors(holdMethods));
   engine.stacks = new Stacks(engine); engine.stacks.define('camera', { kind: 'top', save: false });
   engine.events = new Events();
-  engine._oFov = { drive(v) { engine.camera.fov = v; } };   // the fov owner (core/view.js): views write through it
+  engine._oFov = { drive(v) { engine.camera.fov = v; } };   // the fov owner (core/scene/view.js): views write through it
   const cuts = []; engine.events.on('camera:shot', c => cuts.push(c.name));
   const v = new Views(engine);
   const def = v.define('gate', { position: [0, 2, 10], target: [0, 2, 0], fov: 35 });

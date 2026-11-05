@@ -12,12 +12,12 @@ Weather state (weather() module): the table, current values, set / setAuto, save
   - `types: Record<string, WeatherPreset>` The weather types this game has: name -> numbers (the standard fields plus any of the game's own, all blended on change)
   - `current: WeatherPreset` Current (mid-transition) weather parameters
   - `name: string` Current weather name
-  - `autoPool: string[]` Candidates for automatic weather (repeat a name to make it likelier)
-  - `autoInterval: number[]` Automatic weather interval [min, max] seconds
-  - `autoTransition: number` Transition seconds for automatic weather
-  - `lightningFirst: number` Seconds to the first bolt (also after a load without a saved timer)
-  - `lightningInterval: number[]` [min, max] seconds between bolts while a type with lightning > 0.5 holds
-  - `lightning: (flash: number, engine: any) => number` Strike picture: flash (1 at the strike, fading in a third of a second) -> sky flash amount. Write it at any time
+  - `autoPool: string[]` (experimental) Candidates for automatic weather (repeat a name to make it likelier)
+  - `autoInterval: number[]` (experimental) Automatic weather interval [min, max] seconds
+  - `autoTransition: number` (experimental) Transition seconds for automatic weather
+  - `lightningFirst: number` (experimental) Seconds to the first bolt (also after a load without a saved timer)
+  - `lightningInterval: number[]` (experimental) [min, max] seconds between bolts while a type with lightning > 0.5 holds
+  - `lightning: (flash: number, engine: any) => number` (experimental) Strike picture: flash (1 at the strike, fading in a third of a second) -> sky flash amount. Write it at any time
   - `lightningBrightness: number` Multiplies the sky flash of every strike; write it at any time
   - `overcastColor: THREE.Color` Color the sky turns as a weather type raises grey: a THREE.Color, overcastColor.set(0x667788) changes it live
   - `particles: Record<string, WeatherParticleSystem>` The particle systems drawn now, by field: rain and snow when the table has them, plus what defineField() added. Example: `engine.weather.particles.rain.spec.speed = 30;`

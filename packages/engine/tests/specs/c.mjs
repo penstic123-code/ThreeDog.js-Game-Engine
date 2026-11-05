@@ -65,7 +65,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();
-        const sm = engine.renderer.shadowMap, T = engine.THREE, sun = engine.lights.sun, out = { def: sm.type === T.PCFShadowMap };
+        const sm = engine.renderer.shadowMap, T = __threedogThree, sun = engine.lights.sun, out = { def: sm.type === T.PCFShadowMap };
         const budget = engine.shadows.budget(sun, { every: 50 });
         engine.step(1 / 60); engine.step(1 / 60);
         const map = sun.shadow.map;

@@ -1,6 +1,6 @@
 // 一次美术测试（实验游戏，已删）找出的引擎摩擦：根因修复各配一条不许绕开的检查。
 // [守] 无头引擎 start 之后才开始的加载（加植物种类、换密度、传送），不调 step 也要加载完，stateApplied 要等它：
-//      headless 没有实时循环，step() 是同步的、工人线程的结果在任务之间才回来，所以只能由引擎自己在加载没完时跑"加载帧"（core/headlessLoad.js）。
+//      headless 没有实时循环，step() 是同步的、工人线程的结果在任务之间才回来，所以只能由引擎自己在加载没完时跑"加载帧"（core/engine/headlessLoad.js）。
 //      谁把 start() 里的 startHeadlessLoad 或 stateApplied 里的 headlessSettled 去掉，这条就红（截图会停在"waiting for module terrain"）。
 export const specs = [
   {

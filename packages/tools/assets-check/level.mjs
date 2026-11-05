@@ -1,6 +1,6 @@
 // Level manifest: what the level module will find in a glb (spawn, col_, trigger_, npc_, marker_, template / id nodes), read statically from the file.
 // The same JSON feeds `threedog assets check`, content-check (content then needs no hand-written description of Blender markers) and AI queries.
-// The naming rules mirror modules/level (index.js COL_RE, nodes.js MARKER_RE and record ids); change them together.
+// The naming rules mirror modules/level (meshes.js COL_RE, nodes.js MARKER_RE and record ids); change them together.
 import { basename, extname } from 'node:path';
 
 const MARKER_RE = /^(spawn|spawn_.*|npc_.*|trigger_.*|marker_.*)$/i;

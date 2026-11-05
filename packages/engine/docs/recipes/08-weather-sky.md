@@ -101,8 +101,7 @@ With openWorld the weather module is already installed; pass its options through
 run from time 0 to time 1, else the sky throws (both ends are midnight: give the last row the first row's values, or the colors jump there). What each column drives
 is on `keyframes` in `SkyPictureOptions`, `types/world.d.ts`;
 also `sunSize sunGlow starDensity clouds` (defaults and ranges there too; `hoursPerDay` is timing, so it is a
-`calendar()` option, not a sky key). All of these are `sky({ ... })` start values; at run time use the entries at the top of this page. `sky({ sun | hemisphere | fog })`
-throw naming what to write in your `picture/` code.
+`calendar()` option, not a sky key). All of these are `sky({ ... })` start values; at run time use the entries at the top of this page.
 **Day and night brightness** is your `picture/` code: the sky lights nothing. Read `uDaylight` and write your own lights (recipe 62), and check with `shot --time 12:00` and
 `--time 22:00`. The keyframes only color the dome; the ambient column also dims a skybox and the weather's sky tint. `engine.sky.environment({ into: engine.scene })` builds an environment map
 from the dome (outdoor reflections show the sky, not a studio; it darkens by itself), recipe 34.
@@ -184,7 +183,7 @@ sky: { clouds: { kind: 'cumulus', coverage: 1, scale: 0.45, color: 0xfff4e4, sha
 `dir` is the unit view direction (`dir.y > 0`), `sunDir` points at the sun (the moon is opposite), `night` runs 0 to 1, `lit` / `shade` are `clouds.color` / `clouds.shade`, `cover` is the weather's cloud amount times `clouds.coverage`. Return the final color (dim it at night yourself) and the opacity (apply your own horizon fade).
 In scope: the GLSL noise helpers `float threedogHash(vec2 p)` and `float threedogNoise(vec2 p)`, the built-in cloud uniforms (`uSkyCloudScale`, `uSkyCloudSpeed`, `uCloudHorizon`, `uCloudFade`...) and
 the patch's `uniforms` (declared for you; number, `THREE.Color`, `THREE.Vector2/3/4`, array of 2-4 numbers, or `THREE.Texture`). Change one later
-with `engine.sky.dome.material.uniforms.uEdge.value = 0.1` (the WebGL dome). A bad `kind`, GLSL without the function, or an unsupported uniform value throws with the fix.
+with `engine.sky.uniforms.uEdge.value = 0.1` (both renderers). A bad `kind`, GLSL without the function, or an unsupported uniform value throws with the fix.
 Flat painted cloud blobs with a hard edge, multiplied by a texture:
 ```js
 // sky({ clouds: { color: 0xfff1dc, shade: 0x9aa8c4 } }) gives lit and shade; the function goes through the hook

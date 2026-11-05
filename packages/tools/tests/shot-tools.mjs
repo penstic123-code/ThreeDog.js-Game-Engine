@@ -19,8 +19,8 @@ import { TOOLS, ROOT, ENGINE } from '../paths.mjs';
 import { png } from './picture-tools.mjs';
 
 // engine internals by file path (tools reach the engine as a package, R24): the loading view and the describe text are pure enough to run in node
-const { Loading } = await import(pathToFileURL(join(ENGINE, 'core/Loading.js')).href);
-const { describeText } = await import(pathToFileURL(join(ENGINE, 'core/describeText.js')).href);
+const { Loading } = await import(pathToFileURL(join(ENGINE, 'core/engine/Loading.js')).href);
+const { describeText } = await import(pathToFileURL(join(ENGINE, 'core/inspect/describeText.js')).href);
 
 export const name = 'shot / picture / new-game / R40 friction fixes';
 
@@ -29,6 +29,7 @@ const throwsWith = async (fn, re) => { try { await fn(); return false; } catch (
 
 export async function run({ check }) {
   // ── D3: shot file names ──
+  check('[guard] two pages named in Chinese keep two shot names', shotName('/宝塔.html', {}, 1) !== shotName('/城门.html', {}, 1));
   const names = [shotName('/?grain=0&view=ref', {}, 3), shotName('/', {}, 1), shotName('/styletest.html', { time: '18:30', view: 'room' }, 1), shotName('/-x.html', {}, 1)];
   check('shot name: never starts with "-" or ".", a query-only page is main_<query>', names.every(n => /^\w/.test(n)) && names[0] === 'main_grain-0-view-ref_w3' && names[1] === 'main_w1'
     && names[2] === 'styletest_t1830_view-room_w1');
@@ -38,11 +39,11 @@ export async function run({ check }) {
     && ['1280', 'axb', '0x10', '10x-5'].every(s => /--size .* WxH/.test(sz(s))), ['1280', 'axb'].map(sz).join(' | '));
   // round-2 demo: the headless page was detected low tier, so ao / bloom silently dropped out of every shot. The tool pages name their tier;
   // this guards the one path (engine reads ?threedog-tier only when headless, before it builds the renderer; shot, gallery and capture pass it)
-  const { forcedTier } = await import(pathToFileURL(join(ENGINE, 'core/tier.js')).href);
+  const { forcedTier } = await import(pathToFileURL(join(ENGINE, 'core/scene/tier.js')).href);
   const src = f => readFileSync(join(TOOLS, f), 'utf8');
   check('tier: ?threedog-tier=high|low is read, anything else ignored; Engine takes it only headless; shot / gallery / capture pass it',
     forcedTier('?threedog-headless&threedog-tier=high') === 'high' && forcedTier('?threedog-tier=low') === 'low' && forcedTier('?threedog-tier=ultra') === null && forcedTier('') === null
-    && /\(headless && forcedTier\(\)\) \|\| \(owned \? tierBeforeRenderer\(\) : null\);[^]*this\.tier = tierFirst \|\| detectTier\(r\)/.test(readFileSync(join(ENGINE, 'core/Engine.js'), 'utf8'))
+    && /\(headless && forcedTier\(\)\) \|\| \(owned \? tierBeforeRenderer\(\) : null\);[^]*this\.tier = tierFirst \|\| detectTier\(r\)/.test(readFileSync(join(ENGINE, 'core/engine/Engine.js'), 'utf8'))
     && /'threedog-tier': tier/.test(src('shot.mjs')) && /'threedog-tier': 'high'/.test(src('gallery.mjs')) && /'threedog-tier': 'high'/.test(src('capture.mjs')));
   // content check's browser stand-in answered window.__THREE__ with a truthy stand-in: "Multiple instances of Three.js" on every check
   const { withDomStub } = await import('../content-check/dom-stub.mjs');

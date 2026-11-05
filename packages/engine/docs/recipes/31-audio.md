@@ -83,6 +83,7 @@ engine.music.intensity = 0.8;                               // stems fade in as 
 ```
 The same `when` keys as ambience. Tracks cross-fade (`fade`, default 2 s); a new rule result must hold `hold` seconds before switching.
 `engine.music.override('boss')` picks by hand; `override(null)` hands back to the rules. `engine.music.stinger('win')` plays a short piece over the music.
+Decoded music is large (about 21 MB a stereo minute), so it lives like any asset: `assets.release(name)` and `assets.trim()` (a level change calls it) free it, the longest-unused long sounds go by themselves over a memory budget, sounds still playing play on, and a freed sound loads again when played; effects under 10 s stay cached, and `preload: true` keeps a track.
 
 ## 5. Footsteps by surface
 The player's footstep rhythm follows its speed (one step per foot landing). Each step plays the sound named by `footsteps[groundType]`, else

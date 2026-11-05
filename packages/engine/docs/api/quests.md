@@ -4,7 +4,7 @@ Quests (quests() module)
 
 - Options `QuestsOptions`:
   - `action?: string` Action name that opens the quest log, default 'quests'
-  - `checkInterval?: number` Check interval (game seconds, checked in the fixed step; not checked while frozen / paused), default 0.5
+  - `checkInterval?: number` (experimental) Check interval (real seconds, checked in the fixed step; not checked while frozen / paused), default 0.5
   - `notify?: boolean | ((msg) => void)` Messages on quest start / step / done: true a toast with kind 'quest' (default) · false none · a function to show them your way. Example: `quests({ notify: false })   quests({ notify: ({ type, text }) => type === 'done' && myBanner(text) })`
 
 ## Methods and properties
@@ -12,11 +12,11 @@ Quests (quests() module)
 - `quests.start(id: string)` — Start a quest
 - `quests.state(id: string) → { step, steps, done, failed, active } | null` — One quest's progress (a copy): step index, step count, done, failed, active; null before it starts
 - `quests.advance(id: string) → boolean` — Finish the current step from code (its done() is not asked) and go on; the last step completes the quest. false when not active
+- `quests.isDone(id: string) → boolean` — (experimental) 
 - `quests.isActive(id: string) → boolean` — Started, not done and not failed
-- `quests.isFailed(id: string) → boolean` — Its fail condition held (start(id) begins it again)
+- `quests.isFailed(id: string) → boolean` — (experimental) Its fail condition held (start(id) begins it again)
 - `quests.check()` — Check completion conditions once immediately
 - `quests.list() → { id, title, desc?, done, failed, steps }[]` — Quest list (for custom UI)
-- Also: `quests.isDone(id: string) → boolean`
 - Properties:
   - `win: { open, toggle, refresh }` The quest log (UI part 'questLog'): open, toggle(on?), refresh()
 

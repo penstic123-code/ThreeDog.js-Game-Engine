@@ -3,10 +3,10 @@
 // sync positions, decide ready. The public API is in World.js (present / view / ready / refresh); this is the implementation.
 // It only decides "which records have a model" and never affects gameplay: simulation follows the gameplay anchor (sim.js), and how fast models are built, or
 // whether they are built, does not change simulation results.
-import { reportError } from '../../core/errors.js';
-import { DEV, warnOnce } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { codedError } from '../../core/errorHints.js';
+import { reportError } from '../../core/base/errors.js';
+import { DEV, warnOnce, fmt } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const STRINGS = {
   noBuild: 'world.present(\'{kind}\', { build }) needs build: rec => three.js object',
@@ -18,7 +18,7 @@ const STRINGS = {
 };
 /** Dev: code wrote the position of a model world places every frame (positionFrom 'record'): the write is lost next frame */
 const moved = (e, id) => e.thingConflict(`world model of '${id}' was moved by code outside its present update; world puts it back on the record every frame (positionFrom 'record'). Move the record instead: ops.run('thing.set', { id: '${id}', position }) or world.move, or present it with positionFrom: 'view'. Picture-only motion (a leg swing, a stagger) goes in the present's update(rec, obj, dt), which runs right after the placing`);
-const say = (s, kind, id = '', got = '') => s.replace(/\{kind\}/g, kind).replace('{id}', id).replace('{got}', got);
+const say = (s, kind, id = '', got = '') => fmt(s, { kind, id, got });
 const OPTS = ['build', 'update', 'dispose', 'show', 'radius', 'positionFrom'];
 const FULL = { detail: 'full' };
 
@@ -121,7 +121,9 @@ export class Views {
     for (const id of this.moving) {
       const rec = W.records.get(id), o = this.map.get(id).obj.position;
       if (S.sims.get(rec.kind)?.near && !S.isNear(id)) { o.copy(rec.position); continue; }
-      rec.position.x = o.x; rec.position.y = o.y; rec.position.z = o.z; W._index(rec);
+      const r = rec.position;
+      if (r.x === o.x && r.y === o.y && r.z === o.z) continue;   // the mover wrote it already (Character, npcSim), or it stood still: nothing to file again
+      r.x = o.x; r.y = o.y; r.z = o.z; W._index(rec);
     }
   }
   /** Build models that should exist near any full-detail source (at most limit);

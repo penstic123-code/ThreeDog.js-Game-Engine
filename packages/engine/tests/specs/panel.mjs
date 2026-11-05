@@ -36,6 +36,12 @@ export const specs = [
         && r.tune.values['engine.water.uniforms.uWave.value'] === r.wave && r.tune.values['engine.scene.getObjectByName("key").intensity'] === 3.5, JSON.stringify(r.tune));
       check('terrain and vegetation are not installed: no folder, no error', !r.titles.includes('地形 terrain') && !r.titles.includes('植被 vegetation'), r.titles.join(' | '));
 
+      // [guard] the post folder goes through the handle's public enabled and set()
+      await set('dim', 'amount', 0.4);
+      await set('dim', '开 on', false);
+      const dim = await ev(() => { const h = engine.post.get('dim'); return { amount: h.params.amount, on: h.enabled }; });
+      check('[guard] post folder: a param and the on / off reach the effect', Math.abs(dim.amount - 0.4) < 1e-6 && dim.on === false, JSON.stringify(dim));
+
       // the material swapped after the panel opened is the one written
       await ev(() => { window.was = engine.water.material; engine.water.material = window.was.clone(); });
       await set('material', 'color', '#775533');

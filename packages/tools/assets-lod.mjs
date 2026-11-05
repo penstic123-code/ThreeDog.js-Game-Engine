@@ -14,7 +14,7 @@ import { readdirSync, unlinkSync } from 'node:fs';
 import { ROOT } from './paths.mjs';
 import { readModel } from './assets-check/read.mjs';
 
-export const DEFAULT_RATIOS = [0.5, 0.2];
+const DEFAULT_RATIOS = [0.5, 0.2];
 const MIN_TRIANGLES = 1000;   // below this a level saves less than its extra file and switch cost
 const MIN_SAVING = 0.9;       // a level must be under 90% of the one before, else it only adds a download and a visible switch
 // Largest shape error per level, as a fraction of the part's size. Why a bound and not the ratio alone: the ratio alone would tear a hard-surface model to reach

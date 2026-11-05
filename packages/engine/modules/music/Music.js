@@ -25,10 +25,10 @@
 //
 // Events: music:change { from, to }, music:stinger { name, played } (played false: the call was made but audio was not running, nothing sounded)
 
-import { warnMissing, warnOnce } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { warnMissing, warnOnce } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { pickTrack, evaluateRules } from './rules.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 const STOP_KEYS = ['fade'], PLAY_KEYS = ['fade', 'force'], STINGER_KEYS = ['duck', 'volume'];   // module constants: keysSchema caches by the array object
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { MusicTrack, MusicRule, MusicOptions } from '../../types/gameplay' */
@@ -104,7 +104,7 @@ export class Music {
    * @returns {boolean}
    */
   get ready() { return this.engine.audio.running; }
-  /** Auto track rules are in use */
+  /** Auto track rules are in use @experimental */
   get ruled() { return !!this._rules; }
   /**
    * State (for debugging and tests): gain is the playing track's fade level, stems each stem's level
@@ -308,6 +308,7 @@ export function music(opts = {}) {
       return m;
     },
     frame(dt) { m.frame(dt); },
+    dispose() { m.stop({ fade: 0 }); m._duck?.remove(0); m.output?.disconnect(); },   // nothing would stop a looping track once the module is gone
     // the same state the tests read (music.state) plus why nothing may sound: audio still locked (ready false, the track waits in pending), rules on, ducked by dialogue
     describe() { return { ...m.state, ready: m.ready, ruled: m.ruled, ducked: !!m._duck, tracks: m.tracks.size }; },
   };

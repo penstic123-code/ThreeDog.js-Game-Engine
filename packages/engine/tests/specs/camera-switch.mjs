@@ -2,6 +2,41 @@
 
 export const specs = [
   {
+    // a pixel game wrote engine.cameraRig.shots.main to pan: this is the public way, and recipe 21 section 6 says so
+    name: 'followCamera at a fixed angle: mouseLook false keeps drag and wheel off, the view pans with any object the game moves',
+    url: '/tests/cameras/index.html',
+    async run({ page, check, ev, frames }) {
+      const iso = { pitch: 0.6, yaw: 0.8, distance: 20, projection: 'orthographic', size: 14, ground: 'none' };
+      const read = () => ev(() => ({ q: engine.camera.quaternion.toArray(), yaw: engine.cameraRig.yaw, size: engine.cameraRig.size }));
+      const drag = async () => {
+        await page.mouse.move(300, 300); await page.mouse.down();
+        for (let i = 1; i <= 6; i++) { await page.mouse.move(300 + i * 30, 300); await frames(1); }
+        await page.mouse.up(); await page.mouse.wheel(0, 400); await frames(3);
+      };
+      await ev(o => { engine.setCamera('follow', o); }, iso);
+      await frames(3);
+      const before = await read(); await drag();
+      const free = await read();
+      check('without mouseLook: false the drag turns the view and the wheel zooms (the test can see it)', free.yaw !== before.yaw && free.size !== before.size, JSON.stringify([before, free]));
+      await ev(o => {
+        engine.setCamera('follow', { ...o, mouseLook: false, smoothing: 1000 });
+        window.view = new engine.scene.constructor();   // any Object3D
+        engine.cameraRig.follow(window.view);
+      }, iso);
+      await frames(3);
+      const a = await read(), offset = () => ev(() => engine.camera.position.clone().sub(window.view.position).toArray());
+      const o1 = await offset();
+      await drag();
+      await ev(() => { window.view.position.set(30, 0, -12); });
+      await frames(5);
+      const b = await read(), o2 = await offset();
+      const same = (x, y) => x.every((v, i) => Math.abs(v - y[i]) < 1e-4);
+      check('drag and wheel leave the view alone', a.yaw === b.yaw && a.size === b.size && same(a.q, b.q), JSON.stringify([a, b]));
+      check('the camera moved with the object and kept its offset', same(o1, o2), JSON.stringify([o1, o2]));
+      await ev(() => { engine.setCamera('follow', { projection: 'perspective' }); delete window.view; });
+    },
+  },
+  {
     // shot --play showed the defaults of followCamera(): the first session:start rebuilt the rig from the module's options
     name: '[guard] setCamera before play keeps its options when play starts; a runtime switch still starts over',
     url: '/tests/cameras/index.html?cam=first&preset=1',
@@ -161,6 +196,36 @@ export const specs = [
       });
       check('[guard] 无相机模块：报 camera-none，消息点名 engine.use(fixedCamera({ position, lookAt }))', !r.rig && r.code === 'camera-none'
         && /engine\.use\(fixedCamera\(\{ position, lookAt \}\)\)/.test(r.err), JSON.stringify(r));
+    },
+  },
+  {
+    // setCamera let go of the old rig before it knew the new one could be built: a caught typo left a first-person rig with no target and no mouse
+    name: '[guard] setCamera with a bad kind or option keeps the old rig on its target; an auto cut shows the new shot at once; leaving a fixed rig ends its blend',
+    url: '/tests/cameras/index.html?cam=first',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const out = {}, rig = engine.cameraRig, had = rig.target, V = engine.camera.position.constructor;
+        const code = f => { try { f(); return null; } catch (x) { return x.code; } };
+        out.kind = code(() => engine.setCamera('nope'));
+        out.option = code(() => engine.setCamera('follow', { ground: 'sideways' }));
+        out.kept = engine.cameraRig === rig && rig.target === had && !!had;
+        out.listening = rig._off && !rig._off.signal.aborted;
+        const fixed = engine.setCamera('fixed', { start: 'a', auto: 'nearest', hysteresis: 0, shots: {
+          a: { position: [0, 5, 5], lookAt: [0, 0, 0] }, b: { position: [500, 5, 5], lookAt: [500, 0, 0], projection: 'orthographic', size: 10 } } });
+        fixed.target = { position: new V(500, 0, 0) };
+        fixed.update(1, engine.input);
+        out.shot = fixed.current; out.size = engine.camera.orthoSize;
+        let done = false;
+        fixed.blend('a', { seconds: 5 }).then(() => { done = true; });
+        engine.setCamera('follow');
+        await Promise.resolve(); await Promise.resolve();
+        out.blendDone = done;
+        return out;
+      });
+      check('the bad kind and the bad option are refused, and the rig still follows and listens', r.kind === 'camera-kind' && r.option === 'camera-option' && r.kept && r.listening, JSON.stringify(r));
+      check('the frame of an auto cut draws the new shot\'s projection', r.shot === 'b' && r.size === 10, JSON.stringify(r));
+      check('await blend() ends when the rig is switched away', r.blendDone, JSON.stringify(r));
     },
   },
 ];

@@ -17,13 +17,13 @@
 import * as THREE from 'three';
 import { rigModule, defineRig, viewForward, rightOf, rigPlaced } from './common.js';
 import { setProjection } from './projection.js';
-import { setFov } from '../../core/view.js';
-import { vec3 } from '../../core/math.js';
-import { ease as easing } from '../../core/easing.js';
-import { warnMissing } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { setFov } from '../../core/scene/view.js';
+import { vec3 } from '../../core/base/math.js';
+import { ease as easing } from '../../core/base/easing.js';
+import { warnMissing } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 const BLEND_KEYS = ['seconds', 'ease'];
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const SHOT_KEYS = ['position', 'lookAt', 'track', 'fov', 'at', 'trackHeight', 'projection', 'size'];
 
@@ -64,7 +64,7 @@ export class FixedCamera {
     });
   }
   /** @internal switched away (or replaced on a new playthrough): a rig that is not the camera never moves it (review 0.4 modules-a B1) */
-  onExit() { this._onZone?.remove(); this._onZone = null; }
+  onExit() { this._onZone?.remove(); this._onZone = null; this._blend?.res(); this._blend = null; }   // await blend() never hangs: no update runs here any more
 
   /** Add or replace a shot */
   add(name, s) {
@@ -109,8 +109,7 @@ export class FixedCamera {
   focusPoint() { return this.target ? this.target.position : this._look; }
 
   update(dt, input) {
-    const s = this.shots[this.current];
-    if (!s) return;
+    if (!this.shots[this.current]) return;
     if (this.auto === 'nearest' && this.target && (this._autoT -= dt) <= 0) {
       this._autoT = this.autoInterval;
       const n = this.nearest(this.target.position);
@@ -119,21 +118,21 @@ export class FixedCamera {
         if (d(n) + this.hysteresis < d(this.current)) this.triggerBlend > 0 ? this.blend(n, { seconds: this.triggerBlend }) : this.cut(n);
       }
     }
-    const want = this._lookTarget(this.shots[this.current], this._want ??= new THREE.Vector3());   // scratch vectors: no per-frame allocation
-    const fov = this.shots[this.current].fov ?? this._baseFov;
+    const sh = this.shots[this.current];   // after the auto switch: the shot this frame shows
+    const want = this._lookTarget(sh, this._want ??= new THREE.Vector3());   // scratch vectors: no per-frame allocation
+    const fov = sh.fov ?? this._baseFov;
     if (this._blend) {
       const b = this._blend; b.t += dt;
       const k = easing(b.ease)(Math.min(1, b.t / b.dur));
-      const sh = this.shots[this.current];
       const pos = (this._bp ??= new THREE.Vector3()).copy(b.from).lerp(sh.position, k), look = (this._bl ??= new THREE.Vector3()).copy(b.fromLook).lerp(want, k);
       this._look.copy(look);
       // size blends only between two orthographic shots; a perspective/orthographic mix switches to the target's mode at once
       this._place(pos, look, b.fromFov + (fov - b.fromFov) * k, sh.size && b.fromSize ? b.fromSize + (sh.size - b.fromSize) * k : sh.size);
       if (b.t >= b.dur) { this._blend = null; b.res(); }
     } else {
-      if (this.shots[this.current].track) this._look.lerp(want, 1 - Math.exp(-this.trackSmoothing * dt));
+      if (sh.track) this._look.lerp(want, 1 - Math.exp(-this.trackSmoothing * dt));
       else this._look.copy(want);
-      this._place(this.shots[this.current].position, this._look, fov, s.size);
+      this._place(sh.position, this._look, fov, sh.size);
     }
     // Direction: release the hold once no direction key is pressed
     const a = input.axis;

@@ -108,7 +108,7 @@ Two modules that each want to be "the" one (a sky, a tone-mapping stage, an inve
 Other modules `requires: ['inventory']` and work with whichever holds it. `engine.use(myInventory(), { replaces: 'inventory' })` unloads the
 holder (its tracked handles, its `ctx.mod` entries, its `dispose`) before the new install, and puts it back if that fails.
 
-Each replaceable module has a contract (`modules/gameplay/*.contract.js`, `modules/*/contract.js`; object contract `modules/characters/vehicle.contract.js`): the api, fields, ops, events
+Most replaceable modules have a contract (`modules/gameplay/*.contract.js`, `modules/*/contract.js`; object contract `modules/characters/vehicle.contract.js`; the rest and what cannot be replaced: CONVENTIONS.md "What can be replaced"): the api, fields, ops, events
 and save keys other code relies on, and nothing more (the engine's callers use only that surface). `runContract(contract, () => myInventory(), { check })`
 from `@threedog/tools/contract` checks a replacement (in a game installed from npm too); `tests/contract/` in the engine's repository (not shipped) holds small
 whole replacements such as `fakeInventory.js`.

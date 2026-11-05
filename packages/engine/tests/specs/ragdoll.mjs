@@ -140,6 +140,21 @@ export const specs = [
         const r7 = R.ragdoll(c); engine.step(0.1); h.remove(); c.dispose(); engine.step(0.05);
         out.npcGone = { active: r7.active, ...base() };
 
+        // an NPC's model torn down while limp: its slot lives on by id, so the ragdoll's hold has to go with the model
+        const c3 = new Character(engine, { model: await engine.assets.model('king'), id: 'rd-far' });
+        engine.add(c3.root); c3.placeAt([3, 0, 0]); c3.npcModel = true;
+        R.ragdoll(c3); engine.step(0.05); c3.dispose(); engine.step(0.05);
+        out.npcFar = engine.control.of('rd-far');
+
+        // engine.dispose frees the physics world before world tears the NPC models down: the mover must not reach for it
+        const c4 = new Character(engine, { model: await engine.assets.model('king'), mover: 'rapier', id: 'rd-late' });
+        engine.add(c4.root); c4.placeAt([3, 0, 3]);
+        const h4 = engine.control.take(c4, { owner: 't', layer: 'script', step: () => null });
+        engine.step(0.1);
+        const live = R.world; R.world = null; h4.remove();
+        try { c4.dispose(); out.lateDispose = true; } catch (err) { out.lateDispose = err.message; }
+        R.world = live;
+
         // 重击打在头上：轻的部位吃下全部冲量也不能飞散
         const r8 = R.ragdoll(p, { impulse: [0, 100, 1500], position: [p.root.position.x, 1.6, p.root.position.z] });
         let worst = 0, fast = 0;
@@ -183,6 +198,8 @@ export const specs = [
       check('the knee never bends backward', r.knee > -0.12, String(r.knee));
       check('a bare scaled model goes limp, and removing it frees the physics', r.bare.settled && r.bare.hipsY < 0.4 && !r.bareGone.active && r.bareGone.bodies === r.base.bodies && r.bareGone.joints === 0, JSON.stringify([r.bare, r.bareGone]));
       check('a rapier mover capsule yields and comes back; dispose while limp leaves nothing', r.npc.offNpc && r.npc.back && r.npc.owner === 't' && !r.npcGone.active && r.npcGone.bodies === r.base.bodies && r.npcGone.joints === 0, JSON.stringify([r.npc, r.npcGone]));
+      check('an NPC model torn down while limp leaves no hold on its slot', r.npcFar === null, JSON.stringify(r.npcFar));
+      check('a rapier character disposed after the physics world is gone throws nothing', r.lateDispose === true, String(r.lateDispose));
       check('a hard hit on the head holds together', r.hard.worst < 0.25, JSON.stringify(r.hard));
       check('same input, same result in fixed steps (and it really fell)', r.same && r.fell > 0.3, `${r.same} ${r.fell}`);
     },

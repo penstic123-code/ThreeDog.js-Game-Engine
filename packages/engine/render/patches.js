@@ -13,7 +13,7 @@
 // renderer when the program compiles, so one material works under any engine and two engines on a page each drive their own time and weather.
 // A patch that moves vertices (shadow: true) owns its shadow: meshes using the material get matching depth and distance
 // materials automatically (see the customDepthMaterial / customDistanceMaterial defaults below), callers never set them.
-// material.clone() does not carry patches (three's Material.copy skips onBeforeCompile): copy them with copyPatches(from, to).
+// material.clone() does not carry patches (three's Material.copy skips onBeforeCompile): a game applies the effects to the clone again (recipes/09); engine code calls copyPatches(from, to).
 //
 // Composition contract (each part is checked, so a bad combination fails loudly in development instead of rendering wrong):
 //   needs.data     program inputs the code reads, named like three's program parameters ('instancing', 'instancingColor',
@@ -28,15 +28,14 @@
 //                  the material's own key + '|threedog:' + name=cacheKey of every patch in order; one name + cacheKey producing
 //                  two different GLSL texts throws, since those materials would silently share one program.
 import * as THREE from 'three';
-import { closest, DEV, warnOnce } from '../core/validate.js';
+import { closest, DEV, warnOnce } from '../core/base/validate.js';
 import { EFFECTS, PROVIDED_BY } from './effects.js';
-import { noteCopy, VERSION } from '../core/copies.js';
-import { notePatch, patchOn } from '../core/threePatches.js';
+import { noteCopy, VERSION } from '../core/engine/copies.js';
+import { notePatch, patchOn } from '../core/scene/threePatches.js';
 import { sameUniform, resolveUniform, engineUniformName } from './engineUniforms.js';
 import { SLOTS, SLOT_NAMES, toAnchors } from './slots.js';
-import { codedError, coded } from '../core/errorHints.js';
+import { codedError, coded } from '../core/base/errorHints.js';
 import { webgpuPart, webgpuPartOrNull, addWebGPURule } from './backend.js';
-import { scanRenamed } from './uniformRenames.js';
 import { copyTerms } from './terms.js';   // a cycle (terms.js patches materials); only called at run time, never while loading
 
 /** @import { Material } from '../types/common' */
@@ -234,8 +233,6 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
       warnOnce(coded('shader-patch', '[threedog] ' + msg + '; skipped'));
       continue;
     }
-    // the text is scanned as data (a slot and an anchor patch hold their GLSL in different fields); the patch's own uniforms stay its own names
-    if (DEV && !deriving) scanRenamed([JSON.stringify({ ...p, uniforms: undefined }).replace(/\\n/g, ' ')], `patch '${p.name}'`, p.uniforms);
     const i = list.findIndex(q => q.name === p.name);
     if (i >= 0) list[i] = p; else list.push(p);
   }
@@ -311,7 +308,7 @@ function optionsKey(v) {
 }
 
 /**
- * @internal core/Engine.js, once per WebGPURenderer: the node twin three makes of a classic material (NodeLibrary.fromMaterial, run for each
+ * @internal core/engine/Engine.js, once per WebGPURenderer: the node twin three makes of a classic material (NodeLibrary.fromMaterial, run for each
  * program it builds) gets the material's patches as nodes. Why this one call: it is where three turns MeshLambertMaterial into
  * MeshLambertNodeMaterial, copying the plain properties and nothing of onBeforeCompile, so without it every engine material lost wind,
  * season, cloud shadows, detail and lighting on WebGPU without a word. Unpatched twins pass through too: a Lambert / Phong twin gets
@@ -342,7 +339,7 @@ addWebGPURule(m => {
   return list?.length ? webgpuPartOrNull('nodePatches')?.problem(m, list) ?? null : null;
 });
 
-/** The TSL side (render/fx/patchNodes.tsl.js registers it when threedog/tsl loads; a global, so this file never imports three/tsl) */
+/** The TSL side (render/fx/patchNodes.tsl.js registers it when threedog/tsl loads, so this file never imports three/tsl) */
 function nodePatches(m) {
   return webgpuPart('nodePatches', `patches on ${m.type}`);
 }
@@ -371,6 +368,7 @@ function withProviders(patches, list) {
  * Names of the patches on a material (in order), e.g. ['clouds', 'tint', 'wind']
  * @param {Material} material
  * @returns {string[]}
+ * @experimental
  */
 export function materialPatches(material) { return (LISTS.get(material) || []).map(p => p.name); }
 
@@ -425,7 +423,7 @@ export function patchesOf(material) { return [...(LISTS.get(material) ?? [])]; }
 
 /**
  * Take the patch named `name` off a material (no-op when absent); returns the material.
- * @internal sky cascades
+ * @internal cascades, shader terms, and the modules that swap one patch
  * @param {Material} material
  * @param {string} name
  * @returns {Material}
@@ -508,7 +506,7 @@ function shadowMaterial(material, kind) {
 // on Mesh.prototype before any mesh exists (Object3D's constructor assigns both, which would otherwise make own properties).
 // Explicit values live under a global symbol, so a second copy of this file (hot reload) redefining the accessor loses none.
 // A second copy of the ENGINE (another path) still breaks the first copy's moving shadows (its shadowMaterial is no longer the one
-// asked), so noteCopy says so once, with both paths and how to dedupe (core/copies.js).
+// asked), so noteCopy says so once, with both paths and how to dedupe (core/engine/copies.js).
 { const w = noteCopy({ version: VERSION, url: import.meta.url }); if (w) warnOnce(w); }
 {
   /** @type {[string, PropertyDescriptor | undefined][]} */

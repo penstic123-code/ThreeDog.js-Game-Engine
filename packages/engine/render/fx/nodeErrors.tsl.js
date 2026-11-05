@@ -10,8 +10,8 @@
 //     runs with a probe stack and a warning names the owner if a statement landed on it (it is still dropped, as three does). Why the caller
 //     says "outside the build" instead of reading getCurrentStack(): a build that threw leaves three's current stack set to a dead stack.
 import * as TSL from 'three/tsl';
-import { DEV, warnOnce } from '../../core/validate.js';
-import { codedError, coded } from '../../core/errorHints.js';
+import { DEV, warnOnce } from '../../core/base/validate.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
 
 // what lands on a stack only as a statement (plain nodes made while a stack is current are listed on it too, and are harmless)
 const STATEMENTS = new Set(['LoopNode', 'AssignNode', 'ConditionalNode', 'ExpressionNode']);

@@ -16,10 +16,11 @@
 //   leave imports pointing at files that were not written. A file with the same content is skipped silently.
 // The engine ships no art library and this command recommends none: the source is whatever you choose (your earlier games, your own folder, a
 //   Blender export folder, files someone gave you, a package you trust). Plain equivalent: copy the files by hand and fix the import paths.
-import { existsSync, statSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, resolve, dirname, relative, extname, basename, isAbsolute, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseOptions } from './lib/cli-args.mjs';
+import { walk } from './lib/text.mjs';
 
 const CODE = ['.js', '.mjs'];
 const ASSET = /\.(png|jpe?g|webp|avif|gif|ktx2|basis|glb|gltf|bin|hdr|exr|svg|wav|mp3|ogg|m4a|woff2?|ttf|otf|json)$/i;
@@ -34,7 +35,7 @@ export function gameRoot(dir) {
 }
 
 /** <source> → { root: the art folder (or the file's folder), files: [a single file] | null, game: the source game root (for '/...' URLs) } */
-export function resolveSource(source, cwd = process.cwd()) {
+function resolveSource(source, cwd = process.cwd()) {
   if (!source) throw new Error('art: name a source: a game folder, a local folder or file, or an installed package');
   let p = null;
   if (isPathArg(source)) p = resolve(cwd, source);
@@ -52,23 +53,16 @@ export function resolveSource(source, cwd = process.cwd()) {
   return { root, files: null, game: gameRoot(p) ?? p };
 }
 
-/** Every file under dir (skipping node_modules, dot folders, dist) */
-function walk(dir, out = []) {
-  for (const e of readdirSync(dir, { withFileTypes: true })) {
-    if (e.name.startsWith('.') || e.name === 'node_modules' || e.name === 'dist') continue;
-    const f = join(dir, e.name);
-    if (e.isDirectory()) walk(f, out); else out.push(f);
-  }
-  return out;
-}
+/** Every file of a pack, public/ and shots/ too (dependencies, build output and dot names left out) */
+const packFiles = dir => walk(dir, { exts: /./, unscoped: true });
 
-/** Exported functions of a module's text with the first line of the JSDoc above each: [{ name, doc }] */
+/** Exported functions of a module's text with the first line of the JSDoc above each: [{ name, doc, local? }]; a default export is named 'default', local its own name */
 export function exportsOf(text) {
   // the doc body may not contain */ : a lazy [\s\S]*? would start at an earlier comment and run across code to the one right above the export
-  const out = [], re = /(\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*)?export\s+(?:default\s+)?(?:async\s+)?(?:function\s*\*?\s*([A-Za-z_$][\w$]*)|(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>))/g;
+  const out = [], re = /(\/\*\*((?:(?!\*\/)[\s\S])*)\*\/\s*)?export\s+(default\s+)?(?:async\s+)?(?:function\s*\*?\s*([A-Za-z_$][\w$]*)?|(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function\b|\([^)]*\)\s*=>|[A-Za-z_$][\w$]*\s*=>))/g;
   for (const m of text.matchAll(re)) {
     const doc = (m[2] ?? '').split('\n').map(l => l.replace(/^\s*\*?\s?/, '').trim()).find(l => l && !l.startsWith('@')) ?? '';
-    out.push({ name: m[3] ?? m[4] ?? 'default', doc });
+    out.push(m[3] ? { name: 'default', local: m[4], doc } : { name: m[4] ?? m[5], doc });
   }
   return out;
 }
@@ -97,7 +91,7 @@ function resolveModule(from, spec) {
 
 /** What the source offers: [{ file (relative to the source's art folder), exports: [{ name, doc }] }] plus asset files */
 export function listArt(source, cwd) {
-  const src = resolveSource(source, cwd), files = src.files ?? walk(src.root);
+  const src = resolveSource(source, cwd), files = src.files ?? packFiles(src.root);
   const modules = [], assets = [];
   for (const f of files.sort()) {
     const r = posix(relative(src.root, f));
@@ -109,14 +103,15 @@ export function listArt(source, cwd) {
 
 /** Pick the files named on the command line (file path with or without extension, or an exported function name) */
 function pick(src, names) {
-  const all = src.files ?? walk(src.root), code = all.filter(f => CODE.includes(extname(f)));
+  const all = src.files ?? packFiles(src.root), code = all.filter(f => CODE.includes(extname(f)));
   // a .glsl shader file is code a folder copy takes along too (a picture entry can be one)
-  if (!names.length) return src.files ?? [...code, ...all.filter(f => extname(f) === '.glsl')];
+  // a folder with no code at all (a Blender export) is its files
+  if (!names.length) return src.files ?? (code.length ? [...code, ...all.filter(f => extname(f) === '.glsl')] : all);
   return names.map(n => {
     const want = posix(n).replace(/^\.\//, '');
     const byPath = all.find(f => { const r = posix(relative(src.root, f)); return r === want || r.replace(/\.(m?js)$/, '') === want || basename(f) === want || basename(f).replace(/\.(m?js)$/, '') === want; });
     if (byPath) return byPath;
-    const byFn = code.find(f => exportsOf(readFileSync(f, 'utf8')).some(e => e.name === n));
+    const byFn = code.find(f => exportsOf(readFileSync(f, 'utf8')).some(e => e.name === n || e.local === n));
     if (byFn) return byFn;
     throw new Error(`art: "${n}" is neither a file nor an exported function in ${src.root} (threedog art list <source> shows what is there)`);
   }).filter((f, i, a) => a.indexOf(f) === i);
@@ -153,7 +148,8 @@ export function copyArt(source, names = [], { to = 'art', force = false, dry = f
     }
     const text = readFileSync(f, 'utf8'), edits = [];
     for (const r of refsOf(text)) {
-      if (!r.spec.startsWith('.') && !r.spec.startsWith('/')) { packages.add(r.spec.startsWith('@') ? r.spec.split('/').slice(0, 2).join('/') : r.spec.split('/')[0]); continue; }
+      if (!r.spec.startsWith('.') && !r.spec.startsWith('/')) { if (/\s/.test(r.spec)) continue;   // `// from "The Book of Shaders"` is no package
+        packages.add(r.spec.startsWith('@') ? r.spec.split('/').slice(0, 2).join('/') : r.spec.split('/')[0]); continue; }
       if (r.spec.startsWith('/')) {   // a URL served from the source game's public/ folder: copy it there, the string stays
         const d = join(srcPub, r.spec);
         if (existsSync(d) && statSync(d).isFile()) queue.push(d); else if (ASSET.test(r.spec)) missing.push(`${r.spec} (named by ${basename(f)})`);

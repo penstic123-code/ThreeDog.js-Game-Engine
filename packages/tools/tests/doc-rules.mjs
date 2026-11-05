@@ -11,7 +11,6 @@ export async function run({ check }) {
   const anchors = (text, other = '## Real heading, with `code`\n<a id="named"></a>\n') => checkAnchors('docs/x.md', text, () => other).map(r => r.msg);
   check('R18: a link to a heading or an <a id> passes', !anchors('[a](y.md#real-heading-with-code) [b](y.md#named) [c](#here)\n## Here\n').length);
   check('R18: a link to a section that is gone is an error', anchors('[a](y.md#gone)').length === 1 && anchors('[a](#gone)').length === 1);
-  check('R18: look.<part> is an error outside the migration pages', anchors('`look.<part>.set`').length === 1 && !checkAnchors('docs/MIGRATING-0.6.md', '`look.<part>.set`').length);
   const ctx = await context(), doc = `${RECIPES_REL}/99-fixture.md`;
   const errs = text => checkDoc(doc, text, ctx);
   const has = (r, re) => r.some(x => re.test(x.msg));

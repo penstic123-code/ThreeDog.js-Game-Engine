@@ -10,7 +10,7 @@ import { scanText } from '../rules/R44-module-describe.mjs';
 
 const eng = f => import(pathToFileURL(join(ENGINE, f)).href);
 const [{ DebugOverrides }, { Stacks }, { triggers }, { stackFrames, frameText }] =
-  await Promise.all(['core/DebugOverrides.js', 'core/stacks.js', 'modules/triggers/index.js', 'core/stackFrames.js'].map(eng));
+  await Promise.all(['core/inspect/DebugOverrides.js', 'core/ops/stacks.js', 'modules/triggers/index.js', 'core/ops/stackFrames.js'].map(eng));
 
 export const name = 'describe everywhere: R44 catches a module without describe, triggers wireframes are the debug view only, one stack-frame helper';
 
@@ -61,10 +61,10 @@ export async function run({ check }) {
 
   // one stack-frame helper: both callers import it and neither keeps its own regex
   const src = f => readFileSync(join(ENGINE, f), 'utf8');
-  check('things.js, sharedPoint.js and control.js read frames through core/stackFrames.js, no private FRAME regex',
-    ['core/things.js', 'core/sharedPoint.js', 'core/control.js'].every(f => src(f).includes("stackFrames.js'") && !/const FRAME\s*=/.test(src(f))));
-  const v8 = 'Error\n    at captureStack (http://localhost:5173/packages/engine/core/things.js?v=3:40:9)\n    at add (http://localhost:5173/core/Engine.js:9:1)\n    at http://localhost:5173/src/main.js:50:7';
-  const ff = 'add@http://localhost:5173/core/Engine.js:9:1\n@http://localhost:5173/src/main.js:50:7';
+  check('things.js, sharedPoint.js and control.js read frames through core/ops/stackFrames.js, no private FRAME regex',
+    ['core/scene/things.js', 'core/ops/sharedPoint.js', 'core/ops/control.js'].every(f => src(f).includes("stackFrames.js'") && !/const FRAME\s*=/.test(src(f))));
+  const v8 = 'Error\n    at captureStack (http://localhost:5173/packages/engine/core/scene/things.js?v=3:40:9)\n    at add (http://localhost:5173/core/engine/Engine.js:9:1)\n    at http://localhost:5173/src/main.js:50:7';
+  const ff = 'add@http://localhost:5173/core/engine/Engine.js:9:1\n@http://localhost:5173/src/main.js:50:7';
   check('V8 frames: query string dropped, host dropped', frameText(stackFrames(v8)[2]) === 'src/main.js:50' && stackFrames(v8).length === 3);
   check('Firefox frames read the same', frameText(stackFrames(ff)[1]) === 'src/main.js:50');
   check('Windows paths get forward slashes', stackFrames('    at f (C:\\game\\src\\main.js:7:1)')[0]?.file === 'C:/game/src/main.js');

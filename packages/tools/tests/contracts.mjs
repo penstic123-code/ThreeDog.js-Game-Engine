@@ -2,7 +2,7 @@
 // dialogue, quests, camera and particles each pass the shared contract check (@threedog/tools/contract), and small fakes (tests/contract/fake*.js) pass the same
 // check, so replacing a module is tested, not hoped for. The vehicle contract is an object contract: a rigid car's shape and a fake raft both pass it.
 // That the engine's callers (NPC talk, timeline say, content loader, hud, character.enter, control: 'camera') work with the fakes is the browser
-// spec specs/ui-nav.mjs. Also engine.wrap (core/wrap.js): wrappers compose (last wrapped runs first), remove in any order, show in describe,
+// spec specs/ui-nav.mjs. Also engine.wrap (core/ops/wrap.js): wrappers compose (last wrapped runs first), remove in any order, show in describe,
 // refuse private methods, and calls from inside the module (ops) go through them.
 // The "no way around it" check: every module with a contract file is run here (a new contract.js without a run fails).
 import { join } from 'node:path';
@@ -22,7 +22,8 @@ const { dialogue } = await imp('modules/gameplay/Dialogue.js');
 const { quests } = await imp('modules/gameplay/Quests.js');
 const { followCamera } = await imp('modules/camera/FollowCamera.js');
 const { particles } = await imp('modules/particles/Particles.js');
-const { EngineCamera } = await imp('core/engineCamera.js');
+const all = { ...await imp('modules/collision/Collision.js'), ...await imp('modules/level/index.js'), ...await imp('modules/nav/index.js') };
+const { EngineCamera } = await imp('core/scene/engineCamera.js');
 const THREE = await import('three');
 const { fakeDialogue } = await imp('tests/contract/fakeDialogue.js');
 const { fakeQuests } = await imp('tests/contract/fakeQuests.js');
@@ -57,6 +58,9 @@ const CONTRACTS = {
   'modules/gameplay/quests.contract.js': [['engine', o => quests(o)], ['fake', () => fakeQuests()]],
   'modules/camera/contract.js': [['engine', () => followCamera(), cameraParts], ['fake', () => fakeCamera()]],
   'modules/particles/contract.js': [['engine', () => particles(), particleParts]],
+  'modules/collision/contract.js': [['engine', o => all.collision(o)]],
+  'modules/level/contract.js': [['engine', o => all.level(o), e => { e.setGround = () => {}; }]],
+  'modules/nav/contract.js': [['engine', o => all.nav(o)]],
   'modules/characters/vehicle.contract.js': [['rigid-shaped', rigidShaped], ['fake', () => fakeVehicle()]],
 };
 

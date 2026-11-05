@@ -3,7 +3,7 @@
 // Why not import detail.js: it registers a ShaderChunk and pulls in the WebGL patch machinery, which threedog/tsl must not.
 // The projections (world / triplanar / screen) and the fade are part of the `detail` patch (its uniforms), not callable functions, so they
 // belong to the patch's tsl field; a NodeMaterial gets the same pattern by feeding detailNoise any 2D position it likes.
-import { Fn, vec2, vec3, vec4, float, int, sin, cos, fract, floor, mix, smoothstep, length, cross, dot, normalize, abs, sign, dFdx, dFdy, Loop, Break, If } from 'three/tsl';
+import { Fn, vec2, vec3, vec4, float, int, sin, cos, floor, mix, smoothstep, length, cross, dot, normalize, abs, sign, dFdx, dFdy, Loop, Break, If } from 'three/tsl';
 import { hash, noise } from './noise.tsl.js';   // the GLSL side calls the same threedogHash / threedogNoise (#include <threedog_noise>)
 import { DETAIL as D } from '../fxNumbers.js';
 

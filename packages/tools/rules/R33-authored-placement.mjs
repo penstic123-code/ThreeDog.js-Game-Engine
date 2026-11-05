@@ -19,7 +19,7 @@
 //   deeper call graphs and helper modules that take engine as an argument.
 // Scope: game code (.js/.mjs) of the engine examples, the new-game templates and games/*; content/ folders, tests/, dist/ and bake.js are skipped.
 // Level: the same everywhere (examples, templates and games/*): error for { initial: true } only (it really corrupts the save baseline), warn for the rest.
-import { walk, read, ts, P, rel, lineOf } from './_lib.mjs';
+import { walk, read, parse, ts, P, rel, lineOf } from './_lib.mjs';
 
 // Paths skipped with the reason
 const SKIP = [
@@ -177,7 +177,7 @@ function runtimeTag(L, line) {
 }
 
 /** Game code files in scope (relative to the repo root) */
-export function placementFiles() {
+function placementFiles() {
   const dirs = P.MODE === 'game' ? P.gameDirs().map(d => rel(d) || '.') : [P.EXAMPLES_REL, `${P.TOOLS_REL}/templates`, P.GAMES_REL];
   return [...new Set(dirs.flatMap(d => walk(d, ['.js', '.mjs'])))].filter(f => !SKIP.some(([re]) => re.test(f)));
 }
@@ -188,7 +188,7 @@ export default {
     const out = [];
     for (const f of placementFiles()) {
       const L = read(f).split('\n');
-      for (const r of scan(parseText(f, read(f)))) if (!runtimeTag(L, r.line)) out.push({ file: f, ...r });
+      for (const r of scan(parse(f))) if (!runtimeTag(L, r.line)) out.push({ file: f, ...r });
     }
     return out;
   },

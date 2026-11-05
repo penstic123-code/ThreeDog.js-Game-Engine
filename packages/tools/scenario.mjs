@@ -6,7 +6,7 @@
 //     "steps": [
 //       { "op": "barter.buy", "args": { "shop": "fisher-basket", "item": "berry" } },          // expect defaults to "ok"
 //       { "op": "barter.buy", "args": { "shop": "fisher-basket", "item": "berry" }, "expect": "soldOut" },
-//       { "step": 0.5 },                                                                         // advance game seconds
+//       { "step": 0.5 },                                                                         // advance real seconds
 //       { "press": "interact" },                                                                 // the one key test: key -> op
 //       { "expect": { "inventory.items.berry": 1, "ui.dialogue": null } },                      // describe() paths
 //       { "snapshot": "after-barter", "only": ["inventory"] } ] }                                // describe snapshot (tests/snapshots)
@@ -69,7 +69,7 @@ function lint(sc, ops, file) {
     if (!kind) throw new Error(`${w}: a step needs one of ${Object.keys(KINDS).join(', ')}${hint(Object.keys(s)[0], Object.keys(KINDS))}`);
     for (const k of Object.keys(s)) if (!KINDS[kind].includes(k)) throw new Error(`${w}: unknown field "${k}" in a ${kind} step${hint(k, KINDS[kind])}. Fields: ${KINDS[kind].join(', ')}`);
     if (kind === 'op' && ops && !ops.includes(s.op)) throw new Error(`${w}: no op '${s.op}'${hint(s.op, ops)}. Defined: ${ops.join(', ') || 'none'}`);
-    if (kind === 'step' && !(s.step > 0)) throw new Error(`${w}: "step" is game seconds > 0, e.g. { "step": 0.5 }`);
+    if (kind === 'step' && !(s.step > 0)) throw new Error(`${w}: "step" is real seconds > 0, e.g. { "step": 0.5 }`);
     if (kind === 'expect' && (typeof s.expect !== 'object' || !s.expect)) throw new Error(`${w}: "expect" maps describe paths to values, e.g. { "inventory.items.film": 11 }`);
   });
 }
@@ -126,7 +126,8 @@ export function scenarioFiles(dir) {
   const d = join(dir, 'tests', 'scenarios');
   return existsSync(d) ? readdirSync(d).filter(f => f.endsWith('.json')).sort().map(f => join(d, f)) : [];
 }
-export const readScenario = f => JSON.parse(readFileSync(f, 'utf8'));
+/** The file's JSON: a byte-order mark (Notepad, PowerShell 5.1) is not a mistake, a broken file names itself */
+export const readScenario = f => { try { return JSON.parse(readFileSync(f, 'utf8').replace(/^\uFEFF/, '')); } catch (e) { throw new Error(`${f}: ${e.message}`); } };
 
 /** Playwright page as a driver (same shape as the dev bridge driver) */
 export const pageDriver = page => ({

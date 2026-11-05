@@ -1,4 +1,4 @@
-// AI tools, node side: the error hint table (core/errorHints.js) and the describe snapshot comparison (describe-snapshot.mjs). Run: npm test -- "AI tools"
+// AI tools, node side: the error hint table (core/base/errorHints.js) and the describe snapshot comparison (describe-snapshot.mjs). Run: npm test -- "AI tools"
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -81,7 +81,8 @@ export async function run({ check }) {
     check('compare: same state passes, a changed one gives text with the update command',
       compareSnapshot(dir, 'x', d, { only: ['player'] }).ok && /player\.x: 10 -> 14[\s\S]*snap-describe save x/.test(compareSnapshot(dir, 'x', cur, { only: ['player'] }).text));
     // [guard] an --only path that exists nowhere compares nothing, and nothing always "matches"
-    const none = compareSnapshot(dir, 'x', d, { only: ['nosuch'] });
+    check('[guard] an --only path that stops halfway compares nothing and fails', !compareSnapshot(dir, 'x', d, { only: ['player.typo'] }).ok);
+const none = compareSnapshot(dir, 'x', d, { only: ['nosuch'] });
     check('compare: an only path on neither side fails, it does not pass on nothing', !none.ok && /nothing to compare at nosuch/.test(none.text), none.text);
     check('compare: a pass says how many values it compared', compareSnapshot(dir, 'x', d, { only: ['player'] }).values > 0);
     check('diff: a story counter has no tolerance', diffDescribe({ vars: { counters: { a: 1 } } }, { vars: { counters: { a: 1.25 } } }).length === 1);

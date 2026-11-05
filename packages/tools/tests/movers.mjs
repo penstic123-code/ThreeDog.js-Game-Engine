@@ -12,9 +12,9 @@ import { ENGINE } from '../paths.mjs';
 
 const imp = f => import(pathToFileURL(join(ENGINE, f)).href);
 const THREE = await import('three');
-const { Stacks } = await imp('core/stacks.js');
-const { Time, STEP } = await imp('core/time.js');
-const { defineHoldStacks, holdMethods } = await imp('core/holds.js');
+const { Stacks } = await imp('core/ops/stacks.js');
+const { Time, STEP } = await imp('core/time/time.js');
+const { defineHoldStacks, holdMethods } = await imp('core/ops/holds.js');
 const { Character } = await imp('modules/characters/Character.js');
 const { addSupport, carryRiders } = await imp('modules/characters/movers/support.js');
 const { WORLD_MIGRATE } = await imp('modules/world/persist.js');
@@ -25,8 +25,8 @@ export const name = 'movers: move.* stats via engine.mod, jump API, moving platf
 /** Flat ground at y = 0 (or ground(x, z)), no water, the real stacks and time channels */
 function fake({ ground = () => 0 } = {}) {
   const events = [], on = {};
-  const e = Object.defineProperties({ elapsed: 0, disposed: false, halted: false, _loop() { e.loops = (e.loops ?? 0) + 1; }, style: {},
-    movement: { radius: 0.3, stepHeight: 0.4, slopeRatio: 1 }, saves: { register() {} }, clock: { rate: 1, _advance() {} }, world: { recs: {}, get(id) { return this.recs[id] ??= {}; }, move() {} },
+  const e = Object.defineProperties({ elapsed: 0, disposed: false, halted: false, _loop() { e.loops = (e.loops ?? 0) + 1; }, page: { _sync() {} }, style: {},
+    movement: { radius: 0.3, stepHeight: 0.4, slopeRatio: 1 }, saves: { register() {} }, ops: { allow: f => f() }, _poses: { add() {}, remove() {} }, clock: { rate: 1, _advance() {} }, world: { recs: {}, get(id) { return this.recs[id] ??= {}; }, move() {} },
     surface: (x, z) => ground(x, z), waterAt: () => -Infinity, slope: () => 0, groundType: () => 'grass',
     events: { emit: (n, d) => { events.push([n, d]); for (const f of on[n] ?? []) f(d); }, on: (n, f) => { (on[n] ??= []).push(f); return { remove() {} }; } },
   }, Object.getOwnPropertyDescriptors(holdMethods));
@@ -45,7 +45,7 @@ export async function run({ check }) {
   {
     const e = fake();
     const h = e.mod('halt', { owner: 'menu' });
-    check('mod(halt) stops the loop like engine.haltLoop()', e.halted === true && e.runState === undefined || e.halted === true);
+    check('mod(halt) stops the loop like engine.haltLoop()', e.halted === true);
     const loops = e.loops ?? 0; h.remove();
     check('... and its remove() resumes and restarts the loop', e.halted === false && e.loops === loops + 1);
     e.haltLoop('a'); e.mod('halt', { owner: 'b' }); e._unhalt('a');
@@ -60,8 +60,8 @@ export async function run({ check }) {
     let ok = true, bad = '';
     for (const order of perms(['stamina', 'haste', 'mud'])) {
       const hs = {
-        stamina: e.mod('move.runSpeed', { owner: 'stamina', id: c.modId, set: c.speed }),
-        haste: e.mod('move.runSpeed', { owner: 'haste', id: c.modId, mul: 1.2 }),
+        stamina: e.mod('move.runSpeed', { owner: 'stamina', id: c.id, set: c.speed }),
+        haste: e.mod('move.runSpeed', { owner: 'haste', id: c.id, mul: 1.2 }),
         mud: e.mod('move.runSpeed', { owner: 'mud', mul: 0.6 }),
       };
       if (Math.abs(c.stat('runSpeed') - want) > 1e-9) { ok = false; bad = `all on: ${c.stat('runSpeed')}`; }
@@ -73,7 +73,7 @@ export async function run({ check }) {
       }
     }
     check('stamina set + haste x1.2 + mud x0.6: right value after every end in all 6 orders', ok, bad);
-    e.mod('move.speed', { owner: 'haste', id: c.modId, mul: 1.5 });
+    e.mod('move.speed', { owner: 'haste', id: c.id, mul: 1.5 });
     c.speed = 2;   // the game writes the base: always allowed
     check('the game writes player.speed mid-way: takes effect at once, the modifier still on (2 x 1.5)', c.stat('speed') === 3);
     step(e, c, 1, 0, 120);
@@ -83,17 +83,17 @@ export async function run({ check }) {
     // guard: one id form. A character without a world record takes the id option; character.id is what engine.mod's { id } matches
     const free = new Character(e, { rig: rig(), id: 'knight-1', speed: 2 }); e.mod('move.speed', { owner: 'slow', id: 'knight-1', mul: 0.5 });
     check('[guard] new Character({ id }) -> character.id, and engine.mod({ id }) reaches it', free.id === 'knight-1' && free.stat('speed') === 1, `${free.id} ${free.stat('speed')}`);
-    e.mod('move.canJump', { owner: 'stun', id: c.modId, set: 0 });
+    e.mod('move.canJump', { owner: 'stun', id: c.id, set: 0 });
     c.jump(); step(e, c);
     check('move.canJump set 0 (stun): jump() does nothing', c.grounded && c.vy === 0);
-    e.stacks.get('move.canJump').release('stun', { id: c.modId });
+    e.stacks.get('move.canJump').release('stun', { id: c.id });
     check('move() takes 4 arguments: no per-call speed (the move.speed stack is the one way)', c.move.length === 4);
     check('no private jump fields on the character (jumpState() reads, jump() / launch() change)', !('_coyote' in c) && !('_jumpBuffer' in c));
     // time channel: a character on 'enemies' at 0.5 walks half as far when the engine gives it its channel dt
     e.time.channel('enemies');
     const en = make(e, { id: 'en', speed: 4, channel: 'enemies' }), x0 = en.position.x;
     e.mod('time.enemies', { owner: 'bullet-time', mul: 0.5 });
-    for (let i = 0; i < 120; i++) { en.move(1, 0, false, e.time.dt(en.channel, en.modId)); (e.time._beginStep(), e.time._endStep()); }
+    for (let i = 0; i < 120; i++) { en.move(1, 0, false, e.time.dt(en.channel, en.id)); (e.time._beginStep(), e.time._endStep()); }
     check('bullet time on the character\'s channel: it covers about half the distance (2 s x 4 m/s x 0.5 ~ 4 m)', Math.abs(en.position.x - x0 - 4) < 0.4, String(en.position.x - x0));
   }
   // ---- step 5: jumps (public API only)

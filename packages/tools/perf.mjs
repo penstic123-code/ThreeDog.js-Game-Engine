@@ -15,17 +15,20 @@
 // GPU work counts as CPU time, so only look at relative differences. Pages section route: --renderer=webgl|webgpu|both (default both).
 // Frame count: npm run perf -- 120. Load ramps per axis: threedog stress
 process.env.THREEDOG_TEST = '1';
+import { rmSync, existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 import { launchBrowser, buildAndPreview, newGamePage } from './browser.mjs';
 import { waitEngine } from './wait-engine.mjs';
-import { ENGINE, cli, rel } from './paths.mjs';
+import { ENGINE, GAMES, MODE, ROOT, cli, rel } from './paths.mjs';
 import { intOption } from './lib/cli-args.mjs';
+import { copyTemplates } from './lib/scaffold.mjs';
 
 // Without -w (and outside a game folder) it measures the engine package (test pages in tests/perf/ and the two examples)
 // --only one section (`--only world` and `--only=world` both work; perf and stress used to read opposite spellings); a frame count as `--frames 120`
 // or a bare number. A wrong section or shading fails before the build instead of measuring nothing and exiting 0
 const SECTIONS = ['native', 'world', 'startup', 'props', 'stream', 'pages'], ROUTES = ['webgl', 'webgpu', 'both'], SHADINGS = ['smooth', 'flat', 'texture'];
 const { dir, named, opt, rest } = cli(process.argv.slice(2), { workspace: 'scope', positional: true, flags: ['gpu', 'software'], values: ['only', 'shading', 'frames', 'renderer'] });
-const GAME = named && dir !== ENGINE ? dir : null;
+const GAME = MODE === 'game' ? dir ?? ROOT : named && dir !== ENGINE ? dir : null;   // a game in its own repo has no engine pages to fall back on
 const fail = m => { console.error('✗ ' + m); process.exit(1); };
 if (GAME && (opt.only || opt.shading || opt.renderer)) fail('perf -w <game> measures the game\'s own page: --only, --shading and --renderer choose among the engine\'s test pages');
 if (opt.only && !SECTIONS.includes(opt.only)) fail(`perf --only: unknown section "${opt.only}". Sections: ${SECTIONS.join(', ')}`);
@@ -38,15 +41,17 @@ let FRAMES = 60;
 try { FRAMES = intOption({ frames: opt.frames ?? rest[0] }, 'frames') ?? FRAMES; } catch (e) { fail(e.message); }
 const server = await buildAndPreview(GAME ?? ENGINE), base = server.base;
 // A fresh browser for every page (leftover work in the software-rendering GPU process from the previous page would slow the next one)
-let said = false;
+let said = false, failed = 0;
 async function open(url, host = base) {
   const browser = await launchBrowser({ prefer: 'gpu' });
   if (!said) { said = true; console.log(`Renderer: ${browser.render.kind}${browser.render.renderer ? ` (${browser.render.renderer})` : ''}`); }
   const page = await newGamePage(browser);
   page.close = () => browser.close();
   page.on('pageerror', e => console.log('  page error', String(e)));
-  await page.goto(host + url, { waitUntil: 'domcontentloaded', timeout: 120000 });
-  await waitEngine(page, { field: 'ready', timeout: 120000 });   // the shared wait: a page that threw fails at once with the engine's fix
+  try {
+    await page.goto(host + url, { waitUntil: 'domcontentloaded', timeout: 120000 });
+    await waitEngine(page, { field: 'ready', timeout: 120000 });   // the shared wait: a page that threw fails at once with the engine's fix
+  } catch (e) { failed++; await browser.close(); throw e; }   // the callers go on with the next page: this browser must not stay behind
   return page;
 }
 // Run each item 3 times and take the median (the first run often includes one-time costs such as shader compilation)
@@ -121,10 +126,6 @@ for (const [name, url] of [['open world', '/'], ['open world WebGPU', '/?rendere
   await firstFrame(name, url);
 // The blank new-game template: scaffolded into a throwaway games/ folder (so it resolves this repo's packages like a real game), built, removed.
 // games/ itself is removed too when this run made it and it is empty again (the repo has no games/; an empty one used to be left behind)
-const { copyTemplates } = await import('./lib/scaffold.mjs');
-const { GAMES } = await import('./paths.mjs');
-const { rmSync, existsSync, readdirSync } = await import('node:fs');
-const { join } = await import('node:path');
 const blank = join(GAMES, 'perf-blank-template'), madeGames = !existsSync(GAMES);
 rmSync(blank, { recursive: true, force: true });
 try {
@@ -222,3 +223,4 @@ if (want('pages')) {
 }
 
 await server.close();
+process.exit(failed ? 1 : 0);

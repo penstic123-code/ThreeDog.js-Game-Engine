@@ -12,7 +12,7 @@ const reopen = async page => { await page.reload(); await page.waitForFunction((
 // second car driving in a curve and the player walking on autopilot, then steps `seconds` of fixed steps. Returns every body pose and the player
 // as exact numbers (JSON keeps doubles exact; Rapier's f32 widen to doubles exactly).
 async function scenario({ seconds = 2, frameEvery = 2 }) {
-  const e = window.engine, R = e.rigid, T = e.THREE;
+  const e = window.engine, R = e.rigid, T = __threedogThree;
   e.haltLoop();
   const st = { render: false, describe: false };
   // game time starts when loading ends, and the real-time loop ran a few steps (machine speed) before this pause: let the player, created on
@@ -78,7 +78,7 @@ export const specs = [
     timeout: 180000,
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const e = window.engine, R = e.rigid, T = e.THREE, W = e.world, car = window.car, st = { render: false, describe: false };
+        const e = window.engine, R = e.rigid, T = __threedogThree, W = e.world, car = window.car, st = { render: false, describe: false };
         e.haltLoop();
         // the usual way a game saves props: world records whose model is a rigid body (positionFrom 'view'), the body named by the record id
         W.present('detbox', { positionFrom: 'view', build(rec) {

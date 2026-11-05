@@ -12,13 +12,14 @@ import { probe, diagnose } from './diagnose.mjs';
 import { readRuntime } from './runtime.mjs';
 import { currentErrors, isError } from './errorlog.mjs';
 import { oneLine } from '../lib/oneline.mjs';
+import { pathProblem } from '../lib/node-version.mjs';
 import { devServerInfo, pidAlive } from '../devinfo.mjs';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs'), wait = ms => new Promise(r => setTimeout(r, ms));
 const playFile = dir => join(dir, '.threedog/play.json');
 const tail = (file, n = 6) => { try { return readFileSync(file, 'utf8').split('\n').filter(l => l.trim()).slice(-n).join('\n'); } catch { return ''; } };
 
-/** Start the dev server of this workspace in the background; resolves { child, exited: () => code | null } */
+/** Start the dev server of this workspace in the background → { exited: () => code | null, log } */
 function startServer(dir) {
   mkdirSync(join(dir, '.threedog'), { recursive: true });
   const log = join(dir, '.threedog/dev.log'), fd = openSync(log, 'w');
@@ -40,10 +41,11 @@ async function ready(dir, driver, ms) {
 
 export async function play(dir, { page, stop, timeout = 90000 } = {}) {
   if (stop) return stopServer(dir);
+  if (pathProblem(dir)) return { ok: false, kind: 'no-server', text: `✗ ${pathProblem(dir)}` };
   let p = await probe(dir), started = false;
   // a default-port server found by scanning may be another project's: it does not stop this workspace from starting its own; one named in dev.json does
-  if (p.state === 'missing' && !p.scanned) return { ok: false, ...await diagnose(dir) };
-  if (p.busy) return { ok: false, ...await diagnose(dir) };   // alive but slow: a second server on top of it helps nobody
+  if (p.state === 'missing' && !p.scanned) return { ok: false, ...await diagnose(dir, null, p) };
+  if (p.busy) return { ok: false, ...await diagnose(dir, null, p) };   // alive but slow: a second server on top of it helps nobody
   if (p.scanned) p = { state: 'none' };
   if (p.state === 'none') {
     const srv = startServer(dir);
@@ -67,7 +69,7 @@ export async function play(dir, { page, stop, timeout = 90000 } = {}) {
 
 export async function status(dir, { page } = {}) {
   const p = await probe(dir);
-  if (p.state !== 'ok') return { ok: false, ...await diagnose(dir) };
+  if (p.state !== 'ok') return { ok: false, ...await diagnose(dir, null, p) };
   const { runtime, raw } = await readRuntime(bridgeDriver(dir, { page }), 25000);
   if (!raw?.attached) return { ok: false, ...(await diagnose(dir, new Error('timed out waiting for the engine'))) };
   const errs = currentErrors(dir).filter(isError), last = errs.at(-1), lv = raw.loading;
@@ -83,9 +85,11 @@ Run state: ${rs.state === 'frozen' ? `frozen(by ${rs.owners.join(', ')})` : rs.s
 
 export async function stopServer(dir) {
   const own = (() => { try { return JSON.parse(readFileSync(playFile(dir), 'utf8')).pid; } catch { return null; } })();
-  if (!own) {
+  if (!own || !pidAlive(own)) {
+    // play's server is gone (it stops itself when idle and leaves play.json behind), so whatever answers now was started by hand
+    rmSync(playFile(dir), { force: true });
     // a server started by hand stays up, but the headless browser its bridge opened (e.g. for threedog status) is closed: that one burns CPU
-    if ((await probe(dir)).state !== 'ok') return { ok: false, text: '✗ No dev server of this workspace is running, nothing to stop.' };
+    if ((await probe(dir)).state !== 'ok') return { ok: false, kind: 'no-server', text: '✗ No dev server of this workspace is running, nothing to stop.' };
     const closed = await bridgeDriver(dir).closeHeadless().catch(() => false);
     return { ok: true, text: `✓ ${closed ? 'Closed the headless browser the dev bridge had opened' : 'No headless browser was open'}; `
       + 'the dev server was not started by threedog play, so it keeps running.\nNext: to stop it, close the terminal where you ran npm run dev.' };
@@ -94,15 +98,13 @@ export async function stopServer(dir) {
   // A busy server (page load, software rendering) can miss one probe: ask again before calling it gone. Still silent but dev.json names a live pid
   // (the server wrote that file itself, so it is this workspace's server, not a reused pid): it is stuck, not stopped, so stop it anyway.
   let live = (await probe(dir)).state === 'ok';
-  for (let i = 0; !live && i < 2; i++) { await new Promise(r => setTimeout(r, 1500)); live = (await probe(dir)).state === 'ok'; }
+  for (let i = 0; !live && i < 2; i++) { await wait(1500); live = (await probe(dir)).state === 'ok'; }
   const devPid = devServerInfo(dir).pid, stuck = !live && !!devPid && pidAlive(devPid);
-  const pids = live || stuck ? [own, devPid] : [];
-  if (stuck) live = true;
-  if (!live) {
+  if (!live && !stuck) {
     for (const f of [playFile(dir), join(dir, '.threedog/dev.json')]) rmSync(f, { force: true });
     return { ok: true, text: `✓ No dev server of this workspace answers any more (the record was removed${pidAlive(own) ? `; pid ${own} is alive but is not confirmed as the dev server, so it was left alone` : ''}).` };
   }
-  for (const pid of new Set(pids.filter(Boolean))) {
+  for (const pid of new Set([own, devPid].filter(Boolean))) {
     if (process.platform === 'win32') spawnSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore' });
     else try { process.kill(-pid, 'SIGTERM'); } catch { try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ } }
   }

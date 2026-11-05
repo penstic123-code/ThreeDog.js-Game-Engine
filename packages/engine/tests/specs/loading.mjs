@@ -1,6 +1,6 @@
 // 资源加载可观察（engine.loading）：缺文件时指出是哪个、关键项阻塞开局并说清、可降级项用兜底继续；
 // 全部执行完但有失败时结果显示失败；加载中 describe 能说出在等哪一项；加载界面件拿到同一份"当前项"。页面 tests/loading。
-// [守] 不许绕开：引擎和游戏里所有模型 / 贴图的下载解码只能走 core/assetLoad.js（经 assets._fetch 记成任务），
+// [守] 不许绕开：引擎和游戏里所有模型 / 贴图的下载解码只能走 core/assets/assetLoad.js（经 assets._fetch 记成任务），
 //      谁直接 new GLTFLoader / TextureLoader 或调 loadAsync / parseAsync，加载视图就看不到它：这条静态检查在规则 R21（npm run check）。
 export const specs = [
   {

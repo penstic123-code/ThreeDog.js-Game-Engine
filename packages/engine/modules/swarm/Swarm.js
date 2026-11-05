@@ -15,9 +15,10 @@
 // Time: onStep's function runs in the fixed step on the swarm's channel (default 'world'); not at all while frozen, or while that channel stands still.
 // Reserved field names drawn by the engine when listed in fields: yaw, pitch, roll (radians, three's order 'YXZ'), scale. Details: recipes/65-swarm.md.
 import * as THREE from 'three';
-import { codedError, coded } from '../../core/errorHints.js';
-import { DEV, warnOnce, closest } from '../../core/validate.js';
-import { readParams } from '../../core/params.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
+import { DEV, warnOnce, closest } from '../../core/base/validate.js';
+import { readParams } from '../../core/base/params.js';
+import { refuseSave } from '../../core/saves/saveValues.js';
 import { SwarmGrid } from './grid.js';
 import { makeMesh, writeMesh } from './draw.js';
 /** @import { SwarmData, SwarmOptions, SwarmRowFn } from '../../types/gameplay' */
@@ -227,7 +228,8 @@ export class Swarm {
 
   /**
    * Visit the live objects within r meters of (x, z), height ignored: cb(d, i, dist2) with the row and the squared distance; cb returning false stops early. Returns
-   * how many were visited. The grid is built on the first query after things moved, so a swarm nobody queries pays nothing. Order is the same every run
+   * how many were visited. The grid is built on the first query after things moved, so a swarm nobody queries pays nothing. Order is the same every run. Inside onStep it stays the
+   * grid of that step's first query: distances are exact, but a row that crossed a cell line since then can be missed for one step
    * @example const hit = enemies.near(px, pz, 0.5, (d, i) => { enemies.free(d.id[i]); return false; });
    * @param {number} x
    * @param {number} z
@@ -268,13 +270,13 @@ export class Swarm {
   }
   /** @internal */
   _load(v) {
-    if (!Array.isArray(v?.id) || !v.cols) throw codedError('save-bad-record', `swarm '${this.name}': the saved swarm is not { id, cols } (got ${String(JSON.stringify(v)).slice(0, 120)})`);
+    if (!Array.isArray(v?.id) || !v.cols) refuseSave(`swarm '${this.name}'`, 'the part', 'must be { id, cols }', v);
     this.clear();
     const at = this._at, d = this.data, ids = v.id;
     let lost = 0;
     for (let i = 0; i < ids.length; i++) {
       const h = ids[i], slot = h % SLOT, row = this._n;
-      if (!(slot < this.capacity) || at[slot] >= 0) { lost++; continue; }   // capacity shrank in a game update
+      if (!(slot >= 0 && slot < this.capacity) || at[slot] >= 0) { lost++; continue; }   // capacity shrank in a game update (or a damaged id)
       this._n++;
       this._slot[row] = slot; at[slot] = row; this._handle[slot] = h; d.id[row] = h;
       for (let k = 0; k < this._cols.length; k++) { const x = v.cols[this._names[k]]?.[i]; this._cols[k][row] = Number.isFinite(x) ? x : this._defaults[k]; }   // a column added after the save takes its default

@@ -72,7 +72,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const W = engine.world, T = engine.THREE, npc = engine.npcs.get('店主');
+        const W = engine.world, T = __threedogThree, npc = engine.npcs.get('店主');
         const id = npc.id, zone = npc.data.zone;
         W.set(id, { mood: 'happy' });   // game-added state field
         engine.assets.manifest({ models: { 's1-level2': () => {
@@ -328,6 +328,74 @@ export const specs = [
       check('outer records lose no time (dt accumulates to the elapsed seconds, within one turn)', Math.abs(r.outT - sec) <= 4 / 60 + 1e-6 && Math.abs(r.inT - sec) < 1e-6, JSON.stringify(r));
       check('tiered NPCs arrive at their stop', r.arrived.every(d => d < r.arrive + 0.5), JSON.stringify(r.arrived));
       check('straight run vs save between turns → load: records and NPC positions bit-identical', r.a === r.b, `${r.a}\n${r.b}`);
+    },
+  },
+  {
+    name: 'S1 NPC: add and remove by handle, name and id; control finds the model only while it is near; describe lists it; an unknown remove is false (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.haltLoop();
+        const p = engine.player.position, W = engine.world, N = engine.npcs, out = {}, allow = f => engine.ops.allow(f), step = s => engine.step(s, { render: false, describe: false });
+        const a = allow(() => N.add({ id: 's1-a', name: 'Alpha', position: [p.x + 3, 0, p.z] }));
+        allow(() => N.add({ id: 's1-b', name: 'Beta', position: [p.x - 3, 0, p.z] }));
+        allow(() => N.add({ id: 's1-c', name: 'Gamma', position: [p.x, 0, p.z + 3] }));
+        const far = allow(() => N.add({ id: 's1-far', name: 'Far', position: [p.x + 3000, 0, p.z] }));
+        step(0.05);
+        out.records = ['s1-a', 's1-b', 's1-c', 's1-far'].map(id => W.get(id)?.kind);
+        out.found = N.get('Alpha')?.id === 's1-a' && N.get('s1-b')?.name === 'Beta';
+        out.nearModel = !!a.root && !!a.root.parent; out.farModel = far.root;
+        const held = engine.control.take('s1-a', { owner: 's1-test', layer: 'script', step: () => null });
+        out.owner = engine.control.of(a.character)?.owner; held.remove();
+        out.farCharacter = N.character('s1-far');
+        const mine = engine.control.take('player', { owner: 's1-test', layer: 'script', step: () => null });
+        out.ownerPlayer = engine.control.of(engine.player)?.owner; mine.remove();
+        out.listed = engine.describe({ radius: 30 }).nearby?.some(n => n.id === 's1-a' && n.kind === 'npc') ?? null;
+        const root = a.root;
+        out.removed = [allow(() => N.remove(a)), allow(() => N.remove('Beta')), allow(() => N.remove('s1-c')), allow(() => N.remove(far))];
+        out.left = ['s1-a', 's1-b', 's1-c', 's1-far'].filter(id => W.get(id));
+        out.modelGone = !root.parent;
+        out.again = allow(() => N.remove('s1-a')); out.nothing = allow(() => N.remove(null)); out.notNpc = allow(() => N.remove('player'));
+        out.playerKept = !!W.get('player');
+        return out;
+      });
+      const J = JSON.stringify(r);
+      check('every add is a world record of kind npc, found by name and by id', r.records.every(k => k === 'npc') && r.found, J);
+      check('near has a model in the scene, far has none', r.nearModel && r.farModel === null && r.farCharacter === null, J);
+      check('engine.control takes a near NPC and the player by id', r.owner === 's1-test' && r.ownerPlayer === 's1-test', J);
+      check('describe lists the near NPC', r.listed === true, J);
+      check('remove works by handle, name and id, near or far, and takes the model along', r.removed.every(v => v === true) && r.left.length === 0 && r.modelGone, J);
+      check('removing twice, nothing or a non-NPC record is false and changes nothing', r.again === false && r.nothing === false && r.notNpc === false && r.playerKept, J);
+    },
+  },
+  {
+    name: 'S1 NPC module options: npcs: false leaves engine.npcs out and control still finds the player; npcTiers without NPCs is refused; a player needs world (bare engines)',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, world, collision, characters } = threedogThreads, out = {};
+        const make = (...mods) => { const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 's1-bare' }); E.use(...mods); return E; };
+        const code = f => { try { f(); return 'no error'; } catch (x) { return x.code; } };
+        out.tiers = code(() => make(world(), characters({ npcs: false, npcTiers: {} })));
+        const noWorld = make(characters({ npcs: false }));
+        await noWorld.start();
+        out.noWorld = code(() => noWorld.characters.createPlayer({ control: 'camera' }));
+        noWorld.dispose();
+        const E = make(world(), collision(), characters({ npcs: false }));
+        await E.start();
+        out.npcs = E.npcs === undefined;
+        const p = E.characters.createPlayer({ control: 'camera', spawn: { x: 1, z: 2 } });
+        const h = E.control.take('player', { owner: 's1-bare', layer: 'script', step: () => null });
+        out.owner = E.control.of(p)?.owner; h.remove();
+        E.characters.pathsPerStep = 0; out.perStep = E.characters.pathsPerStep;
+        E.dispose();
+        return out;
+      });
+      const J = JSON.stringify(r);
+      check('npcTiers with npcs: false is refused', r.tiers === 'module-params', J);
+      check('createPlayer without world names the missing module', r.noWorld === 'module-needs', J);
+      check('npcs: false: no engine.npcs, the player still resolves by id', r.npcs && r.owner === 's1-bare', J);
+      check('pathsPerStep stays at least 1', r.perStep === 1, J);
     },
   },
 ];

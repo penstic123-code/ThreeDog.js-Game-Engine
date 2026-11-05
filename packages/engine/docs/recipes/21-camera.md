@@ -39,7 +39,7 @@ engine.setCamera('follow', { distance: 8, pitch: 0.3 });
 ## 3. Other common things
 - **Cycling through several**:
   `const VIEWS = ['follow', 'firstPerson', 'rts']; engine.setCamera(VIEWS[(VIEWS.indexOf(engine.cameraRig.kind) + 1) % VIEWS.length]);`
-- **A fixed camera needs shots first**: `engine.setCamera('fixed', { shots: { hall: { position: [0, 6, 12], lookAt: [0, 0, 0] } }, start: 'hall' })`.
+- **A fixed camera needs shots first**: `engine.setCamera('fixed', { shots: { hall: { position: [0, 6, 12], lookAt: [0, 0, 0] } }, start: 'hall' })`. A shot stays where it was placed; a view that pans at a fixed angle is the follow camera (section 6).
 - **Camera-specific methods** exist only after switching: `engine.cameraRig.lookAt(position)` (first person), `cut('name')` (fixed shots),
   `screenToGround(...)` (rts). Check `kind` before calling.
 - **Teleport, then lookAt**: `await engine.stream.teleport(p); engine.cameraRig.lookAt(target);` works in that order: `lookAt` aims from the body's
@@ -159,8 +159,16 @@ The default stays perspective. On resize the view height stays `size` and the wi
 engine.setCamera('fixed', { position: [14, 14, 14], lookAt: [0, 0, 0], projection: 'orthographic', size: 16 });
 // per shot: shots: { hall: { position, lookAt, projection: 'orthographic', size: 12 }, yard: { position, lookAt } }   // yard stays perspective
 // follow the player from a fixed angle
-engine.setCamera('follow', { pitch: 0.6, yaw: 0.8, distance: 20, projection: 'orthographic', size: 14 });
+engine.setCamera('follow', { pitch: 0.6, yaw: 0.8, distance: 20, projection: 'orthographic', size: 14, mouseLook: false, ground: 'none' });
 ```
+**A view that pans at a fixed angle** (isometric, tactics, city builders) is that follow camera, not a fixed shot. `mouseLook: false` stops the drag and the wheel from moving the view, and `ground: 'none'` stops hills from tilting it. It follows the player, or with no player any object the game moves:
+```js
+const view = new THREE.Object3D();                                        // the point the view is centered on
+engine.cameraRig.follow(view);                                            // again on 'session:start': a new playthrough follows the player or nothing
+engine.onFrame(dt => { view.position.x += engine.input.axis.x * 12 * dt; view.position.z -= engine.input.axis.y * 12 * dt; });
+```
+`smoothing` sets how tightly the view keeps up (higher is tighter).
+
 A `setCamera` before play (boot code, or with the title up) is the camera every playthrough starts from, the same as passing the options to the camera module. During play it is a switch: a new playthrough goes back.
 
 - `engine.camera` stays the one object everything holds (render, post, shadows, sky); it is flipped to an orthographic matrix, so `camera.isOrthographicCamera`

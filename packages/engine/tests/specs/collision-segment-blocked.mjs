@@ -8,7 +8,7 @@ export const specs = [
       const r = await ev(() => {
         engine.haltLoop();
         const p = engine.player, col = engine.collision;
-        const h = engine.control.take(p, { owner: 'test', layer: 'script' });   // the test drives the player (its keys pause): core/control.js
+        const h = engine.control.take(p, { owner: 'test', layer: 'script' });   // the test drives the player (its keys pause): core/ops/control.js
         const walk = (x, z, dx, dz, n = 60) => { p.placeAt([x, 0, z]); for (let i = 0; i < n; i++) h.move(dx, dz, false, 0.05); return [p.position.x, p.position.z]; };
         // fence along x=-18 for z in -12..-4; z=2 is the gate (no segment there)
         const fence = col.addSegment([-18, 0, -12], [-18, 0, -4], { thickness: 0.4 });

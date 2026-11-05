@@ -17,6 +17,8 @@ export { dof } from './dof.js';
 export { bloom, ao } from './hdr.js';
 export { outline, OUTLINE_OFF_LAYER } from './outline.js';
 /** @import { PostEffect } from 'threedog' */
+// luminance weights: Rec. 709 for lut's saturation, Rec. 601 for grain's fade on bright pixels (the engine's own are in render/fxNumbers.js, which is not public)
+const LUMA = [0.2126, 0.7152, 0.0722], LUMA_601 = [0.299, 0.587, 0.114];
 
 // A 2x2x2 identity LUT stands in until the game gives a real one (a sampler uniform must always hold a texture)
 const identity = new THREE.Data3DTexture(new Uint8Array([0, 0, 0, 255, 255, 0, 0, 255, 0, 255, 0, 255, 255, 255, 0, 255,
@@ -44,13 +46,13 @@ export function lut({ lut = null, amount = 1, contrast = 1, saturation = 1, temp
         uLutContrast: p.contrast, uLutSaturation: p.saturation, uLutTemp: p.temperature }),
       glsl: `color.rgb += vec3(uLutTemp * 0.06, 0.0, -uLutTemp * 0.06);
     color.rgb = clamp((color.rgb - 0.5) * uLutContrast + 0.5, 0.0, 1.0);
-    color.rgb = mix(vec3(dot(color.rgb, vec3(0.2126, 0.7152, 0.0722))), color.rgb, uLutSaturation);
+    color.rgb = mix(vec3(dot(color.rgb, vec3(${LUMA.join(', ')}))), color.rgb, uLutSaturation);
     if (uLutAmount > 0.0) color.rgb = mix(color.rgb, texture(uLutTex, clamp(color.rgb, 0.0, 1.0) * ((uLutSize - 1.0) / uLutSize) + 0.5 / uLutSize).rgb, uLutAmount);`,
       // the same steps as the GLSL above; the LUT texture is not a live param (changing it rebuilds the chain), so its branch is chosen here
       tsl: (color, uv, { tsl: T, p, params }) => {
         let c = color.rgb.add(T.vec3(p.temperature.mul(0.06), 0, p.temperature.mul(-0.06)));
         c = T.clamp(c.sub(0.5).mul(p.contrast).add(0.5), 0, 1);
-        c = T.mix(T.vec3(T.dot(c, T.vec3(0.2126, 0.7152, 0.0722))), c, p.saturation);
+        c = T.mix(T.vec3(T.dot(c, T.vec3(...LUMA))), c, p.saturation);
         if (params.lut) { const n = params.lut.image.width; c = T.mix(c, T.texture3D(params.lut, T.clamp(c, 0, 1).mul((n - 1) / n).add(0.5 / n)).rgb, p.amount); }
         return T.vec4(c, color.a);
       } } };
@@ -92,12 +94,12 @@ export function grain({ amount = 0.06, size = 1, animated = true, enabled, order
       uniforms: { uGrainAmount: 'float', uGrainSize: 'float', uGrainAnimated: 'float' },
       values: p => ({ uGrainAmount: p.amount, uGrainSize: Math.max(1, p.size), uGrainAnimated: p.animated ? 1 : 0 }),
       glsl: `float n = fxHash(floor(vUv * uResolution / uGrainSize) + (uGrainAnimated > 0.5 ? floor(uTime * 24.0) * 17.0 : 0.0)) - 0.5;
-    color.rgb += n * uGrainAmount * (1.0 - 0.5 * dot(color.rgb, vec3(0.299, 0.587, 0.114)));`,
+    color.rgb += n * uGrainAmount * (1.0 - 0.5 * dot(color.rgb, vec3(${LUMA_601.join(', ')})));`,
       // same shape; three's hash() stands in for fxHash, so the noise pattern differs from WebGL's (its strength does not)
       tsl: (color, uv, { tsl: T, p, time, resolution }) => {
         const q = T.floor(uv.mul(resolution).div(T.max(p.size, 1))), frame = T.floor(time.mul(24)).mul(17).mul(p.animated);
         const n = T.hash(q.x.add(q.y.mul(1103)).add(frame)).sub(0.5);
-        return T.vec4(color.rgb.add(n.mul(p.amount).mul(T.float(1).sub(T.dot(color.rgb, T.vec3(0.299, 0.587, 0.114)).mul(0.5)))), color.a);
+        return T.vec4(color.rgb.add(n.mul(p.amount).mul(T.float(1).sub(T.dot(color.rgb, T.vec3(...LUMA_601)).mul(0.5)))), color.a);
       } } };
 }
 

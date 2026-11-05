@@ -12,6 +12,7 @@ const hueGap = (a, b) => ((b - a + 540) % 360) - 180;   // signed shortest turn 
 /** The numbers of one RGBA raster */
 export function measure(rgba, w, h) {
   const px = opaque(rgba), total = px.length / 3, lum = [], sat = [];
+  if (!total) throw new Error('the picture or region has no opaque pixels to measure');
   for (let i = 0; i < px.length; i += 3) { const c = [px[i], px[i + 1], px[i + 2]]; lum.push(luma(c)); sat.push(hsl(c)[1]); }
   const mean = a => a.reduce((s, v) => s + v, 0) / a.length, m = mean(lum), avg = averageColor(px), main = dominantColors(px, 6)[0];
   return {
@@ -22,7 +23,8 @@ export function measure(rgba, w, h) {
   };
 }
 
-const rel = (a, b) => (a > 1e-6 ? (b - a) / a : 0);
+// from zero every increase is the whole change: a gray reference against a colorful shot must not read as no difference
+const rel = (a, b) => (a > 1e-6 ? (b - a) / a : b > 1e-6 ? 1 : 0);
 const pct = v => `${Math.abs(Math.round(v * 100))}%`;
 
 /** One neutral sentence from the differences that pass a noise threshold; says so when none does */
@@ -40,7 +42,10 @@ function sentence(d, a, b) {
 }
 
 /** Region of the screenshot that matches `region` of the reference when the sizes differ: the same fractions of the picture */
-const mapRegion = (r, from, to) => ({ x: Math.round(r.x * to.width / from.width), y: Math.round(r.y * to.height / from.height), w: Math.max(1, Math.round(r.w * to.width / from.width)), h: Math.max(1, Math.round(r.h * to.height / from.height)) });
+const mapRegion = (r, from, to) => {
+  const x = Math.round(r.x * to.width / from.width), y = Math.round(r.y * to.height / from.height);   // rounding must not push a region at the edge outside
+  return { x, y, w: Math.max(1, Math.min(to.width - x, Math.round(r.w * to.width / from.width))), h: Math.max(1, Math.min(to.height - y, Math.round(r.h * to.height / from.height))) };
+};
 
 /**
  * Compare a screenshot with a reference. opts: region (reference pixels; the screenshot gets the same fractions of its own size),

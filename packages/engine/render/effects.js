@@ -2,8 +2,7 @@
 // THREE.ShaderChunk.threedog_*), the named patches world / clouds / wind / season, and placeholder textures.
 import * as THREE from 'three';
 import { engineUniform } from './engineUniforms.js';
-import { watchRenamed } from './uniformRenames.js';
-import { notePatch } from '../core/threePatches.js';
+import { notePatch } from '../core/scene/threePatches.js';
 import { declareUniforms } from './uniformDecl.js';
 import { WIND, HASH, CLOUD, glslFloat as f } from './fxNumbers.js';
 
@@ -11,7 +10,7 @@ import { WIND, HASH, CLOUD, glslFloat as f } from './fxNumbers.js';
 // Each engine has its own uniforms (engine.uniforms). Built-in effects name engine uniforms, which patches.js swaps
 // for the compiling renderer's engine (bindUniforms), so two engines on one page never share time, wind or cloud cover.
 const UNIFORM_DEFAULTS = {
-  uTime: 0,                                  // ambient seconds (engine.time.now('ambient')), written only by core/time.js
+  uTime: 0,                                  // ambient seconds (engine.time.now('ambient')), written only by core/time/time.js
   uWind: 1,                                  // wind multiplier (driven by weather)
   uWeatherCloud: 0.25,                              // cloud cover 0-1 (driven by weather)
   uWeatherLight: 1, uWeatherFog: 1,         // weather's multipliers: the game's picture/ code applies them to its own light and fog distance
@@ -60,7 +59,7 @@ const UNIFORM_DEFAULTS = {
 export function createUniforms() {
   const u = /** @type {any} */ ({});
   for (const [k, v] of Object.entries(UNIFORM_DEFAULTS)) u[k] = engineUniform(k, typeof v === 'function' ? v() : v);
-  return watchRenamed(u, 'engine.uniforms');
+  return u;
 }
 const TEMPLATE = createUniforms();   // what built-in patches name; resolved to the compiling engine's uniforms
 

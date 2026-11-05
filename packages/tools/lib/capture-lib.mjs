@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Spector.js on the npm CDN; fetched once into the workspace cache and injected by the capture command only (never a dependency of an engine page) */
-export const SPECTOR_URL = 'https://cdn.jsdelivr.net/npm/spectorjs@0.9.30/dist/spector.bundle.js';
+const SPECTOR_URL = 'https://cdn.jsdelivr.net/npm/spectorjs@0.9.30/dist/spector.bundle.js';
 
 /**
  * Runs inside the page. Wraps the one function each renderer draws through (shadow and post passes included): WebGLRenderer.renderBufferDirect, or

@@ -1,16 +1,16 @@
 # engine.budget (Budget) — engine.budget: performance budget (turned on by createEngine({ budget }) or enable(); off by default, costs nothing)
 
 - `budget.enable(limits?: BudgetLimits)` — Turn on and set limits (only categories given are checked). Example: `engine.budget.enable({ drawCalls: 250, fps: 55 });`
-- `budget.disable()` — Turn off
+- `budget.disable()` — (experimental) Turn off
 - `budget.metric(name: string, read: () => number, opts?: { limit?: number }) → Handle` — Module-defined category: read() returns the current value, opts.limit is the limit (the game's enable() takes precedence). Returns a handle { remove() }
-- `budget.limitOf(name: string) → number | undefined` — Limit of a category; undefined if none was given (not checked)
+- `budget.limitOf(name: string) → number | undefined` — (experimental) Limit of a category; undefined if none was given (not checked)
 - `budget.report() → BudgetReport | null` — Budget report; null when off. In the real-time loop it returns the last second's result; in step() mode it is computed on demand
-- `budget.checkStartup(s: { totalMs, modules }) → { category, value, limit, top }[]` — Called by the engine when startup finishes: warns if startupMs / moduleMs is exceeded and returns the offenders (empty array if none)
+- `budget.checkStartup(s: { totalMs, modules }) → { category, value, limit, top }[]` — (experimental) Called by the engine when startup finishes: warns if startupMs / moduleMs is exceeded and returns the offenders (empty array if none)
 - `budget.values() → Record<string, number>` — Current value per category (fps/low1/cpuMs exist only once there are frame times)
 - `budget.byTag() → BudgetTagStat[]` — Estimate draw calls and triangles by userData.budgetTag (visible meshes inside the frustum; shadow casters count a second shadow draw). Returns [{ tag, drawCalls, triangles }], largest first. Called only on overrun (at most once a second) or when debugging
 - Properties:
   - `enabled: boolean` Is it on?
-  - `limits: BudgetLimits` Current limits
+  - `limits: BudgetLimits` (experimental) Current limits
   - `cost: ApplyCost` Cost of applying background results, split in stages (see ApplyCost)
 
 ## Data structures

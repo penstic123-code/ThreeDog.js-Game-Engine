@@ -42,7 +42,7 @@ export const specs = [
         const ok = await __t.until(() => T.stats.builtThisFrame === 0 && T.stats.queued === 0 && T.chunks.size > 0 && cost.t.build.n >= 9 && cost.t.collider.n > 0, 90000).then(() => true, () => false);
         await new Promise(res => setTimeout(res, 500));
         const moved = cost.report();
-        const e = engine.stream.add({ position: [pl.x, 0, pl.z], radius: 30, build: () => new engine.THREE.Mesh() });
+        const e = engine.stream.add({ position: [pl.x, 0, pl.z], radius: 30, build: () => new __threedogThree.Mesh() });
         await __t.until(() => cost.t.stream.n >= 1, 20000).catch(() => {});
         e.remove();
         const values = engine.budget.enable({ applyBuildMs: 1000 }).values();

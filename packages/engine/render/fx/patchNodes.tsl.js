@@ -21,22 +21,20 @@
 // Chaining: patches on one slot run in the order added, each ctx carrying the value so far (same rule as GLSL).
 import * as TSL from 'three/tsl';
 import { NodeMaterial, LightingNode } from 'three/webgpu';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import * as LIBRARY from './library.tsl.js';
 import { lit } from '../lit.js';
 import { engineNodes, valueNode } from './uniforms.tsl.js';
 import { registerWebGPUPart } from '../backend.js';
 import { engineUniformName } from '../engineUniforms.js';
-import { noteRenamed } from '../uniformRenames.js';
 import { SLOTS, LIGHT_HOOKS as HOOKS } from '../slots.js';
-import { notePatch } from '../../core/threePatches.js';
+import { notePatch } from '../../core/scene/threePatches.js';
 import { nameNodeBuild, lostStatements } from './nodeErrors.tsl.js';
 
 const { Fn, positionLocal, modelViewProjection, materialColor, materialRoughness, materialEmissive, materialNormal, diffuseColor, vec3 } = TSL;
 
 /** One engine uniform as a node, looked up from the renderer compiling it (same as the Fn library) */
 const engineUniform = name => Fn((_, builder) => {
-  noteRenamed(name, 'c.fx.uniform()');
   const n = engineNodes(builder, 'patch')[name];
   if (!n) throw codedError('tsl-misuse', `threedog/tsl: engine.uniforms has no '${name}'`);
   return n;

@@ -2,16 +2,17 @@
 // (c.plants[name]: matrices, colors, stable ids), tree collision circles (c.colliders), felled-tree records (saved) and instanceAt.
 // Data only: this file makes no mesh and touches no material. Draw parts subscribe with view({ species, change, ring, show, drop })
 // (vegetation/draw.js is the engine's own, slot 'vegetation-draw'); the models and materials given to define() are read there.
-import { vegetationModel } from '../../core/namedModel.js';
-import { isModelName } from '../../core/util.js';
-import { DEV, warnMissing, warnOnce } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { reportError } from '../../core/errors.js';
-import { xzOf } from '../../core/math.js';
+import { Vector3 } from 'three';
+import { vegetationModel } from '../../core/assets/namedModel.js';
+import { isModelName } from '../../core/base/util.js';
+import { DEV, warnMissing, warnOnce } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { reportError } from '../../core/base/errors.js';
+import { xzOf } from '../../core/base/math.js';
 import { GroundChunks } from './groundChunks.js';
 import { fadeBand } from './nearFade.js';
 import { makeDensity, thin } from './densityMap.js';
-import { coded, codedError } from '../../core/errorHints.js';
+import { coded, codedError } from '../../core/base/errorHints.js';
 // parameters read by vegetation.define(); keys inside rule (sent to the worker thread)
 const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'positions', 'densityMap', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided', 'fade'];
 const RULE_KEYS = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', 'cluster', 'scale', 'stretch', 'sink', 'tintJitter', 'tints', 'biomes', 'collider', 'avoidFlat', 'salt'];
@@ -33,17 +34,16 @@ function checkPositions(label, list, rule) {
 // 'veg:<name>:<cx>,<cz>:<id>'), and reapplied when a chunk reloads.
 // The id is this tree's stable number (independent of quality and vegetation density), not its index in the instance array.
 //   const hit = engine.vegetation.instanceAt(position, { radius: 2, species: '松树' });   // → { species, cx, cz, id, position } or null
-//   engine.vegetation.removeInstance(hit.species, hit.cx, hit.cz, hit.id, { regrowSeconds: 300 });  // grows back after 300 game seconds
+//   engine.vegetation.removeInstance(hit.species, hit.cx, hit.cz, hit.id, { regrowSeconds: 300 });  // grows back after 300 calendar seconds
 //   engine.vegetation.restoreInstance(...)   // restore immediately
 // Hiding: the slot goes into c.hidden[name] (the draw part draws it as a zero matrix, count unchanged) and out of the chunk's collision circles.
-// Regrowth: the record stores the expiry time (engine.clock game seconds), checked once per second; the clock is saved, so the countdown continues after
+// Regrowth: the record stores the expiry time (engine.calendar seconds), checked once per second; the clock is saved, so the countdown continues after
 // reload.
 const KEY_RE = /^veg:(.*):(-?\d+),(-?\d+):(\d+)$/;
 const hashName = s => { let h = 7; for (const ch of s) h = (Math.imul(h, 31) + ch.codePointAt(0)) | 0; return h & 0x7fffffff; };
 // stable id -> instance slot of one placement result (built once per result, kept off the record so it never travels)
 const SLOTS = new WeakMap();
 function slotOf(r, id) {
-  if (!r.ids) return id < r.n ? id : undefined;
   let m = SLOTS.get(r);
   if (!m) { m = new Map(); SLOTS.set(r, m); for (let i = 0; i < r.ids.length; i++) m.set(r.ids[i], i); }
   return m.get(id);
@@ -66,11 +66,11 @@ export class Vegetation {
       this._planter = engine.terrain.setPlanter(this);
       this._view = engine.terrain.view({ show: (c, v) => this._emit('show', c, v) });
     }
-    this._removed = new Map();   // 'name:cx,cz' -> Map(id -> regrow time (clock game seconds), null = permanent)
+    this._removed = new Map();   // 'name:cx,cz' -> Map(id -> regrow time (calendar seconds), null = permanent)
     this._acc = 0;
     this._pending = [];   // density images still loading (densityMap.url); the module's init waits for them
-    this._initDone = false;   // set when init took _pending: an image of a species added later is not awaited, so its error is caught where it is added
-    // dev asset hot swap (core/assetHot.js): a species made from a swapped model is added again with the new geometry / materials. Why here and
+    this._initDone = false;   // set when init has waited for _pending: an image of a species added later is not awaited, so its error is caught where it is added
+    // dev asset hot swap (core/assets/assetHot.js): a species made from a swapped model is added again with the new geometry / materials. Why here and
     // not in the generic scene walk: a species' materials are patched copies (wind, season) and its geometry may be merged from a model
     engine.assets.onSwap?.(s => this._swapped(s));
     engine.saves.register('vegetation', {
@@ -190,8 +190,11 @@ export class Vegetation {
     }
     return out;
   }
-  /** @internal module init: density images of species added before start */
-  async whenLoaded() { const p = this._pending; this._pending = []; this._initDone = true; await Promise.all(p); }
+  /** @internal module init: density images and named models of species added before start; a named model's define() may add an image of its own, so until none is left */
+  async whenLoaded() {
+    try { while (this._pending.length) { const p = this._pending; this._pending = []; await Promise.all(p); } }
+    finally { this._initDone = true; }
+  }
   /**
    * Place every chunk again: after changing the ground behind the same provider (a ground function reading game state), or what a densityMap
    * function reads. A new setGround or level is followed automatically
@@ -286,7 +289,7 @@ export class Vegetation {
   /** @internal save-key format */
   key(species, cx, cz, id) { return `veg:${species}:${cx},${cz}:${id}`; }
   isRemoved(species, cx, cz, id) { return !!this._removed.get(`${species}:${cx},${cz}`)?.has(id); }
-  /** Remove one instance (regrowSeconds: game seconds until it grows back, 0/omitted = permanent). The record is saved with the save */
+  /** Remove one instance (regrowSeconds: calendar seconds until it grows back, 0/omitted = permanent). The record is saved with the save */
   removeInstance(species, cx, cz, id, opts) {
     const { regrowSeconds = 0 } = readParams('vegetation.removeInstance()', keysSchema(REMOVE_KEYS), opts);
     const ck = `${species}:${cx},${cz}`;
@@ -334,7 +337,7 @@ export class Vegetation {
           for (let i = 0; i < r.n; i++) {
             if (hid?.has(i)) continue;
             const dx = ox + a[i * 16 + 12] - x, dz = oz + a[i * 16 + 14] - z, d = dx * dx + dz * dz;
-            if (d < bestD) { bestD = d; best = { species: name, cx, cz, id: r.ids ? r.ids[i] : i, position: new this.engine.THREE.Vector3(ox + a[i * 16 + 12], a[i * 16 + 13], oz + a[i * 16 + 14]) }; }
+            if (d < bestD) { bestD = d; best = { species: name, cx, cz, id: r.ids[i], position: new Vector3(ox + a[i * 16 + 12], a[i * 16 + 13], oz + a[i * 16 + 14]) }; }
           }
         }
       }

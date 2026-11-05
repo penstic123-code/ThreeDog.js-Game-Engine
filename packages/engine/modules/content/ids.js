@@ -7,8 +7,8 @@
 // is inserted above it, and the save then puts its changes on the wrong entry. Dev warns once per load, naming the entries and the id to write.
 // Two entries with the same id in one load are an error with the fix. Source lines ("defined in content/props.js:14") come from the dev-only
 // line tables of packages/tools/vite/vite-threedog-content-src.js (srcOf); a release build has none.
-import { DEV, warnOnce, fmt } from '../../core/validate.js';
-import { codedError } from '../../core/errorHints.js';
+import { DEV, warnOnce, fmt } from '../../core/base/validate.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const STRINGS = {
   badId: 'content: id "{id}" ({what}) may not contain "#" or "/": "#" is for records made during play and "/" for level-model nodes. Write it with - _ . or :, e.g. "{fix}"',

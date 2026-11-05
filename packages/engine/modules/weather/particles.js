@@ -8,13 +8,13 @@
 // glsl: { vertex, fragment } (whole shader text; copy from shaders.js), uniforms (for your glsl);
 // or create(engine, { area, count }) => { object, update?(amount, ctx) } for a system of your own (the engine adds it, shows it while the
 // amount is above 0.02 and calls update every frame with ctx = { camera, time, wind }).
-import { engineOwned } from '../../core/things.js';
+import { engineOwned } from '../../core/scene/things.js';
 import * as THREE from 'three';
-import { closest, needMaterial } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { closest, needMaterial } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { lineVert, lineFrag, pointVert, pointFrag, SHAPES, shaderMat, scatter } from './shaders.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { isWebGPU, webgpuPart } from '../../render/backend.js';
 
 const SPEC_KEYS = ['shape', 'texture', 'color', 'opacity', 'size', 'maxSize', 'length', 'speed', 'slant', 'sway', 'count', 'density', 'glsl', 'uniforms', 'create'];

@@ -4,7 +4,7 @@ pickups()
 
 - Options `PickupsOptions`:
   - `radius?: number` Reach of pickups that do not set their own radius (meters), default 2
-  - `showDistance?: number` Pickups have a model, float and spin only within this distance (meters) of the stream sources, default 60
+  - `showDistance?: number` (experimental) Pickups have a model, float and spin only within this distance (meters) of the stream sources, default 60
   - `takers?: (e: Engine) => string[]` Who walks into auto pickups (actor ids); default engine.actor, plus net peers on a host
   - `color?: ColorLike` Color of the placeholder box and geometry-only models when the pickup and its item set none, default 0xcccccc
   - `size?: number` Edge of the placeholder box (meters), default 0.25
@@ -18,4 +18,4 @@ pickups()
   - `takers: (e: Engine) => string[]` Who walks into auto pickups: default engine.actor plus net peers on a host, none on a client
   - `material: Material` The three.js material of every placeholder box and geometry-only model. Set it to swap all of them at once; used as given. A pickup with its own color or a vertex-colored geometry draws with a copy of it carrying that color. Example: `engine.pickups.material = new THREE.MeshStandardMaterial({ color: 0xffd24a, metalness: 0.8 })`
   - `size: number` Edge of the placeholder box (meters), read when one is built
-  - `lift: number` Height above the ground new pickups float at (meters)
+  - `lift: number` (experimental) Height above the ground new pickups float at (meters)

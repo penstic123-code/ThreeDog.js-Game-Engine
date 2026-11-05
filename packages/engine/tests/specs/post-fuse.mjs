@@ -102,6 +102,8 @@ export const specs = [
         out.depthEdges = diff(depth.px, dark); out.normalEdges = diff(normal.px, dark); out.bothEdges = diff(both.px, dark);
         out.depthInfo = [depth.info.normal, depth.info.mask]; out.normalInfo = [normal.info.normal, normal.info.mask];
         out.restored = [normal, both].every(s => s.info.override === null && s.info.bg === bg0);
+        const over = new __threedogThree.MeshBasicMaterial();   // a debug view's override, say: it must outlive the normal pass
+        sc.overrideMaterial = over; out.overKept = shot({ mode: 'normal' }).info.override === over; sc.overrideMaterial = null;
         // offLayer：场景里所有物体都带图层 29，线应该全部消失
         const meshes = []; sc.traverse(o => { if (o.isMesh || o.isPoints) meshes.push(o); });
         const masks = meshes.map(m => m.layers.mask);
@@ -119,6 +121,7 @@ export const specs = [
       check('depth 模式有线、不渲法线也不渲遮罩', r.depthEdges > 20 && !r.depthInfo[0] && !r.depthInfo[1], JSON.stringify(r));
       check('normal 和 both 模式渲了法线，both 带 wobble 也有线', r.normalInfo[0] && r.normalEdges >= 0 && r.bothEdges > 20, JSON.stringify(r));
       check('法线渲染后 scene.overrideMaterial / background 还原', r.restored);
+      check('[guard] outline normal pass puts back an override it found on the scene', r.overKept);
       check('offLayer 把所有物体排除后，线（几乎）全消失，且只在设了 offLayer 时才渲遮罩', r.offEdges < r.depthEdges * 0.1 && r.offInfo[1] && !r.depthInfo[1], JSON.stringify(r));
       check('mode 写错报错说明三个选项，且不留半加的效果', /'depth' \| 'normal' \| 'both'/.test(r.badMode) && r.badGone, r.badMode);
       check('dof 可建', r.dofOk, JSON.stringify(r));

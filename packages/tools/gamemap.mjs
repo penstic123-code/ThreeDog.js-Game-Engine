@@ -7,28 +7,31 @@
 // The hand-written "design decisions" live in DESIGN.md in the same directory and are read in as is.
 //   node packages/tools/gamemap.mjs           generate
 //   node packages/tools/gamemap.mjs --check   check it is up to date (used by npm run check)
-import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { writeFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, relative, basename, sep } from 'node:path';
-import { findGames, loadGame, levelIsFile } from './content-check.mjs';
-import { describeCond as dc, describeEffect as de, mergeRules } from './content-check/load.mjs';
+import { findGames, loadGame, levelIsFile, describeCond as dc, describeEffect as de, mergeRules } from './content-check/load.mjs';
 import { ENGINE, MODE, cli, within, workspaceOf, docRef, rel } from './paths.mjs';
 import { gameCodeFiles } from './lib/text.mjs';
-import { MAX_ROWS, read, uniq, cell, cut, noComments, summary, balanced, splitTop, capped } from './gamemap/text.mjs';
-import { contentLine, templateLines, gridLines, declaredEvents, eventLines, readForLines } from './gamemap/extra.mjs';
-
-const MAX_LINES = 220, API_DIR = join(ENGINE, 'docs', 'api'), RECIPES = join(ENGINE, 'docs', 'recipes'), INDEX_JS = join(ENGINE, 'index.js');
-const RULES_DOC = docRef('docs/recipes/20-content-actions-save.md'), API_MD = docRef('docs/API.md'), CODEMAP = docRef('docs/CODEMAP.md');
+import { MAX_ROWS, read, uniq, cell, cut, noComments, summary, balanced, balancedAll, splitTop, capped } from './gamemap/text.mjs';
+import { contentLine, templateLines, gridLines, readForLines, npcWhere } from './gamemap/extra.mjs';
 import { codeSections } from './gamemap/codeScan.mjs';
 import { questLines } from './gamemap/quests.mjs';
 import { placementLines, unusedLines } from './gamemap/placements.mjs';
 import { kindMapLines } from './content-check/kinds.mjs';
 
+const MAX_LINES = 220, API_DIR = join(ENGINE, 'docs', 'api'), RECIPES = join(ENGINE, 'docs', 'recipes'), INDEX_JS = join(ENGINE, 'index.js');
+const RULES_DOC = docRef('docs/recipes/20-content-actions-save.md'), API_MD = docRef('docs/API.md');
+
 /** Module names in openWorld's return list: part('collision') entries and direct calls; the camera is a variable (cam), so it is not listed */
 const presetParts = body => [...(balanced(body, 'return [') || '').matchAll(/part\('(\w+)'\)|(\w+)\(/g)].map(x => x[1] ?? x[2]).filter(x => !['part', 'filter',
   'on'].includes(x));
+/** The modules an openWorld(args) call installs: the preset's list without the ones args turn off */
+const openWorldModules = args => {
+  const src = read(INDEX_JS), off = [...args.matchAll(/(\w+): false/g)].map(x => x[1]);
+  return uniq(presetParts(src.slice(src.indexOf('export function openWorld(')))).filter(x => !off.includes(x));
+};
 
-async function buildMap(dir) {
-  const { data: c } = await loadGame(dir);
+async function buildMap(dir, c) {
   const vocab = mergeRules(c.rules), describeCond = x => dc(x, vocab.conditions), describeEffect = x => de(x, vocab.effects);
   const g = f => relative(dir, f).split(sep).join('/');   // paths in the map are relative to the game folder
   const name = basename(dir), cfile = k => `content/${k}.js`;
@@ -64,16 +67,12 @@ async function buildMap(dir) {
   const mods = [];
   const ce = balanced(main, 'createEngine(');
   if (ce) mods.push(`- createEngine: ${cut(ce.replace(/\s+/g, ' ').replace(/canvas: [^,]+, /, ''), 110)}`);
-  const use = balanced(main, 'engine.use(');
-  if (use) for (const arg of splitTop(use)) {
+  const use = balancedAll(noComments(main), 'engine.use(').flatMap(u => splitTop(u.body));   // one call per system is as usual as one call for all
+  for (const arg of use) {
     const m = arg.match(/^(\w+)\(([\s\S]*)\)$/); if (!m) continue;
     const args = m[2].replace(/\s+/g, ' ').trim();
-    if (m[1] === 'openWorld') {
-      const src = read(INDEX_JS), body = src.slice(src.indexOf('export function openWorld('));
-      const list = uniq(presetParts(body).filter(x => x !== 'on'));
-      const off = [...args.matchAll(/(\w+): false/g)].map(x => x[1]);
-      mods.push(`- openWorld preset (${cut(args, 100)}) → ${list.filter(x => !off.includes(x)).join(', ')}`);
-    } else mods.push(`- ${m[1]}${args ? ` (${cut(args, 100)})` : ''}`);
+    if (m[1] === 'openWorld') mods.push(`- openWorld preset (${cut(args, 100)}) → ${openWorldModules(args).join(', ')}`);
+    else mods.push(`- ${m[1]}${args ? ` (${cut(args, 100)})` : ''}`);
   }
   // The API page of every installed module (the title of packages/engine/docs/api/<name>.md names the module function that installs it)
   const apiPage = new Map();
@@ -81,12 +80,10 @@ async function buildMap(dir) {
     const title = read(join(API_DIR, f)).split('\n')[0];
     for (const m of title.replace(/\(opts[^)]*\)/g, '()').matchAll(/(\w+)\(/g)) apiPage.set(m[1], f);
   }
-  const installed = uniq([...(use ? splitTop(use) : [])].flatMap(arg => {
+  const installed = uniq(use.flatMap(arg => {
     const fn = arg.match(/^(\w+)\(/)?.[1];
     if (fn !== 'openWorld') return fn ? [fn] : [];
-    const src = read(INDEX_JS), body = src.slice(src.indexOf('export function openWorld('));
-    const off = [...arg.matchAll(/(\w+): false/g)].map(x => x[1]);
-    return ['openWorld', ...uniq(presetParts(body)).filter(x => x !== 'on' && !off.includes(x))];
+    return ['openWorld', ...openWorldModules(arg)];
   }));
   sec('Engine modules (engine.use)', mods);
   // Docs for the modules this game installs, and nothing else
@@ -111,7 +108,7 @@ async function buildMap(dir) {
   const npcUse = (id, i) => !i ? '—' : i.op === 'npc.talk' ? `talk ${i.args?.script ?? id} → start` : `op ${i.op}`;
   sec('NPCs (content/npcs.js)', Object.keys(c.npcs || {}).length ? ['| id | Name | Schedule | Interact |', '|---|---|---|---|',
     ...Object.entries(c.npcs).map(([id, n]) =>
-      `| ${id} | ${n.name} | ${n.schedule?.map(s => `${s.at} ${pos(s)}`).join(' · ') ?? n.behavior} | ${npcUse(id, n.interact)} |`)] : []);
+      `| ${id} | ${n.name} | ${npcWhere(n, pos)} | ${npcUse(id, n.interact)} |`)] : []);
 
   // Dialogue
   const dl = Object.entries(c.dialogues || {}).map(([id, d]) => {
@@ -152,10 +149,9 @@ async function buildMap(dir) {
   const pl = Object.entries(c.places || {}).map(([n, d]) => `- Place ${n}: ${d}`);
   sec('Trigger zones, level markers, places', capped([...tl, ...ml, ...pl], 'content/'));
 
-  // Words the game adds itself
-  const rl = ['conditions', 'effects'].flatMap(g => Object.entries(c.rules?.[g] || {})
-    .map(([w, d]) => `- ${g === 'conditions' ? 'Condition' : 'Effect'} **${w}** (${d.ref ?? 'any'}): ${d.desc ?? ''}`));
-  if (rl.length) sec('Conditions/effects the game adds (content/rules.js)', rl);
+  // Words the game adds itself (conditions only: a game's own action is an op)
+  const rl = Object.entries(c.rules?.conditions || {}).map(([w, d]) => `- Condition **${w}** (${d.ref ?? 'any'}): ${d.desc ?? ''}`);
+  if (rl.length) sec('Conditions the game adds (content/rules.js)', rl);
 
   // Object templates (content/templates.js), their placements and runtime spawns
   const tpl = templateLines(c, gameFiles, g);
@@ -180,7 +176,10 @@ const { dirs, named, opt } = cli(process.argv.slice(2), { workspace: 'targets', 
 const check = !!opt.check;
 let stale = 0;
 for (const dir of findGames().filter(g => !named || dirs.some(d => within(g, d)))) {
-  const out = join(dir, 'GAMEMAP.md'), content = await buildMap(dir);
+  const out = join(dir, 'GAMEMAP.md'), { data, errors } = await loadGame(dir);
+  // a file that does not load is left out of data: the map would read as a game without it, and pass
+  if (errors.length) { console.error(errors.map(e => `✗ ${rel(out)} not written: ${e}`).join('\n')); stale++; continue; }
+  const content = await buildMap(dir, data);
   if (check) {
     // the engine's examples stay strict. In a game the map is a convenience that goes stale after any code change, and that breaks nothing: say so, do not fail
     const strict = MODE === 'monorepo' && within(dir, join(ENGINE, 'examples'));

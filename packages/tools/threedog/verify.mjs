@@ -4,11 +4,12 @@
 //   Not tested  ops never run, describe sections never compared, steps that did not run after a failure, the real key path, the picture
 //   Related     tests that mention an error code seen in the failure or in new page errors (grep over the test files), and the command to re-run this one
 // A page error that appears during the run fails it too: a scenario that "passes" while the page logs an exception has not passed.
-import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { runScenario, scenarioFiles, readScenario } from '../scenario.mjs';
 import { errorMark, errorsSince } from './errorlog.mjs';
 import { oneLine } from '../lib/oneline.mjs';
+import { walk } from '../lib/text.mjs';
 import { ENGINE, TOOLS, rel } from '../paths.mjs';
 import { pageMark, pageCoverage, NOT_PROVEN, checkEvidence, coverage, evidenceText } from './evidence.mjs';
 
@@ -19,15 +20,7 @@ const root = p => String(p).split(/\.|\[/)[0];
 /** Test files that mention one of the codes: [{ name, at }] */
 function relatedTests(dir, codes) {
   if (!codes.length) return [];
-  const dirs = [join(dir, 'tests'), join(ENGINE, 'tests'), join(TOOLS, 'tests')], files = [];
-  const walk = (d, depth) => {
-    if (!existsSync(d) || depth > 2) return;
-    for (const e of readdirSync(d)) {
-      const f = join(d, e), s = statSync(f);
-      if (s.isDirectory()) { if (!/^(node_modules|fixtures|snapshots)$/.test(e)) walk(f, depth + 1); } else if (/\.mjs$/.test(e)) files.push(f);
-    }
-  };
-  dirs.forEach(d => walk(d, 0));
+  const files = [join(dir, 'tests'), join(ENGINE, 'tests'), join(TOOLS, 'tests')].flatMap(d => walk(d, { exts: /\.mjs$/, skip: ['fixtures', 'snapshots'], unscoped: true }));
   const out = [];
   for (const f of new Set(files)) {
     const lines = readFileSync(f, 'utf8').split('\n');
@@ -48,7 +41,7 @@ const layerCounts = layers => ({ direct: layers.filter(l => l.layer === 'direct'
  * The one scenario run behind both `verify` and `scenario`: find the file, run it on the page, and collect what the reports need (checks, layers, page
  * coverage, the describe sections it compared, page errors that appeared or repeated during the run). A scenario's own url picks the page unless --page did.
  */
-export async function runMeasured(driver, dir, name) {
+async function runMeasured(driver, dir, name) {
   const files = scenarioFiles(dir), stem = x => basename(x, '.json'), f = files.find(x => stem(x) === name);
   if (!f) throw new Error(`Usage: threedog verify name (a file in tests/scenarios/). Have: ${files.map(stem).join(', ') || 'none'}`);
   const sc = readScenario(f), mark = errorMark(dir), res = [], d = sc.url && driver.page === undefined && driver.withPage ? driver.withPage(sc.url) : driver;

@@ -4,6 +4,7 @@ export class PostFX {
     /**
      * MSAA on. Writing it takes effect like setAntialias.
      * @type {boolean}
+     * @experimental
      */
     get antialias(): boolean;
     /**
@@ -156,7 +157,7 @@ export type PostNodeContext = {
     p: Record<string, any>;
 };
 /**
- * node (WebGPURenderer): returns the effect's output color node built on input (the color node so far); called again only when a param
+ * An effect as data, the form post.add() takes. node (WebGPURenderer): returns the effect's output color node built on input (the color node so far); called again only when a param
  * that is not a number, boolean, color or vector changes (those are live in ctx.p). An effect with only create cannot run on WebGPURenderer (it throws by name).
  * create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass); optional when fuse is given.
  * fuse: see PostFuse; effects with a fuse in the same slot next to each other are merged (never in slot 'scene'), their params

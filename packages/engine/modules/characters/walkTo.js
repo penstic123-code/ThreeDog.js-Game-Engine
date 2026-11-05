@@ -3,10 +3,11 @@
 // Transient on purpose (like a noSkip timer): a walk is not saved and engine.skip does not fast-forward it. So it never outlives what it steers:
 // one walk per character (a new walkTo cancels the old, else two hooks would fight over move()), and character.dispose() or a save load
 // ends it with 'cancelled' (the loaded state has its own positions; the old path no longer applies). A game that must resume a walk saves the target.
-// Control: a walk holds the character on layer 'script' (core/control.js). So the player's keys pause while it walks and come back when it ends; a
+// Control: a walk holds the character on layer 'script' (core/ops/control.js). So the player's keys pause while it walks and come back when it ends; a
 // cutscene above pauses the walk (no progress, no stuck clock) and the walk carries on after; another script owner on the same character is a
 // control-conflict error instead of two hooks pushing one body.
-import { xzOf, wrapAngle } from '../../core/math.js';
+import { xzOf, wrapAngle } from '../../core/base/math.js';
+import { nextPoint } from './moveHelpers.js';
 
 const STUCK_PROGRESS = 0.15;   // metres the character must gain on the next point within the stuck window, else it counts as stuck
 
@@ -21,37 +22,30 @@ export function walkTo(ch, target, { speed, arrive = 0.5, turnRate = 8, stuckSec
   ch._walk?.remove();   // one walk per character: the newer order wins
   let onLoad = null, handle = null, ctl = null;
   // speed is a move.speed entry for the walk (not a speed argument to move): haste / mud modifiers still apply on top, and it ends with the walk
-  const sped = speed != null ? e.mod('move.speed', { owner: 'walkTo', id: ch.modId, set: speed }) : null;
-  const runMod = sped && run ? e.mod('move.runSpeed', { owner: 'walkTo', id: ch.modId, set: speed }) : null;
+  const sped = speed != null ? e.mod('move.speed', { owner: 'walkTo', id: ch.id, set: speed }) : null;
+  const runMod = sped && run ? e.mod('move.runSpeed', { owner: 'walkTo', id: ch.id, set: speed }) : null;
   const finish = status => {
     if (!hook) return; hook.remove(); hook = null; onLoad?.remove(); ctl.remove(); if (ch._walk === handle) ch._walk = null;
     finishMods();
     done({ status });
   };
   function finishMods() { sped?.remove(); runMod?.remove(); }
-  const dist = (p, x, z) => Math.hypot(p.x - x, p.z - z);
-  // points the character is already at or past (a later point is closer) would make it turn back, so drop them
-  const skipPassed = (x, z) => {
-    while (i < path.length - 1 && (dist(path[i], x, z) < arrive * 0.6 || dist(path[i + 1], x, z) < dist(path[i], x, z))) i++;
-  };
   const solve = () => {
     path = e.characters.findPath(ch.root.position, target, { radius: ch.radius });
     i = 0; bestD = Infinity; stuckT = 0;
-    if (!path || !path.length) return false;
-    const [x, z] = xzOf(ch.root.position);
-    skipPassed(x, z);
-    return true;
+    return !!path?.length;
   };
   if (!solve()) { finishMods(); queueMicrotask(() => done({ status: 'noPath' })); return Object.assign(promise, { remove() {} }); }
   try { ctl = e.control.take(ch, { owner: 'walkTo', layer: 'script' }); } catch (err) { finishMods(); throw err; }
   onLoad = e.events.on('save:loaded', () => finish('cancelled'));
   hook = e.onFixed(() => {
     if (!ctl.active) return;   // paused under a cutscene (or another higher holder): keep the path and the stuck clock as they are
-    const dt = e.time.dt(ch.channel, ch.modId);   // the character's time channel: bullet time slows a walk too
+    const dt = e.time.dt(ch.channel, ch.id);   // the character's time channel: bullet time slows a walk too
     const [gx, gz] = xzOf(target), [x, z] = xzOf(ch.root.position);
     if (Math.hypot(gx - x, gz - z) <= arrive) { ctl.move(0, 0, false, dt); return finish('arrived'); }
-    skipPassed(x, z);
-    const p = path[i], d = dist(p, x, z);
+    const next = nextPoint(path, i, x, z, arrive * 0.6);
+    if (next !== i) { i = next; bestD = Infinity; stuckT = 0; }   // a point passed is progress, and the next one starts farther away than the best distance to the last
+    const p = path[i], d = Math.hypot(p.x - x, p.z - z);
     // stuck: no gain on the next point for stuckSeconds, so replan; give up after maxRepaths
     if (d < bestD - STUCK_PROGRESS) { bestD = d; stuckT = 0; }
     else if ((stuckT += dt) > stuckSeconds) {

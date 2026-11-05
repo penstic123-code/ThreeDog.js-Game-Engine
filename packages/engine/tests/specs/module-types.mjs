@@ -1,4 +1,4 @@
-// [guard] Module types warn and capabilities hold (core/moduleTypes.js, core/modules.js, docs/plans/done/2026-11-03-ownership-design.md section 6).
+// [guard] Module types warn and capabilities hold (core/engine/moduleTypes.js, core/engine/modules.js, docs/plans/done/2026-11-03-ownership-design.md section 6).
 // Why a guard: before types, "who may own what" lived only in the docs, so an AI's picture module defined ops and a ui module bound its own keys,
 // and a module that depended on 'inventory' broke when a game swapped the bag. One page (perf world: openWorld with world, sky, weather), six rules:
 //   1. a module without a type is 'rules'; an unknown one (a typo) is refused with the list

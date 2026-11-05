@@ -4,18 +4,18 @@
 //   glsl     defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)`: dir = unit view direction (whole sphere,
 //            dir.y < 0 below the horizon), time = engine.uniforms.uTime seconds, sunDir toward the sun, night 0 day .. 1 night;
 //            returns (rgb, amount). Each layer's function is renamed (threedogSkyLayer0, 1...), so layers never clash.
-//   uniforms as in engine.sky.clouds({ uniforms }) (render/uniformDecl.js): { uK: 0.4, uTint: new THREE.Color(...), uMap: texture } -> engine.sky.uniforms.uK
+//   uniforms as in engine.sky.clouds({ uniforms }) (render/uniformDecl.js): { uK: 0.4, uTint: new THREE.Color(...), uMap: texture } -> engine.sky.uniforms.uK.value, live on both renderers
 //   order    draw order among layers (smaller first, default 0, ties keep list order)
 //   blend    'mix' (default: col = mix(col, rgb, amount)) | 'add' (col += rgb * amount: glows such as an aurora)
 //   tsl      the WebGPURenderer form (render/fx/sky.tsl.js): (ctx) => vec4 node (rgb, amount), ctx = { dir, time, sunDir, night, color (the sky
 //            so far, vec3), uniforms (the dome's uniforms as nodes, the layer's own included), fx: { noise, hash }, tsl (three/tsl) }. Each
 //            renderer needs its own form; a layer without it throws by name there.
 // In scope: threedogHash(vec2), threedogNoise(vec2) and the dome's uniforms (uTop, uHorizon, uSunColor, uWeatherCloud...).
-import { readParams, keysSchema, isOptions } from '../../core/params.js';
-import { oneForm } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { isOptions } from '../../core/base/util.js';
+import { oneForm } from '../../core/base/validate.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
-import { codedError } from '../../core/errorHints.js';
-import { scanRenamed, RENAMED_DOME_UNIFORMS } from '../../render/uniformRenames.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const KEYS = ['glsl', 'tsl', 'uniforms', 'order', 'blend', 'name'];   // name: the layer's name for engine.sky.layer(name, ...)
 
@@ -35,7 +35,6 @@ export function resolveDomeLayers(list, { gpu = false, names } = {}) {
     // gpu: the glsl may be left out (render/fx/sky.tsl.js names a layer that has no tsl); when given it is checked all the same
     if ((l?.glsl != null || !gpu) && (typeof l?.glsl !== 'string' || !/vec4\s+threedogSkyLayer\s*\(/.test(l.glsl)))
       throw codedError('sky-option', `${where}.glsl must be GLSL that defines \`vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)\` returning (rgb, amount 0..1)`);
-    scanRenamed([l.glsl], where, l.uniforms, RENAMED_DOME_UNIFORMS);
     const blend = l.blend ?? 'mix';
     if (blend !== 'mix' && blend !== 'add') throw codedError('sky-option', `${where}.blend must be 'mix' or 'add'; got '${blend}'`);
     const u = declareUniforms(`${where}.uniforms`, l.uniforms);

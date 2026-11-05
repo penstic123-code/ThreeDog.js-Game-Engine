@@ -8,8 +8,7 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync, realpathSyn
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
 import { createConnection } from 'node:net';
-import { ROOT, ENGINE, workspaces, rel, cli, engineMismatch } from './paths.mjs';
-import { TOOLS } from './project.mjs';
+import { ROOT, ENGINE, TOOLS, MODE, workspaces, rel, cli, engineMismatch } from './paths.mjs';
 import { devServerInfo } from './devinfo.mjs';
 import { nodeProblem, NODE_RANGE, NODE_FIX } from './lib/node-version.mjs';
 
@@ -33,10 +32,13 @@ if (!existsSync(join(nm, 'three'))) no('node_modules is not installed or incompl
 else {
   ok('node_modules installed');
   // linked under the package.json name, as npm does it (a game "my-game" → node_modules/my-game; engine packages → node_modules/@threedog/...)
-  const names = workspaces().map(d => { try { return JSON.parse(readFileSync(join(d, 'package.json'), 'utf8')).name; } catch { return null; } }).filter(Boolean);
-  const unlinked = names.filter(n => !existsSync(join(nm, n)));
-  if (unlinked.length) no(`workspaces not linked: ${unlinked.join(', ')}`, 'run npm install in the repo root (once after creating a new game)');
-  else ok(`all workspaces linked (${names.length})`);
+  // only npm workspaces get linked: a game in its own repo is the root itself, there is no node_modules/<game>
+  if (MODE === 'monorepo') {
+    const names = workspaces().map(d => { try { return JSON.parse(readFileSync(join(d, 'package.json'), 'utf8')).name; } catch { return null; } }).filter(Boolean);
+    const unlinked = names.filter(n => !existsSync(join(nm, n)));
+    if (unlinked.length) no(`workspaces not linked: ${unlinked.join(', ')}`, 'run npm install in the repo root (once after creating a new game)');
+    else ok(`all workspaces linked (${names.length})`);
+  }
 }
 // The engine the games import must lie in this project: a git worktree without its own node_modules resolves the main checkout's copy, so
 // builds and tests would run other code than check reads (paths.mjs engineMismatch)
@@ -116,7 +118,7 @@ for (const ws of workspaces()) {
 // path, an ANGLE backend that silently falls back), and the shot / test failure that follows looks like a game bug.
 const { chromium } = await import('playwright');
 const { CHROMIUM_ARGS, SOFTWARE_RENDERER, forcedRender } = await import('./browser.mjs');
-{   // one real engine frame per render path
+{
   const page = join(ROOT, '.threedog', 'doctor-page');
   mkdirSync(page, { recursive: true });
   writeFileSync(join(page, 'index.html'), '<!doctype html><meta charset="utf-8"><canvas id="view" width="64" height="64"></canvas><script type="module" src="/main.js"></script>');

@@ -25,7 +25,7 @@ export const specs = [
         const warm = W.get('tg-1').stage;
         engine.world.refresh(); await W.whenReady; engine.step(0.05);
         const scale = W.view('tg-1')?.scale.x;
-        // far: no model, still grows (in game seconds), catching up in one pass
+        // far: no model, still grows (in calendar seconds), catching up in one pass
         P.placeAt({ x: home.x + 400, z: home.z }); engine.step(3, { render: false });
         const farNoView = W.view('tg-1') === null;
         engine.ops.run('time.skip', { seconds: 30 });

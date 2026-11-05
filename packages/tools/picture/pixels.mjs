@@ -1,7 +1,7 @@
 // Reading pixels of a picture file for `picture palette`, `picture compare` and the picture check, and the small pure measures both share.
 // Pixels are read in a headless browser (canvas getImageData: every format the browser decodes works, no image library needed).
-import { readFileSync } from 'node:fs';
-import { extname, resolve } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { dirname, extname, resolve } from 'node:path';
 import { launchBrowser } from '../browser.mjs';
 
 const MIME = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.bmp': 'image/bmp', '.svg': 'image/svg+xml' };
@@ -91,7 +91,7 @@ const FRAME_TOL = 12, FRAME_SHARE = 0.92, FRAME_MIN = 0.03, FRAME_MAX = 0.45;
 export function uiFrame(rgba, w, h) {
   const at = (x, y) => { const i = (y * w + x) * 4; return [rgba[i], rgba[i + 1], rgba[i + 2]]; };
   const median = list => { const s = [...list].sort((a, b) => a - b); return s[s.length >> 1]; };
-  // Walk inward from one side; line(i, k) gives the k-th pixel of line i, lines in [from, to) with step
+  // Walk inward from one side; pixel(n, k) gives the k-th of len pixels of the n-th line in from that side
   const walk = (lines, len, pixel) => {
     const first = [0, 1, 2].map(c => median(Array.from({ length: len }, (_, k) => pixel(0, k)[c])));
     let n = 0;
@@ -155,7 +155,6 @@ export async function writeSideBySide(a, b, labels, file) {
       });
       return c.toDataURL('image/png').split(',')[1];
     }, [{ w: a.w, h: a.h, b64: b64(a.data) }, { w: b.w, h: b.h, b64: b64(b.data) }, labels, GAP, w, h]);
-    const { writeFileSync, mkdirSync } = await import('node:fs'), { dirname } = await import('node:path');
     mkdirSync(dirname(resolve(file)), { recursive: true });
     writeFileSync(resolve(file), Buffer.from(png, 'base64'));
     return { w, h };

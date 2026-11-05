@@ -3,11 +3,11 @@
 // Stage 'environment' before sky: the sky reads the calendar each frame to draw, so the time it draws is this step's.
 import { Calendar } from './Calendar.js';
 import { timeCondition } from './seasons.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { parseClock } from '../../core/dayTime.js';
-import { codedError, coded } from '../../core/errorHints.js';
-import { warnOnce } from '../../core/validate.js';
-import { saveValues } from '../../core/saveValues.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { parseClock } from '../../core/time/dayTime.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
+import { warnOnce } from '../../core/base/validate.js';
+import { saveValues } from '../../core/saves/saveValues.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { CalendarOptions } from '../../types/world' */
 
@@ -40,27 +40,25 @@ export function calendar(opts = {}) {
       for (const name of ['engine:ready', 'save:loaded', 'state:applied']) ctx.track(e.events.on(name, () => c._sched.syncRanges()));
       // the day and time of day are views of the 'calendar' channel: its events and clock timers run right after the channel moves (a step or a skip segment)
       ctx.track(e.time.onMove(() => c.moved()));
-      // movedFrom.sky: saves from before the calendar was its own module kept the time under the 'sky' part ({ time, day }); they load here
       // at: the calendar channel second the time and day belong to, so the origin is right whichever part (calendar or time) loads first
       e.saves.register('calendar', { save: () => ({ time: c.timeOfDay, day: c.day, at: e.clock.now }),
         // saved numbers pass saveValues as clock / random / time do: a time 'abc' showed clock 'NaN:NaN' and a day -5 broke seasons (one warning per part)
         load: d => {
           if (d) {
             const v = saveValues('calendar');
-            const tod = v.num(d.time ?? c.timeOfDay, 'time', { min: 0, max: 1, fallback: c.timeOfDay }) % 1;   // 1 is the next midnight, as calendar({ time })
-            const day = v.num(d.day ?? 1, 'day', { min: 1, int: true, fallback: c.day });
-            const at = v.num(d.at ?? e.clock.now, 'at', { fallback: e.clock.now });   // a save without at (older): its time belongs to now
+            const tod = v.num(d.time, 'time', { min: 0, max: 1, fallback: c.timeOfDay }) % 1;   // 1 is the next midnight, as calendar({ time })
+            const day = v.num(d.day, 'day', { min: 1, int: true, fallback: c.day });
+            const at = v.num(d.at, 'at', { fallback: e.clock.now });
             v.done();
             c._day0 = day; c._tod0 = tod; c._t0 = at; c._lastDay = c.day;
             c._season = c.season;
           }
           c._sched.rebase();
-        },
-        movedFrom: { sky: d => ({ time: d?.time, day: d?.day }) } });
+        } });
       return c;
     },
     counts() { return { timers: c.scheduled }; },   // engine.counts().calendar
-    // engine.skip: segments end at clock marks (core/skip.js reads untilMark), so each move crosses at most one mark and one midnight; a skip right after
+    // engine.skip: segments end at clock marks (core/time/skip.js reads untilMark), so each move crosses at most one mark and one midnight; a skip right after
     // loading counts from now (a step would only reset the baseline). The move itself is the time source's (onMove above)
     skip() { c._sched.last ??= c.totalDays; },
     dispose() { c._sched.dispose(); },

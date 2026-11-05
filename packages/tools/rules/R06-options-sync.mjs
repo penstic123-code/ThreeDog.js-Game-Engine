@@ -117,9 +117,7 @@ function schemaKeys(sf, node, depth = 0) {
 /** Names destructured next to `...name` in the enclosing function's parameters (the keys a rest-checked object has already lost) */
 function restSiblings(call, arg) {
   if (!arg || !ts.isIdentifier(arg)) return [];
-  let fn = call.parent;
-  while (fn && !ts.isFunctionLike(fn)) fn = fn.parent;
-  for (const p of fn?.parameters ?? []) {
+  for (const p of enclosingFn(call)?.parameters ?? []) {
     if (!ts.isObjectBindingPattern(p.name)) continue;
     const els = p.name.elements;
     if (!els.some(el => el.dotDotDotToken && ts.isIdentifier(el.name) && el.name.text === arg.text)) continue;
@@ -192,10 +190,11 @@ function partA(out, stats) {
 // ---------- B: destructured parameters never read ----------
 function partB(out) {
   const readCache = new Map();
+  let code = null;   // the project's source without // comments, built once: each property used to split every file of the project again
   const readAnywhere = prop => {
     if (!readCache.has(prop)) {
-      const re = new RegExp(`\\.${prop}\\b(?!\\s*=[^=>])`);
-      readCache.set(prop, projectFiles().filter(f => !P.under(f, P.TOOLS_REL) && !P.under(f, P.ENGINE_TESTS_REL)).some(f => read(f).split('\n').some(l => re.test(l.replace(/\/\/.*$/, '')))));
+      code ??= projectFiles().filter(f => !P.under(f, P.TOOLS_REL) && !P.under(f, P.ENGINE_TESTS_REL)).map(f => read(f).replace(/\/\/.*$/gm, '')).join('\n');
+      readCache.set(prop, new RegExp(`\\.${prop}\\b(?![ \\t]*=[^=>\\r\\n])`).test(code));
     }
     return readCache.get(prop);
   };

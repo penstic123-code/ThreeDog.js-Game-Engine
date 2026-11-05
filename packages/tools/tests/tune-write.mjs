@@ -1,7 +1,7 @@
 // threedog tune write (tune.mjs): dev panel values -> one reviewable code block, dry run shows the diff, a second write merges into the block.
 // Also the patch side of shader hot reload (replacePatchCode): the text inside a patch is swapped and the patch gets a new cacheKey.
 import * as THREE from 'three';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -26,6 +26,13 @@ export async function run({ check }) {
   ok(b.replaced && b.after.split('threedog:tune begin').length === 2 && b.after.includes('toneMappingExposure = 0.9') && !b.after.includes('toneMappingExposure = 1.25'), 'a second write changes the value in place, still one block (never two)');
   ok(b.diff.includes('- engine.renderer.toneMappingExposure = 1.25;') && b.diff.includes('+ engine.renderer.toneMappingExposure = 0.9;'), 'its diff shows old lines - and new +');
   ok(tuneBlock({}).split('\n').length === 2, 'nothing tuned: an empty block');
+  const modelsDir = mkdtempSync(join(tmpdir(), 'threedog-tune-'));
+  mkdirSync(join(modelsDir, '.threedog'));
+  writeFileSync(join(modelsDir, '.threedog/tune.json'), JSON.stringify({ models: { tree: { h: 2 } } }));
+  writeFileSync(join(modelsDir, 'main.js'), src);
+  await tuneMain(['write', join(modelsDir, 'main.js'), '--apply']);
+  ok(readFileSync(join(modelsDir, 'main.js'), 'utf8') === src, '[guard] only model params: no empty block lands in the named file');
+  rmSync(modelsDir, { recursive: true, force: true });
 
   // [guard] the new value must be the one that runs: a line the block could not read comes after the values, so it would win and the tool would still say "Written"
   const EXP = 'engine.renderer.toneMappingExposure', now = { values: { [EXP]: 1.5 } }, lastSet = text => text.split(/\r?\n/).filter(l => l.startsWith(EXP)).at(-1);

@@ -1,5 +1,5 @@
 // Content vocabulary: the "conditions" and "effects" that content files (content/*.js) can use. Shared by the loader, the validator packages/tools/content-check.mjs and the map packages/tools/gamemap.mjs.
-// Plain data + small functions, no import of three and nothing from the engine but node-safe core/util.js (the validator reads it directly in node). Real execution is in loader.js.
+// Plain data + small functions, no import of three and nothing from the engine but node-safe core/base/util.js (the validator reads it directly in node). Real execution is in loader.js.
 //
 // Conditions (quest step done, dialogue option if, line variant if): several items in one object must all hold; array = every item holds
 //   { flag: 'metFisher' }  { notFlag: 'x' }  { has: { berry: 3 } }  { lacks: { film: 6 } }  { counter: { sunsetPhotos: 1 } }
@@ -22,12 +22,12 @@
 //   desc  one line (map, file list) · load(e, data, content) hands the data to the game when engine.content.load runs (optional: a game that imports the file itself needs none)
 //   check(data, ctx)  optional validation in npm run check: ctx.err(msg) / ctx.warn(msg); ctx.data is all content (items, npcs…), ctx.known(obj) lists ids
 //   map(data)  optional GAMEMAP lines (default: the number of entries and their ids)
-//   fields  optional { key: 'int?' | { type, min, max, values, desc } } (core/params.js format, no default): the keys of each entry; content-check
+//   fields  optional { key: 'int?' | { type, min, max, values, desc } } (core/base/params.js format, no default): the keys of each entry; content-check
 //           reports unknown keys (did you mean), wrong types, out of range, and missing required keys; engine.content.fields(name) returns it
 //   export default { kinds: { recipes: { desc: 'crafting recipes (id -> { needs: { item: n }, makes })', load: (e, data) => e.crafting.add(data),
 //     check: (data, ctx) => { for (const [id, r] of Object.entries(data)) if (!ctx.data.items?.[r.makes]) ctx.err(`recipe ${id} makes unknown item ${r.makes}`); } } } };
 
-import { list } from '../../core/util.js';
+import { list, isObject } from '../../core/base/util.js';
 
 const counts = o => Object.entries(o || {}).map(([k, n]) => `${k}×${n}`).join('、');
 const opText = v => Array.isArray(v) ? `${v[0]}${v[1] ? ' ' + Object.entries(v[1]).map(([k, x]) => `${k}=${x}`).join(' ') : ''}` : String(v);
@@ -51,7 +51,8 @@ const RULE_STRINGS = {
     toast: { ref: 'text', desc: 'show a toast', describe: v => `toast "${v}"` },
     particles: { ref: 'particles', desc: 'play particles', describe: v => `particles ${v.name}×${v.count ?? ''}` },
     marker: { ref: 'position', desc: 'add an objective marker (hud module)', describe: v => `marker ${posText(v)}${v.label ? `"${v.label}"` : ''}` },
-    clearMarker: { ref: 'position', desc: 'remove an objective marker', describe: v => `remove marker ${posText(v)}` },
+    // raw: the value names the marker (content-check still reads it as a place); a place that is gone, on a level left behind, must not stop the clearing
+    clearMarker: { ref: 'position', raw: true, desc: 'remove an objective marker', describe: v => `remove marker ${posText(v)}` },
     op: { ref: 'op', desc: "run a game op (engine.ops.run); the game's own actions are ops", describe: v => `op ${opText(v)}` },
   },
   // content file name -> description (only these files are recognized in content/)
@@ -65,7 +66,7 @@ const RULE_STRINGS = {
     actions: 'own key actions of the game (action name -> default key, label)',
     places: 'place names (name -> { x, z, y?, rot? }; rot turns everything placed there about Y; coordinates may be computed at runtime in main.js)',
     triggers: 'trigger zones (tag -> position / from level, enter/exit effects)',
-    level: 'level markers (spawn point, NPCs, trigger zones)',
+    level: 'level markers (spawn point, NPCs, trigger zones) of a code-built level: for the tools (content checks, GAMEMAP); load() accepts the file and does not read it',
     vegetation: 'vegetation (name -> model, growth rule)',
     props: 'props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand',
     templates: 'reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions',
@@ -75,7 +76,7 @@ const RULE_STRINGS = {
     renames: "renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id",
     rules: 'condition words and data kinds added by the game ({ conditions, kinds }); actions are ops, not effect words',
   },
-  // Placement fields: the keys one entry of a content file may have, in the core/params.js spec format. Declared once here, read by the loader
+  // Placement fields: the keys one entry of a content file may have, in the core/base/params.js spec format. Declared once here, read by the loader
   // (unknown keys), content-check (unknown keys with did-you-mean, wrong type, out of range, not in values) and engine.content.fields() (an editor
   // panel's rows), so the three cannot drift apart. props has three entry shapes: a plain model ('props'), a template instance ('props.template',
   // plus the template's state fields) and a grid item ('props.grid'). Required-ness of x / z / model is checked by the content rules themselves
@@ -151,12 +152,12 @@ export const EFFECTS = RULE_STRINGS.effects;
 export const REFS = RULE_STRINGS.refs;
 /** content file name -> description */
 export const CONTENT_FILES = RULE_STRINGS.files;
-/** content entry shape -> { key: field spec } (core/params.js format): 'props', 'props.template', 'props.grid', 'pickups', 'views'. Read via fields.js */
+/** content entry shape -> { key: field spec } (core/base/params.js format): 'props', 'props.template', 'props.grid', 'pickups', 'views'. Read via fields.js */
 export const PLACEMENT_FIELDS = RULE_STRINGS.fields;
 /** Why a prop's or template's `collide` is wrong, or null. One rule for the load and content-check: a mistyped object must not quietly become a box */
 export function collideProblem(v) {
   if (v === undefined || v === false || v === 'box' || v === 'circle') return null;
-  const form = !!v && typeof v === 'object' && !Array.isArray(v) && Object.keys(v).every(k => k === 'circle' || k === 'occluder');
+  const form = isObject(v) && Object.keys(v).every(k => k === 'circle' || k === 'occluder');
   if (form && Number.isFinite(v.circle) && v.circle > 0 && (v.occluder === undefined || typeof v.occluder === 'boolean')) return null;
   return `must be one of false, "box", "circle" or { circle: radius in meters above 0, occluder?: false }, got ${JSON.stringify(v)}`;
 }

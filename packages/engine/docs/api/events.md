@@ -29,7 +29,7 @@
 - `day:start` [day: number] A new day (the argument is the day number, starting at 1; needs the calendar module)
 - `season:change` [season: string] Season changed (the argument is the season name, e.g. 'autumn')
 - `mod:end` [{ target: string; owner: string; id: string | null }] A mod with `for` ran out (engine.mod(target, { owner, for })): target is the quantity's name, id the record for per-record ones
-- `time:skip` [{ seconds: number }] engine.skip jumped game time forward (seconds = game seconds skipped); timers and world catch-up already ran
+- `time:skip` [{ seconds: number }] engine.skip jumped game time forward (seconds = calendar seconds skipped); timers and world catch-up already ran
 - `weather:lightning` [] Lightning strike (weather module)
 - `weather:change` [change: { from: string; to: string }] engine.weather.set switched to another weather name (once, when the blend starts; setting the same name again does not fire)
 - `camera:shot` [CameraShotEvent] The fixed-shot camera switched shots

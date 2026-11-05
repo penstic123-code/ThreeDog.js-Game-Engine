@@ -9,9 +9,9 @@
 // How to walk is decided by the mover (movers/: 'simple' default, 'rapier' character controller); feel parameters are identical for both.
 // The procedural body (capsule, rig read from a model asset, limb swing) is in proceduralRig.js; loading a body by asset name in assetModel.js.
 import * as THREE from 'three';
-import { xzOf, yOf } from '../../core/math.js';
-import { warnOnce, warnMissing, DEV } from '../../core/validate.js';
-import { reportError } from '../../core/errors.js';
+import { xzOf, yOf } from '../../core/base/math.js';
+import { warnOnce, warnMissing, DEV, fmt } from '../../core/base/validate.js';
+import { reportError } from '../../core/base/errors.js';
 import { simpleMover } from './movers/simple.js';
 import { rapierMover } from './movers/rapier.js';
 import { manualMover } from './movers/manual.js';
@@ -21,8 +21,8 @@ import { loadAssetModel, buildNow } from './assetModel.js';
 import { NO_CHARACTER, capsule, useRig, animateRig, rigFromObject, tintParts } from './proceduralRig.js';
 import { walkTo } from './walkTo.js';
 import { useModel } from './useModel.js';
-import { codedError, coded } from '../../core/errorHints.js';
-import { isModelName } from '../../core/util.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
+import { isModelName } from '../../core/base/util.js';
 
 // A record whose jump / safe is the wrong kind of thing (a damaged or hand-edited save) is repaired so the game keeps running, but said out loud once: bad data is reported, not quietly fixed
 function badField(v, name, want) { if (v != null) warnOnce(`[threedog] character motion: the world record's '${name}' is ${JSON.stringify(v)} but should be ${want}; it was replaced with a fresh one. Check the save or the code that writes the record`); return undefined; }
@@ -56,7 +56,7 @@ export class Character {
    *                 the character goes back to safeGround. false (default) = off
    *           channel: the time channel its movement and animation follow when the engine drives it (player 'player', others 'world')
    *           model + clips: optional glTF model and action-name map { idle, walk, run, swim, jump, fall, drive } (shorthand for animation)
-   *           animation: animation state machine config (see core/Animator.js), state names are character state names;
+   *           animation: animation state machine config (see core/assets/Animator.js), state names are character state names;
    *                      without walk/run, move (blend tree, param speed) is used
    *           mover: 'simple' (default) | 'rapier' (Rapier character controller, needs the rigid module) | 'manual' (the game writes the position;
    *                  move() only updates grounded / support / safeGround / fall, movers/manual.js); assign at any time: player.mover = 'manual'
@@ -69,7 +69,7 @@ export class Character {
     turnSpeed = 10, acceleration = 12, gravity = -24, jumpSpeed = 8, stepHeight = engine.movement.stepHeight, airControl = 0.35, coyoteTime = 0.12,
     canJump = true, maxJumps = 1, airJumpSpeed = null, jumpBuffer = 0.12, fall = false, channel = 'world',
     model = null, clips = null, animation = null, mover = 'simple', faceMode = 'move', faceTarget = null, rig = null, id = null } = {}) {
-    /** @internal the id option (a character without a world record); the getter id below is the one public form */ this._ownId = id;
+    /** @internal the id option, else the generated one (a character without a world record); the getter id below is the one public form */ this._ownId = id;
     /** @internal true for a world NPC's model (npcView.js): disposing it keeps the NPC's control slot */ this.npcModel = false;
     this.engine = engine;
     if (typeof water !== 'function' && !WATER_MODES.includes(water)) throw codedError('character-option', `character option water: 'swim' | 'block' | 'wade' or (character, { depth }) => one of them; got ${JSON.stringify(water)}`, TypeError);
@@ -90,6 +90,7 @@ export class Character {
     // launch(), full control is mover 'manual'.
     this.vy = 0; this.grounded = true; this._push = 0;
     this.root = new THREE.Group();
+    engine._poses.add(this.root);
     this.velocity = new THREE.Vector2();
     this.facing = 0; this.phase = 0; this.moveAmount = 0;
     this.swimming = false;
@@ -134,13 +135,11 @@ export class Character {
   /**
    * The character's id, the one form engine.mod / time.local take for its entries: its world record id ('player' for the player, an NPC's
    * record id), else the id option you gave it (new Character(e, { id: 'knight-1' })), else a fixed generated one.
-   * Why one form: the same character had three spellings (player.modId, 'player', the record id) and a typo'd one silently modded nobody.
+   * Why one form: a misspelled id silently mods nobody.
    * @example engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 })
    * @readonly @type {string}
    */
-  get id() { return this.recordId ?? this._ownId ?? (this._modId ??= `character#${++registry(this.engine).n}`); }
-  /** @internal the engine's own spelling of id (movers, walkTo, time channels) */
-  get modId() { return this.id; }
+  get id() { return this.recordId ?? (this._ownId ??= `character#${++registry(this.engine).n}`); }
   /**
    * A movement stat as the mover uses it now: the base field with every engine.mod('move.<name>') entry applied (speed / runSpeed / gravity /
    * jumpSpeed / canJump (1 or 0)). Read-only; the base is the plain field (player.speed = 6), modifiers go through engine.mod.
@@ -153,7 +152,7 @@ export class Character {
    * on the ground or in coyote time it is the ground jump, otherwise an air jump while maxJumps allows. air: false = only a ground jump.
    * @example createPlayer({ ..., maxJumps: 2 });   // double jump: the same jump key twice
    */
-  jump({ air = true } = {}) { const j = jumpOf(this); j.buffer = this.jumpBuffer; j.air = air; return this; }
+  jump({ air = true } = {}) { const j = jumpOf(this); j.buffer = this.jumpBuffer || 1e-6; j.fresh = true; j.air = air; return this; }
   /** Give back n jumps for this airtime (a pickup, a wall touch) @param {number} [n] */
   addJumps(n = 1) { const j = jumpOf(this); j.used = Math.max(0, j.used - n); return this; }
   /** All jumps back, as if it had landed */
@@ -224,7 +223,7 @@ export class Character {
    * drivers pass the character's channel dt); speed comes from the stats (character.stat, engine.mod('move.speed')), the direction's length scales it.
    */
   move(dirX, dirZ, run, dt) {
-    // a held character moves only through its holder (core/control.js): a second driver calling move() in the same step is the bug where keys,
+    // a held character moves only through its holder (core/ops/control.js): a second driver calling move() in the same step is the bug where keys,
     // a walk and a cutscene all pushed the player and the last one won
     if (DEV) this.engine.control?.checkMove(this);
     if (this._limp) return;   // a ragdoll (rigid/ragdoll.js) has the body: release builds skip the check above, so nothing may move it here either
@@ -284,6 +283,8 @@ export class Character {
     // an NPC model torn down when far keeps its slot, the NPC lives on)
     if (!this.recordId && !this.npcModel) this.engine.control?.forget(this.id);
     this.exit();
+    detach(this);   // a disposed rider must leave the platform's rider list, or it is carried and kept alive for as long as the platform lives
+    this.engine._poses.remove(this.root);
     this.anim?.dispose();
     for (const m of Object.values(this._movers)) m.dispose?.();
     this.engine.characters?._capsules.delete(this._rig?.capsule);
@@ -320,7 +321,7 @@ export class Character {
   /** Play a one-shot action (e.g. 'wave', returns to the previous state when done); procedural characters have no actions, warn once and skip */
   playAction(name) {
     if (this.anim) this.anim.action(name);
-    else warnOnce(STRINGS.noClip.replace('{name}', name));
+    else warnOnce(fmt(STRINGS.noClip, { name: String(name) }));
   }
 
   /** Ground type under the feet (terrain groundType or level material name); 'water' while swimming. Footstep sounds map it via audio.footsteps */
@@ -353,7 +354,7 @@ export class Character {
   _firePose(dt) { if (this._poseFns?.size) for (const f of [...this._poseFns]) { try { f(this, dt); } catch (err) { reportError(this.engine, err, 'character.onPose callback'); } } }
   /** @internal Call every frame: play animation, at the speed of the character's time channel (bullet time on 'enemies' slows their walk cycle too) */
   animate(dt) {
-    dt *= this.engine.still ? 0 : this.engine.time.scale(this.channel, this.modId);
+    dt *= this.engine.still ? 0 : this.engine.time.scale(this.channel, this.id);
     if (!this._limp) this._animate(dt);
     if (!this.anim) this._firePose(dt);
   }

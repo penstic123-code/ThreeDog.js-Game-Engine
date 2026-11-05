@@ -1,5 +1,5 @@
 // 性能热点修复的"不许绕开"检查（2026-11-02 性能审查）。每条守的是"快了以后结果不变"：
-//   1. core/sceneDelta.js：几个要找遍场景的系统（级联阴影、雾、夜光、房间环境图）共用一份"这帧新进场景的子树"，不再各自整场景遍历。
+//   1. core/scene/sceneDelta.js：几个要找遍场景的系统（级联阴影、雾、夜光、房间环境图）共用一份"这帧新进场景的子树"，不再各自整场景遍历。
 //      守：场外搭好再挂上的子树整棵都被看到；场外组里后加的孙子也被看到；移走的对象 leave 一次；换材质算离开再进来；安静的帧什么都不看。
 // 这些都是纯函数 / 纯 three 对象，直接在测试进程里调（不开页面里的引擎）。
 export const specs = [
@@ -8,7 +8,7 @@ export const specs = [
     url: '/',
     async run({ check }) {
       const THREE = await import('three');
-      const { sceneVisitor } = await import('../../core/sceneDelta.js');
+      const { sceneVisitor } = await import('../../core/scene/sceneDelta.js');
       const scene = new THREE.Scene(), mk = n => Object.assign(new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial()), { name: n });
       scene.add(mk('old'));
       const log = [];
@@ -54,9 +54,9 @@ export const specs = [
     name: '[守] 修饰栈的值缓存（stacks memo）：take / remove / 到时 / dropId / 换 base 之后每次读都等于从 base 重算',
     url: '/',
     async run({ check }) {
-      const { Stacks } = await import('../../core/stacks.js');
+      const { Stacks } = await import('../../core/ops/stacks.js');
       let now = 0;
-      const S = new Stacks({ clock: { now: 0 } });
+      const S = new Stacks({});
       S._nowOf = () => now;
       const s = S.define('move.speed', { per: 'optional', min: 0 });
       // 参照：不经缓存的重算（同一套分层合并），每次读都拿来比
@@ -117,9 +117,9 @@ export const specs = [
     name: '[守] 时钟定时器一次扫描（clock timers）：同一步到期的一次性 / 事件 / 循环定时器按时间顺序各触发对的次数，回调里加的删的照常',
     url: '/',
     async run({ check }) {
-      const { Clock } = await import('../../core/Clock.js');
-      const { Stacks } = await import('../../core/stacks.js');
-      const { Time } = await import('../../core/time.js');
+      const { Clock } = await import('../../core/time/Clock.js');
+      const { Stacks } = await import('../../core/ops/stacks.js');
+      const { Time } = await import('../../core/time/time.js');
       const log = [], e = { saves: { register() {} }, events: { emit: n => log.push(n), on() {} } };
       e.stacks = new Stacks(e);
       const c = e.clock = new Clock(e); e.time = new Time(e);   // the clock is the calendar view of time's one queue

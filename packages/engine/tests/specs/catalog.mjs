@@ -1,4 +1,4 @@
-﻿// engine.catalog() (core/catalog.js), params schemas (core/params.js) and the bridge `threedog catalog` (tools/threedog/catalog.mjs).
+﻿// engine.catalog() (core/inspect/catalog.js), params schemas (core/base/params.js) and the bridge `threedog catalog` (tools/threedog/catalog.mjs).
 // Same format as the other files here.
 export const specs = [
   {

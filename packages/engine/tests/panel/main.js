@@ -8,6 +8,7 @@ engine.scene.fog = new THREE.Fog(0x8899aa, 10, 80);
 const key = new THREE.DirectionalLight(0xffffff, 2);
 key.name = 'key';
 engine.scene.add(key);
+engine.post.add({ name: 'dim', slot: 'ldr', params: { amount: 1 }, fuse: { glsl: '', tsl: c => c } });
 window.engine = engine;
 engine.start();
 if (location.search.includes('panel=1')) import('@threedog/tools/panel').then(m => m.openPanel(engine));

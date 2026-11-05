@@ -14,10 +14,8 @@ const PROPS = ['toneMappingExposure', 'shadowMap.enabled', 'shadowMap.type', 'en
 
 /** [file suffix, prop or '*', reason] */
 export const WRITERS = [
-  ['core/startup.js', '*', 'the WebGL fallback copies every renderer setting onto the new renderer: a copy of the current value, not a decision'],
-  ['core/shadows.js', 'shadowMap.enabled', 'engine.shadows, the shadow capability: the game asks for it'],
-  ['core/shadows.js', 'shadowMap.type', 'engine.shadows, the shadow capability: the game asks for it'],
-  ['modules/sky/environment.js', 'environmentIntensity', 'the sky environment writes only into the scene the game handed it'],
+  ['core/engine/startup.js', '*', 'the WebGL fallback copies every renderer setting onto the new renderer: a copy of the current value, not a decision'],
+  ['render/shadows.js', 'shadowMap.enabled', 'engine.shadows, the shadow capability: the game asks for it'],
 ];
 
 /** The prop an assignment target ends in, or null (only property names count, no calls) */

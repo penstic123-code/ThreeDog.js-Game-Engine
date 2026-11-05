@@ -18,15 +18,18 @@ export function makeColorMap({ cfg, CHUNK, CELL, surface, faceColor, paintColor,
   const LUT = new Uint8Array(4097);
   for (let i = 0; i <= 4096; i++) LUT[i] = Math.round(255 * toSRGB(i / 4096));
   const enc = v => LUT[v <= 0 ? 0 : v >= 1 ? 4096 : (v * 4096 + 0.5) | 0];
-  return function colorMap(cx, cz) {
-    const data = new Uint8Array(S * S * 4), tmp = [0, 0, 0], ox = cx * CHUNK, oz = cz * CHUNK;
+  // keep { data, i0, i1, j0, j1 } (an edit): repaint in place only the pixels in those cells; the rest of data is already right
+  return function colorMap(cx, cz, keep = null) {
+    const data = keep?.data ?? new Uint8Array(S * S * 4), tmp = [0, 0, 0], ox = cx * CHUNK, oz = cz * CHUNK;
     const ny = new Map();   // grid-point normal.y, shared by the pixels of a cell
     const gny = (i, j) => { const k = i * 100003 + j; let v = ny.get(k); if (v === undefined) ny.set(k, v = gridNormal(i, j)[1]); return v; };
     let o = 0;
     for (let pj = 0; pj < S; pj++) {
       const z = oz + (pj - 0.5) * step, j = Math.floor(z / CELL), fz = z / CELL - j;
       for (let pi = 0; pi < S; pi++, o += 4) {
-        const x = ox + (pi - 0.5) * step, i = Math.floor(x / CELL), fx = x / CELL - i, pt = cellType(i, j);
+        const x = ox + (pi - 0.5) * step, i = Math.floor(x / CELL), fx = x / CELL - i;
+        if (keep && (i < keep.i0 || i > keep.i1 || j < keep.j0 || j > keep.j1)) continue;
+        const pt = cellType(i, j);
         if (pt !== undefined) paintColor(pt, (i + 0.5) * CELL, (j + 0.5) * CELL, tmp);   // a painted cell is one color, like its vertices
         else {
           // steep-slope tests use the normal interpolated between the 4 grid points, so they do not follow triangle edges either

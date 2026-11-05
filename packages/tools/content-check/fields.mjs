@@ -9,7 +9,7 @@ import { abs, CONTENT_FIELDS_REL, CONTENT_STAGES_REL } from '../paths.mjs';
 const { placementShape, fieldsShape, entryProblems } = await import(pathToFileURL(abs(CONTENT_FIELDS_REL)).href);
 // stages add the `stage` state field (0..n-1) exactly as the engine does, so { template: 'crop', stage: 9 } fails here too
 const { stagedFields } = await import(pathToFileURL(abs(CONTENT_STAGES_REL)).href);
-const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
+export const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 // position keys are checked by checkPos in content-check.mjs (with the place list); leave them out here so one mistake is one message
 const POS = ['place', 'x', 'z', 'y', 'floor'];
 const noPos = p => Object.fromEntries(Object.entries(p).filter(([k]) => !POS.includes(k)));

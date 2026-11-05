@@ -23,7 +23,7 @@ three.js 是画笔，引擎让很多支画笔同时在一张画上画而不互�
 | # | 原则 | 具体意思 | 现状 |
 |---|---|---|---|
 | P1 | **three.js 永远可以直接写** | AI 随时可以用原生 three.js 写灯、材质、shader、贴图、后期、模型，写了就生效，永远不和引擎冲突。引擎的功能只是可选的捷径，从来不是唯一的路 | 🟡 基本做到 ✅：`scene.add` 和 `engine.add` 一样被接入；灯、雾、曝光、环境贴图引擎根本不在背后写，背景和阴影框直接写时引擎让出；游戏自己的 EffectComposer 画整张画布时引擎让出，小地图这类只画一块的不算接管；OutputPass 之后的 Pass 放在色调映射之后；后期跟着渲染器自己改尺寸；游戏灯的阴影刷新交还（守卫测试 `tests/specs/plain-three-respect.mjs`、`plain-three-adoption.mjs`）。还差一条：`scene.add(new Sky())` 不会被认出来，两个天空会叠在一起，要用 `engine.sky.replace(sky)` 🤝（引擎猜不出哪个物体是天空；THREE.md 的对照表写明了这条路）。关阴影只动渲染器总开关，不碰任何灯 ✅（守卫测试 `tests/specs/shadow-switch.mjs`）；第一帧之前写的背景也算游戏接管 ✅ |
-| P2 | **不遮住 three.js** | 引擎给出的对象就是原生 three.js 对象；命名跟 three.js 和网页标准一致；不悄悄改 three.js 的全局行为 | 🤝 射线的全局改动已去掉 ✅；引擎对 three.js 的改动一共十五处（整页四处，按物体或按渲染器十一处，见第 12 节），全部列在 `describe().threePatches`（`core/threePatches.js`），十二处可以关掉、三处写明了为什么关不掉。合理妥协：three.js 没有按物体挂钩的办法，自动接入要靠它们 |
+| P2 | **不遮住 three.js** | 引擎给出的对象就是原生 three.js 对象；命名跟 three.js 和网页标准一致；不悄悄改 three.js 的全局行为 | 🤝 射线的全局改动已去掉 ✅；引擎对 three.js 的改动一共十五处（整页四处，按物体或按渲染器十一处，见第 12 节），全部列在 `describe().threePatches`（`core/scene/threePatches.js`），十二处可以关掉、三处写明了为什么关不掉。合理妥协：three.js 没有按物体挂钩的办法，自动接入要靠它们 |
 | P3 | **不限制 AI 的发挥** | 凡是影响外观的，都有出口：调数值 → 往插槽加代码 → 整个换成自己的。AI 做不出某个效果，不能是因为被引擎卡住 | 🟡 天空、地面、植被外观、后期链都能整个换 ✅（后期：`engine.post.own()`、或者自己的 EffectComposer）；粒子可以用 `replaces` 整个换，契约（`modules/particles/contract.js`）保证换上的模块有内容要用的方法 ✅。水只能换材质，网格和跟随是引擎的；想整块自己画，就不装 `water()`，水位和水体数据留在引擎里照样能读（菜谱 44 "your own meshes"）🤝，可以接受，因为另一条路不卡人 |
 | P4 | **不遮住 three.js，只提供不让游戏变得相似的功能** | 引擎负责协调、给工具、造轮子；不遮住 three.js 的方便功能可以留。凡是会让游戏长得相似的，引擎不提供 | 🟡 材质没有引擎自己的"角色表"这一层：游戏直接 `new` three.js 材质，引擎大件（地形、植被、水、天空穹顶、雨雪）把自己的材质交出来，游戏直接设或整个换；普通 three.js 材质照样拿到雾和阴影，云影要游戏打开后才加 ✅；灯池保留 🤝（"很多光源、只有几盏真灯"这个取舍引擎猜不到，普通的灯照样自动接上）；没开任何效果时用画布自带的抗锯齿，不再自己做 ✅（2026-11-03） |
 | P5 | **引擎不带美术，不做成品外观** | 没有默认画风、默认人物、默认地形长相；没给时只有中性灰的占位并提示。不提供"一键水彩""木头石头画家"这类成品，以免所有游戏长得一样 | ✅ 守卫测试 "the engine ships no art"（`tests/specs/art-shapes.mjs`）通过；low-poly 画风包已删；什么都没写时是静止的中性占位灯加灰背景，引擎自己放在画面上的东西列在 `describe().render.defaults`（守卫测试 `tests/specs/sky-writes-nothing.mjs`） |
@@ -83,7 +83,7 @@ three.js 是画笔，引擎让很多支画笔同时在一张画上画而不互�
 
 一共 7 种，没有子类型：`world`（数据，不画东西）、`picture`（显示）、`actor`（角色）、`rules`（玩法规则）、`ui`（界面）、`net`（联机）、`tool`（一次性工具）。同一类型里的差别靠声明来表达：写了哪些公共值、占了哪个插槽、往哪个材质插槽加了代码、支持哪种渲染方式。✅ `type` 是唯一的分类：外观、界面模块出错只停掉自己，游戏不卡死。
 
-- 越界开发时报错。🟡 开局时查四条（显示类模块不能定义操作、显示和界面模块不能写世界记录、界面模块不能绑键、界面模块不能登记存档，`core/moduleTypes.js`），数据模块画东西由规则 R47 静态检查 ✅；`actor`、`net`、`tool` 三种还没有任何检查，显示类模块登记存档、工具做完不撤回也不拦（小到中，要接着做）
+- 越界开发时报错。🟡 开局时查四条（显示类模块不能定义操作、显示和界面模块不能写世界记录、界面模块不能绑键、界面模块不能登记存档，`core/engine/moduleTypes.js`），数据模块画东西由规则 R47 静态检查 ✅；`actor`、`net`、`tool` 三种还没有任何检查，显示类模块登记存档、工具做完不撤回也不拦（小到中，要接着做）
 - 模块之间只能用公开接口和事件，不许伸手进别的模块内部；核心不写死具体模块的名字。✅ 规则 R16、R46 检查（也认绕路的路径和动态 `import()`）；核心里只剩 3 处点名模块（content、calendar、flow），每处都在规则 R27 里写了理由 🤝
 
 ## 7. 引擎提供什么，AI 写什么
@@ -129,13 +129,13 @@ three.js 是画笔，引擎让很多支画笔同时在一张画上画而不互�
 
 | 类 | 例子 | 规矩 | 冲突时 | 现状 |
 |---|---|---|---|---|
-| 只能有一个 | 天空、雾、色调和曝光、环境图、主光 | `provides` 占位 | 第二个占位的安装时报错（`shared-taken`），`replaces` 换掉 | ✅ 机制（守卫测试 `tests/specs/shared-points.mjs`）；名字约定表 `core/pictureSlots.js`：`sky`、`fog`、`tone`、`environment`、`background`、`sun`（守卫测试"picture parts"） |
+| 只能有一个 | 天空、雾、色调和曝光、环境图、主光 | `provides` 占位 | 第二个占位的安装时报错（`shared-taken`），`replaces` 换掉 | ✅ 机制（守卫测试 `tests/specs/shared-points.mjs`）；名字约定表 `core/scene/pictureSlots.js`：`sky`、`fog`、`tone`、`environment`、`background`、`sun`（守卫测试"picture parts"） |
 | 多方要改 | 过场和日落都压暗太阳 | `engine.stacks.define` + `engine.mod`，一处读结果写 three.js | 叠乘有固定算法；两方 `set` 报错 | ✅ 菜谱 62 写了（守卫测试 `tests/specs/shared-point-layers.mjs`） |
 | 只是加东西 | 又一盏灯、又一个物体 | 直接加 | 不冲突，只算预算（灯数、阴影、绘制数） | ✅ |
 
 **画面件：要和别人共处的画面代码写成一个模块。** `type: 'picture'`，用 `requires` / `provides` 声明，`install(e, ctx)` 里面是普通 three.js，读信号，用 `ctx.track` 登记卸载时要撤的东西。单人写的小游戏不用这样写，普通函数照旧；只有要和别的来源共处、或要进素材库时才用。这是从代码推出来的方案，三个不同来源的画面件放进一个游戏的配合测试还没做 ❌，所以这条路没有被真实题目验证过。
 
-**没声明的写入由开发工具兜底：** `core/pictureWriters.js` 记录灯、雾、曝光等值是哪一行写的（`describe('picture')`、`explain({ picture })` 能查），同一帧两处写同一个值时报 `picture-conflict` 和两个 `文件:行`（守卫测试"picture writers"）✅。它只报不拦，只在开发服务器里工作，每帧都写的值是抽样看的，同一文件里两个匿名函数算一处会漏报。截图检查量出自写 `ShaderMaterial` 没接雾或色调、灯数在运行中变化、透明物体绘制顺序问题 ✅（`tests/specs/look-own-draws.mjs`，改名后以新文件名为准）。
+**没声明的写入由开发工具兜底：** `core/inspect/pictureWriters.js` 记录灯、雾、曝光等值是哪一行写的（`describe('picture')`、`explain({ picture })` 能查），同一帧两处写同一个值时报 `picture-conflict` 和两个 `文件:行`（守卫测试"picture writers"）✅。它只报不拦，只在开发服务器里工作，每帧都写的值是抽样看的，同一文件里两个匿名函数算一处会漏报。截图检查量出自写 `ShaderMaterial` 没接雾或色调、灯数在运行中变化、透明物体绘制顺序问题 ✅（`tests/specs/look-own-draws.mjs`，改名后以新文件名为准）。
 
 **写了别人占位的值：** 工具知道谁占了位，别人写了就报 `picture-held`，点名占位的件、写的人和两个 `文件:行`；`describe('picture').picture.writers.values` 里分得出 `holder` 和 `stray` ✅。**卸载残留：** `engine.unuse(name)` 或 `replaces` 卸掉画面件后，还留着的灯、物体、后期效果、帧回调、雾和背景报 `picture-leftover`，点名这个件 ✅。两项都只在开发服务器里，守卫测试"picture parts"。
 
@@ -158,7 +158,7 @@ three.js 是画笔，引擎让很多支画笔同时在一张画上画而不互�
 
 - 开局时选，运行中不能切换（three.js 本身也是这样）。WebGPU 不可用时按设置退回，退回时不会崩。✅
 - **选哪个是做游戏第一天的决定，因为它决定画面代码用什么语言写。** `new-game`、`init` 默认 WebGPU 加 TSL（`main.js` 先引入 `threedog/tsl`，再 `createEngine({ renderer: 'webgpu' })`）；`--webgl` 选 GLSL。`createEngine` 自己不带 `renderer` 时仍是 WebGL。半路换就是重写自写的着色器；普通 three.js 材质和灯两边都能用。浏览器没有 WebGPU 时游戏退到 three 的 WebGL2 后端继续跑，`describe().renderer` 写明原因。✅
-- WebGPU 设备丢失时走和 WebGL 上下文丢失同一条路：暂停、发事件、提示刷新页面 ✅（`core/page.js`；没有在真的设备丢失上跑过）
+- WebGPU 设备丢失时走和 WebGL 上下文丢失同一条路：暂停、发事件、提示刷新页面 ✅（`core/engine/page.js`；没有在真的设备丢失上跑过）
 - **引擎自己的着色器补丁都写两份**：WebGL 一份 GLSL，WebGPU 一份节点版（TSL），两份做同一件事。规则 R49 检查引擎的补丁都有 WebGPU 版，缺了不让合并。例外是少数只有 TSL 版的后期效果（`@threedog/post-effects/tsl` 里的 `voxelGI`、`temporalAA`、`sunShafts`、`lightVolumes`），WebGL 上不可用：选了 WebGL 的游戏加它们会点名报错，退回到 WebGLRenderer 的设备上暂停。✅（2026-11-03 主人定下）
 - 引擎自带的内容在两边画面一致，用逐像素对比来证明。🟡 地形、植被、水、天空、粒子、泛光 ✅；调色和色调阶段逐像素对比 ✅；描边、景深只比画面平均亮度（相差 3% 以内），环境光遮蔽只确认 WebGPU 上画出来了，两边算法本来不同（WebGL 另画一遍法线，WebGPU 从深度重建）（`tests/specs/post-webgpu.mjs`）——平均亮度证明不了是同一张画面，描边和遮蔽应该补分区域对比（中）；四个材质插槽（灯光声明、光照模型、雾声明、雾）只能用于 WebGL 🤝（WebGPU 的节点材质里没有对应位置，用了会点名报错）；半透明加雾两边一致 ✅；sRGB 图片当背景、开着色调映射时，两种渲染方式、开不开后期都一样 ✅（和普通 three.js 的 WebGL 不同：那边背景不做色调映射，见菜谱 56）；真显卡上跑过性能实测 ✅（2026-11-03，画面对比仍在软件渲染上做）
 - AI 的效果只写了一种渲染方式时，开局点名报错。✅

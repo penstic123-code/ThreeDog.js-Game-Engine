@@ -5,9 +5,8 @@
 // changing uWind or the calendar changing uFoliageTint moves GLSL and TSL together.
 // Cached per uniforms object, not globally: two engines on one page each have their own time, wind and cloud cover (same reason as bindUniforms on the GLSL side).
 import { uniform, renderGroup } from 'three/tsl';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { boundUniforms } from '../engineUniforms.js';
-import { watchRenamed } from '../uniformRenames.js';
 
 /**
  * A uniform node that reads `read()` again on every render and uploads it in the shared render group. The one way the engine's TSL files turn a
@@ -36,7 +35,7 @@ const CACHE = new WeakMap();   // engine.uniforms object -> { uTime: node, uWind
 function nodesOf(U) {
   let n = CACHE.get(U);
   if (n) return n;
-  n = watchRenamed({}, 'threedog/tsl uniforms()');
+  n = {};
   for (const [k, o] of Object.entries(U)) n[k] = valueNode(o);
   CACHE.set(U, n);
   return n;

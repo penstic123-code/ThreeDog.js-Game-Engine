@@ -5,9 +5,9 @@
 // The checks are here because the runtime is where it goes wrong without a word: a mesh that moved keeps light from where it was, a mesh that is not the
 // one baked gets its UVs scrambled, and ambient light the bake already saw adds again.
 import * as THREE from 'three';
-import { readParams } from '../core/params.js';
-import { codedError, coded } from '../core/errorHints.js';
-import { warnOnce } from '../core/validate.js';
+import { readParams } from '../core/base/params.js';
+import { codedError, coded } from '../core/base/errorHints.js';
+import { warnOnce, fmt } from '../core/base/validate.js';
 import { mats, noteFillLight, noteEnvironment } from './lit.js';
 
 const FORMAT = 'threedog-lightmap', VERSION = 1, MAGIC = 0x4d4c4454;   // 'TDLM'
@@ -24,7 +24,7 @@ const STRINGS = {
 
 /** Split the file into its table and its binary part; every problem is a coded refusal before anything is touched */
 function parse(buf) {
-  const bad = why => codedError('lightmap-data', STRINGS.data.replace('{why}', why));
+  const bad = why => codedError('lightmap-data', fmt(STRINGS.data, { why }));
   if (buf.byteLength < 8 || new DataView(buf).getUint32(0, true) !== MAGIC) throw bad('this is not a lightmap file');
   const n = new DataView(buf).getUint32(4, true);
   if (8 + n > buf.byteLength) throw bad('the file is cut short');
@@ -35,7 +35,7 @@ function parse(buf) {
   if (!Number.isInteger(meta.size) || meta.size < 4 || !Array.isArray(meta.meshes)) throw bad('its table has no size or mesh list');
   const base = (8 + n + 7) & ~7, end = base + meta.size * meta.size * 8;   // 8: the half floats and the 32-bit lists after them need aligned views
   if (end > buf.byteLength) throw bad('the file is cut short');
-  for (const m of meta.meshes) if (base + m.at + (m.count * 3 + m.indices) * 4 > buf.byteLength) throw bad(`the data of mesh ${m.name} is cut short`);
+  for (const m of meta.meshes) if (end + m.at + (m.count * 3 + m.indices) * 4 > buf.byteLength) throw bad(`the data of mesh ${m.name} is cut short`);
   return { meta, base };
 }
 
@@ -54,7 +54,6 @@ function relayout(src, from, index, uv1) {
   g.name = src.name;
   return g;
 }
-
 
 /** One lightmap in the scene: three's plain texture on the baked meshes' materials. Made by loadLightmap only */
 class Lightmap {
@@ -90,7 +89,7 @@ class Lightmap {
   }
 }
 
-/** Mixed into Engine.prototype (core/Engine.js) */
+/** Mixed into Engine.prototype (core/engine/Engine.js) */
 export const lightmapMethods = {
   /**
    * Put a baked lightmap on the scene: `threedog bake light` wrote the file from the meshes the game marked `userData.static = true`; this rebuilds each with
@@ -107,11 +106,11 @@ export const lightmapMethods = {
    */
   async loadLightmap(file, opts) {
     const o = readParams('engine.loadLightmap()', LOAD, opts);
-    if (typeof file !== 'string' && !(file instanceof ArrayBuffer)) throw codedError('lightmap-data', STRINGS.file.replace('{got}', String(file)));
+    if (typeof file !== 'string' && !(file instanceof ArrayBuffer)) throw codedError('lightmap-data', fmt(STRINGS.file, { got: String(file) }));
     let buf = file;
     if (typeof file === 'string') {
       const res = await fetch(file).catch(err => ({ ok: false, statusText: String(err) }));
-      if (!res.ok) throw codedError('lightmap-data', STRINGS.fetch.replace('{file}', file).replace('{why}', res.statusText));
+      if (!res.ok) throw codedError('lightmap-data', fmt(STRINGS.fetch, { file, why: res.statusText }));
       buf = await res.arrayBuffer();
     }
     const { meta, base } = parse(/** @type {ArrayBuffer} */ (buf));
@@ -125,18 +124,19 @@ export const lightmapMethods = {
       const mesh = names.get(m.name);
       // the vertex count is what the bake's list was made from: another count means another mesh, and its UVs would be noise
       if (!mesh || mesh.isInstancedMesh || mesh.geometry.attributes.position.count !== m.vertices) { set.missing.push(m.name); continue; }
-      const at = binary + m.at;
-      mesh.geometry = relayout(mesh.geometry, new Uint32Array(/** @type {ArrayBuffer} */ (buf), at, m.count), new Uint32Array(/** @type {ArrayBuffer} */ (buf), at + m.count * 4, m.indices),
+      const at = binary + m.at, old = mesh.geometry;
+      mesh.geometry = relayout(old, new Uint32Array(/** @type {ArrayBuffer} */ (buf), at, m.count), new Uint32Array(/** @type {ArrayBuffer} */ (buf), at + m.count * 4, m.indices),
         new Float32Array(/** @type {ArrayBuffer} */ (buf), at + (m.count + m.indices) * 4, m.count * 2));
+      old.dispose();   // nothing else frees its GPU buffers; a mesh that shares it just uploads it again
       for (const x of mats(mesh)) { x.lightMap = tex; x.needsUpdate = true; }
       set._entries.set(mesh, m.matrix);
     }
     this._lightmap = set;
     const { moved, doubled, shared } = set._checks(), first = l => l.slice(0, 3).join(', ');
-    if (set.missing.length) warnOnce(coded('lightmap-check', STRINGS.missing.replace('{n}', String(set.missing.length)).replace('{names}', first(set.missing))));
-    if (moved.length) warnOnce(coded('lightmap-check', STRINGS.moved.replace('{n}', String(moved.length)).replace('{names}', first(moved))));
-    if (doubled.length) warnOnce(coded('lightmap-check', STRINGS.doubled.replace('{what}', doubled.join(', '))));
-    if (shared.length) warnOnce(coded('lightmap-check', STRINGS.shared.replace('{names}', first(shared))));
+    if (set.missing.length) warnOnce(coded('lightmap-check', fmt(STRINGS.missing, { n: set.missing.length, names: first(set.missing) })));
+    if (moved.length) warnOnce(coded('lightmap-check', fmt(STRINGS.moved, { n: moved.length, names: first(moved) })));
+    if (doubled.length) warnOnce(coded('lightmap-check', fmt(STRINGS.doubled, { what: doubled.join(', ') })));
+    if (shared.length) warnOnce(coded('lightmap-check', fmt(STRINGS.shared, { names: first(shared) })));
     return set;
   },
 };

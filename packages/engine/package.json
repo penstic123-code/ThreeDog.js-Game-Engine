@@ -1,16 +1,16 @@
 {
   "name": "threedog",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Web 3D game engine on three.js: core + optional modules, no built-in art (the picture comes from your own style), built to be driven by an AI",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git",
+    "url": "git+https://github.com/penstic123-code/Threedog.js-Game-Engine.git",
     "directory": "packages/engine"
   },
-  "homepage": "https://github.com/penstic123-code/ThreeDog.js-Game-Engine#readme",
+  "homepage": "https://github.com/penstic123-code/Threedog.js-Game-Engine#readme",
   "bugs": {
-    "url": "https://github.com/penstic123-code/ThreeDog.js-Game-Engine/issues"
+    "url": "https://github.com/penstic123-code/Threedog.js-Game-Engine/issues"
   },
   "engines": {
     "node": "^20.19.0 || >=22.12.0"
@@ -23,17 +23,19 @@
       "types": "./index.d.ts",
       "default": "./index.js"
     },
-    "./error-hints": "./core/errorHints.js",
-    "./grid": "./core/grid.js",
+    "./error-hints": "./core/base/errorHints.js",
+    "./grid": "./core/scene/grid.js",
     "./layers": "./render/layers.js",
     "./worker": {
       "types": "./types/worker.d.ts",
-      "default": "./core/threadServe.js"
+      "default": "./core/threads/threadServe.js"
     },
     "./tsl": {
       "types": "./types/tsl.d.ts",
       "default": "./render/fx/index.js"
     },
+    "./modules/*.contract.js": "./modules/*.contract.js",
+    "./modules/*/contract.js": "./modules/*/contract.js",
     "./package.json": "./package.json"
   },
   "files": [
@@ -49,6 +51,39 @@
     "examples",
     "CHANGELOG.md",
     "llms.txt"
+  ],
+  "sideEffects": [
+    "./core/assets/assetLod.js",
+    "./core/stream/Batching.js",
+    "./core/engine/Engine.js",
+    "./core/scene/gameLights.js",
+    "./core/engine/page.js",
+    "./core/threads/pureWorker.js",
+    "./core/scene/sceneDelta.js",
+    "./modules/camera/FirstPersonCamera.js",
+    "./modules/camera/FixedCamera.js",
+    "./modules/camera/FollowCamera.js",
+    "./modules/camera/RtsCamera.js",
+    "./modules/characters/pathWorker.js",
+    "./modules/sky/Sky.js",
+    "./modules/terrain/ChunkManager.js",
+    "./modules/terrain/chunkWorker.js",
+    "./modules/world/World.js",
+    "./render/backend.js",
+    "./render/cascades.tsl.js",
+    "./render/detail.js",
+    "./render/effects.js",
+    "./render/fx/index.js",
+    "./render/fx/particles.tsl.js",
+    "./render/fx/patchNodes.tsl.js",
+    "./render/fx/postWebGPU.tsl.js",
+    "./render/fx/sky.tsl.js",
+    "./render/lighting.js",
+    "./render/ownFrame.js",
+    "./render/patches.js",
+    "./render/postWebGL.js",
+    "./render/recordSweep.js",
+    "./render/shadowCache.tsl.js"
   ],
   "scripts": {
     "dev": "vite",

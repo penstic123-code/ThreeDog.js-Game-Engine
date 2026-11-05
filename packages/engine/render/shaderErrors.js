@@ -61,7 +61,7 @@ function stageLogs(gl, vs, fs) {
 
 /**
  * Hook renderer.debug.onShaderError (when nothing else holds it) so compile errors name the patch and slot.
- * @internal core/Engine.js
+ * @internal core/engine/Engine.js
  * @param {import('three').WebGLRenderer} renderer
  */
 export function nameShaderErrors(renderer) {

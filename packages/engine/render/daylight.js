@@ -3,8 +3,8 @@
 
 // default dusk: lights fade in as daylight drops below 0.3 (calendar daylight: about 16:50 -> fully lit at 18:00). It is only a starting value:
 // each lightPool source may pass its own `dusk`, and a game's own fade reads uDaylight with its own edge
-import { DEV, warnOnce } from '../core/validate.js';
-import { coded } from '../core/errorHints.js';
+import { DEV, warnOnce } from '../core/base/validate.js';
+import { coded } from '../core/base/errorHints.js';
 export const DUSK = 0.3;
 
 /** Daylight 0..1 from the 'daylight' measure (engine.audio.measure): the calendar registers it (gameplay day / night), the sky only when no
@@ -30,7 +30,7 @@ const timeOfDayOf = e => { const t = e.audio?.measures.get('timeOfDay')?.(e); re
  * Twice per frame, before the modules' frame hooks (an onFrame reads this frame's signal) and again just before drawing (a time jump in a hook reaches the picture
  * in the same frame as uSunDir): the one writer of uDaylight and uTimeOfDay. They come from the measures, so whoever owns game
  * time (the calendar, else the sky's fixed time) decides them, and a game with no sky() still has them moving. The sky writes neither.
- * @internal core/loop.js
+ * @internal core/engine/loop.js
  * @param {any} e
  */
 export function writeDaylight(e) {
@@ -44,7 +44,7 @@ export function writeDaylight(e) {
 
 /**
  * Dev: signals with one writer that rewrites them every frame. These have an entry of their own, so they are not owned values (a write has somewhere better to go),
- * but a direct write used to vanish without a word, the bug core/owned.js exists to prevent: warn once with the entry. Release builds do nothing.
+ * but a direct write used to vanish without a word, the bug core/ops/owned.js exists to prevent: warn once with the entry. Release builds do nothing.
  * @internal @param {any} e @param {Record<string, string>} exits signal name -> the line that changes it
  */
 export function signalWatch(e, exits) {

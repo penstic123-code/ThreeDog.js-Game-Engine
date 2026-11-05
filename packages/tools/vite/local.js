@@ -14,6 +14,17 @@ export function isLocalRequest(req, { sameOrigin = false } = {}) {
   return sameOrigin && (origin === `http://${host}` || origin === `https://${host}`);
 }
 
+/** A queue: inOrder(fn) runs fn after everything before it, and one that fails does not stop the next. inOrder.idle() is the promise of the queue's end */
+export function orderedQueue() {
+  let tail = Promise.resolve();
+  const inOrder = fn => { const run = tail.then(fn); tail = run.catch(() => {}); return run; };
+  inOrder.idle = () => tail;
+  return inOrder;
+}
+
+/** reply(code, obj) answers this request as JSON */
+export const jsonReply = res => (code, obj) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); };
+
 /** Read a request body as text, at most max bytes; rejects (and stops reading) beyond that */
 export function readBody(req, max = 1 << 20) {
   return new Promise((res, rej) => {

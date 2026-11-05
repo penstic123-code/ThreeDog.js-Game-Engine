@@ -16,15 +16,15 @@
 import * as THREE from 'three';
 import { neutralMaterial } from '../../render/neutral.js';
 import { copyPatches, isEngineMade, markEngineMade } from '../../render/patches.js';
-import { xzOf } from '../../core/math.js';
-import { placeY } from '../../core/ground.js';
-import { warnOnce, needMaterial } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { xzOf, yOf } from '../../core/base/math.js';
+import { placeY } from '../../core/scene/ground.js';
+import { warnOnce, needMaterial, fmt } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { copyData } from './Container.js';
-import { failure } from '../../core/opsFail.js';
-import { protoOf } from '../../core/namedModel.js';
-import { shadowDefaults } from '../../core/assetEntry.js';
-import { codedError, coded } from '../../core/errorHints.js';
+import { failure } from '../../core/ops/opsFail.js';
+import { protoOf } from '../../core/assets/namedModel.js';
+import { shadowDefaults } from '../../core/assets/assetEntry.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
 
 const STRINGS = { 'zh-CN': { 'module.pickups': '拾取物', 'pickups.take': '捡起 {name}' }, en: { 'module.pickups': 'pickups', 'pickups.take': 'Pick up {name}' } };
 const SPAWN_KEYS = ['give', 'count', 'data', 'name', 'model', 'color', 'mesh', 'respawnSeconds', 'bob', 'id', 'initial', 'zone', 'radius', 'auto'];
@@ -35,7 +35,7 @@ const NET_SLACK = 1;
 
 export class Pickups {
   /** @internal track: the module's ctx.track */
-  constructor(engine, { radius = 2, showDistance = 60, takers, color = DEFAULT_COLOR, size = 0.25, lift = 0.4 } = {}, track) {
+  constructor(engine, { radius, showDistance, takers, color, size, lift }, track) {
     this.engine = engine;
     /** Edge of the placeholder box (meters), read when one is built */ this.size = size;
     /** Height above the ground new pickups float at (meters) */ this.lift = lift;
@@ -112,14 +112,13 @@ export class Pickups {
     if (item && !e.inventory) throw codedError('pickup-misuse', `pickups.spawn({ give: '${item}' }): an item pickup goes into the picker's container, so it needs inventory() installed; for an instant effect pass give: (e, { actor }) => ...`);
     const [x, z] = xzOf(position);
     // a given y is the reference height on multi-layer ground (as snapToGround): a pickup on a bridge deck or a second floor stays there; without one it sits on the top layer
-    const p = /** @type {any} */ (position).isObject3D ? /** @type {any} */ (position).position : position, refY = Array.isArray(p) ? p[1] : p.y;
     const { count = 1, mesh = null, respawnSeconds = 0, bob = true, id, initial = false, zone, radius, auto = false, name, model: m, color } = opts;
     const what = item ?? name ?? 'pickup';
     if (radius != null && !(radius > 0)) throw codedError('pickup-misuse', `pickups.spawn('${what}'): radius must be a positive number of meters, got ${radius}`);
     const data = copyData('pickups.spawn', what, opts.data);
     const def = { id, kind: 'pickup', ...(item && { item }), count, bob, ...(data && { data }), ...(name != null && { name }), ...(m != null && { model: m }), ...(color != null && { color }),
       ...(radius != null && { radius }), ...(auto && { auto: true }), ...(respawnSeconds > 0 && { respawn: respawnSeconds }), ...(zone != null && { zone }),
-      position: [x, placeY(e, `pickups.spawn('${what}')`, x, z, refY) + this.lift, z] };
+      position: [x, placeY(e, `pickups.spawn('${what}')`, x, z, yOf(position)) + this.lift, z] };
     const rec = initial ? w.add(def, { initial }) : id != null && w.get(id) || w.add(def);   // initial data: world decides whether it exists / was deleted from the save (null)
     if (rec && (rec.kind !== 'pickup' || (rec.item ?? null) !== item)) throw codedError('world-id', `pickup id '${id}' is already used by other data (${rec.kind}${rec.item ? ' ' + rec.item : ''}): use a different id`);
     const wid = rec?.id ?? id;
@@ -148,12 +147,12 @@ export class Pickups {
    */
   _take(rec, actor) {
     const e = this.engine, W = e.world;
-    let value;
+    let value, left = 0;
     if (rec.item) {
       if (!e.inventory) return failure('noInventory');
       const put = e.inventory.of(actor).add(rec.item, rec.count, rec.data && { data: rec.data });
       if (!put.ok) return put;
-      value = put.key;
+      value = put.key; left = rec.count - (put.added ?? rec.count);   // a bag with room for part of it: the rest stays on the ground
     } else {
       const fn = this._live.get(rec.id)?.give;
       if (!fn) { warnOnce(`pickups: '${rec.id}' gives with a function, which is not saved data; spawn it again with the same id after a load (content and setup code do)`); return failure('noGive'); }
@@ -161,9 +160,10 @@ export class Pickups {
       if (value && value.ok === false) return value;
     }
     // without respawn the record is deleted; with respawn time it gets until (show tears down the model), saved so the countdown continues after a load
-    if (rec.respawn > 0) W.set(rec.id, { until: e.clock.now + rec.respawn });
+    if (left > 0) W.set(rec.id, { count: left });
+    else if (rec.respawn > 0) W.set(rec.id, { until: e.clock.now + rec.respawn });
     else W.remove(rec.id);   // world:remove drops the live parts
-    e.events.emit('pickup:take', { pickup: rec.id, item: rec.item ?? null, count: rec.count, actor, x: rec.position.x, z: rec.position.z });
+    e.events.emit('pickup:take', { pickup: rec.id, item: rec.item ?? null, count: rec.count - left, actor, x: rec.position.x, z: rec.position.z });
     return { ok: true, value };
   }
 
@@ -213,14 +213,13 @@ function present(pk) {
 const NO_PICKUP = "pickups: no model for '{item}', so it lies on the ground as a gray box (a placeholder). Register a model in an asset pack and name it: "
   + "pickups.spawn(p, { model: 'gem' }) / inventory.define('{item}', { model: 'gem' }), or call the model 'pickup:{item}' (this item) / 'pickup' (every pickup without its own)";
 const NO_NAME = "pickups: '{item}' has model '{model}', but no asset pack registers a model of that name (engine.assets.manifest({ models: { {model}: fn | '/models/{model}.glb' } })); using the gray placeholder box";
-const fill = (t, o) => t.replace(/\{(\w+)\}/g, (_, k) => o[k]);
 /** Which model name a pickup shows (its own model, else the item's, else 'pickup:<item>' / 'pickup'), or null for the placeholder @internal */
 function pickupModelName(e, item, model) {
   const has = n => { const x = e.assets.entries.get(n); return !!x?.named && x.type === 'model'; };
   const what = item ?? 'pickup';
-  if (typeof model === 'string') { if (has(model)) return model; warnOnce(fill(NO_NAME, { item: what, model })); return null; }
+  if (typeof model === 'string') { if (has(model)) return model; warnOnce(fmt(NO_NAME, { item: what, model })); return null; }
   for (const n of item ? ['pickup:' + item, 'pickup'] : ['pickup']) if (has(n)) return n;
-  warnOnce(fill(NO_PICKUP, { item: what }));
+  warnOnce(fmt(NO_PICKUP, { item: what }));
   return null;
 }
 /**
@@ -325,7 +324,7 @@ export function pickups(opts = {}) {
     name: 'pickups', type: 'rules', label: 'Pickups', params: PICKUP_PARAMS, options: o, requires: ['world'], optional: ['interactions', 'inventory', 'net'], stage: 'gameplay',
     noSkip: 'auto pickups are spatial; respawn follows the game clock',
     install(e, ctx) {
-      pk = new Pickups(e, opts, ctx.track); defineTake(e, pk); return pk;
+      pk = new Pickups(e, o, ctx.track); defineTake(e, pk); return pk;   // o: the schema defaults are filled in, the class repeats none
     },
     fixed() { pk._auto(); },
     describe(e, ctx) {   // use the model if present (same object the interactions module reports, merged into one entry); far away only data

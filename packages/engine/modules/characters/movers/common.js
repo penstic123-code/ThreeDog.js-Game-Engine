@@ -1,12 +1,12 @@
 // Shared by all movers: horizontal velocity smoothing, swim check, jumps (buffer, coyote time, air jumps), landing, facing and action state.
 // Used by simple.js (built-in) and rapier.js (Rapier character controller), so feel parameters (acceleration, air control, jump) match.
-// Movement stats go through the one entry for shared quantities, engine.mod (core/stacks.js), never by writing the character's fields from a module:
+// Movement stats go through the one entry for shared quantities, engine.mod (core/ops/stacks.js), never by writing the character's fields from a module:
 //   engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 });   // haste on the player; without id: every character (mud, wind)
 // The character's own field is the base and belongs to the game (player.speed = 6 is always fine); stacks hold only the modifiers, so stamina's
 // "run speed = walk speed", haste x1.2 and mud x0.6 combine and end in any order (stacks.js rules).
-import { xzOf, wrapAngle } from '../../../core/math.js';
+import { xzOf, wrapAngle } from '../../../core/base/math.js';
 import { groundAt, stateOf } from './support.js';
-import { warnOnce } from '../../../core/validate.js';
+import { warnOnce } from '../../../core/base/validate.js';
 
 const STATE_WRITTEN = "character.state was written directly, but the engine mover recomputes it every step (idle / walk / run / jump / fall / swim), " +
   "so your value was replaced at once. Own states on top (crouch, climb, glide): the states option, (character, facts) => name | null. " +
@@ -34,7 +34,7 @@ export function stat(c, name, base) {
   const b = base ?? (name === 'canJump' ? (c.canJump ? 1 : 0) : c[name]);
   const s = c.engine.stacks, key = STACK_OF[name] ?? 'move.' + name;
   if (!s.has(key)) return b;
-  return s.get(key).value(c.modId, b);
+  return s.get(key).value(c.id, b);
 }
 
 /** Smooth horizontal velocity toward the target velocity (c.velocity x/y map to world x/z). The direction's length (0-1) scales the speed */
@@ -84,18 +84,18 @@ export function float(c, swimY) { c.vy = 0; c.grounded = false; c.root.position.
 // Jump state lives here, out of reach (a WeakMap, not fields on the character): games read character.jumpState() and change it through
 // jump() / addJumps() / resetJumps() / launch(), so no game depends on how the buffer or coyote time is kept (the old _coyote / _jumpBuffer).
 const JUMP = new WeakMap();
-/** @internal { buffer, coyote, used, air } of a character */
-export function jumpOf(c) { let j = JUMP.get(c); if (!j) JUMP.set(c, j = { buffer: 0, coyote: 0, used: 0, air: true }); return j; }
+/** @internal { buffer, fresh, coyote, used, air } of a character; fresh: jump() asked since the last step, so that step's try comes before the buffer runs down (jumpBuffer: 0 means "this step only") */
+export function jumpOf(c) { let j = JUMP.get(c); if (!j) JUMP.set(c, j = { buffer: 0, fresh: false, coyote: 0, used: 0, air: true }); return j; }
 
 /** Count the buffer and coyote time down. Once coyote time runs out in the air the ground jump is spent (only air jumps are left) */
 export function tickJump(c, dt) {
   const j = jumpOf(c);
-  j.buffer -= dt;
+  if (j.fresh) j.fresh = false; else j.buffer -= dt;
   if (j.coyote > 0 && (j.coyote -= dt) <= 0 && !c.grounded && j.used === 0) j.used = 1;
 }
 
-/** Walked off an edge: coyote time starts */
-export function leaveGround(c) { c.grounded = false; jumpOf(c).coyote = c.coyoteTime; }
+/** Walked off an edge: coyote time starts. With none the ground jump is spent here (tickJump only spends it when coyote time runs out) */
+export function leaveGround(c) { const j = jumpOf(c); c.grounded = false; j.coyote = c.coyoteTime; if (!(c.coyoteTime > 0) && j.used === 0) j.used = 1; }
 
 /** A buffered jump: on the ground or in coyote time the ground jump, else an air jump while jumps are left (and the request allowed air) */
 export function tryJump(c) {

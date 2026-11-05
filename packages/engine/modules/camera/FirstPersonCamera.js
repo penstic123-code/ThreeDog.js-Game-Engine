@@ -11,8 +11,8 @@
 //   engine.setCamera('follow');           // switch back to third person at runtime (mouse lock releases, body shows again); see recipes/21-camera.md
 import * as THREE from 'three';
 import { rigModule, defineRig, YAW_RIG, HIDE_RIG, clickToLock, releaseLock } from './common.js';
-import { vec3 } from '../../core/math.js';
-import { setFov } from '../../core/view.js';
+import { vec3 } from '../../core/base/math.js';
+import { setFov } from '../../core/scene/view.js';
 
 export class FirstPersonCamera {
   /**

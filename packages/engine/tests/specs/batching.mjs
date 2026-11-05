@@ -1,4 +1,4 @@
-// engine.batching (core/Batching.js): repeated static props drawn as one InstancedMesh per cell. Same style as the other files here.
+// engine.batching (core/stream/Batching.js): repeated static props drawn as one InstancedMesh per cell. Same style as the other files here.
 // Uses the open-world example: 24 'rock' props placed in one 64 m cell next to the player (ids bt-<i>), plus 10 with batch: false.
 
 /** Load the test props and wait until their models are built (prop models are async) */
@@ -25,7 +25,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => { try {
         engine.haltLoop();
-        const T = engine.THREE, g = new T.BoxGeometry(), m = new T.MeshStandardMaterial(), solo = new T.BoxGeometry(), soloM = new T.MeshStandardMaterial();
+        const T = __threedogThree, g = new T.BoxGeometry(), m = new T.MeshStandardMaterial(), solo = new T.BoxGeometry(), soloM = new T.MeshStandardMaterial();
         const seen = { g: 0, m: 0, solo: 0, soloM: 0 };
         g.addEventListener('dispose', () => seen.g++); m.addEventListener('dispose', () => seen.m++); solo.addEventListener('dispose', () => seen.solo++); soloM.addEventListener('dispose', () => seen.soloM++);
         const block = extra => { const b = new T.Group(); b.add(new T.Mesh(g, m), new T.Mesh(g, m)); if (extra) b.add(new T.Mesh(solo, soloM)); engine.add(b); return b; };
@@ -56,7 +56,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => { try {
         engine.haltLoop();
-        const T = engine.THREE, S = engine.stream, B = engine.batching, was = S.radius, p = new T.Vector3(9000, 0, 9000), src = S.source(p, { physics: false });
+        const T = __threedogThree, S = engine.stream, B = engine.batching, was = S.radius, p = new T.Vector3(9000, 0, 9000), src = S.source(p, { physics: false });
         S.setRadius(50);
         let unloaded = 0; const burn = () => { const end = performance.now() + 4; while (performance.now() < end); unloaded++; };   // longer than the jobs budget: one unload per frame
         const hs = []; for (let i = 0; i < 5; i++) hs.push(S.add({ position: [9000 + i, 0, 9000], radius: 1, build: () => new T.Group(), dispose: burn }));
@@ -102,7 +102,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => { try {
         const { B } = await window.__bt();
-        const T = engine.THREE, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial(), p = engine.player.position, step = engine.stream.cellSize, cs = B.cell, parts = [];
+        const T = __threedogThree, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial(), p = engine.player.position, step = engine.stream.cellSize, cs = B.cell, parts = [];
         const ox = Math.floor(p.x / cs) * cs, oz = Math.floor(p.z / cs) * cs;
         // one root per stream cell, three copies each: under minCount in every block, over it across the four. A default cell of one stream cell leaves all twelve plain
         for (let k = 0; k < 4; k++) {
@@ -124,7 +124,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => { try {
         const { B } = await window.__bt();
-        const T = engine.THREE, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial(), p = engine.player.position, roots = [], parts = [];
+        const T = __threedogThree, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial(), p = engine.player.position, roots = [], parts = [];
         let walked = 0, checked = 0, plainWalked = 0;
         const spy = x => { const w = x.updateMatrixWorld, c = x.updateWorldMatrix;
           x.updateMatrixWorld = function (f) { walked++; return w.call(this, f); }; x.updateWorldMatrix = function (a, b) { checked++; return c.call(this, a, b); }; };
@@ -174,7 +174,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => { try {
         const { B } = await window.__bt();
-        const T = engine.THREE, g = new T.BoxGeometry(0.4, 0.4, 0.4), m = new T.MeshStandardMaterial(), p = engine.player.position;
+        const T = __threedogThree, g = new T.BoxGeometry(0.4, 0.4, 0.4), m = new T.MeshStandardMaterial(), p = engine.player.position;
         const mine = [], opted = [];
         for (let i = 0; i < 12; i++) { const x = new T.Mesh(g, m); x.position.set(p.x + 3 + i * 0.6, p.y + 40, p.z + 3); (i % 2 ? engine.scene : engine).add(x); mine.push(x); }
         engine.step(0.05); engine.step(0.05);

@@ -15,7 +15,6 @@ New games start on WebGPU with TSL (recipe 56). With no WebGPU the same game run
 - Saving positions or object references: save stable ids; `await` every `saves.*` call; a mesh a save must know about gets `engine.add(obj, { id })`.
 - Editing generated docs (API.md, api/, CODEMAP, `types/generated/`): change the code, `npm run map`.
 - Guessing a name: look it up in `api/<module>.md`; errors carry `err.code` / `fix` / `docs`.
-- Something broke: read `.threedog/errors.log` first; recipe 16 §11.
 
 ## What to read, in order
 The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries for one task: `CONVENTIONS.md`. When needed: `THREE.md` · `COMMANDS.md` · `MIGRATING-0.8.md`.
@@ -48,6 +47,7 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | Keys, gamepad: actions, contexts, rebinding | `engine.input` | 58-input.md |
 | Camera: follow / third person (followCamera), first person, fixedCamera, rts; switch live (setCamera) | `engine.cameraRig`, `engine.page` | 21-camera.md |
 | 2D, side-scroller, orthographic; 2D lights | `presets.player.sideScroller`; 2D lights: example `rc2d` | 21-camera.md §6, 09-materials-lights-models.md §1b |
+| Pixel art | plain three.js | 62-picture-code.md §4b |
 | Skeletal animation | `engine.assets.animate`, `engine.hlod` | 13-animation.md, 15-perf.md |
 | Pathfinding, navmesh, "can walk there" | `engine.characters.findPath`, `engine.nav` | 12-navmesh.md |
 | Physics (crates, joints, ragdoll), collision, vehicles | `engine.collision`, `engine.rigid` | 11-vehicles.md |
@@ -116,7 +116,7 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 ## Conventions (`CONVENTIONS.md`)
 - **A position is one argument**; sizes and counts go in the options object after it. **Units** are meters, Y up, north -Z; characters face +Z.
 - **Registrations return a handle** (`h.remove()`). **Ready is `ready`**. **Events are `noun:action`**. **`owner`** is the name you pass; `describe()` names the `writer`.
-- **Fixed step vs frame**: `onFixed` runs game time (damage, AI, timers); `onFrame` is presentation (animation, HUD).
+- **Fixed step vs frame**: `onFixed` runs game time (damage, AI, timers); `onFrame` is presentation (animation, HUD). Draw what `onFixed` moves with `engine.stepBlend`, or it stutters.
 
 ## Stability
 `@experimental` on a name: it may change or go with no migration note (list: `CONVENTIONS.md`, "Stability").

@@ -23,7 +23,7 @@ export async function run({ check }) {
   const from = `${P.MODULES_REL}/a/x.js`, lands = raw => importSpecs(raw).map(s => moduleTarget(from, s)?.path ?? null).join();
   check('R16 / R46 imports: ../../modules/nav/x.js, import(\'../nav/x.js\') and import \'../nav/x.js\' land in nav; ./y.js stays in a; ../../core is outside',
     lands(`import { q } from '../../modules/nav/x.js';`) === 'nav/x.js' && lands(`const m = await import('../nav/x.js');`) === 'nav/x.js'
-    && lands(`import '../nav/x.js';`) === 'nav/x.js' && lands(`import { y } from './y.js';`) === 'a/y.js' && lands(`import { v } from '../../core/math.js';`) === '');
+    && lands(`import '../nav/x.js';`) === 'nav/x.js' && lands(`import { y } from './y.js';`) === 'a/y.js' && lands(`import { v } from '../../core/base/math.js';`) === '');
   // R50: calls on a contract-backed module are in its contract (the inventory contract once missed contents / setContents / renameIds)
   const r50 = await load('R50-contract-calls.mjs'), o50 = await r50.run(), e50 = o50.filter(x => x.level === 'error');
   check('R50: every call on a contract-backed module (engine.inventory.contents()...) is in its contract', !e50.length, e50.slice(0, 5).map(x => `${x.file}:${x.line} ${x.msg}`).join('; '));

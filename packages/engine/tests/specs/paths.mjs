@@ -73,6 +73,19 @@ export const specs = [
         return { ready, freed, after: N.navMesh ?? null };
       });
       check('the navmesh was built, and engine.dispose() destroyed it and its query', r.ready && r.freed.includes('navMesh') && r.freed.includes('query') && r.after === null, JSON.stringify(r));
+      const late = await ev(async () => {
+        const { createEngine, world, collision, characters, level, nav, THREE } = threedogThreads;
+        const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.PlaneGeometry(20, 20).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial()));
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'nav-late' });
+        E.use(world(), collision(), characters({ npcs: false }), level({ scene: g }));
+        await E.start();
+        E.use(nav());
+        for (let i = 0; i < 100 && !E.nav.ready; i++) await new Promise(res => setTimeout(res, 50));
+        const ready = E.nav.ready;
+        E.dispose();
+        return ready;
+      });
+      check('nav installed after the level loaded still builds its mesh', late === true, String(late));
     },
   },
   {

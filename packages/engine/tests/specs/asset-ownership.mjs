@@ -1,8 +1,8 @@
-// Who owns an asset's data (core/assetEntry.js, "Who owns what"): a copy counts on the load that owns its data, and a load that was ended, by a release,
+// Who owns an asset's data (core/assets/assetEntry.js, "Who owns what"): a copy counts on the load that owns its data, and a load that was ended, by a release,
 // a replacement or dispose, is freed when it arrives and never written back. Headless engines on the loading test page; each load is held open by a gate.
 import { readFileSync } from 'node:fs';
 
-const core = f => readFileSync(new URL(`../../core/${f}`, import.meta.url), 'utf8');
+const core = f => readFileSync(new URL(`../../core/assets/${f}`, import.meta.url), 'utf8');
 const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==';
 
 /** Runs in the page: gates that hold a load open, and things that report being freed */
@@ -17,7 +17,7 @@ function install(png) {
   const generator = (E, gates = []) => {
     const made = [];
     const build = async () => {
-      const m = { mesh: new E.THREE.Mesh(new E.THREE.BoxGeometry(1, 1, 1), new E.THREE.MeshBasicMaterial()), freed: 0 };
+      const m = { mesh: new __threedogThree.Mesh(new __threedogThree.BoxGeometry(1, 1, 1), new __threedogThree.MeshBasicMaterial()), freed: 0 };
       m.mesh.geometry.addEventListener('dispose', () => m.freed++);
       made.push(m);
       await gates[made.length - 1]?.p;
@@ -229,8 +229,8 @@ export const specs = [
       const gg = gate(), gen = generator(E, [gg]), tg = gate(), loaded = gatedTextures(E, [tg]), ng = gate(), faces = gatedFonts([ng]), fg = gate(), bad = gate(), r = route('/own/dispose.glb', [fg]);
       route('/own/dispose.woff2');
       const madeT = { t: null, freed: 0, gate: gate() };
-      const texGen = async () => { await madeT.gate.p; madeT.t = new E.THREE.Texture(); madeT.t.addEventListener('dispose', () => madeT.freed++); return madeT.t; };
-      const failing = async () => { await bad.p; return new E.THREE.Mesh(); };
+      const texGen = async () => { await madeT.gate.p; madeT.t = new __threedogThree.Texture(); madeT.t.addEventListener('dispose', () => madeT.freed++); return madeT.t; };
+      const failing = async () => { await bad.p; return new __threedogThree.Mesh(); };
       A.manifest({
         models: { dGen: { build: gen.build, cache: false }, dFile: '/own/dispose.glb', dBad: { build: failing, cache: false } },
         textures: { dTex: png, dTexGen: texGen }, fonts: { dFont: '/own/dispose.woff2' },
@@ -258,6 +258,26 @@ export const specs = [
     check('dispose: every waiter stays pending and a later call starts nothing', Object.values(dis.states).every(s => s === 'pending') && dis.laterState === 'pending' && dis.builds === 1, JSON.stringify(dis.states));
     check('dispose: no unhandled rejection, even from a load that fails afterwards', dis.rejections.length === 0, JSON.stringify(dis.rejections));
 
+  }),
+  item('a texture variant follows its name to a new file; a released model frees points and lines too', async ({ check, ev }) => {
+    const r = await ev(async () => {
+      const { eng, png } = own, E = await eng('var'), A = E.assets, T = __threedogThree, url = () => [...A.entries.values()].find(x => x.variantOf === 'vT')?.url;
+      A.manifest({ name: 'vA', textures: { vT: png } });
+      const first = await A.texture('vT', { color: false }), urlA = url();
+      A.manifest({ name: 'vB', textures: { vT: png + '#b' } });
+      const second = await A.texture('vT', { color: false }), urlB = url();
+      let freed = 0;
+      const dots = new T.Points(new T.BufferGeometry(), new T.PointsMaterial());
+      dots.geometry.addEventListener('dispose', () => freed++);
+      const g = new T.Group(); g.add(dots);
+      A.manifest({ models: { vDots: { build: () => g, cache: false } } });
+      const copy = await A.model('vDots');
+      A.forget(copy); A.release('vDots');
+      E.dispose();
+      return { same: first === second, urlA, urlB, freed };
+    });
+    check('the variant asked for after the name moved loads the new file', !r.same && r.urlB === r.urlA + '#b', JSON.stringify(r));
+    check('release frees the geometry of a model made of points', r.freed === 1, JSON.stringify(r));
   }),
   item('palette: an old build goes with its last copy', async ({ check, ev }) => {
     const pal = await ev(async () => {

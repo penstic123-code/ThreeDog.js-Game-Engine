@@ -13,15 +13,15 @@ export interface NavOptions {
   maxClimb?: number;
   /** Max walkable slope (degrees), default reads engine.movement.maxSlope */
   maxSlope?: number;
-  /** Tile size (in cells), default 32 */
+  /** Tile size (in cells), default 32 @experimental */
   tileSize?: number;
   /** NPCs use Recast crowd avoidance, default false */
   crowd?: boolean;
   /** Show the navmesh (debug), default false */
   debug?: boolean;
-  /** Most TileCache obstacles (collision boxes are cut into several), default 1024 */
+  /** Most TileCache obstacles (collision boxes are cut into several), default 1024 @experimental */
   maxObstacles?: number;
-  /** Most crowd agents (with crowd: true), default 128 */
+  /** Most crowd agents (with crowd: true), default 128 @experimental */
   maxAgents?: number;
   /** Meters past the character's radius a path may end short of its goal and still count as arrived, default 0.6 */
   arrive?: number;
@@ -45,13 +45,13 @@ export interface Nav {
   crowd: any;
   /** three.js object for the debug display (only when debug: true) @experimental */
   helper: any;
-  /** +1 on rebuild / unload: code that cached native objects (crowd agents etc.) must recreate them when it changes */
+  /** +1 on rebuild / unload: code that cached native objects (crowd agents etc.) must recreate them when it changes @experimental */
   readonly version: number;
   /** Path from from to to [{ x, z }…] (meters); null if not ready or unreachable. Usually use engine.characters.findPath */
   findPath(from: PositionLike, to: PositionLike, opts?: { radius?: number; detailed?: false }): XZ[] | null;
   /** Pass detailed: true: returns { status: 'ok' | 'noPath' | 'notReady', path }, telling "unreachable" from "mesh not generated yet" */
   findPath(from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true }): { status: 'ok' | 'noPath' | 'notReady'; path: XZ[] | null };
-  /** Character size actually in effect (from engine.movement, or the override in nav()) */
+  /** Character size actually in effect (from engine.movement, or the override in nav()) @experimental */
   readonly agent: { radius: number; height: number; maxClimb: number; maxSlope: number } | null;
   /** Unload the navmesh (frees native objects); characters.findPath then falls back to A* */
   dispose(): void;

@@ -1,6 +1,6 @@
 // WebGPU post chain page (tests/specs/post-webgpu.mjs): the same PostFX list run by postWebGL.js (EffectComposer on a WebGLRenderer) and by
 // render/fx/postWebGPU.tsl.js (RenderPipeline on a WebGPURenderer, WebGL2 backend), on one scene with HDR-bright spheres so bloom has work.
-// Why hand-made renderers and a PostFX per renderer: the engine has no WebGPURenderer entry yet (plan step 2, core/Engine.js). Each PostFX gets a
+// Why hand-made renderers and a PostFX per renderer: the engine has no WebGPURenderer entry yet (plan step 2, core/engine/Engine.js). Each PostFX gets a
 // stand-in engine (Object.create of the real one) that swaps in its renderer and keeps its own ownership map, which is what Engine.js will
 // hand it once it builds a WebGPURenderer itself.
 import * as THREE from 'three';
@@ -231,6 +231,12 @@ window.postWebGPU = async () => {
   shot(lined);
   out.colorParam = thrown(() => { lined.get('outline').set({ color: new THREE.Color(0xff0000) }); shot(lined); });
   lined.dispose();
+  // a node() that throws while the chain rebuilds: the effects still in the list get a working graph, not the old one whose nodes and scene pass the failed build already disposed
+  const kept = postOn(gpu, [vignette()]);
+  shot(kept);
+  const failed = thrown(() => kept.add({ name: 'bad', slot: 'ldr', needsBuffers: ['normal'], node: () => { throw new Error('bad node'); } }));
+  out.rollback = { failed, gone: !kept.get('bad'), built: !!kept.get('vignette')._impl, buffers: kept._pipe.buffers, lit: mean(shot(kept)) > 0 };
+  kept.dispose();
 
   // ---------- post.own(): the engine stops rebuilding the chain (both backends); own(false) rebuilds ----------
   const manual = (renderer, read) => {

@@ -1,6 +1,6 @@
 # Scheduling events on the game clock
 
-**In this recipe**: Changing how fast time runs · The time table · 1. Where to write it · 2. Skipping time · 3. Verify
+**In this recipe**: Changing how fast time runs · The time table · 1. Where to write it · 1b. Smooth movement between fixed steps · 2. Skipping time · 3. Verify
 
 ## Changing how fast time runs: `engine.mod`
 ```js
@@ -117,6 +117,15 @@ So "applyState to 05:50, then wait until 06:00" fires the 06:00 `at`, but after 
 Length of a day: `openWorld({ camera: 'follow', dayLength: 600 })` / `calendar({ dayLength })` (calendar seconds; without it the time of day never moves,
 `presets.calendar.cycle` is 360); `engine.mod('clock.rate', { owner: 'game', set: 10 })` speeds things up temporarily (`remove()` on its handle undoes it; see the table above).
 For "which time" or "has this been done" in a story, use `engine.vars.bump / setFlag`; don't keep your own variables (vars are saved automatically).
+
+## 1b. Smooth movement between fixed steps: `engine.stepBlend`
+The game runs in fixed steps and the screen draws at its own rate, so most frames fall between two steps. Something you move in `onFixed` and draw at its latest position jumps from step to step and stutters, the more so on a fast screen. Keep where it was before the step and where it is now, and draw between them. `engine.stepBlend` says how far this frame is from the last step to the next, from 0 to 1:
+```js
+const body = { x: 0, lastX: 0 };
+engine.onFixed(dt => { body.lastX = body.x; body.x += speed * dt; });                                // the rules read body.x
+engine.onFrame(() => { mesh.position.x = body.lastX + (body.x - body.lastX) * engine.stepBlend; });   // the picture only
+```
+The picture runs at most one step behind the rules, too little to see. Rules read the fixed-step value, never the drawn one. After a teleport set `lastX` to `x` too, or the object slides across. While the game is frozen `stepBlend` holds still, so nothing jitters. `engine.swarm` does this by itself (recipe 65).
 
 ## 2. Skipping time (sleep until morning, wait an hour)
 `engine.skip` moves calendar seconds and the calendar clock forward without running every fixed step, so even a game with a real-length day can sleep through

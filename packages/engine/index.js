@@ -1,7 +1,7 @@
 // Engine entry.
 //
 // Core (always present): rendering, main loop, events, input, assets, audio, saves, UI base, loading screen, ground API
-// Modules (opt-in): every lowercase function exported below is a module
+// Modules (opt-in): installed with engine.use(...), like the list below
 //
 //   import { createEngine, terrain, vegetation, sky, weather, water, collision, rigid,
 //            followCamera, characters, interactions, dialogue, inventory, quests, photo, ambience, debug } from 'threedog';
@@ -13,7 +13,7 @@
 //
 // Or install the usual open-world set at once with a preset: engine.use(openWorld({ seed: 7, camera: 'follow', terrain: terrainPreset() }))
 import * as THREE from 'three';
-import { Engine } from './core/Engine.js';
+import { Engine } from './core/engine/Engine.js';
 import { terrain } from './modules/terrain/index.js';
 import { vegetation } from './modules/vegetation/index.js';
 import { sky } from './modules/sky/skyModule.js';
@@ -48,23 +48,23 @@ import { flow } from './modules/flow/index.js';
 import { hud } from './modules/hud/index.js';
 import { world } from './modules/world/index.js';
 import { grids } from './modules/grid/index.js';
-import { checkOptions, DEV } from './core/validate.js';
-import { readParams, keysSchema } from './core/params.js';
-import { codedError } from './core/errorHints.js';
+import { checkOptions, DEV, fmt } from './core/base/validate.js';
+import { readParams, keysSchema } from './core/base/params.js';
+import { codedError } from './core/base/errorHints.js';
 
 // Engine and Animator are exported for types and instanceof; make them with createEngine / engine.assets.animate (AI.md entry-point table)
 export { THREE, Engine };
-export { Animator } from './core/Animator.js';
+export { Animator } from './core/assets/Animator.js';
 export { terrain, vegetation, calendar, sky, weather, water, collision, rigid, followCamera, characters, interactions, dialogue, inventory, pickups, quests, photo, ambience, debug,
   level, triggers, particles, swarm, settings, music, firstPersonCamera, fixedCamera, rtsCamera, timeline, nav, hlod, lightPool, content, flow, hud, world, grids };
 export { net, fakeNetwork, webSocket } from './modules/net/index.js';
-export { screenToGround } from './core/screenToGround.js';
-export { ease } from './core/easing.js';
-export { sampleGrid } from './core/grid.js';   // a grid of numbers (height, moisture, density, walkable) as a function (x, z) -> value; assets.gridFromImage reads one from an image. 'threedog/grid' is the same file without three.js (workers, tests)
+export { screenToGround } from './core/scene/screenToGround.js';
+export { ease } from './core/base/easing.js';
+export { sampleGrid } from './core/scene/grid.js';   // a grid of numbers (height, moisture, density, walkable) as a function (x, z) -> value; assets.gridFromImage reads one from an image. 'threedog/grid' is the same file without three.js (workers, tests)
 export { checkOptions };   // only for extensible data (game-defined fields); an options bag goes through readParams
 export { contentParts } from './modules/content/parts.js';   // one content kind split over files: content/props/*.js joined in file-name order (recipes/30)
-export { threePatches } from './core/threePatches.js';   // the engine's page-wide changes to three.js classes: list(), off(id) (THREE.md "Global changes")
-export { readParams } from './core/params.js';   // params schema for game-made modules (recipes/14): validated, defaults filled, shown by engine.catalog()
+export { threePatches } from './core/scene/threePatches.js';   // the engine's page-wide changes to three.js classes: list(), off(id) (THREE.md "Global changes")
+export { readParams } from './core/base/params.js';   // params schema for game-made modules (recipes/14): validated, defaults filled, shown by engine.catalog()
 export { createTerrain } from './modules/terrain/index.js';
 export { Character, NPC } from './modules/characters/index.js';
 export { presets } from './presets.js';   // opt-in gameplay presets (weather tables, calendars, player feel, camera): never applied by the engine itself
@@ -73,11 +73,11 @@ export { rampTexture } from './render/lighting.js';   // a toon material's gradi
 export { bakeVertexAO } from './render/modeling.js';   // procedural-modeling gaps three.js lacks (THREE.md lists what three already has)
 export { materialPatches } from './render/patches.js';
 export { toast, makeWindow, worldToScreen, fadeScreen, uiFocus, toggleOnKey } from './ui/UI.js';
-export { parseClock, formatClock, inRange } from './core/dayTime.js';
-export { pickTarget, switchTarget } from './core/targeting.js';
-export { PICTURE_SLOTS } from './core/pictureSlots.js';
+export { parseClock, formatClock, inRange } from './core/time/dayTime.js';
+export { pickTarget, switchTarget } from './core/scene/targeting.js';
+export { PICTURE_SLOTS } from './core/scene/pictureSlots.js';
 
-/** Create an engine (core only). For the options see core/Engine.js */
+/** Create an engine (core only). For the options see core/engine/Engine.js */
 export function createEngine(opts) { return new Engine(opts); }
 
 const CAMERAS = { follow: followCamera, firstPerson: firstPersonCamera, rts: rtsCamera, fixed: fixedCamera };
@@ -96,7 +96,7 @@ const VEGETATION_HINT = 'How much vegetation grows is a terrain setting: openWor
  *   engine.use(openWorld({ seed: 7, camera: 'follow' }), interactions({ ...presets.interactions.nearest }), dialogue(), inventory(), quests());   // keys: createEngine({ bindings: { ...presets.bindings.interact, ...presets.bindings.inventory } })
  * Every part takes false (leave it out) or an object (that module's own options), so the preset never has to be abandoned for one setting:
  *   openWorld({ seed: 7, camera: 'follow', calendar: { seasons: ['wet', 'dry'], daysPerSeason: 28 }, characters: { npcs: false }, rigid: false, ambience: false })
- * The bundle hides the terrain's far edge in fog (terrain viewFog: true; openWorld({ terrain: { viewFog: false } }) leaves uViewDistance alone).
+ * The bundle turns on the signal uViewDistance (terrain viewFog: true) and writes no fog: the game's own fog reads it to hide the far edge; openWorld({ terrain: { viewFog: false } }) leaves it alone.
  * Shorthands still work and go to their module: seed / viewChunks / density / flatten → terrain, time / dayLength → calendar,
  *   weather: 'rain' (starting weather) and autoWeather → weather. An object for the same module wins over the shorthand.
  * debug: installed only in dev builds by default (players of a release build get no F3 panel); true installs it in release builds too.
@@ -109,16 +109,16 @@ export function openWorld(opts = {}) {
   readParams('openWorld()', keysSchema([...OPEN_WORLD_SHORT, ...Object.keys(OPEN_WORLD_PARTS)]), opts);
   const { seed, viewChunks, density, flatten = [], time, dayLength, autoWeather = false, camera } = opts;
   if (camera === undefined) throw codedError('open-world-camera', OW_ERR.noCamera);   // no default camera feel: the game names one (genericity rule)
-  if (typeof camera === 'string' && !CAMERAS[camera]) throw codedError('preset-option', OW_ERR.camera.replace('{k}', camera).replace('{list}', Object.keys(CAMERAS).join(', ')));
+  if (typeof camera === 'string' && !CAMERAS[camera]) throw codedError('preset-option', fmt(OW_ERR.camera, { k: camera, list: Object.keys(CAMERAS).join(', ') }));
   const w = opts.weather;
   const short = { terrain: { seed, viewChunks, density, flatten, viewFog: true }, calendar: { time, dayLength }, weather: { start: typeof w === 'string' ? w : undefined, auto: autoWeather } };   // no start: weather() picks one from the game's table
   const part = k => {
     const v = opts[k];
     if (v === false || (k === 'debug' && v === undefined && !DEV)) return null;
     if (v !== undefined && v !== true && typeof v !== 'object' && !(k === 'weather' && typeof v === 'string')) {
-      throw codedError('preset-option', OW_ERR.part.replaceAll('{k}', k).replace('{got}', JSON.stringify(v)));
+      throw codedError('preset-option', fmt(OW_ERR.part, { k, got: String(JSON.stringify(v)) }));
     }
-    if (k === 'vegetation' && opts.terrain !== false && v && typeof v === 'object' && Object.keys(v).length) throw codedError('preset-option', OW_ERR.noOpts.replace('{k}', k).replace('{got}', JSON.stringify(v)).replace('{hint}', VEGETATION_HINT));
+    if (k === 'vegetation' && opts.terrain !== false && v && typeof v === 'object' && Object.keys(v).length) throw codedError('preset-option', fmt(OW_ERR.noOpts, { k, got: JSON.stringify(v), hint: VEGETATION_HINT }));
     return OPEN_WORLD_PARTS[k]({ ...short[k], ...(typeof v === 'object' ? v : null) });
   };
   const cam = camera === false ? null : typeof camera === 'string' ? CAMERAS[camera]() : camera;

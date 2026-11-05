@@ -13,12 +13,12 @@
 // Picture:
 // window UI part 'inventory' (engine.ui.set('inventory', false | { drop: true } | yourPart)); body via ui.templates.inventory(data, { esc, t, icon })
 //   list styling   CSS classes .threedog-win-inventory .threedog-row ... (override in ui.css)
-import { checkOptions, warnMissing, freezeDef } from '../../core/validate.js';
-import { readParams } from '../../core/params.js';
-import { codedError } from '../../core/errorHints.js';
+import { checkOptions, warnMissing, freezeDef } from '../../core/base/validate.js';
+import { readParams } from '../../core/base/params.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { Container } from './Container.js';
 import { Containers } from './Containers.js';
-import { followRuntimeIds } from '../../core/saveIds.js';
+import { followRuntimeIds } from '../../core/saves/saveIds.js';
 import { inventoryWindow, windowData, defineInventoryOps, INVENTORY_STRINGS } from './inventoryOps.js';
 
 export class Inventory {
@@ -160,7 +160,6 @@ export class Inventory {
    * @param {{ takeN?: number, giveN?: number, data?: Record<string, any>, silent?: boolean }} [opts]
    */
   trade(take, give, opts) { return this.bag.trade(take, give, opts); }
-  get slotsUsed() { return this.bag.slotsUsed; }
   /** Player inventory entries: [{ key, id, count, data, def }] (for custom UI). */
   list() { return this.bag.list(); }
   /** One player inventory entry by key: { key, id, count, data, def } or undefined. */
@@ -214,7 +213,7 @@ export function inventory(opts = {}) {
     describe(e) {
       const show = c => Object.fromEntries(c._entries.map(x => [x.key, x.data === undefined ? x.count : { count: x.count, data: x.data }]));
       const boxes = Object.fromEntries([...inv._containers.map].filter(([, c]) => c !== inv.bag && c._entries.length).map(([id, c]) => [id, show(c)]));
-      return { items: show(inv.bag), slots: inv.capacity === Infinity ? `${inv.slotsUsed}` : `${inv.slotsUsed}/${inv.capacity}`, ...(inv.bag.weight && { weight: `${inv.bag.weight}/${inv.bag.maxWeight}` }), ...(Object.keys(boxes).length && { containers: boxes }) };
+      return { items: show(inv.bag), slots: inv.capacity === Infinity ? `${inv.bag.slotsUsed}` : `${inv.bag.slotsUsed}/${inv.capacity}`, ...(inv.bag.weight && { weight: `${inv.bag.weight}/${inv.bag.maxWeight}` }), ...(Object.keys(boxes).length && { containers: boxes }) };
     },
   };
 }

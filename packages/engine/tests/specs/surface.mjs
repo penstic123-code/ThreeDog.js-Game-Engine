@@ -38,9 +38,10 @@ export const specs = [
         await new Promise(r => setTimeout(r, 50));
         const after = shot(m);
         let diff = 0; for (let i = 0; i < before.px.length; i++) diff = Math.max(diff, Math.abs(before.px[i] - after.px[i]));
-        return { diff, errs: before.errs + after.errs };
+        return { diff, errs: before.errs + after.errs, grain: materialPatches(terrainMaterial(null, e, { detail: { strength: 0.4 } })).includes('detail') };
       })()`);
       check('the frame after the texture loads matches the frame with the stand-in (max channel difference <= 2)', r.diff <= 2 && !r.errs, JSON.stringify(r));
+      check('terrain({ detail }) takes the object applyEffects takes: numbers alone give the default grain, not nothing', r.grain === true, JSON.stringify(r));
     },
   },
   {
@@ -221,7 +222,7 @@ export const specs = [
         out.tslSlotTypo = bad(() => applyEffects(new THREE.MeshLambertMaterial(), { clouds: false, engine: E, patches: [{ name: 'typo2', tsl: { colr: c => c.output } }] }));
         // lighting: false is no shaping at all: the same picture and no patch on the material
         const off = mk(false);
-        out.lightingOff = shot(off, { shadow: true }).h === plain && !materialPatches(off).some(p => p.name === 'lighting');
+        out.lightingOff = shot(off, { shadow: true }).h === plain && !materialPatches(off).includes('lighting');
         return out; } catch (e) { return { crash: e.stack.replace(/\s+/g, ' ').slice(0, 500) }; } })()`);
       if (r.crash) { check('crash ' + r.crash, false); return; }
       check('shadowTint / rim / rim 背光 / wrap / 全开 / 自定义 glsl 都编译，画面都与不加不同', r.errs === '' && r.moves, r.errs);

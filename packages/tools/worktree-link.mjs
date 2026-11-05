@@ -3,6 +3,7 @@
 //   node packages/tools/worktree-link.mjs link     junction every main-repo item, this worktree's own packages stay local
 //   node packages/tools/worktree-link.mjs unlink   remove those junctions (never their targets)
 //   node packages/tools/worktree-link.mjs check    print where each workspace package resolves; exit 1 if it leaves the worktree
+// Never run npm install in a linked worktree: it writes through the junctions into the main checkout's node_modules.
 // Run it from inside the worktree. Which names are local is read from the worktree's packages/*, so a package
 // that was removed or added on a branch needs no change here.
 import { execFileSync } from 'node:child_process';
@@ -17,7 +18,7 @@ const SKIP = new Set(['.vite', '.vite-temp', '.cache']);
 const lstat = (p) => fs.lstatSync(p, { throwIfNoEntry: false });
 
 /** Name -> folder of every package in the worktree's packages/. */
-export function localPackages(worktree) {
+function localPackages(worktree) {
   const root = path.join(worktree, 'packages');
   const out = new Map();
   for (const dir of fs.readdirSync(root)) {
@@ -93,7 +94,10 @@ function main() {
     process.exit(1);
   }
   const command = process.argv[2];
-  if (command === 'link') console.log(`linked ${link(worktree, path.dirname(common))} items`);
+  if (command === 'link') {
+    console.log(`linked ${link(worktree, path.dirname(common))} items`);
+    console.log('warning: never run npm install here: it writes through the junctions into the main checkout\'s node_modules');
+  }
   if (command === 'unlink') {
     const kept = unlink(worktree);
     console.log(kept.length ? `links removed; not links, left in place:\n  ${kept.join('\n  ')}` : 'links removed');

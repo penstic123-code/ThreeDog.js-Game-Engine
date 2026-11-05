@@ -9,15 +9,16 @@
 // Not touched: baked lightmaps (*.lightmap). Their banding after compression is not measured yet, so they are left as baked and the report says so.
 // A rerun handles only files whose content, options or tool versions changed (hash, not file time). --dry changes nothing and reports what would be saved.
 import { existsSync, readdirSync, statSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
-import { resolve, basename, extname, dirname, join } from 'node:path';
+import { resolve, basename, extname, dirname } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { ROOT } from './paths.mjs';
+import { walk } from './lib/text.mjs';
 import { KB, MB, modelStats } from './assets-check/stats.mjs';
 import { readModel, hasReader, NO_READER } from './assets-check/read.mjs';
 import { reviewMaterials } from './assets-check/materials.mjs';
-import { loadWasmEncoder, encodeTextures, WASM_HOW } from './assets-ktx.mjs';
+import { loadWasmEncoder, encodeTextures, textureSlots, WASM_HOW } from './assets-ktx.mjs';
 import { buildLevels, dropLevels, lodSkipReason, parseRatios, triangleCount } from './assets-lod.mjs';
 
 const DEFAULT_BUDGET_MB = 32;   // GPU memory of one model's textures; over it is reported (a game decides the real number with --budget)
@@ -46,20 +47,12 @@ function sourceHash(src, toolKey) {
   return h.update(toolKey).digest('hex');
 }
 
-/** Slot names that use a texture, found through the materials' getters (glTF Transform keeps no slot name on the link) */
-function slotsOf(doc, t) {
-  const slots = new Set();
-  for (const m of doc.getRoot().listMaterials()) for (const [slot, get] of [['baseColorTexture', m.getBaseColorTexture], ['emissiveTexture', m.getEmissiveTexture], ['normalTexture', m.getNormalTexture],
-    ['occlusionTexture', m.getOcclusionTexture], ['metallicRoughnessTexture', m.getMetallicRoughnessTexture]]) if (get.call(m) === t) slots.add(slot);
-  return [...slots];
-}
-
 /**
  * Problems of a model that optimizing does not fix, found on the source: color space by slot / name, textures without UV, a second UV set that
  * a texture asks for and the mesh lacks, texture memory over the budget.
  * @returns {{ code: string, msg: string }[]}
  */
-export function sourceProblems(doc, core, budgetMb, gpuAfter) {
+function sourceProblems(doc, core, budgetMb, gpuAfter) {
   const out = reviewMaterials(doc, core).filter(i => i.severity === 'warn' && /color|data|shared|uv/.test(i.code)).map(i => ({ code: i.code, msg: `${i.where}: ${i.msg}` }));
   // second UV: a texture whose texCoord is 1 on a primitive that has no TEXCOORD_1 (typical: ambient occlusion or a baked light on UV2 exported without it)
   const seen = new Set();
@@ -80,11 +73,11 @@ export function sourceProblems(doc, core, budgetMb, gpuAfter) {
 const overBudget = (gpuAfter, budgetMb) => ({ code: 'over-budget', msg: `texture GPU memory ≈ ${MB(gpuAfter)} even as KTX2, over the ${budgetMb} MB budget. Lower the texture sizes in the source (a size is an art decision, so it is not done here) or raise --budget.` });
 
 /** Read the KTX2 header of every output texture and compare with its slot: { code, msg }[] */
-export function encodingProblems(doc, ktxParse) {
+function encodingProblems(doc, ktxParse) {
   const out = [];
   for (const t of doc.getRoot().listTextures()) {
     if (t.getMimeType() !== 'image/ktx2') continue;
-    const label = t.getName() || t.getURI() || '(unnamed texture)', slots = slotsOf(doc, t);
+    const label = t.getName() || t.getURI() || '(unnamed texture)', slots = textureSlots(doc, t);
     let k; try { k = ktxParse.read(new Uint8Array(t.getImage())); } catch (e) { out.push({ code: 'bad-ktx2', msg: `texture ${label} is not a readable KTX2 file (${e.message})` }); continue; }
     const dfd = k.dataFormatDescriptor[0], uastc = dfd.colorModel === MODEL_UASTC, srgb = dfd.transferFunction === TRANSFER_SRGB;
     for (const s of slots) {
@@ -105,7 +98,7 @@ function pointGameAtResults(dir, models) {
   const assets = resolve(dir, 'assets.js');
   if (!existsSync(assets)) return `no assets.js here: import ./assets.optimized.js where you call engine.assets.manifest(...)`;
   let text = readFileSync(assets, 'utf8');
-  // Packs registered later win (core/assetManifest.js), so the optimized pack must come LAST: an older version of this command wrote
+  // Packs registered later win (core/assets/assetManifest.js), so the optimized pack must come LAST: an older version of this command wrote
   // `[...optimized, ` first, which let the original path replace /optimized/x.glb. Move such a game over.
   const old = text.includes('[...optimized, ');
   if (text.includes('assets.optimized') && !old) return null;
@@ -134,7 +127,6 @@ export async function runOptimize(dir, opt) {
   // encoder: `ktx` on PATH stays the first choice; else the wasm one; the run says which one it used
   const wasm = ktxOk ? null : await loadWasmEncoder(), encoderOk = ktxOk || !!wasm;
   const encoderName = ktxOk ? `ktx (KTX-Software ${ktxVersion})` : wasm ? `ktx2-encoder ${wasm.version} (Basis Universal, WebAssembly)` : null;
-  const ktxHow = WASM_HOW;
 
   // No texture resize (a size is an art decision); names, hierarchy and material names stay (the level module reads col_, spawn ...)
   const FLAGS = ['--compress', 'meshopt', '--texture-compress', 'ktx2', '--texture-size', '16384', '--flatten', 'false', '--join', 'false', '--instance', 'false', '--simplify', 'false', '--palette', 'false'];
@@ -151,8 +143,13 @@ export async function runOptimize(dir, opt) {
   let readBackSkipped = false;
   console.log(`${dry ? 'Dry run (nothing is written): ' : ''}${files.length} model(s) in ${SRC}`);
   console.log(`Texture encoder: ${encoderName ?? 'none found'}`);
+  const outOf = new Map();
   for (const f of files) {
-    const name = basename(f, extname(f)), src = resolve(SRC, f), out = resolve(OUT, name + '.glb'), key = sourceHash(src, toolKey);
+    const name = basename(f, extname(f)), src = resolve(SRC, f), out = resolve(OUT, name + '.glb');
+    if (outOf.has(name)) { console.log(`✗ ${f}: ${outOf.get(name)} also becomes ${name}.glb: rename one`); failed++; continue; }
+    outOf.set(name, f);
+    let key;
+    try { key = sourceHash(src, toolKey); } catch (e) { console.log(`✗ ${f}: cannot be read (${e.message})`); failed++; continue; }
     if (!force && existsSync(out) && cache[f] === key) {
       // No reconversion, but the verdict must match THIS run's flags: the budget problem is judged again against the current --budget, the other
       // problems (source and KTX2 slot checks) do not depend on flags and come from the stored report, so a cache hit cannot hide them from --strict
@@ -177,9 +174,9 @@ export async function runOptimize(dir, opt) {
     const skip = ratios && lodSkipReason(src0.doc);
     if (dry) {
       if (ratios) console.log(skip ? lodLine(f, { skipped: skip }) : `  LOD ${f}: ${triangleCount(src0.doc)} triangles, levels are measured in a real run`);
-      console.log(`- ${f}  ${KB(a)}, ${s0.textures.count} texture(s): GPU ≈ ${mem(s0.textures.gpuBytes)} → ${mem(gpuEst)} as KTX2 (estimate); the download size is known after a real run${hasTex && !encoderOk ? '\n  ! no texture encoder is installed: a real run would fail on this file. ' + ktxHow : ''}`);
+      console.log(`- ${f}  ${KB(a)}, ${s0.textures.count} texture(s): GPU ≈ ${mem(s0.textures.gpuBytes)} → ${mem(gpuEst)} as KTX2 (estimate); the download size is known after a real run${hasTex && !encoderOk ? '\n  ! no texture encoder is installed: a real run would fail on this file. ' + WASM_HOW : ''}`);
     } else {
-      if (hasTex && !encoderOk) { console.log(`✗ ${f}: ${ktxHow}`); failed++; continue; }
+      if (hasTex && !encoderOk) { console.log(`✗ ${f}: ${WASM_HOW}`); failed++; continue; }
       const t0 = Date.now();
       // the CLI's own ktx2 step needs the `ktx` program; without textures or without it, texture compression is switched off for the CLI
       let input = src, flags = hasTex && ktxOk ? FLAGS : FLAGS.map((x, i) => FLAGS[i - 1] === '--texture-compress' ? 'false' : x), encMs = 0;
@@ -194,7 +191,7 @@ export async function runOptimize(dir, opt) {
       }
       const r = spawnSync(process.execPath, [cliBin, 'optimize', input, out, ...flags], { encoding: 'utf8' });
       if (input !== src) try { unlinkSync(input); } catch {}
-      if (r.status) { console.log(`✗ ${f}\n${(r.stderr || r.stdout).trim().split('\n').slice(-6).join('\n')}`); failed++; continue; }
+      if (r.status !== 0) { console.log(`✗ ${f}\n${(r.stderr || r.stdout).trim().split('\n').slice(-6).join('\n')}`); failed++; continue; }
       b = statSync(out).size;
       let res; try { res = await readModel(out); } catch (e) { console.log(`✗ ${f}: the output cannot be read back (${e.message})`); failed++; continue; }
       s1 = modelStats(res.doc, res.core);
@@ -202,7 +199,7 @@ export async function runOptimize(dir, opt) {
       else if (hasTex && !readBackSkipped) { readBackSkipped = true; console.log('  ! KTX2 read-back check skipped: ktx-parse is not installed, so a texture encoded for the wrong slot would not be reported (npm i -D ktx-parse)'); }
       dropLevels(OUT, name);
       if (skip) lods = { skipped: skip };
-      else if (ratios) try { lods = await buildLevels(out, OUT, name, ratios); } catch (e) { console.log(`✗ ${f}: LOD levels failed (${e.message})`); failed++; continue; }
+      else if (ratios) try { lods = await buildLevels(out, OUT, name, ratios); } catch (e) { console.log(`✗ ${f}: LOD levels failed (${e.message})`); failed++; delete cache[f]; continue; }   // the levels are gone: the next run must not call this model unchanged
       names[name] = packEntry(name, lods); cache[f] = key; before += a; after += b; done++; gpuB += s0.textures.gpuBytes; gpuA += s1.textures.gpuBytes;
       console.log(`✓ ${f}  ${KB(a)} → ${KB(b)} (${Math.round(b / a * 100)}%, ${Date.now() - t0} ms${encMs ? `, ${encMs} ms of it encoding textures` : ''}); textures ${s0.textures.count} × ${s1.textures.formats.join('+') || '-'}, GPU ≈ ${mem(s0.textures.gpuBytes)} → ${mem(s1.textures.gpuBytes)} (estimate)`);
       if (lods) console.log(lodLine(f, lods));
@@ -220,9 +217,7 @@ export async function runOptimize(dir, opt) {
     else if (files.length) { const note = pointGameAtResults(dir, names); if (note) console.log('\n' + note + '.'); }
   }
   // Lightmaps are listed, not compressed
-  const lm = [];
-  const walk = d => { for (const e of existsSync(d) ? readdirSync(d, { withFileTypes: true }) : []) { if (e.name === 'node_modules' || e.name.startsWith('.')) continue; const p = join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name.endsWith('.lightmap')) lm.push(p); } };
-  walk(resolve(dir, 'public'));
+  const lm = walk(resolve(dir, 'public'), { exts: /\.lightmap$/, unscoped: true });
   if (lm.length) console.log(`\nLightmaps left as baked (${lm.length}): banding after compression is not measured yet, so they are not compressed.`);
   if (done) console.log(`\nOptimized ${done}: ${KB(before)} → ${KB(after)}, texture GPU ≈ ${mem(gpuB)} → ${mem(gpuA)} (estimate). Originals in art/models/ are untouched.`);
   else if (!failed && !dry) console.log('\nNothing to do.');

@@ -1,6 +1,6 @@
 // R3 every engine module has a display name in both languages (error): the loading screen names the module that is loading with
 // module.<name>, once in zh-CN and once in en. The module registers it with its own text (engine.i18n.add in install, or its STRINGS table), so
-// the key is looked for in the module's folder; the few names core/I18n.js still holds for other passes count too (R27 lists them). The label is a fallback.
+// the key is looked for in the module's folder; the few names core/base/I18n.js still holds for other passes count too (R27 lists them). The label is a fallback.
 // Modules are the definitions `name: '<id>', label` in packages/engine/modules (plus the camera rig, defined through rigModule()).
 import { lines, walk, read, P } from './_lib.mjs';
 

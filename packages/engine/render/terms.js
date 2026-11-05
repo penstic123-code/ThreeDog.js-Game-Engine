@@ -11,7 +11,7 @@
 // replace that skipped them would do nothing visible. Each material applyEffects gave a term is remembered (weakly) under its engine.
 import { patchMaterial, unpatchMaterial, materialPatches } from './patches.js';
 import { EFFECTS, hashText, CLOUD_UNIFORMS, SEASON_UNIFORMS, CLOUD_PARS, SEASON_PARS } from './effects.js';
-import { codedError } from '../core/errorHints.js';
+import { codedError } from '../core/base/errorHints.js';
 
 // a game's own season term also gets the cover amount alone, to draw its own snow
 const SEASON_U = [...SEASON_UNIFORMS, 'uGroundCover'];
@@ -60,7 +60,7 @@ function badTerm(part, v, gpu) {
 
 const pickU = (e, keys) => Object.fromEntries(keys.map(k => [k, e.uniforms[k]]));
 const BUILT = new WeakMap();   // spec -> { [kind]: patch }: one patch object per spec, so materials share their program
-function own(e, spec, kind, make) {
+function own(spec, kind, make) {
   let t = BUILT.get(spec);
   if (!t) BUILT.set(spec, t = {});
   return t[kind] ??= make();
@@ -75,7 +75,7 @@ export function cloudsPatch(e) {
   const r = e?._terms?.clouds;
   if (r === false) return null;
   if (!r) return EFFECTS.clouds();
-  return own(e, r, 'clouds', () => ({ name: 'clouds', needs: { patches: ['world'] }, slot: r.slot ?? 'lighting',
+  return own(r, 'clouds', () => ({ name: 'clouds', needs: { patches: ['world'] }, slot: r.slot ?? 'lighting',
     cacheKey: 'game~' + hashText(JSON.stringify([r.glsl ?? '', r.pars ?? '', r.slot ?? ''])),
     uniforms: { ...pickU(e, CLOUD_UNIFORMS), ...r.uniforms }, ...(r.glsl != null && { glsl: r.glsl, pars: CLOUD_PARS + (r.pars ? '\n' + r.pars : '') }),
     ...(r.tsl != null && { tsl: r.tsl }) }));
@@ -90,7 +90,7 @@ export function seasonPatch(e, kind) {
   const r = e?._terms?.season;
   if (r === false) return null;
   if (!r) return EFFECTS.season(kind);
-  return own(e, r, kind, () => {
+  return own(r, kind, () => {
     const s = typeof r === 'function' ? r(kind) : r, bad = badTerm('season', s, !!e.renderer?.isWebGPURenderer);
     if (bad || typeof s === 'function') throw codedError('engine-terms', `engine.shaderTerms.season(kind => spec): for '${kind}' the spec ${bad ?? 'is { glsl, tsl }'}`);
     const id = kind === 'ground' ? 1 : 0;

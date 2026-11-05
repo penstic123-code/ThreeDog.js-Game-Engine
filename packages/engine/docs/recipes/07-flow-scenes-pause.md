@@ -44,6 +44,7 @@ and Esc goes **only to the top one**:
 cutscene -> skip; window -> close; dialogue -> swallow (do nothing); empty stack -> open the settings menu. So one Esc never both skips a cutscene and
 opens the menu, and no patch like "ignore keys for 0.15 s after opening" is needed.
 A game's own windows made with `makeWindow` are pushed automatically (`onCancel` changes what Esc does); UI you draw yourself must be pushed:
+`uiFocus` is experimental; `engine.input.push` is the stable route to take the keys for a screen of your own.
 ```js
 import { uiFocus } from 'threedog';
 const h = uiFocus(engine).push('myMap', { cancel: () => closeMap() });   // call h.remove() when closing; h.fresh = opened this very frame

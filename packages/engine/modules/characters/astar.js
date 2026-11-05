@@ -10,7 +10,7 @@ export const astarDefaults = radius => { const step = defaultStep(radius); retur
 
 class MinHeap {
   constructor() { this.a = []; }
-  push(n, f) { const a = this.a; a.push([f, n]); let i = a.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (a[p][0] <= a[i][0]) break; [a[p], a[i]] = [a[i], a[p]]; i = p; } }
+  push(n, f, g) { const a = this.a; n[2] = g; a.push([f, n]); let i = a.length - 1; while (i > 0) { const p = (i - 1) >> 1; if (a[p][0] <= a[i][0]) break; [a[p], a[i]] = [a[i], a[p]]; i = p; } }
   pop() { const a = this.a, top = a[0], last = a.pop(); if (a.length) { a[0] = last; let i = 0; for (;;) { const l = i * 2 + 1, r = l + 1; let m = i; if (l < a.length && a[l][0] < a[m][0]) m = l; if (r < a.length && a[r][0] < a[m][0]) m = r; if (m === i) break; [a[m], a[i]] = [a[i], a[m]]; i = m; } } return top[1]; }
   get size() { return this.a.length; }
 }
@@ -27,11 +27,12 @@ export function findPath(walkable, sx, sz, gx, gz, { radius, step = defaultStep(
   const open = new MinHeap(), g = new Map(), from = new Map(), walk = new Map();
   const ok = (i, j) => { const k = key(i, j); let v = walk.get(k); if (v === undefined) { v = walkable(i * step, j * step); walk.set(k, v); } return v; };
   const h = (i, j) => Math.hypot(i - gi, j - gj);
-  g.set(key(si, sj), 0); open.push([si, sj], h(si, sj));
+  g.set(key(si, sj), 0); open.push([si, sj], h(si, sj), 0);
   let n = 0;
   const dirs = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
   while (open.size && n++ < maxNodes) {
-    const [i, j] = open.pop();
+    const [i, j, at] = open.pop();
+    if (at > g.get(key(i, j))) { n--; continue; }   // a cheaper way here was found after this entry went in: expanding it would change nothing
     if (i === gi && j === gj) {
       const path = []; let k = key(i, j), cur = [i, j];
       while (cur) { path.push({ x: cur[0] * step, z: cur[1] * step }); cur = from.get(k); if (cur) k = key(cur[0], cur[1]); }
@@ -43,7 +44,7 @@ export function findPath(walkable, sx, sz, gx, gz, { radius, step = defaultStep(
       const ni = i + di, nj = j + dj;
       if (!ok(ni, nj) && !(ni === gi && nj === gj)) continue;
       const nk = key(ni, nj), ng = gc + c;
-      if (ng < (g.get(nk) ?? Infinity)) { g.set(nk, ng); from.set(nk, [i, j]); open.push([ni, nj], ng + h(ni, nj)); }
+      if (ng < (g.get(nk) ?? Infinity)) { g.set(nk, ng); from.set(nk, [i, j]); open.push([ni, nj], ng + h(ni, nj), ng); }
     }
   }
   return null;

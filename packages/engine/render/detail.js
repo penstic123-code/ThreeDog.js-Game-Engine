@@ -2,11 +2,12 @@
 // Everything that differs between materials is a uniform (scale, strength, direction, stretch, octaves, mode, tint), so N materials with
 // different values share ONE shader program; only the structure is in the cacheKey: source kind, projection, which channels it touches.
 import * as THREE from 'three';
-import { readParams, keysSchema, isOptions } from '../core/params.js';
+import { readParams, keysSchema } from '../core/base/params.js';
+import { isOptions } from '../core/base/util.js';
 import { placeholderTexture, hashText } from './effects.js';
 import { declareUniforms } from './uniformDecl.js';
-import { codedError } from '../core/errorHints.js';
-import { DETAIL as D, glslFloat as f } from './fxNumbers.js';
+import { codedError } from '../core/base/errorHints.js';
+import { DETAIL as D, LUMA_601, glslFloat as f } from './fxNumbers.js';
 
 /**
  * @typedef {{ texture?: string | import('three').Texture, noise?: 'grain' | 'paper' | 'stroke' | 'dabs', glsl?: string, uniforms?: Record<string, any>,
@@ -63,7 +64,7 @@ float threedogDFadeOf(float fp){ return mix(1.0, 1.0 - smoothstep(0.5, 1.0, fp),
 
 // Built-in sources: p is already scaled, turned by direction and stretched along it; returns (color, height)
 const SOURCES = {
-  tex: 'vec4 threedogDetailSample(vec2 p){ vec3 c = texture2D(uDetail, p).rgb; return vec4(c, dot(c, vec3(0.299, 0.587, 0.114))); }',
+  tex: `vec4 threedogDetailSample(vec2 p){ vec3 c = texture2D(uDetail, p).rgb; return vec4(c, dot(c, vec3(${LUMA_601.join(', ')}))); }`,
   grain: 'vec4 threedogDetailSample(vec2 p){ return threedogDetailNoise(p, 0, uDetailOctaves); }',
   paper: 'vec4 threedogDetailSample(vec2 p){ return threedogDetailNoise(p, 1, uDetailOctaves); }',
   stroke: 'vec4 threedogDetailSample(vec2 p){ return threedogDetailNoise(p, 2, uDetailOctaves); }',
@@ -177,7 +178,7 @@ function detailTsl(u, proj, kind, colorOn, bump, rough) {
     const src = p => {
       if (kind >= 0) return c.fx.detailNoise(p, kind, U('uDetailOctaves'));
       const t = c.fx.patchTexture(u.uDetail, p).rgb;
-      return T.vec4(t, T.dot(t, T.vec3(0.299, 0.587, 0.114)));
+      return T.vec4(t, T.dot(t, T.vec3(...LUMA_601)));
     };
     const w = T.positionWorld;
     if (proj === 'world') { const p = uv(w.xz); r = { s: src(p), fade: fadeOf(fp(p)) }; }

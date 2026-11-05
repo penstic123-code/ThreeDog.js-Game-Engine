@@ -1,11 +1,13 @@
 # Animation state machine (skeletal animation)
 
+**In this recipe**: the model (1), clip names (2), skinned characters (3), procedural bodies (3b), 2D sprite characters (3c), other objects (4), gameplay-driven progress (5), checking (6).
+
 There is a single entry point: `engine.assets.animate(model, config)` -> Animator (advanced every frame by the engine; never call mixer.update yourself).
 For characters (player, NPCs), passing `model` builds the Animator automatically and switches clips by character state (idle walk run swim jump fall drive).
 
 ## 1. The model
 Export a glTF with animations from Blender, put it in `art/models/` -> `npm run assets -- optimize` -> `public/optimized/hero.glb`. Register it and fetch a copy (the
-skeleton is cloned correctly; clips are in `userData.animations`):
+skeleton is cloned correctly; clips are in `model.animations`, three's own place, so `model.clone()` animates too):
 ```js
 engine.assets.manifest({ models: { hero: '/models/hero.glb', dog: '/models/dog.glb' } });
 const hero = await engine.assets.model('hero');
@@ -93,6 +95,35 @@ engine.npcs.add({ id: 'fisher', model: 'humanoid', colors: { body: 0x4f6d8f } })
 - **Your own procedural body**: a builder that returns an Object3D with `root.userData.rig = { body: 'hips', head: 'head', joints: ['armL'],
   limbs: [{ joint: 'legL', offset: 0, amp: 0.9, kind: 'leg' }] }` (object names, so it survives copies and baking) animates like the humanoid; mark
   meshes `userData.part = 'body'` for `colors`. A hand-built one-off passes `{ rig }` instead ([02-npc](02-npc.md)).
+
+## 3c. Sprite characters: a 2D billboard or flat body in plain three.js
+A 2D sprite character is a plain three.js object handed to `model`, so there is no sprite module to learn. `THREE.Sprite` always faces the camera (a billboard);
+a `Mesh` with a `PlaneGeometry` stays flat and turns with `character.root`, takes light and can cast a shadow, which a `Sprite` does neither of.
+Frames are drawing, so they live in `picture/` (recipe 62) and gameplay never touches them. `onPose` gives them the character's state each frame:
+```js
+// picture/sprites.js: a sheet of cols x rows frames; which row is which is your sheet's layout
+const ROW = { idle: 0, walk: 1, run: 1, jump: 2, fall: 2 };
+export function spriteBody(texture, cols, rows, framesPerSecond) {
+  const map = texture.clone();                     // offset lives on the texture, so one clone per character; the image stays shared
+  map.needsUpdate = true;
+  map.repeat.set(1 / cols, 1 / rows);
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map }));
+  sprite.center.set(0.5, 0);                       // feet on the character's origin
+  let t = 0;
+  const animate = (c, dt) => {
+    t += dt;
+    map.offset.set(Math.floor(t * framesPerSecond) % cols / cols, 1 - ((ROW[c.state] ?? 0) + 1) / rows);
+  };
+  return { sprite, animate };
+}
+// main.js: the sheet is a name in assets.js like any texture
+const hero = spriteBody(await engine.assets.texture('hero-sheet', { pixelated: true }), 4, 3, 8);
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero.sprite }).onPose(hero.animate);
+```
+- **What the engine still does**: everything but the drawing. The mover, ground and collision, `state`, `facing`, `walkTo`, the camera and the save work as for any body; `anim`
+  has no clips to play. A one-off NPC is `new Character(engine, { model })` the same way ([02-npc](02-npc.md)).
+- **Facing**: a `Sprite` ignores `root`'s turn and a negative scale. Pick a row from `c.facing`, or mirror with a negative `map.repeat.x` and the matching `offset`.
+- **Edges**: `alphaTest` on the material gives hard edges and no sorting trouble between overlapping sprites. For a side or top-down view see recipe 21 section 6; for a pixel look, recipe 62 section 4b.
 
 ## 4. Non-character objects (a dog, a windmill, a door)
 ```js

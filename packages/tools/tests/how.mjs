@@ -32,6 +32,11 @@ export async function run({ check }) {
   // 不过时改文档关键词（AI.md 行、THREE.md、菜谱标题），不改这里的期望
   const TASKS = [
     ['recoil', /32-action-game/],
+    ['stealth vision cone', /12-navmesh/],
+    ['pixel art', /62-picture-code/],
+    ['smooth movement fixed step', /06-clock-events/],
+    ['isometric camera pan', /21-camera/],
+    ['sprite character', /13-animation/],
     ['hitscan raycast weapon', /32-action-game/],
     ['win lose', /32-action-game/],
     ['chase camera behind car', /21-camera/],

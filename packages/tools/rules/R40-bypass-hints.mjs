@@ -19,10 +19,10 @@
 //   A switch that cannot work (an unknown kind, hint-off-file below line 30, a wrong hints value) is reported as its own warning, never silently ignored.
 // If you have a reason, write it in DESIGN.md under Systems (what you built by hand and why), so the next reader and the next AI see it.
 import { readFileSync, existsSync } from 'node:fs';
-import { walk, lines, codeOnly, ROOT, P } from './_lib.mjs';
+import { walk, lines, codeOnly, rel, ROOT, P } from './_lib.mjs';
+import { TAGS } from './R04-real-time.mjs';
 
 export const KINDS = ['timers', 'random', 'inventory', 'grid', 'save', 'pause'];
-const R4_TAGS = ['presentation', 'measure', 'debug', 'wall-clock', 'main-loop'];
 const HOW = 'a reason? write it in DESIGN.md (Systems), or switch the hint off: // hint-off(KIND) on the line, // hint-off-file(KIND) at the top, or package.json "threedog": { "hints": { "KIND": false } }';
 
 const SAY = {
@@ -73,7 +73,7 @@ export function scanText(text, active = new Set(KINDS)) {
     for (const k of [...(file ?? []), ...(offKinds(c, 'hint-off') ?? [])]) if (!KINDS.includes(k)) ignored(i, `no hint kind "${k}"`);
   });
   const lineOff = i => new Set([...(offKinds(commentOf(L[i]), 'hint-off') ?? []), ...(wholeLineComment(L[i - 1]) ? offKinds(commentOf(L[i - 1]), 'hint-off') ?? [] : [])]);
-  const tagged = i => R4_TAGS.some(t => commentOf(L[i]).includes(t) || (wholeLineComment(L[i - 1]) && commentOf(L[i - 1]).includes(t)));
+  const tagged = i => TAGS.some(t => commentOf(L[i]).includes(t) || (wholeLineComment(L[i - 1]) && commentOf(L[i - 1]).includes(t)));
   const add = (i, kind) => {
     if (!active.has(kind) || fileOff.has(kind) || lineOff(i).has(kind)) return;
     const [what, use] = SAY[kind];
@@ -119,7 +119,9 @@ export default {
     };
     const rootSet = activeKinds(settingOf('package.json'));
     if (!rootSet.size) return Object.assign([], { note: 'bypass hints are switched off for this project' });
-    for (const f of [...walk(P.GAMES_REL, ['.js', '.mjs']), ...walk(P.EXAMPLES_REL, ['.js', '.mjs'])]) {
+    // a game in its own repo: its own folders. games/ and the engine's examples are this repository's layout, and there they read node_modules instead of the game
+    const files = P.MODE === 'game' ? [...new Set(P.gameDirs().flatMap(d => walk(rel(d) || '.', ['.js', '.mjs'])))] : [...walk(P.GAMES_REL, ['.js', '.mjs']), ...walk(P.EXAMPLES_REL, ['.js', '.mjs'])];
+    for (const f of files) {
       if (/(^|\/)(tests|docs|scripts)\//.test(f)) continue;
       const game = f.startsWith(P.GAMES_REL + '/') ? f.split('/').slice(0, 2).join('/') + '/' : null;
       const active = game ? new Set([...activeKinds(settingOf(game + 'package.json'))].filter(k => rootSet.has(k))) : rootSet;

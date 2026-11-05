@@ -32,7 +32,7 @@ engine.use(
   content(),
   flow(),
 );
-engine.scene.fog = new engine.THREE.Fog(0xcccccc, 66, 220);
+engine.scene.fog = new THREE.Fog(0xcccccc, 66, 220);
 
 // No style in this example, so the plaza trigger defines its own sparks (with a style, use its preset)
 engine.particles.define('sparks', { max: 80, lifetime: [0.3, 0.7], speed: [2, 5], direction: [0, 1, 0], spread: 0.9, gravity: -6, size: [0.1, 0.03], color: [0xffffff, 0xaaaaaa], opacity: [1, 0] });

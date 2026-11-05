@@ -106,13 +106,13 @@ A new game starts on WebGPU with TSL, the node shader language of three.js. In a
 
 ## Status
 
-1.0 is close. npm holds 0.7.0; `main` is ahead of it and this page describes `main`, including the editor and `engine.swarm`. Names can still change until 1.0.
+1.0 is close. npm holds 0.8.0 and this page describes it, including the editor and `engine.swarm`. Names can still change until 1.0.
 
 ThreeDog runs in desktop browsers on Windows and Linux. Mac support comes after 1.0. Multiplayer is not a goal.
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org) 20.19+ or 22.12+. These steps install 0.7.0 from npm:
+You need [Node.js](https://nodejs.org) 20.19+ or 22.12+. These steps install 0.8.0 from npm:
 
 ```sh
 mkdir my-game && cd my-game
@@ -123,6 +123,8 @@ npx threedog init --open-world   # ground, sky, follow camera and a player; neve
 npm install                      # installs what the new files need
 npm run dev                      # open the address it prints
 ```
+
+In a folder whose name npm refuses, a Chinese one for example, `npm init -y` stops with "Invalid name": skip that line, and the next one writes `package.json`.
 
 Without `--open-world` the game starts as a blank scene with a camera and a gray `picture/` folder. Open Claude Code in the folder and it finds the engine's docs and MCP server by itself; it asks once to trust the server. Then ask it for a game, or try the tools yourself:
 
@@ -137,8 +139,8 @@ npx threedog play --stop                 # stop the dev server
 To work from `main`, where a new game is linked to the engine source and F2 opens the editor on the dev server:
 
 ```sh
-git clone https://github.com/penstic123-code/ThreeDog.js-Game-Engine.git
-cd ThreeDog.js-Game-Engine
+git clone https://github.com/penstic123-code/Threedog.js-Game-Engine.git
+cd Threedog.js-Game-Engine
 npm install
 npm run new-game -- my-game --open-world
 npm run dev -- my-game

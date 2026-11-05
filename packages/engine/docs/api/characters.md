@@ -4,7 +4,7 @@ Characters: createPlayer() (characters() module)
 
 - Options `CharactersOptions`:
   - `npcs?: boolean` Whether to enable NPCs (engine.npcs), default true
-  - `npcTiers?: { fullRadius: number; nearEvery: number }` Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts)
+  - `npcTiers?: { fullRadius: number; nearEvery: number }` (experimental) Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts)
   - `animation?: AnimatorOptions` What every character's Animator starts from, e.g. { fade: 0.15 }; a model's manifest mapping and the character's own animation win over it
 
 ## Methods and properties
@@ -12,7 +12,7 @@ Characters: createPlayer() (characters() module)
 - `characters.createPlayer(opts: PlayerOptions) → Character` — Create the player and set engine.player; control is required (no default feel), e.g. createPlayer({ ...presets.player.thirdPerson, spawn }). An existing player is deleted first
 - `characters.moveInput() → { x, z, run }` — The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it inside your own control function to wrap it
 - `characters.support(object: any, opts?: { id?, safe?, carry?, inherit? }) → { id: string; remove(): void }` — Something characters stand on and ride (moving platform, lift, raft). Move the object any way (onFixed before or after the player, a timeline, physics): riders follow how its matrix changed, so the order does not matter. safe: false = never a respawn spot; carry 'position+yaw' turns riders with it; inherit: false = jumping off keeps none of its speed. With mover 'rapier' give it a collider too. Example: `const lift = engine.characters.support(liftMesh); engine.onFixed(() => { liftMesh.position.y = 2 + Math.sin(engine.time.now('real')); });`
-- `characters.removePlayer()` — Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the position and the vehicle; loading an on-foot save exits the vehicle first
+- `characters.removePlayer()` — (experimental) Delete the current player (exits the vehicle first, stops responding to keys, fully deletes the model). The player save (key player) carries the position and the vehicle; loading an on-foot save exits the vehicle first
 - `characters.findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }) → XZ[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true }) → PathResult` — Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or null if unreachable
 - `characters.findPathAsync(from: PositionLike, to: PositionLike, done: (path, status) => void, opts?: { radius?, step?, maxNodes? }) → { remove(): void }` — findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same paths with threads on or off). Recipe 12 section 4
 - Properties:
@@ -22,10 +22,10 @@ Characters: createPlayer() (characters() module)
 ## Character (engine.player / NPC are both Character)
 - `player.push(vx: number, vz: number, seconds: number)` — Move at a fixed velocity (m/s) for seconds, ignoring move()'s direction and without turning (knockback, dodge roll); gravity and collision still apply
 - `player.stat(name: 'speed' | 'runSpeed' | 'gravity' | …) → number` — A movement stat as the mover uses it now: the base field with every engine.mod('move.<name>') entry applied (canJump reads 1 / 0). Example: `engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 }); player.stat('speed')   // 1.2 x player.speed`
-- `player.addJumps(n?: number)` — Give back n jumps for this airtime (pickup, wall touch)
-- `player.resetJumps()` — All jumps back, as if it had landed
+- `player.addJumps(n?: number)` — (experimental) Give back n jumps for this airtime (pickup, wall touch)
+- `player.resetJumps()` — (experimental) All jumps back, as if it had landed
 - `player.launch(speed: number, opts?: { owner?: string })` — Throw it upward at speed m/s (jump pad, spring): leaves the ground, ends coyote time, the ground jump counts as used (air jumps stay); emits character:launch. Example: `player.launch(19, { owner: 'pad' })`
-- `player.jumpState() → { grounded, coyoteLeft, bufferLeft, jumpsUsed, jumpsLeft, vy }` — Jump state now, read-only
+- `player.jumpState() → { grounded, coyoteLeft, bufferLeft, jumpsUsed, jumpsLeft, vy }` — (experimental) Jump state now, read-only
 - `player.enter(vehicle: Rideable)` — Board a vehicle (rigid.addWheeled's, or any object with the vehicle contract): the driver seat when free, else a free passenger seat; no-op when full
 - `player.exit()` — Exit the vehicle
 - `player.playAction(name: string)` — Play a one-shot action (e.g. 'wave'); skipped if the model has no such clip
@@ -47,14 +47,23 @@ Characters: createPlayer() (characters() module)
   - `facing: number` Heading (radians): 0 faces +Z, forward = (sin facing, cos facing); increasing turns toward +X (rotation about the Y axis, consistent with root.rotation.y)
   - `vy: number` Vertical velocity (m/s), kept apart from velocity, which is horizontal only (velocity.y is world z, not this). Writable: setting it is an impulse (launch() does the same and also leaves the ground cleanly)
   - `grounded: boolean` Whether standing on the ground
-  - `swimming: boolean` Whether swimming
+  - `swimming: boolean` (experimental) Whether swimming
   - `state: CharacterState` Current action state
   - `moveAmount: number` Current movement speed (m/s)
   - `faceMode: FaceMode` Facing mode, change at any time; see CharacterOptions.faceMode
   - `faceTarget: PositionLike | null` What faceMode 'target' faces
-  - `cameraFollow?: boolean` Player only: whether the camera module follows it (see PlayerOptions.cameraFollow)
-  - `maxJumps: number` Base jump values (the game's; modifiers go through engine.mod('move.jumpSpeed'))
-  - `fall: false | { belowY }` Fall check (see CharacterOptions.fall); a plain property
+  - `cameraFollow?: boolean` (experimental) Player only: whether the camera module follows it (see PlayerOptions.cameraFollow)
+  - `swimDepth: number` (experimental) 
+  - `swimSpeedFactor: number` (experimental) 
+  - `turnSpeed: number` (experimental) 
+  - `acceleration: number` (experimental) 
+  - `stepHeight: number` (experimental) 
+  - `airControl: number` (experimental) 
+  - `coyoteTime: number` (experimental) 
+  - `maxJumps: number` (experimental) Base jump values (the game's; modifiers go through engine.mod('move.jumpSpeed'))
+  - `airJumpSpeed: number | null` (experimental) 
+  - `jumpBuffer: number` (experimental) 
+  - `fall: false | { belowY }` (experimental) Fall check (see CharacterOptions.fall); a plain property
   - `channel: string` Time channel the engine drives it on (see CharacterOptions.channel)
   - `id: string` The character's id, the one form engine.mod / time.local take: its world record id ('player', an NPC's record id), else the id option, else a generated one
   - `support: { kind, object, id, safe, velocity }` What it stands on, read-only (reused object); 'platform' = a registered support (characters.support), which carries it

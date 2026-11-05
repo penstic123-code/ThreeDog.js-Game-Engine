@@ -80,7 +80,7 @@ export async function run({ check, browser }) {
     const badBool = await threedog('op', 'thing.set', 'id=x', 'visible=yes');
     check('op: a value that does not fit the shape is refused before the op', badBool.code !== 0 && /visible=yes is not true or false/.test(badBool.out), badBool.out);
     const help = await threedog('step', '--help');
-    check('--help on a bridge command answers and exits 0', help.code === 0 && help.out.includes('advance N game seconds'), help.out);
+    check('--help on a bridge command answers and exits 0', help.code === 0 && help.out.includes('advance N real seconds'), help.out);
     check('eval: expression / statements / error', (await threedog('eval', '1 + 1')).out === '✓ 2' && (await threedog('eval',
       'const a = 3; return a * 2')).out === '✓ 6' && (await threedog('eval', 'engine.nope.x')).code === 1);
     check('eval: await works (expression and multi-line statements)', (await threedog('eval',
@@ -97,6 +97,13 @@ export async function run({ check, browser }) {
     const checks = await threedog('js', '--file', script);
     check('js checks: expect(v, msg) and expect(v).toBe(x, msg) failures print the message', checks.code === 1 && checks.out.startsWith('✗ 3 of 4 checks failed')
       && checks.out.includes('#1 on expect → expected 2, got 1') && checks.out.includes('#2 on matcher') && checks.out.includes('#3 on assert'), checks.out);
+    // [guard] a SyntaxError thrown BY the script (JSON.parse) read as "not an expression" and ran it again as statements: its steps happened twice
+    const tickBefore = Number((await threedog('js', 'engine.time.tick')).out.replace('✓ ', ''));
+    const twice = await threedog('js', "step(1), JSON.parse('{')");
+    const moved = Number((await threedog('js', 'engine.time.tick')).out.replace('✓ ', '')) - tickBefore;
+    check('[guard] js: an expression that throws a SyntaxError runs once', twice.code !== 0 && moved < 90, `moved ${moved} ticks: ${twice.out}`);
+    const close = await threedog('js', "expect(1).toBeCloseTo(1, 'one is one'); expect(1.5).toBeCloseTo(1, 1, 'tolerance then message'); expect(2).toBeCloseTo(1, 'two is not one')");
+    check('[guard] expect.toBeCloseTo: a message may stand where the tolerance goes', close.code !== 0 && /1 of 3 checks failed/.test(close.out) && /two is not one/.test(close.out) && !/one is one/.test(close.out), close.out);
     check('js: a script may declare its own log, step or engine', (await threedog('js', 'const log = 2; const step = 3; return log + step')).out === '✓ 5');
     rmSync(script, { force: true });
     const rawClock = async () => +(await threedog('eval', 'engine.time.now("real")')).out.replace('✓ ', ''),
@@ -175,6 +182,12 @@ export async function run({ check, browser }) {
     check('snap --help prints usage, an unknown flag lists the valid ones, neither saves a file', sh.code === 0 && sh.out.startsWith('Usage: threedog snap')
       && sx.code === 1 && sx.out.includes('--width') && !existsSync(join(dir, '.threedog/shots/--help.png')) && !existsSync(join(dir, '.threedog/shots/--nope.png')),
       sh.out + ' | ' + sx.out);
+    // [guard] snap --width sends the whole PNG through the bridge to scale it, so a body past the old 4 MB limit must pass
+    const bigScript = join(tmpdir(), `threedog-bridge-big-${process.pid}.js`);
+    writeFileSync(bigScript, `// ${'x'.repeat(5 << 20)}\nreturn 'big'`);
+    const bigBody = await threedog('js', '--file', bigScript);
+    rmSync(bigScript, { force: true });
+    check('[guard] a 5 MB command body reaches the page', bigBody.code === 0 && /big/.test(bigBody.out), bigBody.out.slice(0, 200));
     const absShot = join(tmpdir(), `threedog-bridge-snap-${process.pid}.png`), relShot = join(dir, '.threedog/rel-snap.png');
     const sa = await threedog('snap', absShot), sr = await threedog('snap', '.threedog/rel-snap');
     check('snap path: absolute used as given, relative gets .png only when it has no extension', sa.code === 0 && existsSync(absShot)
@@ -207,6 +220,9 @@ export async function run({ check, browser }) {
         df.code === 1 && /player\.x: .* -> .*changed/.test(df.out) && df.out.includes('snap-describe save bridge-test'), df.out);
       check('snap-describe: no name gives usage', (await threedog('snap-describe', 'diff')).out.includes('Usage'));
     } finally { rmSync(sd, { force: true }); }
+    // [guard] a fade waits on frames and the bridge halts the page first: the command hung until the bridge gave up after two minutes
+    const faded = await threedog('skip', 'seconds=60', 'fade=0.05');
+    check('[guard] skip with fade= ends on a halted page', faded.code === 0 && /Skipped/.test(faded.out), faded.out);
     check('reload: after reloading the scenario is back to its initial state',
       (await threedog('reload')).code === 0 && (await threedog('describe')).out.includes(startClock), startClock);
 
@@ -220,10 +236,16 @@ export async function run({ check, browser }) {
     check('real page: step pauses first and says to resume', live.out.includes('threedog resume') && await page.evaluate(() => engine.halted), live.out);
     check('real page: the command takes effect on this page', (await page.evaluate(() => engine.describe().time.real)) > 0);
     const liveTick = await page.evaluate(() => engine.time.tick);
+    await page.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 16; document.body.prepend(c); });
     check('real page: snap can capture (canvas only)', (await threedog('snap',
       'bridge-live')).code === 0 && existsSync(join(dir, '.threedog/shots/bridge-live.png')));
+    const shotWidth = readFileSync(join(dir, '.threedog/shots/bridge-live.png')).readUInt32BE(16);
+    check('[guard] real page: snap reads the game canvas, not the first canvas in the page', shotWidth > 16, String(shotWidth));
     check('real page: snap advances no game time', await page.evaluate(() => engine.time.tick) === liveTick, String(liveTick));
     check('real page: resume restores real time', (await threedog('resume')).code === 0 && !(await page.evaluate(() => engine.halted)));
+    // [guard] the old socket closing is not the page being back: the next command landed in the gap and opened a headless page beside the real one
+    const rl = await threedog('reload'), back = await fetch(`http://localhost:${dev.port}/__threedog/cmd`, { method: 'POST', headers: { 'x-threedog-token': dev.token }, body: '{"op":"ping"}' }).then(r => r.json());
+    check('[guard] real page: reload answers once the page is connected again', rl.code === 0 && back.value.live && !back.value.headless, JSON.stringify(back));
     // a command still running when its page reloads fails at once, not after the 2-minute timeout
     const tr = Date.now(), hang = threedog('eval', 'window.__hang = true; return new Promise(() => {})');
     await until(() => page.evaluate(() => window.__hang));

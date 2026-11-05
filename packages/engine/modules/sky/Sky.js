@@ -12,16 +12,15 @@
 // Clouds: sky({ clouds: { color, shade, coverage: 1, scale: 0.35, speed: [x, z], kind, ... } }) (coverage follows weather; see clouds.js); your own function: engine.sky.clouds(spec)
 // three.js objects: dome (dome Mesh), sunDir (Vector3 toward the sun). Dome layers: domeLayers.js
 // Skybox: engine.sky.replace('sky.jpg') (equirectangular panorama) replaces the gradient sky; brightness follows time
-import { engineOwned } from '../../core/things.js';
-import { watchRenamed, RENAMED_DOME_UNIFORMS } from '../../render/uniformRenames.js';
+import { engineOwned } from '../../core/scene/things.js';
 import * as THREE from 'three';
-import { readParams } from '../../core/params.js';
+import { readParams } from '../../core/base/params.js';
 import { NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms, makeDome } from './shader.js';
 import { defineSkyPoints } from './tint.js';
 import { environmentMethods } from './environment.js';
 import { updateSky, watchOwned, skyLight } from './frame.js';
 import { prepareDome, domeEntries } from './dome.js';
-import { parseClock, sunHeightAt } from '../../core/dayTime.js';
+import { parseClock, sunHeightAt } from '../../core/time/dayTime.js';
 import { onRendererSwap } from '../../render/backend.js';
 // sky({ dim }) (SkyPictureOptions.dim in types/world.d.ts): each picture decision the sky makes for every game, on unless the game turns it off (engine.sky.dim is the live value)
 const DIM_PARAMS = {
@@ -29,8 +28,6 @@ const DIM_PARAMS = {
   stars: { type: 'bool', default: true, desc: 'stars fade with the weather\'s cloud cover (uWeatherCloud), not only behind drawn clouds' },
 };
 /** @import { Object3D, Vector3 } from '../../types/common' */
-/** @import { SkyOptions } from '../../types/world' */
-/** @import { Handle } from '../../types/common' */
 /** engine.sky */
 export class Sky {
   /** @internal */
@@ -62,7 +59,11 @@ export class Sky {
     const scene = engine.scene;
 
     const domeParts = prepareDome(this, st);   // backdrop, dome layers (dome.js)
-    /** @internal */ this.uniforms = watchRenamed({ ...makeSkyUniforms(st, engine.uniforms), ...domeParts.uniforms }, 'engine.sky.uniforms', RENAMED_DOME_UNIFORMS);
+    /**
+     * The dome's { value } objects, live on both renderers: the built-in ones (the same objects as engine.uniforms where the names match) and the uniforms
+     * given to engine.sky.clouds() and engine.sky.layer(), which join here once the call has run @type {Record<string, { value: any }>}
+     */
+    this.uniforms = { ...makeSkyUniforms(st, engine.uniforms), ...domeParts.uniforms };
     /** Dome mesh @type {Object3D} */
     this.dome = makeDome(this.uniforms, st, domeParts, engine);
     scene.add(engineOwned('sky', this.dome));
@@ -161,9 +162,9 @@ export class Sky {
   get backdrop() { return this._backdrop?.color ?? null; }
   set backdrop(v) { this._entries.backdrop(v); }
 
-  /** Time of day being drawn, 0-1: engine.calendar.timeOfDay, or fixedTime without a calendar. Read-only: the time itself is the calendar's */
+  /** Time of day being drawn, 0-1: engine.calendar.timeOfDay, or fixedTime without a calendar. Read-only: the time itself is the calendar's @experimental */
   get drawnTime() { return this.engine.calendar?.timeOfDay ?? this.fixedTime; }
-  /** Sun elevation -1 (midnight) ... 0 (horizon) ... 1 (noon) of the drawn sun (the calendar's daylight is the gameplay value) */
+  /** Sun elevation -1 (midnight) ... 0 (horizon) ... 1 (noon) of the drawn sun (the calendar's daylight is the gameplay value) @experimental */
   get sunHeight() { return sunHeightAt(this.drawnTime); }
   /** Whether the drawn sun is above the horizon (picture functions: ({ sky }) => sky.isDay ? ...; gameplay reads engine.calendar.isDay) */
   get isDay() { return this.sunHeight > 0; }

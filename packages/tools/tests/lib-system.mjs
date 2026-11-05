@@ -7,7 +7,8 @@ import { tmpdir } from 'node:os';
 import { TOOLS } from '../paths.mjs';
 import { addEntry, pullEntry, entries } from '../lib.mjs';
 import { contentFiles, readRecords } from '../lib/lib-records.mjs';
-import { storeSystem } from '../lib/lib-system.mjs';
+import { proveEntry, storeSystem } from '../lib/lib-system.mjs';
+import { splitTop } from '../lib/text.mjs';
 
 export const name = 'lib system: add refuses hard-coded art, text, outside imports and unlisted requires; pull lands the folder, wiring, tests and one content line; an entry with tests is proved in an empty game and the result is stored';
 
@@ -66,6 +67,11 @@ export async function run({ check }) {
     writeFileSync(c2, c2good);
     check('pull again: content/index.js is not touched twice', readFileSync(join(g, 'content', 'index.js'), 'utf8') === index);
     check('pull: the record holds every file, the wiring and the tests; content/index.js stays the game\'s', Object.keys(readRecords(g)[0].files).includes('tests/specs/tide-tide.mjs') && Object.keys(readRecords(g)[0].files).includes('plugins/tide.js') && !Object.keys(readRecords(g)[0].files).includes('content/index.js'));
+
+    check('[guard] splitTop keeps an escaped quote inside its string', splitTop("a: 'it\\'s, fine', b").length === 2, splitTop("a: 'it\\'s, fine', b").join(' | '));
+    // [guard] the proof game speaks the entry's renderer: a new game starts on WebGPU, where a GLSL-only entry stops at start through no fault of its own
+    const proofMain = async backends => { let main = ''; await proveEntry({ name: 'x', backends, needs: {} }, join(TOOLS, '..', '..'), async game => { main = readFileSync(join(game, 'main.js'), 'utf8'); throw new Error('read'); }); return main; };
+    check('[guard] a WebGL-only entry is proved on WebGL, any other on the new-game default', !/renderer: 'webgpu'/.test(await proofMain(['webgl'])) && /renderer: 'webgpu'/.test(await proofMain(['webgl', 'webgpu'])));
 
     // [guard] the proof: the real runner in an empty game. A broken system must come back not ok, so the stored mark means something
     const realModules = join(TOOLS, '..', '..');

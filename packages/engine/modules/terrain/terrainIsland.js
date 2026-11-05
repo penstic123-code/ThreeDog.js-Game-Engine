@@ -33,7 +33,7 @@ export function makeIslandBuilder({ CHUNK, RES, CELL, gridH, faceColor, paintCol
     return out;
   }
 
-  return function buildIslandChunk(cx, cz) {
+  return function buildIslandChunk(cx, cz, keep) {
     const n = RES, i0 = cx * n, j0 = cz * n, ox = cx * CHUNK, oz = cz * CHUNK;
     const top = bucket(), wall = bucket(), under = bucket();
     const paint = [0, 0, 0], col = [0, 0, 0], nrm = [0, 0, 0], V = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
@@ -119,7 +119,7 @@ export function makeIslandBuilder({ CHUNK, RES, CELL, gridH, faceColor, paintCol
     for (let k = 0, q = 0; k < all; k += 3) { uv[q++] = (ox + pos[k]) / CHUNK; uv[q++] = (oz + pos[k + 2]) / CHUNK; }
     if (!all) minH = maxH = 0;   // a chunk wholly in the void: an empty mesh, still 'ready' so loading never waits on it
     const out = { pos, nor, col: clr, uv, minH, maxH, top: nTop, solid: nTop + nWall, sphere: sphereOf(ox, oz, minH, maxH) };
-    if (colorMap && nTop) out.tex = colorMap(cx, cz);
+    if (colorMap && nTop) out.tex = colorMap(cx, cz, keep);
     return out;
   };
 

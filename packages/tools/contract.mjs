@@ -16,7 +16,7 @@ import { ENGINE } from './paths.mjs';
 
 const core = f => import(pathToFileURL(join(ENGINE, 'core', f)).href);
 const [{ Events }, { Ops }, { Stacks }, { defineHoldStacks, holdMethods }, { Wraps }, { Control }] =
-  await Promise.all(['Events.js', 'Ops.js', 'stacks.js', 'holds.js', 'wrap.js', 'control.js'].map(core));
+  await Promise.all(['base/Events.js', 'ops/Ops.js', 'ops/stacks.js', 'ops/holds.js', 'ops/wrap.js', 'ops/control.js'].map(core));
 
 /** A minimal engine with the real core parts a gameplay module talks to; everything with a screen is a stand-in that records calls */
 export function contractEngine() {
@@ -45,7 +45,7 @@ export function contractEngine() {
   return e;
 }
 
-// ['__step', seconds]: time passes: the calendar channel moves (onMove listeners run, as core/time.js does) and the module's fixed(dt) hook runs,
+// ['__step', seconds]: time passes: the calendar channel moves (onMove listeners run, as core/time/time.js does) and the module's fixed(dt) hook runs,
 // for contracts whose events come from time passing (calendar day:start)
 const step = (mod, e, dt) => { e.clock.now += dt; for (const fn of [...e.time._onMove]) fn(); mod.fixed?.(dt, e); };
 const callOn = (api, [m, ...args], mod, e) => m === '__step' ? step(mod, e, args[0]) : api[m](...args);
@@ -111,7 +111,7 @@ export function runContract(contract, makeModule, { check, label = contract.name
     t(`${what} is ${st.expect} after the probe calls`, before === st.expect, String(before));
     const data = Object.fromEntries([...reg].map(([k, d]) => [k, JSON.parse(JSON.stringify(d.save()))]));
     const fresh = install();
-    fresh.e.clock.now = first.e.clock.now;   // the engine's time source is in every save (core/time.js part): the fresh engine resumes at the saved second
+    fresh.e.clock.now = first.e.clock.now;   // the engine's time source is in every save (core/time/time.js part): the fresh engine resumes at the saved second
     for (const [k, d] of fresh.e.saves._defs) if (k in data) d.load(data[k]);
     const after = read(fresh.api);
     t('the value survives save -> fresh install -> load', after === st.expect, String(after));

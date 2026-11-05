@@ -13,15 +13,17 @@ export const uniq = a => [...new Set(a)];
 /**
  * Files under d (sorted, recursive) whose name matches exts (default .js / .mjs). skip adds names to SKIP_DIRS;
  * skipDir(name, path) can veto more folders. In a game's own repo only the game's sources are listed (paths.mjs gameSources).
+ * unscoped: a folder read as it is, not as game source (an art pack being copied, its public/ included; a game's tests): only node_modules, dist and
+ * dot names are left out, and the game's src / exclude settings do not apply.
  */
-export function walk(d, { exts = /\.(js|mjs)$/, skip = [], skipDir, start = d } = {}, out = []) {
+export function walk(d, { exts = /\.(js|mjs)$/, skip = [], skipDir, start = d, unscoped = false } = {}, out = []) {
   if (!existsSync(d)) return out;
-  const no = new Set([...SKIP_DIRS, ...skip]);
+  const no = new Set([...(unscoped ? ['node_modules', 'dist'] : SKIP_DIRS), ...skip]);
   for (const f of readdirSync(d).sort()) {
-    if (no.has(f)) continue;
+    if (no.has(f) || unscoped && f.startsWith('.')) continue;
     const p = join(d, f), dir = statSync(p).isDirectory();
-    if (notGameSource(p, start, dir)) continue;
-    if (dir) { if (!skipDir?.(f, p)) walk(p, { exts, skip, skipDir, start }, out); }
+    if (!unscoped && notGameSource(p, start, dir)) continue;
+    if (dir) { if (!skipDir?.(f, p)) walk(p, { exts, skip, skipDir, start, unscoped }, out); }
     else if (exts.test(p)) out.push(p);
   }
   return out;
@@ -80,11 +82,11 @@ export function balancedAll(text, open) {
   return out;
 }
 
-/** Split arguments at top-level commas (commas inside brackets and quotes do not count; stops at an unmatched closing bracket) */
+/** Split arguments at top-level commas (commas inside brackets and quotes do not count, a \\' stays inside its string; stops at an unmatched closing bracket) */
 export function splitTop(src) {
-  const out = []; let d = 0, q = null, cur = '';
+  const out = []; let d = 0, q = null, cur = '', esc = false;
   for (const ch of src) {
-    if (q) { cur += ch; if (ch === q) q = null; continue; }
+    if (q) { cur += ch; if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === q) q = null; continue; }
     if (ch === "'" || ch === '"' || ch === '`') q = ch;
     else if ('([{'.includes(ch)) d++;
     else if (')]}'.includes(ch)) { if (d === 0) break; d--; }

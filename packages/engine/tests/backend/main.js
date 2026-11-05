@@ -7,7 +7,7 @@ import * as TG from 'three/webgpu';
 import 'threedog/tsl';   // what a WebGPU game imports first: it brings three/webgpu for renderer: 'webgpu'
 import { createEngine, applyEffects, world, terrain, hlod } from '../../index.js';
 import { renderOnce, stats } from '../../render/backend.js';
-import { watchGeometries } from '../../core/geometryWatch.js';
+import { watchGeometries } from '../../core/inspect/geometryWatch.js';
 
 const W = 160, H = 120;
 const base = { lights: false, pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, urlState: false };
@@ -310,7 +310,7 @@ window.releaseCases = async () => {
   return out;
 };
 
-// What the record sweep frees and what it must leave alone (render/recordSweep.js), and the dev geometry warning (core/geometryWatch.js). tests/specs/webgpu-release.mjs reads these.
+// What the record sweep frees and what it must leave alone (render/recordSweep.js), and the dev geometry warning (core/inspect/geometryWatch.js). tests/specs/webgpu-release.mjs reads these.
 // three's BundleGroup beside the engine (tests/specs/bundles.mjs). Everything is read off real pixels: a bundle's whole point is that it draws what was recorded, not what the scene says now.
 // Top-down camera, sun from +x, so the box's shadow falls on the ground at x = -3 and, with the sun moved, at x = +3. Points sit on the middle row, so the read-back's row order does not matter.
 window.bundleCases = async () => {

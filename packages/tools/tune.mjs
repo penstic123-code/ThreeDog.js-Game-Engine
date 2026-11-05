@@ -11,10 +11,11 @@
 // Model generator params (the panel's models folder) are not put in the block: each becomes the `default` in that model's params schema where it
 // is registered (assets.js or an art module, found under the game folder), so the generator keeps one source (planModelParams).
 // Plain equivalent: copy the numbers from the panel by hand.
-import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join, resolve, relative } from 'node:path';
 import { parseAst } from 'vite';
 import { writeAtomic } from './lib/atomic.mjs';
+import { walk } from './lib/text.mjs';
 import { literalValue } from './lib/ast-value.mjs';
 import { parseOptions } from './lib/cli-args.mjs';
 import { command } from './paths.mjs';
@@ -144,11 +145,7 @@ export function planModelParams(text, models) {
 }
 
 /** .js files of a game workspace that may register models (node_modules, build output and caches left out) */
-function sourceFiles(root) {
-  const out = [], skip = new Set(['node_modules', 'dist', 'public', '.threedog', '.git', 'tests']);
-  (function w(d) { for (const f of readdirSync(d, { withFileTypes: true })) { const p = join(d, f.name); if (f.isDirectory()) { if (!skip.has(f.name)) w(p); } else if (/\.m?js$/.test(f.name)) out.push(p); } })(root);
-  return out;
-}
+const sourceFiles = root => walk(root, { skip: ['public', 'tests'], unscoped: true });
 
 /** Write tuned model params back into the files registering them (dry run unless apply); returns names not found */
 function writeModels(root, models, apply) {
@@ -165,15 +162,15 @@ function writeModels(root, models, apply) {
   return [...left];
 }
 
-/** .threedog/tune.json next to the file (its folder or a parent), else in the current directory */
-function tuneFile(from) {
+/** .threedog/tune.json next to the file (its folder or a parent), else in the current directory (here: false with -w, which named another game) */
+function tuneFile(from, here = true) {
   for (let d = resolve(from); ; d = dirname(d)) {
     const f = join(d, '.threedog', 'tune.json');
     if (existsSync(f)) return f;
     if (dirname(d) === d) break;
   }
   const f = join(process.cwd(), '.threedog', 'tune.json');
-  return existsSync(f) ? f : null;
+  return here && existsSync(f) ? f : null;
 }
 
 export async function main([sub, ...args]) {
@@ -186,15 +183,14 @@ export async function main([sub, ...args]) {
   } catch (e) { console.error('✗ ' + e.message); return 1; }
   if (p.rest.length > 1) { console.error(`✗ one file only, got ${p.rest.join(' ')}`); return 1; }
   const file = p.rest[0], apply = !!p.opt.apply, path = file ? resolve(root, file) : null;
-  const src = tuneFile(path ? dirname(path) : root);
+  const src = tuneFile(path ? dirname(path) : root, p.workspace === undefined);
   if (!src) { console.error('No .threedog/tune.json yet: open the page with the dev panel (?panel=1), change values, press "write back", then run this again'); return 1; }
   const t = JSON.parse(readFileSync(src, 'utf8'));
   if (sub === 'show') { console.log(tuneBlock(t)); if (some(t.models)) console.log('// model params (written to their registration): ' + JSON.stringify(t.models)); return 0; }
   if (sub === 'write' && some(t.models)) {
     const root = dirname(dirname(src)), left = writeModels(root, t.models, apply);
     if (left.length) console.log(`Model params not written (no \`params: { ... }\` registration found under ${relative(process.cwd(), root) || '.'}): ${left.join(', ')}`);
-    const { models: _m, ...restT } = t;
-    if (!file && !some(restT.values) && !some(restT.css) && !some(restT.materials)) {
+    if (!some(t.values) && !some(t.css) && !some(t.materials)) {
       console.log(apply ? '\nWritten.' : '\nDry run: nothing written. Write it: threedog tune write --apply');
       return 0;
     }

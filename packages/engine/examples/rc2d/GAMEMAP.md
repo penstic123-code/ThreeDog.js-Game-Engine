@@ -12,7 +12,7 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 ## Engine modules (engine.use)
 
 - createEngine: { lights: false, ui: { loading: false }, saveKey: 'threedog-rc2d' }
-- fixedCamera ({ shots: { top }, start: 'top' })
+- fixedCamera ({ shots: { top: { position: [0, 40, 0.001], lookAt: [0, 0, 0], projection: 'orthographic', size: 30…)
 
 ## Read for this game (per installed module: recipe · api page; core API: `node_modules/threedog/docs/api/engine.md`)
 
@@ -36,7 +36,7 @@ content/*.js is content data: how to write it in `node_modules/threedog/docs/rec
 
 | File | Lines | Description |
 |---|---|---|
-| main.js | 56 | @ts-check 2D radiance cascades demo (page /rc2d.html): a top-down street at night. Street lamps, li… |
+| main.js | 54 | @ts-check 2D radiance cascades demo (page /rc2d.html): a top-down street at night. Street lamps, li… |
 | picture/index.js | 19 | @ts-check The picture of the rc2d demo: wiring only. |
 | picture/lights.js | 12 | @ts-check The scene's own light is one dim ambient; everything else on the street is lit by the cas… |
 | picture/materials.js | 19 | @ts-check Materials by name. An emitter is a black surface with an emissive: rc2d.js reads emissive… |

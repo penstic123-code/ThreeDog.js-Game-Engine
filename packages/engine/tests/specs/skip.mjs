@@ -8,7 +8,7 @@ export const specs = [
       const r = await ev(() => {
         engine.timeline.skip(); engine.haltLoop();
         const W = engine.world, cal = engine.calendar, P = engine.player.position;
-        engine.mod('clock.rate', { owner: 'test', set: 10 });                       // 12 sky hours = 180 game seconds = 18 fixed seconds
+        engine.mod('clock.rate', { owner: 'test', set: 10 });                       // 12 sky hours = 180 calendar seconds = 18 fixed seconds
         cal.timeOfDay = 0.75; engine.step(0.05, { render: false });
         W.simulate('skcrop', { far: (rec, dt) => { rec.g += dt; } });
         W.add({ id: 'sk-near', kind: 'skcrop', position: { x: P.x + 2, z: P.z }, g: 0 });
@@ -27,7 +27,7 @@ export const specs = [
         ];
         const read = () => ({ log: log.join(','), near: W.get('sk-near').g, far: W.get('sk-far').g, npc: { ...W.get('sk-npc').position },
           now: engine.clock.now, clock: cal.clock, day: cal.day, ts: engine.clock.rate });
-        const t0 = engine.clock.now, gap = ((0.25 - cal.timeOfDay) % 1 + 1) % 1 * cal.dayLength;   // game seconds to 06:00
+        const t0 = engine.clock.now, gap = ((0.25 - cal.timeOfDay) % 1 + 1) % 1 * cal.dayLength;   // calendar seconds to 06:00
         let hs = arm();
         engine.step(gap / 10, { render: false });
         const slow = read();
@@ -44,7 +44,7 @@ export const specs = [
       const { slow, fast } = r, tol = r.farEvery + 1e-6;
       check('skip({ to: "06:00" }) lands on 06:00 synchronously (fade 0)', r.sync, JSON.stringify(fast));
       check('timers fire in the same order and count as stepping (after / every / at / daily / between)', slow.log === fast.log, `slow ${slow.log}\nfast ${fast.log}`);
-      check('game seconds and day match', Math.abs(slow.now - fast.now) < 10 / 60 && slow.day === fast.day && fast.ts === 10, JSON.stringify([slow.now, fast.now, slow.day, fast.day]));
+      check('calendar seconds and day match', Math.abs(slow.now - fast.now) < 10 / 60 && slow.day === fast.day && fast.ts === 10, JSON.stringify([slow.now, fast.now, slow.day, fast.day]));
       check('world far growth matches within one far turn (near and far records)', Math.abs(slow.near - fast.near) <= tol && Math.abs(slow.far - fast.far) <= tol && Math.abs(fast.far - r.want) < 1e-6, JSON.stringify([slow.near, fast.near, slow.far, fast.far]));
       const d = Math.hypot(slow.npc.x - fast.npc.x, slow.npc.z - fast.npc.z);
       check('far NPC schedule position matches within one far turn of walking', d <= 2.6 * r.farEvery + 0.05, `${d.toFixed(3)} m`);
@@ -97,7 +97,7 @@ export const specs = [
       await page.keyboard.up('KeyW');
       const after = await ev(() => { engine.step(0.02, { render: false }); return ({ locked: !engine.input.enabled, frozen: engine.frozen }); });   // input context changes apply at the next step boundary
       check('during the fade: input locked, gameplay frozen, W gives no axis', mid.locked && mid.frozen && mid.axis === 0, JSON.stringify(mid));
-      check('holding W through the skip does not move the player; skip advanced 60 game seconds', mid.done && mid.moved < 0.01 && Math.abs(mid.dt - 60) < 0.01, JSON.stringify(mid));
+      check('holding W through the skip does not move the player; skip advanced 60 calendar seconds', mid.done && mid.moved < 0.01 && Math.abs(mid.dt - 60) < 0.01, JSON.stringify(mid));
       check('after the skip input and gameplay resume; save option wrote the slot', !after.locked && !after.frozen && mid.saved, JSON.stringify({ after, saved: mid.saved }));
     },
   },

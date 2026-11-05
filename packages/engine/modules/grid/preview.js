@@ -4,10 +4,10 @@
 // The picture is a replaceable part: draw: false (no visual, the handle still answers), or (engine) => ({ update(view), hide(), dispose() }); pv.material is the default box's.
 import * as THREE from 'three';
 import { neutralMaterial } from '../../render/neutral.js';
-import { screenToGround } from '../../core/screenToGround.js';
-import { warnOnce, needMaterial } from '../../core/validate.js';
-import { failure } from '../../core/opsFail.js';
-import { codedError } from '../../core/errorHints.js';
+import { screenToGround } from '../../core/scene/screenToGround.js';
+import { warnOnce, needMaterial, fmt } from '../../core/base/validate.js';
+import { failure } from '../../core/ops/opsFail.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const NO_KEY = 'grids.preview(): the action "{a}" has no keys, so the preview cannot be turned by input. Bind it (engine.input.bind("{a}", ["KeyR"]) or presets.bindings.gridRotate), or pass rotate: false and call pv.rotate() from your own control';
 
@@ -54,7 +54,7 @@ export function makePreview(e, grids, opts) {
   // declared by the preview, owned by the grid module and taken away with the preview (or the module), so nothing outlives it; the game binds
   // the key (presets.bindings.gridRotate) like every module action
   const decl = rotate ? e.input.action(rotate, { label: 'grid.rotate', owner: 'grids', optional: true }) : null;
-  if (rotate && !e.input.keysOf(rotate).length) warnOnce(NO_KEY.replaceAll('{a}', rotate));
+  if (rotate && !e.input.keysOf(rotate).length) warnOnce(fmt(NO_KEY, { a: rotate }));
   const part = draw === false ? null : typeof draw === 'function' ? draw(e) : boxPart(e, grids);
   const h = {
     /** target cell or null (nothing under the pointer) */ cell: null,
@@ -74,7 +74,7 @@ export function makePreview(e, grids, opts) {
       return e.ops.run('grid.place', { grid, item, cell: h.cell, rotation: h.rotation, ...(fields ? { fields } : {}) });
     },
     /** Remove the preview (cancel convention: safe to call again) */
-    remove() { grids._previews.delete(h); decl?.remove(); part?.dispose?.(); },
+    remove() { if (!grids._previews.delete(h)) return; decl?.remove(); part?.dispose?.(); },
     /** @internal */
     frame() {
       if (rotate && e.input.pressed(rotate)) h.rotate(1);

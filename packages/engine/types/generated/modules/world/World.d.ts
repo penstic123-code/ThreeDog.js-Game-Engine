@@ -12,7 +12,7 @@ export class World {
         farMaxPerTick?: number;
         buildPerFrame?: number;
     });
-    /** All records: id → record (read-only; use set to change fields, move to change position) @type {Map<string, WorldRecord>} */
+    /** All records: id → record (read-only; use set to change fields, move to change position) @type {Map<string, WorldRecord>} @experimental */
     records: Map<string, WorldRecord>;
     /**
      * Default distance (meters) for building models and counting as near; present / simulate can override it. Changing it at runtime affects those without
@@ -88,6 +88,7 @@ export class World {
      * @example const h = engine.pick(0, 0); const id = h && engine.world.idOf(h.object);
      * @param {any} obj  a THREE.Object3D (a mesh of the model is fine)
      * @returns {string | null}
+     * @experimental
      */
     idOf(obj: any): string | null;
     /**
@@ -235,6 +236,7 @@ export class World {
      * Stop running simulate() handlers on this machine until remove(): a multiplayer client lets the host simulate and only receives the records.
      * Public so net() needs no world internals.
      * @returns {{ remove(): void }}
+     * @experimental
      */
     pauseSimulation(): {
         remove(): void;

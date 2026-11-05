@@ -8,7 +8,7 @@ import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { ROOT, TOOLS, MODE, command, findWorkspace, workspaces, rel, ENGINE, ownViteConfig, VITE_DEFAULT_CONFIG } from '../paths.mjs';
 import { parseOptions, pagePath } from '../lib/cli-args.mjs';
-import { nodeProblem, NODE_FIX } from '../lib/node-version.mjs';
+import { nodeProblem, pathProblem, NODE_FIX } from '../lib/node-version.mjs';
 import { COMMANDS, EXTRA } from '../threedog/command-table.mjs';
 
 /** Commands that run one script of this package (with the remaining arguments) */
@@ -19,7 +19,7 @@ export const BRIDGE = [...Object.keys(COMMANDS), ...Object.keys(EXTRA).filter(c 
 /** vite commands on one workspace */
 export const VITE = ['dev', 'build', 'preview'];
 /** Commands that start vite (or a page under it): they check the Node version first, since vite's own failure on an old Node names neither */
-export const NEEDS_NODE = [...VITE, 'test', 'shot', 'perf', 'stress', 'capture', 'gallery', 'bake'];
+const NEEDS_NODE = [...VITE, 'test', 'shot', 'perf', 'stress', 'capture', 'gallery', 'bake'];
 /** Doc generators: the engine generators only run in the monorepo; a game regenerates its GAMEMAP */
 const MAP = MODE === 'monorepo' ? ['gentypes.mjs', 'codemap.mjs', 'apidoc.mjs', 'gamemap.mjs'] : ['gamemap.mjs'];
 export const USAGE = `Usage: threedog ${VITE.join('|')} [game | -w game] · threedog test [-w game] [test name…] · threedog check|types|map · ` +
@@ -42,6 +42,8 @@ function help(scripts) {
 export function main([cmd, ...rest]) {
   const nodeBad = NEEDS_NODE.includes(cmd) && !wantsHelp(rest) && nodeProblem();
   if (nodeBad) { console.error(`✗ ${nodeBad}\n  → ${NODE_FIX}`); return 1; }
+  const pathBad = NEEDS_NODE.includes(cmd) && !wantsHelp(rest) && pathProblem(ROOT);
+  if (pathBad) { console.error(`✗ ${pathBad}`); return 1; }
   if (VITE.includes(cmd)) {
     // The workspace: -w / --workspace like every other command (taken out here: to vite, -w is --watch, so `build -w game` sat in watch mode on
     // the wrong root and never exited), or a game name as the first argument (the 5000 in a later --port 5000 is not a game name); with neither,
@@ -58,12 +60,11 @@ export function main([cmd, ...rest]) {
       args = args.map((a, i) => args[i - 1] === '--base' ? pagePath(a) : a.startsWith('--base=') ? '--base=' + pagePath(a.slice(7)) : a);
     } catch (e) { console.error(e.message); return 1; }
     if (!dir) { console.error(`"${name}" not found. Available: ${workspaces().map(rel).join(', ')}`); return 1; }
-    let vite;
     // vite's exports do not expose bin/vite.js, so find its package.json and read the bin field
     // Look from the game, then from this tools package (npm may install vite nested under packages/tools instead of the root), then the root
     const pkg = [dir, TOOLS, ROOT].map(from => { try { return createRequire(join(from, 'package.json')).resolve('vite/package.json'); } catch { return null; } }).find(Boolean);
     if (!pkg) { console.error('vite is not installed: run npm install (it comes with @threedog/tools)'); return 1; }
-    vite = join(dirname(pkg), JSON.parse(readFileSync(pkg, 'utf8')).bin.vite);
+    const vite = join(dirname(pkg), JSON.parse(readFileSync(pkg, 'utf8')).bin.vite);
     console.log(`${cmd}: ${rel(dir) || '.'}`);
     // a game without its own vite config gets the threedog preset (Workers as ES modules, multi-page input, dev bridge), not vite's bare defaults
     const own = ownViteConfig(dir) || args.some(a => a === '--config' || a === '-c' || a.startsWith('--config='));

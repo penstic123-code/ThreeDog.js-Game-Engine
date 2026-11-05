@@ -9,12 +9,33 @@
 // Placeholders in text files: __NAME__, __GAMEPLAY_NOTE__, __DEFAULT_LAYER__ (rows of AI.md) and the ROUTE words below. The art always starts in the game's own gray picture/ folder (the engine ships no art).
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { TOOLS, ENGINE } from '../paths.mjs';
 import { defaultLayer } from './default-layer.mjs';
 import { parseOptions } from './cli-args.mjs';
 
-/** .mcp.json for Claude Code opened in the game folder: plain node on the tools' bin @param {string} file @param {string} bin */
-export const writeMcp = (file, bin) => writeFileSync(file, JSON.stringify({ mcpServers: { threedog: { command: 'node', args: [bin, 'mcp'] } } }, null, 2) + '\n');
+/**
+ * .mcp.json for Claude Code opened in the game folder: plain node on the tools' bin. A file already there keeps its other servers and a threedog entry of its own.
+ * @param {string} file @param {string} bin @returns {'made' | 'kept' | 'broken'}  broken: not JSON, left alone for its owner to read
+ */
+export function writeMcp(file, bin) {
+  let mcp = {};
+  if (existsSync(file)) try { mcp = JSON.parse(readFileSync(file, 'utf8')); } catch { return 'broken'; }
+  if (mcp.mcpServers?.threedog) return 'kept';
+  writeFileSync(file, JSON.stringify({ ...mcp, mcpServers: { ...mcp.mcpServers, threedog: { command: 'node', args: [bin, 'mcp'] } } }, null, 2) + '\n');
+  return 'made';
+}
+
+/**
+ * A package name, and the saveKey of the game, from a folder name. Two games on one address share a browser's saves, so a folder whose letters are not ASCII gets a mark of
+ * its own name: all of them used to become 'game', one save for every Chinese-named folder.
+ * @param {string} folder
+ */
+export function gameName(folder) {
+  const plain = folder.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!/[^\0-\x7f]/.test(folder)) return plain || 'game';
+  return `${plain || 'game'}-${createHash('sha1').update(folder).digest('hex').slice(0, 6)}`;
+}
 
 const GAMEPLAY = {
   clean: 'This game starts blank (a scene, a camera, a start screen, autosave, an Esc menu) and has no gameplay yet; build what DESIGN.md describes. For patterns, read the engine recipes (`node_modules/threedog/docs/recipes/`, index in AI.md); `threedog new-game name --open-world` starts on generated ground with a player.',
@@ -73,7 +94,7 @@ export function render(text, { name, openWorld, webgl }) {
 /** package.json dependencies: --open-world adds @threedog/terrain-noise (its main.js imports it; the blank base does not) */
 export function applyDeps(deps, { openWorld }) {
   const out = { ...deps };
-  if (openWorld) out['@threedog/terrain-noise'] ??= '^0.7.1';
+  if (openWorld) out['@threedog/terrain-noise'] ??= '^0.8.0';
   return out;
 }
 

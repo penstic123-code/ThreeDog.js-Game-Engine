@@ -8,6 +8,6 @@ export const DEV_STRINGS = { noControl: 'characters.createPlayer(): no control g
   noFollow: "characters.createPlayer(): a camera module is installed but cameraFollow was not given, so the camera does not follow the player. " +
     'Pass cameraFollow: true (presets.player.* do), or cameraFollow: false if the game aims the camera itself',
   noWorld: 'characters.createPlayer() needs world() installed first: the player is a record in world (position is saved, world splits near/far by it). Use engine.use(world(), …); openWorld() already installs it' };
-export const STRINGS = { 'zh-CN': { 'npc.talk': '和{name}说话', 'input.jump': '跳跃', 'input.brake': '刹车' }, en: { 'npc.talk': 'Talk to {name}', 'input.jump': 'Jump', 'input.brake': 'Brake' } };
+export const STRINGS = { 'zh-CN': { 'npc.talk': '和{name}说话', 'input.brake': '刹车' }, en: { 'npc.talk': 'Talk to {name}', 'input.brake': 'Brake' } };
 
 export const validControl = c => c === 'camera' || typeof c === 'function';

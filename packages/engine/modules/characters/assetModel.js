@@ -6,11 +6,11 @@
 // asset) replaces the body under the same root: position, facing, state and every reference to the character or its root (collision,
 // interactions, world view) stay valid.
 import * as THREE from 'three';
-import { warnOnce, fmt } from '../../core/validate.js';
+import { warnOnce, fmt } from '../../core/base/validate.js';
 import { neutralMaterial } from '../../render/neutral.js';
-import { codedError } from '../../core/errorHints.js';
-import { builderArgs } from '../../core/namedModel.js';
-import { list as nameAndArgs } from '../../core/util.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { builderArgs } from '../../core/assets/namedModel.js';
+import { list as nameAndArgs } from '../../core/base/util.js';
 
 /**
  * Build a procedural model asset now (synchronously) when `name` is a registered builder; null when it is a file model, unknown, or the

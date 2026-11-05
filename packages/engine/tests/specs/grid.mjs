@@ -128,10 +128,14 @@ export const specs = [
         const pv2 = G.preview({ grid: 'farm', item: 'bed', rotate: 'unboundRot', from: () => null }); engine.step(1 / 30, { render: false });
         const unbound = engine.input.actions.has('unboundRot') && !engine.input.keysOf('unboundRot').length; pv2.remove();
         const declGone = !engine.input.actions.has('unboundRot');
+        let partGone = 0;
+        const pv3 = G.preview({ grid: 'farm', item: 'bed', rotate: false, draw: () => ({ dispose() { partGone++; } }) });
+        pv3.remove(); pv3.remove();
         engine._unhalt();
-        return { badTiles, unbound, declGone, tiles: mesh.userData.tiles, worst, ys, okColor, first, turned, size, placed, after, at: farm.at([3, 4]), st: { ok: st.ok, bad: st.bad }, gone: !engine.scene.getObjectByName('grid:preview') };
+        return { partGone, badTiles, unbound, declGone, tiles: mesh.userData.tiles, worst, ys, okColor, first, turned, size, placed, after, at: farm.at([3, 4]), st: { ok: st.ok, bad: st.bad }, gone: !engine.scene.getObjectByName('grid:preview') };
       }, setup.toString());
       check('[guard] an unknown tiles key throws (the old look is color now)', /look/.test(r.badTiles), r.badTiles);
+      check('[guard] remove() is safe to call again: a game part is disposed once', r.partGone === 1, JSON.stringify(r));
       check('[guard] tiles: one quad per cell, every corner on engine.surface + lift (a level ramp, no terrain module)', r.tiles === 6 && r.worst < 1e-3 && r.ys[1] > r.ys[0] + 1, JSON.stringify(r));
       check('preview: target cell from the function, green from grids({ ok })', JSON.stringify(r.first) === '{"cell":[3,3],"ok":true}' && r.okColor === r.st.ok, JSON.stringify(r));
       check('preview: the rotate action turns it (2x1 box becomes 1x2), place() runs grid.place with the shown rotation', r.turned === 1 && r.size[0] < r.size[1] && r.placed.ok && r.at === r.placed.value, JSON.stringify(r));

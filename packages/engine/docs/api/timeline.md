@@ -9,8 +9,8 @@ Cutscenes, tweens (timeline() module)
 - `timeline.play(steps: TimelineStep | TimelineStep[], opts?: TimelinePlayOptions) → Promise<{ skipped: boolean }>` — Play a timeline; resolves with { skipped } when it ends
 - `timeline.skip(run?: any)` — Skip all (or one) playing timelines
 - Properties:
-  - `skipAll: boolean` Skip every cutscene immediately (set by scenario param cutscene=skip)
-  - `playing: boolean` Whether a cutscene is playing
+  - `skipAll: boolean` (experimental) Skip every cutscene immediately (set by scenario param cutscene=skip)
+  - `playing: boolean` (experimental) Whether a cutscene is playing
 
 ## Timeline steps (engine.timeline.play([...]))
 - **TimelineStep** Timeline steps (run in order), which can be any of the following:

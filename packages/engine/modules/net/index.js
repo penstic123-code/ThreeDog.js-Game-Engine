@@ -3,9 +3,10 @@
 //   engine.use(net({ role: 'client', transport }))   // friends: mirror the host, send op requests
 // Only ops defined with net: 'peer' can be requested by clients (default deny); the actor comes from the connection, not the message.
 // Transports: fakeNetwork() (in-process, tests) and webSocket(url) (with packages/tools/net-relay.mjs); see transports.js for the shape.
-import { readParams, keysSchema } from '../../core/params.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { Net } from './Net.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { fmt } from '../../core/base/validate.js';
 
 export { fakeNetwork, webSocket } from './transports.js';
 
@@ -45,7 +46,7 @@ const NET_PARAMS = keysSchema(OPTS);
  */
 export function net(opts = {}) {
   readParams('net', NET_PARAMS, opts);
-  if (opts.role !== 'host' && opts.role !== 'client') throw codedError('net-option', STRINGS.role.replace('{got}', JSON.stringify(opts.role)));
+  if (opts.role !== 'host' && opts.role !== 'client') throw codedError('net-option', fmt(STRINGS.role, { got: String(JSON.stringify(opts.role)) }));
   if (!opts.transport) throw codedError('net-option', STRINGS.transport);
   const left = new Map();   // actor -> last position, so a peer that reconnects comes back where it left
   const o = {
@@ -58,7 +59,7 @@ export function net(opts = {}) {
       const at = left.get(peer.actor) ?? e.world.get('player')?.position ?? { x: 0, y: 0, z: 0 };
       e.world.add({ id: peer.actor, kind: 'player', position: { ...at } }, { save: false });
     }
-    // the peer drives its avatar: net holds its control slot for good (core/control.js), so a host-side walkTo or cutscene on it is a
+    // the peer drives its avatar: net holds its control slot for good (core/ops/control.js), so a host-side walkTo or cutscene on it is a
     // control-net error, not a fight with the peer's next position (the record leaving the world drops the hold)
     if (o.avatar && e.world?.get(peer.actor)) o.control.take(peer.actor, { owner: 'net', layer: 'net' });
     if (o.avatar && e.inventory) e.inventory.container(peer.actor);

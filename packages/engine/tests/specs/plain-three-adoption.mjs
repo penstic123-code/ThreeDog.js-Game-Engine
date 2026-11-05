@@ -42,7 +42,7 @@ export const specs = [
         out.lamp = { owner: engine.thing(lamp).owner, intensity: lamp.intensity, color: lamp.color.getHex() };
         out.mat = { color: mat.color.getHex(), roughness: mat.roughness, fog: mat.fog };
         // 3. fog: a direct scene.fog write stays
-        engine.scene.fog = new engine.THREE.Fog(0x8899aa, 10, 400); engine.scene.fog.far = 77; engine.step(0.05); W.applyState(engine, { weather: 'clear' }); engine.step(0.05);
+        engine.scene.fog = new __threedogThree.Fog(0x8899aa, 10, 400); engine.scene.fog.far = 77; engine.step(0.05); W.applyState(engine, { weather: 'clear' }); engine.step(0.05);
         out.fogWrite = { far: engine.scene.fog.far };
         // 4. engine.post.add(pass): a three.js Pass as it is; RenderPass / OutputPass are already the engine's; remove() leaves it alive
         const copy = new ShaderPass(CopyShader);
@@ -74,8 +74,8 @@ export const specs = [
       check('scene.add(group) is registered like engine.add: same save tier, owner game, file:line, counted in describe().scene',
         r.thing.owner === 'game' && r.thing.saved === r.thing.twinSaved && r.thing.game === 2 && (r.thing.twinAt == null || /\.js:\d+/.test(r.thing.at ?? '')), JSON.stringify(r.thing));
       check("thing.set reaches a scene.add object's root", r.moved.join() === '3,0,4', JSON.stringify(r.moved));
-      check("engine objects keep their module owner (sky dome, lights, terrain, level), only the page's own ground (engine.add, perf/main.js) is the game's",
-        r.before === 1 && r.engineKids.filter(o => o === 'game').length === 1 && (r.dome === 'none' || r.dome === 'engine:sky'), JSON.stringify([r.before, r.dome, r.engineKids]));
+      check('engine objects keep their module owner (sky dome, lights, terrain, level, batching root): the city page adds nothing of its own, so none is the game\'s',
+        r.before === 0 && !r.engineKids.includes('game') && (r.dome === 'none' || r.dome === 'engine:sky'), JSON.stringify([r.before, r.dome, r.engineKids]));
       check('engine.add(obj, { id }) on an adopted object gives it the id', r.named, String(r.named));
       check('a plain PointLight is adopted and keeps its own values through rain and dusk', r.lamp.owner === 'game' && r.lamp.intensity === 5 && r.lamp.color === 0xffaa66, JSON.stringify(r.lamp));
       check('an own MeshStandardMaterial keeps its values and takes the scene fog', r.mat.color === 0x336699 && r.mat.roughness === 0.8 && r.mat.fog === true, JSON.stringify(r.mat));

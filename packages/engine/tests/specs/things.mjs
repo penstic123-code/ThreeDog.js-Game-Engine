@@ -6,7 +6,7 @@ const reload = async page => { await page.reload(); await page.waitForFunction((
 
 // both windmills; the native one is added in the setup window (what start() / a session:start listener sees), the record one via content
 const build = (x, z, native = true) => {
-  const T = engine.THREE;
+  const T = __threedogThree;
   if (native) {
     const mill = new T.Group(), blade = new T.Mesh(new T.BoxGeometry(1, 4, 1), new T.MeshLambertMaterial());
     blade.position.y = 2; mill.add(blade); mill.position.set(x + 20, engine.surface(x + 20, z), z);
@@ -49,30 +49,30 @@ export const specs = [
         const rm = engine.ops.run('thing.remove', { id: 'windmill-a' }), rmParent = mill.parent;
         engine.ops.undo('thing.remove', { id: 'windmill-a' }, rm.value);
         // made inside an op with save: true: cannot be saved -> warned, listed in describe().scene.unsaved
-        if (!engine.ops.defs.has('test.spark')) engine.ops.define('test.spark', { run: e => e.add(new e.THREE.Object3D(), { save: true }) && null });
+        if (!engine.ops.defs.has('test.spark')) engine.ops.define('test.spark', { run: e => e.add(new __threedogThree.Object3D(), { save: true }) && null });
         engine.ops.run('test.spark', {});
         const unsavedWarn = warns.find(w => /thing-unsaved/.test(w)) ?? null;
         // two systems, one object: adding a world model throws; moving it by code is reported next frame
         const owned = err(() => engine.add(W.view('windmill-b')));
         engine.step(1 / 60); W.view('windmill-b').position.x += 3; engine.step(1 / 60);   // the first frame after a build only records where world put it
         // ids are unique across engine.add and world records; engine internals are not game things
-        const dupRec = err(() => engine.add(new engine.THREE.Object3D(), { id: 'windmill-b' }));
-        const badId = err(() => engine.add(new engine.THREE.Object3D(), { id: 'a#1' }));
+        const dupRec = err(() => engine.add(new __threedogThree.Object3D(), { id: 'windmill-b' }));
+        const badId = err(() => engine.add(new __threedogThree.Object3D(), { id: 'a#1' }));
         const dupNative = err(() => W.add({ id: 'windmill-a', kind: 'windmill' }));
-        const named = new engine.THREE.Object3D(); named.name = 'Scene'; engine.add(named);
+        const named = new __threedogThree.Object3D(); named.name = 'Scene'; engine.add(named);
         const implicit = { id: engine.thing(named).id, saved: engine.thing(named).saved, byName: engine.thing('Scene')?.id };
         engine.remove(named);
-        engine.add(new engine.THREE.Object3D(), { owner: 'engine:test' });
+        engine.add(new __threedogThree.Object3D(), { owner: 'engine:test' });
         // dev stack cap: after 2000 stacks, at is null and describe says so
         const T = engine._things, s0 = T.stacks; T.stacks = 1999;
-        const o1 = new engine.THREE.Object3D(), o2 = new engine.THREE.Object3D(); engine.add(o1); engine.add(o2);
+        const o1 = new __threedogThree.Object3D(), o2 = new __threedogThree.Object3D(); engine.add(o1); engine.add(o2);
         const capped = { first: engine.thing(o1).at, second: engine.thing(o2).at, flag: engine.describe().scene.atCapped };
         T.stacks = s0; engine.remove(o1, o2);
         const gone = err(() => engine.thing(o1));
         const scene = engine.describe().scene;
         await engine.saves.save('things'); await engine.saves.flush();
         console.warn = warn;
-        return { x, z, gameBefore, a: { saved: a.saved, owner: a.owner, at: a.at, loses: a.loses, edit: a.edit, kind: a.kind },
+        return { x, z, gameBefore, batchingOwner: engine.thing(engine.batching.root).owner, a: { saved: a.saved, owner: a.owner, at: a.at, loses: a.loses, edit: a.edit, kind: a.kind },
           b: { saved: b.saved, owner: b.owner, template: b.template, edit: b.edit }, hit: hit?.thing?.id ?? null, viaBlade, viaModel,
           at0, b0, moved, undone, rmParent: rmParent === null, back: mill.parent === engine.scene, unsavedWarn, owned, dupRec, badId, capped, gone, scene, dupNative, implicit,
           saved: engine.saves.collect().parts.scene, sessionFlag: (engine.events.emit('session:start', {}), T.setup) };
@@ -91,6 +91,7 @@ export const specs = [
       check('obj.name is not an id: a named object without { id } is session tier (obj#n), still found by name', /^obj#\d+$/.test(r.implicit.id) && r.implicit.saved === 'session' && r.implicit.byName === r.implicit.id, JSON.stringify(r.implicit));
       // the one allowed: the sea (modules/water/Water.js still calls engine.add without { owner: 'engine:water' }; another change owns that file)
       check('engine internals are not game things (describe counts them under engine)', r.scene.engine >= 1 && r.gameBefore.filter(t => /engine/.test(t)).length <= 1, JSON.stringify({ before: r.gameBefore, scene: r.scene }));
+      check('the batching root is the engine\'s, not a game object', r.batchingOwner === 'engine:batching', r.batchingOwner);
       check('dev stack cap: the 2001st add has at: null and describe says atCapped', r.capped.first !== undefined && r.capped.second === null && r.capped.flag === true, JSON.stringify(r.capped));
       check('engine.remove forgets the entry (thing throws with a hint)', /nothing has this id/.test(r.gone ?? ''), r.gone);
       check('session:start opens the setup window (what its listeners add is code-built)', r.sessionFlag === true);
@@ -117,7 +118,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();
-        const O = engine.THREE.Object3D, N = 1000, T = engine._things;
+        const O = __threedogThree.Object3D, N = 1000, T = engine._things;
         const mk = () => Array.from({ length: N }, () => new O());
         const time = (list, f) => { const t0 = performance.now(); for (const o of list) f(o); return performance.now() - t0; };
         // best of 5 rounds: one GC pause must not decide the number

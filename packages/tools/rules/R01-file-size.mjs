@@ -3,7 +3,9 @@
 // (R10's own note), so a long-line limit only produced warnings nobody could clear; the byte limit already catches code crammed into long lines.
 // Game code (games/*, the new-game templates; in a game installed from npm, the game folders), .js .mjs .html: warnings only, because a long file costs its reader
 //       and breaks nothing. Over 1000 lines or 48KB gets the stronger text (split the file by system); 400-1000 lines or 16-48KB the plain one, except in the game's
-//       art code (paths.mjs isArtFile: picture/, style/, art/, assets.js, art.js), which only meets the upper limit. Engine thresholds are unchanged.
+//       art code (paths.mjs isArtFile: picture/, style/, art/, assets.js, art.js), which only meets the upper limit.
+//       Engine and tools files: a warning only above that same upper limit. Between the limits they are a note and a list under --verbose: size is a cost, not a fault, and
+//       a hundred warnings nobody will clear on a clean clone hid the few a person can act on.
 // Scope: .js .mjs .d.ts .html under packages/engine/ (source, types, examples, tests, the root index.js index.d.ts and pages), packages/tools/, games/,
 //       plus the hand-written .md under packages/engine/docs/ (directory list in paths.mjs).
 import { walk, read, rel, GENERATED, reE, P } from './_lib.mjs';
@@ -29,7 +31,7 @@ const ALLOW = [
 export default {
   id: 'R1', title: 'File size', game: true,
   run() {
-    const out = [];
+    const out = [], listed = [];
     const files = P.MODE === 'game' ? [...new Set(P.gameDirs().flatMap(d => walk(rel(d) || '.', GAME_EXTS)))] : [P.INDEX_JS_REL, P.INDEX_DTS_REL, ...[P.TYPES_REL, ...P.SOURCE_DIRS_REL].flatMap(d => walk(d, ['.js', '.mjs', '.d.ts', '.html'])), ...walk(P.DOCS_REL, ['.md'])];
     for (const f of files) {
       if (ALLOW.some(([r]) => r.test(f))) continue;
@@ -47,8 +49,10 @@ export default {
       }
       if (!sizeOk && L.length > MAX_LINES) why.push(`${L.length} lines (limit ${MAX_LINES})`);
       if (!sizeOk && bytes > MAX_BYTES) why.push(`${(bytes / 1024).toFixed(1)}KB (limit 16KB)`);
-      if (why.length) out.push({ level: 'warn', file: f, line: 0, msg: `file too large: ${why.join(', ')}`, fix: 'split by responsibility (one thing per file)' });
+      if (why.length && !isGame(f) && L.length <= GAME_MAX_LINES && bytes <= GAME_MAX_BYTES) listed.push(`${f}: ${why.join(', ')}`);
+      else if (why.length) out.push({ level: 'warn', file: f, line: 0, msg: `file too large: ${why.join(', ')}`, fix: 'split by responsibility (one thing per file)' });
     }
+    if (listed.length) { out.note = `${listed.length} engine files are over ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB, under the warning limit`; out.verbose = listed; }
     return out;
   },
 };

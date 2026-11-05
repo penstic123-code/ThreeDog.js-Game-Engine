@@ -13,15 +13,14 @@
 // collision: built / torn down with the model (only things near the player need to block), so props beyond the collision radius take no space in the collision
 // table.
 //   An entry with template (instead of model) is an instance of a content template: see templates.js.
-import { buildModel, settle, fitKey, unbuildModel } from './models.js';
+import { buildModel, settle, fits, unbuildModel } from './models.js';
 import { placeTemplate } from './templates.js';
 import { srcOf } from './ids.js';
-import { placeY } from '../../core/ground.js';
+import { placeY } from '../../core/scene/ground.js';
 import { PLACEMENT_FIELDS, collideProblem } from './rules.js';
-import { list } from '../../core/util.js';
-import { DEV, fmt, closest } from '../../core/validate.js';
-import { codedError } from '../../core/errorHints.js';
-
+import { list } from '../../core/base/util.js';
+import { DEV, fmt, closest } from '../../core/base/validate.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 /** Stable id of a prop: the written id if given, otherwise "model name + array index" */
 const propId = (p, i) => p.id ?? `prop:${list(p.model)[0]}:${i}`;
@@ -91,12 +90,12 @@ export function needWorld(e) {
 function presentProps(e, api, world, st) {
   if (st.propsPresenter) return;
 
-  st.propsPresenter = world.present('prop', {
+  st.propsPresenter = st.track(world.present('prop', {
     // build by view distance: follows the terrain view distance (fog distance if no terrain), also when changed at runtime
     radius: () => Math.max(world.radius, e.stream.activeRadius),
     build: rec => buildModel(e, api, rec, rec.model, rec),   // a failed model generation is reported by world (does not block loading), retried when near again
     // moved / rot or scale changed (world.move sends no event, so compare here): world already put the model at the new position; collision and rays follow
-    update(rec, o) { if (o.userData.fit !== fitKey(rec)) settle(e, rec, o, rec); },
+    update(rec, o) { if (!fits(o, rec)) settle(e, rec, o, rec); },
     dispose: (rec, o) => unbuildModel(e, o),
-  });
+  }));
 }

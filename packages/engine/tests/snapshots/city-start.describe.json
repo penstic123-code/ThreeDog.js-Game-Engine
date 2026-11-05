@@ -69,10 +69,16 @@
   },
   {
    "name": "cameraRig",
+   "provides": [
+    "cameraRig"
+   ],
    "type": "picture"
   },
   {
    "name": "characters",
+   "provides": [
+    "characters"
+   ],
    "type": "actor"
   },
   {
@@ -118,6 +124,9 @@
   },
   {
    "name": "flow",
+   "provides": [
+    "flow"
+   ],
    "type": "rules"
   }
  ]

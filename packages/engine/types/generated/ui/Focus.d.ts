@@ -3,6 +3,7 @@
 /** @import { UIFocus } from '../../gameplay' */
 /**
  * UI focus stack: windows, dialogue and cutscenes push in open order; the back key (Esc) goes to the top only; an empty stack hands it to the settings menu
+ * @experimental the stable route for a screen of your own is engine.input.push (recipes/07-flow-scenes-pause.md)
  * @param {Engine} engine
  * @returns {UIFocus}
  */

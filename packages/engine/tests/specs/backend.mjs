@@ -2,7 +2,7 @@
 // start through one path; without WebGPU each fallback does what createEngine({ fallback }) says and says so loudly, with the reason in
 // describe().renderer; fallback 'webgl' refuses a NodeMaterial and the WebGPU route refuses a ShaderMaterial by name, never a blank picture;
 // a ground + swaying trees scene draws on the WebGPU route through the engine's own patches; the default WebGL engine reports as before.
-import { probePicture } from '@threedog/tools/picture-check';
+import { probeSource } from '@threedog/tools/picture-check';
 const LOUD = '[threedog] WebGPU unavailable (';
 export const specs = [
   {
@@ -107,7 +107,7 @@ export const specs = [
     url: '/tests/parity/index.html?backend=webgpu',
     software: true,
     async run({ check, ev }) {
-      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probePicture.toString());
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probeSource);
       const r = await ev(async () => {
         const E = window.engine;
         E.camera.position.set(-6, 7, 9); E.camera.lookAt(0, 0.5, 0); E.camera.updateMatrixWorld();

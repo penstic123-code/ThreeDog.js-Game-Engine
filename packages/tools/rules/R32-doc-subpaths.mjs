@@ -1,5 +1,5 @@
 // Detection: R32 every 'threedog/...' import named in the docs resolves. A game following a recipe imports from the package by name; a subpath that
-// package.json "exports" does not list fails in Vite and Node (e.g. 'threedog/core/threadServe.js' before the './worker' entry existed).
+// package.json "exports" does not list fails in Vite and Node (e.g. 'threedog/core/threads/threadServe.js' before the './worker' entry existed).
 // Reads packages/engine/docs/**/*.md and packages/engine/**/*.js (comments and JSDoc included) for 'threedog/<sub>' and checks <sub> against the
 // exports map (exact keys and "./x/*" patterns). Level: error.
 // Known limits: only quoted specifiers starting with threedog/; engine-relative paths in engine-internal files are not checked here.

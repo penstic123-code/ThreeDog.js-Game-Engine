@@ -2,7 +2,7 @@
 // The host runs the game as usual; clients mirror its state and send op requests. Host.js / Client.js hold each side; sync.js what is synced.
 import { NetHost } from './Host.js';
 import { NetClient } from './Client.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 /** engine.net (installed by net()): role, who this machine is, connection state and counters. Changes go through engine.ops, never through net. @experimental */
 export class Net {

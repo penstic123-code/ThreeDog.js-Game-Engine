@@ -1,7 +1,6 @@
 // Built-in mover (default): snap to ground height, step up within step height, back off slopes that are too steep, light collision push-out, swimming, jumping.
 // Needs no physics engine, cheap on large maps. Registered supports (characters.support) are ground too, and carry the character (support.js).
-import { steer, water, float, tryJump, tickJump, leaveGround, land, finish, stat, inherited } from './common.js';
-import { climbLimit } from './common.js';
+import { steer, water, float, tryJump, tickJump, leaveGround, land, finish, stat, inherited, climbLimit } from './common.js';
 import { groundAt, beginMove, endMove } from './support.js';
 
 /** Create the 'simple' mover (c is the character) */

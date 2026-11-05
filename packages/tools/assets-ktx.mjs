@@ -19,7 +19,7 @@ export function textureSlots(doc, t) {
 }
 
 /** Encoder options for a slot list. Any data slot wins: a texture shared by color and data is encoded as data (the source check already warns about sharing). */
-export function optionsForSlots(slots) {
+function optionsForSlots(slots) {
   const data = slots.some(s => s !== 'baseColorTexture' && s !== 'emissiveTexture');
   return data
     ? { isUASTC: true, isSetKTX2SRGBTransferFunc: false, isPerceptual: false, isNormalMap: slots.includes('normalTexture') }

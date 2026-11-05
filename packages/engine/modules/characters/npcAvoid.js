@@ -9,8 +9,8 @@
 // Push is capped (strength m/s * dt), stronger with more overlap, then constrained by engine.collision (if installed) so NPCs are not pushed into walls.
 // With nav({ crowd: true }) the Recast agents decide and this adds nothing. Only near NPCs with a model; far NPCs are simulated from data without per-NPC
 // avoidance (too costly).
-import { readParams, keysSchema } from '../../core/params.js';
-import { Cells } from '../../core/cells.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { Cells } from '../../core/stream/cells.js';
 
 const KEYS = ['on', 'radius', 'strength'];
 // push direction is rotated ~25° to the right: two NPCs meeting head-on each swerve to their own right instead of deadlocking in a line
@@ -40,7 +40,7 @@ export class NpcAvoid {
     // id → { id, rec, k, x, z, position, n }: x, z = where its own step started (stamped on step k); position = where it was filed for step n (the stamp, or
     // where it stood before moving), what neighbours read
     this._start = new Map();
-    // the shared xz index (core/cells.js) with cells the size of the minimum distance of two NPCs, so a query looks at 3x3 cells. Not world's record index:
+    // the shared xz index (core/stream/cells.js) with cells the size of the minimum distance of two NPCs, so a query looks at 3x3 cells. Not world's record index:
     // that one is 32 m per cell (hundreds of NPCs in one or two cells would make per-pair checks too costly) and holds positions as they move during the step,
     // while every push must read the step-start ones
     this._grid = null; this._gridN = -1; this._filed = new Set();

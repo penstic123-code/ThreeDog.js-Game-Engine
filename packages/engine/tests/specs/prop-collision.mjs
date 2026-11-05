@@ -2,7 +2,7 @@
 // Guard: a circle stands on the model's base, not on its widest extent: an arm or a crown above the base blocks nobody and does not pull the follow camera in.
 // Everything goes through content.load and the real collision module, so a second way of sizing the circle fails here.
 const models = () => {
-  const T = engine.THREE, part = (g, x, y) => new T.Mesh(g.translate(x, y, 0));
+  const T = __threedogThree, part = (g, x, y) => new T.Mesh(g.translate(x, y, 0));
   const group = (...m) => { const o = new T.Group(); o.add(...m); return o; };
   engine.assets.manifest({ name: 'pc', models: {
     // the pole stands on the origin, the arm reaches 1.8 m to +x at the top: bounds are 1.9 m wide and centred 0.8 m off the pole

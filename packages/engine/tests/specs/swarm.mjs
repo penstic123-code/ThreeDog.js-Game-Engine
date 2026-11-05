@@ -40,6 +40,7 @@ export const specs = [
       const S = r.save;
       check('save round trip: the same rows, fields and handles come back', S.saved && S.loaded && S.same && S.rows[0] === 2 && S.rows[1] && S.rows[2] === 5 && S.rows[3] === 3.25 && S.rows[4] === 7 && S.rows[5] === 1, J(S));
       check('a new game empties a swarm not in saves', S.newGameCleared === 0, J(S));
+      check('a damaged negative id in a save is left out, not given a row', S.damagedId[0] === 1 && S.damagedId[1] === 0, J(S));
       check('after a load: a dead handle stays dead, a swarm not in saves is empty, new handles are new', S.staleDead === -1 && S.shotsCleared === 0 && S.newHandle, J(S));
       check('a saved swarm made after the load picks its data up; a new field starts at its default', S.late[0] === 2 && S.late[1] === 7 && S.late[2] === 0, J(S));
       for (const k of ['webgl', 'webgpu']) {
@@ -48,6 +49,8 @@ export const specs = [
         check(`${k}: instance matrices interpolate between fixed steps; step() draws the latest`, D.lerp === 0.25 && D.latest === 2, J(D));
         check(`${k}: a game's own move interpolates, whatever the hook order`, D.lerpOwn === 0.25, J(D));
         check(`${k}: yaw, pitch, roll and scale match three's Matrix4.compose`, D.matrixDiff < 1e-5, J(D));
+        check(`${k}: nothing moved, nothing uploaded`, D.idle[0] === 0 && D.idle[1] === 0, J(D));
+        check(`${k}: a row taken over by a swap-remove draws the new object's turn and colour`, D.swapped[0] === D.swapped[1] && D.swapped[2] === 1, J(D));
         check(`${k}: a reused row does not streak from the old object`, D.noStreak === 1000, J(D));
         check(`${k}: bounds follow the swarm: seen 1 km from the origin, in its colour; culled facing away`, D.sphere[0] === 1000 && D.farLit > 8 && D.farGreen === 0 && D.culledLit === 0, J(D));
         check(`${k}: 2000 objects in one mesh, per-object colour reaches the picture`, D.crowd[0] === 2000 && D.crowd[1] > 500 && D.crowd[2] === 0, J(D));

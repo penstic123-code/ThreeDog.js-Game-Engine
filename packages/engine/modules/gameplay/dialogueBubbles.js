@@ -60,10 +60,9 @@ export class Bubbles {
   _place(at, height) {
     const e = this.engine;
     if (at == null) return { x: 0, y: 0, onScreen: true, screen: true };
-    let p;
-    if (at.isObject3D) p = at.getWorldPosition(_v);
-    else if (typeof at === 'string') { const q = e.actorPosition?.(at); if (!q) return { x: 0, y: 0, onScreen: false, screen: false }; p = _v.set(q.x, q.y ?? 0, q.z); }
-    else p = _v.set(at.x, at.y ?? 0, at.z);
+    if (at.isObject3D) at.getWorldPosition(_v);
+    else if (typeof at === 'string') { const q = e.actorPosition?.(at); if (!q) return { x: 0, y: 0, onScreen: false, screen: false }; _v.set(q.x, q.y ?? 0, q.z); }
+    else _v.set(at.x, at.y ?? 0, at.z);
     _v.y += height;
     const s = worldToScreen(e, _v);
     return { x: s.x, y: s.y, onScreen: s.onScreen, screen: false };

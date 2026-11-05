@@ -7,7 +7,7 @@
 // mapping is one replaceable pair (grids.add({ mapping })), so a game with another lattice swaps two functions instead of every caller's math.
 // A footprint is anchored at its min corner cell; rotation is in quarter turns (0-3) and odd turns swap width and depth.
 import { Layer } from './Layer.js';
-import { xzOf } from '../../core/math.js';
+import { xzOf } from '../../core/base/math.js';
 
 /** The default occupancy layer of an item that names none */
 export const MAIN = 'main';

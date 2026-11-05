@@ -106,7 +106,7 @@ export default bloom({ strength: 0.2 });
 ## Who writes it: the ownership table
 
 Some three.js values the engine writes **on its own**, every frame or on a timer: the camera module places the camera, a sky keeps the shadow box around the focus. Lights, fog, exposure and the environment are not among them: the game's `picture/` code is their one writer (recipe 62).
-Each of them is registered once (`core/owned.js`), and every one behaves the same way:
+Each of them is registered once (`core/ops/owned.js`), and every one behaves the same way:
 
 - **Engine** (default): the engine writes it. Adjust it while the engine keeps driving: the `set` call in the table.
 - **Taken** (`manual`): `engine.autoView.manual('far' | 'fov' | 'pixelRatio')` stops the engine writing it; the three.js value is yours.

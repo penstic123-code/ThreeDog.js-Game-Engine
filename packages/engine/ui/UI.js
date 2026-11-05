@@ -5,12 +5,12 @@
 //
 // Every window and component uses classes (no inline styles), so option 2 always takes effect.
 import * as THREE from 'three';
-import { vec3 } from '../core/math.js';
+import { vec3 } from '../core/base/math.js';
 import { uiFocus } from './Focus.js';
 import { injectUICSS } from './theme.js';
-import { codedError } from '../core/errorHints.js';
-import { uiAfter } from '../core/uiClock.js';
-import { readParams, keysSchema } from '../core/params.js';
+import { codedError } from '../core/base/errorHints.js';
+import { uiAfter } from '../core/time/uiClock.js';
+import { readParams, keysSchema } from '../core/base/params.js';
 const FADE_SCREEN_KEYS = ['seconds'];
 /** @import { Engine } from '../types/core' */
 /** @import { PositionLike, Object3D } from '../types/common' */
@@ -19,7 +19,6 @@ export { uiFocus, injectUICSS };
 
 /** @internal */
 export function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
-/** Icon: def.iconUrl is an image, def.icon is text/emoji */
 /** @internal icon markup of an item / thing definition (image when it has iconUrl, else its icon text) */
 export const iconHTML = def => def?.iconUrl ? `<img src="${esc(def.iconUrl)}" alt="">` : esc(def?.icon ?? '·');
 
@@ -50,7 +49,7 @@ export function toastPart(engine) {
     show({ text, ms = 2600 }) {
       if (!box) { box = document.createElement('div'); box.className = 'threedog-ui threedog-toasts'; engine.uiRoot.appendChild(box); }
       const t = document.createElement('div'); t.className = 'threedog-toast'; t.textContent = text; box.appendChild(t);
-      // the page's own time (core/uiClock.js): wall clock in the game, so it goes away while gameplay is paused; the stepped time on a headless
+      // the page's own time (core/time/uiClock.js): wall clock in the game, so it goes away while gameplay is paused; the stepped time on a headless
       // page. The 400 ms is the CSS fade; removal is on the same clock, so a stepped page never captures a half-faded message
       uiAfter(engine, ms, () => { t.style.opacity = '0'; });
       uiAfter(engine, ms + 400, () => t.remove());
@@ -106,6 +105,7 @@ export function makeWindow(engine, opts) {
  * @param {{ open: boolean, toggle(on?: boolean): void }} win  a makeWindow window or any handle with open / toggle
  * @param {string} action
  * @returns {void}
+ * @experimental
  */
 export function toggleOnKey(engine, win, action) {
   const inp = engine.input;

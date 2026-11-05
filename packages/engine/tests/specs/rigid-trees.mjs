@@ -8,7 +8,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.haltLoop();
-        const R = engine.rigid, P = engine.player, T = engine.THREE, CH = engine.ground.chunkSize ?? 64, warns = [], w0 = console.warn;
+        const R = engine.rigid, P = engine.player, T = __threedogThree, CH = engine.ground.chunkSize ?? 64, warns = [], w0 = console.warn;
         for (let i = 0; i < 600 && (R._srcPending || !R.terrain.size); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); }
         console.warn = (...a) => { warns.push(a.join(' ')); };
         const ball = id => R.addBall(new T.Mesh(new T.SphereGeometry(0.3, 8, 6), new T.MeshBasicMaterial()), { radius: 0.3, id });
@@ -29,7 +29,7 @@ export const specs = [
       const r = await ev(async () => {
         const pump = async (cond, max = 900) => { for (let i = 0; i < max && !cond(); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); } return cond(); };
         engine.haltLoop();
-        const R = engine.rigid, P = engine.player, G = engine.ground, CH = G.chunkSize ?? 64, T = engine.THREE, home = P.position.clone(), out = {};
+        const R = engine.rigid, P = engine.player, G = engine.ground, CH = G.chunkSize ?? 64, T = __threedogThree, home = P.position.clone(), out = {};
         const chunkOf = (x, z) => Math.floor(x / CH) + ',' + Math.floor(z / CH);
         const trunkCount = () => { let n = 0; for (const t of R.trees.values()) n += t.colliders.length; return n; };
         // the 9 terrain chunks around the player and the trunks in them (what every one of them used to hold as a cylinder)

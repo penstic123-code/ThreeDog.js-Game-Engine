@@ -33,15 +33,16 @@
 // enter again. Zones added during play belong to the game: wrap them in engine.session.track(h).
 //
 // Debug display: engine.debug.view('triggers') draws all trigger zones as wireframes, engine.debug.view('off') clears them. It is a debug view mode
-//   (core/debugView.js) and not a triggers option, so it works like every other "show me the hidden thing": one call, owner-scoped, said in describe().render.
+//   (core/inspect/debugView.js) and not a triggers option, so it works like every other "show me the hidden thing": one call, owner-scoped, said in describe().render.
 //   The debug lines take their color from triggers({ debugColor, debugOpacity }); neutral gray if absent.
 //   The action triggersDebug toggles that view; it has no key of its own (presets.bindings.debug binds F4 with the debug panel's F3).
-import { engineOwned } from '../../core/things.js';
+import { engineOwned } from '../../core/scene/things.js';
 import * as THREE from 'three';
-import { readParams, keysSchema } from '../../core/params.js';
-import { Cells } from '../../core/cells.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { Cells } from '../../core/stream/cells.js';
+import { placeY } from '../../core/scene/ground.js';
 
-// Zones are indexed (core/cells.js, the shared xz index) by the cells their bounding box covers, so a step looks at the zones near the actor instead of every
+// Zones are indexed (core/stream/cells.js, the shared xz index) by the cells their bounding box covers, so a step looks at the zones near the actor instead of every
 // zone. A zone with its own `who` (any position, unknown until it runs) or one covering more than MAX_CELLS cells goes to the always-checked `_global` list.
 const CELL = 16, MAX_CELLS = 64, PAD = 0.01;   // PAD: contains() is inclusive, so a point exactly on the edge must still find the zone's cell
 const DEBUG_GRAY = 0x9a9a9a;
@@ -81,7 +82,7 @@ export class Triggers {
       once = false, enabled = true, tag = '', who = null, cooldown = 0, userData = {} } = opts;
     const position = at.isObject3D ? at.position : Array.isArray(at) ? { x: at[0], y: at[1], z: at[2] } : at;
     const e = this.engine, x = position.x ?? 0, z = position.z ?? 0;
-    const y = position.y ?? e.surface(x, z);
+    const y = position.y ?? placeY(e, 'triggers.add()', x, z);
     const t = {
       shape, x, y, z, radius, hx: size[0] / 2, hy: size[1] / 2, hz: size[2] / 2, sy: size[1], height, rotation,
       c: Math.cos(rotation), s: Math.sin(rotation), onEnter, onExit, onStay, once, enabled, tag, who, cooldown, userData,
@@ -146,9 +147,8 @@ export class Triggers {
   }
 
   _contains(t, p) {
-    const dx = p.x - t.x, dz = p.z - t.z;
-    if (t.shape === 'sphere') { const dy = p.y - t.y; return dx * dx + dy * dy + dz * dz <= t.radius * t.radius; }
-    const dy = p.y - t.y;
+    const dx = p.x - t.x, dy = p.y - t.y, dz = p.z - t.z;
+    if (t.shape === 'sphere') return dx * dx + dy * dy + dz * dz <= t.radius * t.radius;
     if (t.shape === 'box') {
       if (dy < 0 || dy > t.sy) return false;
       const lx = dx * t.c - dz * t.s, lz = dx * t.s + dz * t.c;    // same rotation convention as the collision module's rectangle

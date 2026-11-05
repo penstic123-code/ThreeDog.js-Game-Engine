@@ -41,7 +41,7 @@ function table(node, lineOf) {
   return null;
 }
 
-/** The registration code for the module's exported literals (empty string when there is nothing to tag) @param {any} ast @param {string} code @param {string} file */
+/** The registration code for the module's exported literals: { out: lines to append, defaultExpr: the default export to wrap, or null } @param {any} ast @param {string} code @param {string} file */
 export function contentSrcCode(ast, code, file) {
   const lineOf = lineIndex(code), out = [], reg = (expr, node, line) => {
     const at = table(node, lineOf) ?? {};

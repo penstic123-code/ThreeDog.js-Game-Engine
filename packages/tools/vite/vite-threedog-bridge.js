@@ -5,7 +5,7 @@
 // Path: command line → POST /__threedog/cmd (local machine + token) → here → the target page runs it → the result goes back the same way.
 //   · a browser has a page open: over Vite's HMR WebSocket (no added dependency); with several pages, the one that last got focus gets it
 //   · no page connected: when the first command arrives the server opens a headless page itself with Playwright (?threedog-headless, the game advances only on step) and keeps it, closing it once a real page connects
-// On start it writes <workspace>/.threedog/dev.json { port, token }, where the command line finds the server.
+// On start it writes <workspace>/.threedog/dev.json { port, token, pid }, where the command line finds the server.
 // Security: only local connections, Host must be localhost-like, anything with an Origin (sent from a web page) is rejected (vite/local.js), the token is random at every start, and commands can only be sent by a local process that can read dev.json.
 // A page that reloads or closes fails its pending commands at once ("run the command again"), instead of after the 2-minute timeout.
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
@@ -13,12 +13,13 @@ import { resolve, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { waitEngine, trackPageErrors } from '../wait-engine.mjs';
-import { isLocalRequest, readBody } from './local.js';
+import { isLocalRequest, readBody, orderedQueue, jsonReply } from './local.js';
 import { headlessUrl } from '../lib/page-url.mjs';
 
 const VIRTUAL = 'virtual:threedog-bridge', RESOLVED = '\0' + VIRTUAL;
 const CLIENT = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'threedog-bridge-client.js'), 'utf8');
 const TIMEOUT = 120000;   // a long step under software rendering can take tens of seconds
+const MAX_BODY = 32 << 20;   // snap --width sends the whole PNG through here to scale it in the page, and a detailed full-HD canvas passes 4 MB
 
 export default function threedogBridge() {
   return {
@@ -74,11 +75,13 @@ export default function threedogBridge() {
         headless = (async () => {
           let launchBrowser;
           try { ({ launchBrowser } = await import('../browser.mjs')); } catch { throw new Error('playwright not found · run npm install first'); }
-          const browser = await launchBrowser().catch(() => { throw new Error('browser not installed · run npx playwright install chromium first'); });
-          const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
-          trackPageErrors(page);   // before goto: main.js runs during it, and an error missed there leaves waitEngine waiting on a dead page
-          await page.goto(baseUrl() + headlessUrl(path, { cutscene: 'skip' }));
-          return { browser, page, path };
+          const browser = await launchBrowser({ prefer: 'gpu' }).catch(() => { throw new Error('browser not installed · run npx playwright install chromium first'); });
+          try {
+            const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
+            trackPageErrors(page);   // before goto: main.js runs during it, and an error missed there leaves waitEngine waiting on a dead page
+            await page.goto(baseUrl() + headlessUrl(path, { cutscene: 'skip' }));
+            return { browser, page, path };
+          } catch (e) { await browser.close().catch(() => {}); throw e; }   // nobody holds this browser yet: a page that failed to open must not leave it running
         })();
         headless.catch(() => { headless = null; });
         return (await headless).page;
@@ -106,8 +109,8 @@ export default function threedogBridge() {
           if (op === 'eval') return ask(client, 'threedog:eval', { src, arg });
           if (op === 'shot') return ask(client, 'threedog:shot');
           dropClient(client);
-          client.send('threedog:reload');   // after the reload the page reconnects, wait for it
-          await new Promise(r => { const t = setInterval(() => { if (liveClient(path) !== client) { clearInterval(t); r(); } }, 200); setTimeout(() => { clearInterval(t); r(); }, 5000); });
+          client.send('threedog:reload');   // after the reload the page reconnects, wait for it: a command landing in the gap would open a headless page instead
+          await new Promise(r => { const t = setInterval(() => { const now = liveClient(path); if (now && now !== client) { clearInterval(t); r(); } }, 200); setTimeout(() => { clearInterval(t); r(); }, 5000); });
           return null;
         }
         headlessBusy++;
@@ -123,19 +126,18 @@ export default function threedogBridge() {
 
       // One command at a time, in arrival order: the MCP server, a session and direct command lines may all call at once, and step / op are
       // order-dependent (two steps interleaving with an op would give a state nobody asked for)
-      let tail = Promise.resolve();
-      const inOrder = fn => { const run = tail.then(fn); tail = run.catch(() => {}); return run; };
+      const inOrder = orderedQueue();
 
       // which folder this server is for: `threedog shot <url>` asks before it trusts the page (a leftover server on the port is another game)
       server.middlewares.use('/__threedog/root', (req, res) => {
         if (!isLocalRequest(req)) { res.statusCode = 403; return res.end(); }
-        res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ root: server.config.root }));
+        jsonReply(res)(200, { root: server.config.root });
       });
       server.middlewares.use('/__threedog/cmd', (req, res) => {
-        const reply = (code, obj) => { res.statusCode = code; res.setHeader('content-type', 'application/json'); res.end(JSON.stringify(obj)); };
+        const reply = jsonReply(res);
         if (req.method !== 'POST' || !isLocalRequest(req)) return reply(403, { ok: false, error: 'the bridge only accepts commands from the local command line' });
         if (req.headers['x-threedog-token'] !== token) return reply(401, { ok: false, error: 'wrong token · was the dev server restarted? just run the command again' });
-        readBody(req, 4 << 20).then(async b => {
+        readBody(req, MAX_BODY).then(async b => {
           try {
             const cmd = JSON.parse(String(b));
             if (cmd.op !== 'ping') lastCmd = Date.now();
@@ -156,7 +158,8 @@ export default function threedogBridge() {
       // A server that play started for an agent (THREEDOG_AUTOSTOP_MIN is set by play) exits when no command came and no live page is open for that long
       const stopMin = +process.env.THREEDOG_AUTOSTOP_MIN;
       if (stopMin > 0) setInterval(() => { if (!headlessBusy && !pending.size && !focus.size && Date.now() - lastCmd > stopMin * 60000) server.close().finally(() => process.exit(0)); }, 15000).unref();
-      const cleanup = () => { try { rmSync(file); } catch { /* already gone */ } };
+      // only our own record: a second server of this game has written its port over it
+      const cleanup = () => { try { if (JSON.parse(readFileSync(file, 'utf8')).token === token) rmSync(file); } catch { /* already gone */ } };
       server.httpServer?.on('close', cleanup);
       process.once('exit', cleanup);
     },

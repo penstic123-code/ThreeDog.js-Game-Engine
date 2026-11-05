@@ -61,6 +61,9 @@ async function page(files) {
 const tick = () => new Promise(r => setTimeout(r, 5));
 
 export async function run({ check }) {
+  // [guard] engine.pick hands back a thing with id null for a mesh nobody named: the editor read a position off it and the click threw
+  const { pickAt } = await import(`${DESIGN}?pick`);
+  check('[guard] a click on a mesh with no id selects nothing', pickAt({ pick: () => ({ thing: { id: null, mesh: 'x' } }) }, 0, 0) === null);
   const realFetch = globalThis.fetch;
   // [guard] the review's case: a good save, a save and a Ctrl+Z in flight, a hand edit, both refused
   {
@@ -150,6 +153,14 @@ export async function run({ check }) {
     const still = await p.entry('a');
     await p.d.moveEntry(p.engine, still, { ...still.position, yaw: still.yaw });
     check('a press that moved nothing writes nothing to the record', !moved.length, moved.join());
+    // [guard] a refused drag puts the model back, and the id stayed marked as moved: the next press that moved nothing wrote to the record
+    const held = await p.entry('a');
+    p.d.previewEntry(p.engine, held, { x: 9, y: 0, z: 9, yaw: 0 });
+    p.fields.a.x = 8;   // a hand edit: the write below is refused
+    const refused = await p.d.moveEntry(p.engine, held, { x: 9, y: 0, z: 9, yaw: 0 });
+    moved.length = 0;
+    await p.d.moveEntry(p.engine, held, { ...held.position, yaw: held.yaw });
+    check('[guard] after a refused drag a press that moved nothing writes nothing either', !refused.ok && !moved.length, moved.join());
   }
 
   // [guard] M1: the server's reload decision, with the real hook and a real file

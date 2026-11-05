@@ -1,7 +1,7 @@
 # The whole picture in plain three.js: signals in, picture out
 
 **In this recipe**: the `picture/` folder (0), setup (1), signals (2), the hook (3), rules for a bigger game (3b), wiring and who wrote a value (3c), the library (3d), shared values (3e),
-picture parts: code from different sources in one game (3f), a flat look (4), what the engine still does (5), checking (6).
+picture parts: code from different sources in one game (3f), a flat look (4), pixel art (4b), what the engine still does (5), checking (6).
 
 Any picture (flat illustration, toon, painterly, realistic) can be written as plain three.js in one folder of the game, the picture code: its own
 lights, materials, fog, sky colors and post passes. The engine hands it signals (time of day, weather) and keeps doing the engineering
@@ -226,6 +226,40 @@ Light alone turns a warm wall under a cool night fill into mud. An illustrator k
 **Shadow sides darker than expected?** With no environment map, the ambient you write is all the fill there is. A hemisphere value copied from a scene that also had an
 environment map comes out too dark on faces away from the sun: raise the ambient, add an `AmbientLight`, or generate an environment (`engine.sky.environment()`).
 `uWeatherLight` is sized for the sun: multiplying ambient by it as well darkens rain more than the sun alone does, so give ambient a share of it.
+
+## 4b. Pixel art: low-resolution rendering with sharp scaling
+Pixel art means drawing fewer pixels and then keeping every edge hard when they are enlarged. It takes two engine options and plain three.js and CSS:
+- **Render fewer pixels.** `pixelRatio` below 1 makes the drawing buffer smaller than the canvas on the page. Pick it from the art resolution you want against the canvas
+  size, and call `engine.setPixelRatio(p)` again when the size changes. A value that makes one art pixel a whole number of screen pixels keeps them all the same size.
+- **Turn adaptive resolution off.** `adaptiveResolution: false`: it changes the render scale with frame cost, so the size of a pixel would drift during play.
+  `antialias: false` too, since it blends the edges you want hard.
+- **Scale sharply.** The browser smooths an enlarged canvas unless told otherwise: CSS `image-rendering: pixelated` on it.
+- **Leave the menu rows that fight it out.** The settings menu's render scale, anti-aliasing and adaptive rows and its quality presets would change the pixel size. Leave those rows out where the game lists its tabs, `settings({ sections: [{ id: 'graphics', omit: ['pixelRatio', 'antialias', 'adaptive'] }, 'audio', 'controls', 'language', 'saves'] })`: an omitted row stays your value, and no preset or stored value moves it.
+- **Sample sharply.** `engine.assets.texture(name, { pixelated: true })` sets `NearestFilter` for enlarging and `NearestMipmapNearestFilter` for shrinking. On a texture of
+  your own, set `magFilter` and `minFilter` to `THREE.NearestFilter`.
+```js
+const canvas = document.querySelector('canvas');
+canvas.style.imageRendering = 'pixelated';
+const engine = createEngine({ canvas, pixelRatio: artHeight / canvas.clientHeight, adaptiveResolution: false, antialias: false });
+```
+Whatever blends neighbouring pixels works against the look, so judge each post effect and any tone curve (section 4) by eye. Text and panels under `engine.uiRoot` are page elements and stay at screen
+resolution. Objects that move by less than an art pixel shimmer; if that shows, round their drawn position to the art grid in `onRender`. `describe().render.scale` reports `upscaled: true` here, which is what you asked for.
+
+**A following camera without jitter.** Jitter comes from rounding the camera and the character on their own: each lands on a different pixel from frame to frame. Keep one exact position and round once:
+- Draw the character with `engine.stepBlend` (recipe 06 section 1b), in `onFrame`.
+- Make the camera follow that drawn position. The camera module runs after the `onFrame` list, so it moves after the character in the same frame.
+- Round only the final position relative to the camera, in `onRender`, which runs after the camera has moved. Never round the camera and the character separately.
+```js
+const drawn = new THREE.Object3D();                     // the exact drawn position; the sprite is its rounded copy
+engine.cameraRig.follow(drawn);
+engine.onFrame(() => { drawn.position.lerpVectors(body.last, body.now, engine.stepBlend); });   // body: what onFixed moves
+engine.onRender(({ camera }) => {                       // side view, where screen x and y are world x and y; pixel: the world size of one art pixel
+  const snap = (v, c) => c + Math.round((v - c) / pixel) * pixel;
+  sprite.position.set(snap(drawn.position.x, camera.position.x), snap(drawn.position.y, camera.position.y), drawn.position.z);
+});
+```
+A dead zone keeps small moves from shifting the camera: have it follow a separate object that the game moves only when the character leaves an area around it.
+For smooth scrolling of the whole picture, render with the camera on a whole pixel, draw slightly larger than the screen, and slide the final image by the leftover fraction. Nothing in this repository shows that step yet: it is untested.
 
 ## 5. What the engine still does with all of this off
 - `scene.background` starts as a neutral gray: write your own color or sky.

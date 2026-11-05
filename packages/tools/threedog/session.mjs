@@ -18,7 +18,7 @@ const MAX_BODY = 1 << 20;
 const sameToken = (a, b) => { const x = Buffer.from(String(a ?? '')), y = Buffer.from(b); return x.length === y.length && timingSafeEqual(x, y); };
 
 /** { port, token, pid } of the live session of this workspace, or null (a file left by a dead process is deleted here) */
-export function readSession(dir) {
+function readSession(dir) {
   if (!existsSync(file(dir))) return null;
   let s;
   try { s = JSON.parse(readFileSync(file(dir), 'utf8')); process.kill(s.pid, 0); return s; }
@@ -59,6 +59,7 @@ async function serve(dir, minutes) {
   const server = http.createServer((req, res) => {
     if (!sameToken(req.headers['x-threedog-token'], token)) { res.writeHead(403).end(); return; }
     let body = '';
+    req.setEncoding('utf8');   // a long script: a character split over two chunks stays whole
     req.on('data', c => { body += c; if (body.length > MAX_BODY) { res.writeHead(413).end(); req.destroy(); } });
     req.on('end', () => {
       last = Date.now();

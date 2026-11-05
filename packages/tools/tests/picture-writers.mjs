@@ -1,4 +1,4 @@
-// Who wrote a picture value (core/pictureWriters.js), on the real dev server: a bundle has no source lines, so only here do the answers mean anything.
+// Who wrote a picture value (core/inspect/pictureWriters.js), on the real dev server: a bundle has no source lines, so only here do the answers mean anything.
 // The page (packages/engine/tests/picture-writers/) wires picture/ parts through one engine.onRender, the case per-hook attribution cannot tell apart.
 import { createServer } from 'vite';
 import { launchBrowser } from '../browser.mjs';
@@ -49,6 +49,12 @@ export async function run({ check }) {
     check('[guard] the warning comes once per value', warnings.length === 1, String(warnings.length));
     const far = await page.evaluate(() => window.engine.scene.fog.far);
     check('[guard] nothing is blocked: the later write stands', far === 90, String(far));
+
+    // core lives in folders (core/inspect/DebugOverrides.js): a write from there is the engine's, however deep the file
+    await page.evaluate(() => { const e = window.engine; e.debug.override('wr', e.scene.getObjectByName('sun'), 'intensity', 9); });
+    await step(40);
+    const overridden = (await values()).conflicts.filter(x => x.value === 'light:sun.intensity');
+    check('[guard] a debug override is the engine writing: no fight with the picture code it overrides', overridden.length === 0, JSON.stringify(overridden));
 
     const before = (await values()).stacks;
     await step(60);

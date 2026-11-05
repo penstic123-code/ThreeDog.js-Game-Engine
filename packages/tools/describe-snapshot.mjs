@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 /** Paths dropped before saving / comparing: timing and performance numbers are not gameplay */
 // loading: file versions and on-demand counts; picture.writers: how many frames each writer has run, which moves with every frame and says nothing about the game
-export const DEFAULT_IGNORE = ['perf', 'time.tick', 'time.real', 'time.ambient', 'loading', 'picture.writers'];
+const DEFAULT_IGNORE = ['perf', 'time.tick', 'time.real', 'time.ambient', 'loading', 'picture.writers'];
 /** Also dropped when a command says what it changed: these move on their own in any step, and a list of them would bury the change */
 const MOVES_ALONE = ['time', 'camera', 'nearby', 'actions', 'ops', 'holds', 'shared', 'input', 'picture', 'render', 'weather.progress'];
 const MAX_LINES = 20;
@@ -77,8 +77,8 @@ const short = v => { const s = JSON.stringify(v); return s.length > 70 ? s.slice
  */
 export function diffDescribe(base, cur, { tolerance = 0.5 } = {}) {
   const tol = path => {
-    if (typeof tolerance === 'number') return matches(path, ['vars']) ? 0 : tolerance;
     if (matches(path, ['vars'])) return 0;   // story counters are whole facts: a tolerance would hide one bump
+    if (typeof tolerance === 'number') return tolerance;
     let best = tolerance.default ?? 0.5, len = -1;
     for (const k in tolerance) if (k !== 'default' && matches(path, [k]) && k.length > len) { best = tolerance[k]; len = k.length; }
     return best;
@@ -123,10 +123,10 @@ export function changeLine(before, after) {
 }
 
 /** Baseline file path: <dir>/<name>.describe.json (dir is <workspace>/tests/snapshots) */
-export const snapshotFile = (dir, name) => join(dir, `${String(name).replace(/[^\w一-龥.-]+/g, '-')}.describe.json`);
+const snapshotFile = (dir, name) => join(dir, `${String(name).replace(/[^\w一-龥.-]+/g, '-')}.describe.json`);
 
 /** Where tests keep baselines: the test runner sets THREEDOG_SNAP_DIR to the running workspace's tests/snapshots */
-export const defaultSnapDir = () => process.env.THREEDOG_SNAP_DIR || join(process.cwd(), 'tests', 'snapshots');
+const defaultSnapDir = () => process.env.THREEDOG_SNAP_DIR || join(process.cwd(), 'tests', 'snapshots');
 
 /**
  * Write the baseline from a describe() result.
@@ -156,7 +156,7 @@ export function compareSnapshot(dir, name, d, opts = {}) {
   if (!existsSync(file)) return { ok: false, text: `no baseline for describe snapshot "${name}" (${file}). Create it once: threedog snap-describe save ${name}  (or run the test with --update-snapshots)` };
   const saved = JSON.parse(readFileSync(file, 'utf8')), base = pickGameplay(saved, opts), cur = pickGameplay(d, opts);
   // an --only path found on neither side compares nothing, and nothing always matches
-  const empty = (opts.only ?? []).filter(p => pickGameplay(saved, { only: [p] })[p.split('.')[0]] === undefined && pickGameplay(d, { only: [p] })[p.split('.')[0]] === undefined);
+  const empty = (opts.only ?? []).filter(p => !leaves(pickGameplay(saved, { only: [p] })) && !leaves(pickGameplay(d, { only: [p] })));
   if (empty.length) return { ok: false, text: `describe "${name}": nothing to compare at ${empty.join(', ')}: neither the baseline nor the page has it. Top-level fields: ${Object.keys(d).join(', ')}` };
   const lines = diffDescribe(base, cur, opts);
   if (!lines.length) return { ok: true, text: '', values: leaves(cur) };

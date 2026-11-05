@@ -30,6 +30,7 @@ export const specs = [
         out.crate = w.records.get('crate-1')?.position ?? null;
         out.player = w.records.get('player')?.position ?? null;
         out.quest = engine.quests.state('visit');
+        out.rig = { yaw: engine.cameraRig.yaw, pitch: engine.cameraRig.pitch };
         // settings: the stored text is read back by the current settings code
         localStorage.setItem(engine.settings.storageKey, sample.settings);
         const st = engine.settings._read();
@@ -46,7 +47,9 @@ export const specs = [
       check('interactions arrive (used once-items and counters)', r.spent.includes('shell-1') && r.counted.shells === 1, JSON.stringify([r.spent, r.counted]));
       check('world records arrive (placed record and the player)', r.crate && r.crate.x === 3 && r.crate.z === 4 && r.player && r.player.x === 1 && r.player.z === 2, JSON.stringify([r.crate, r.player]));
       check('quest progress arrives', r.quest && r.quest.steps === 2, JSON.stringify(r.quest));
-      check('settings text is read by the current settings code', r.settings.v === 1 && r.settings.master === 0.4 && r.settings.locale === 'zh-CN', JSON.stringify(r.settings));
+      const rig = data.save.parts.cameraRig;   // a save part since 0.8.0; older samples have none and keep the rig as installed
+      if (rig) check('the camera view arrives (cameraRig)', r.rig.yaw === rig.yaw && r.rig.pitch === rig.pitch, JSON.stringify([rig, r.rig]));
+      check('settings text is read by the current settings code', r.settings.v === JSON.parse(data.settings).v && r.settings.master === 0.4 && r.settings.locale === 'zh-CN', JSON.stringify(r.settings));
       check('every part of the sample is still saved afterwards', r.missing.length === 0, JSON.stringify(r.missing));
     },
   })),

@@ -4,6 +4,7 @@
  * Names of the patches on a material (in order), e.g. ['clouds', 'tint', 'wind']
  * @param {Material} material
  * @returns {string[]}
+ * @experimental
  */
 export function materialPatches(material: THREE.Material): string[];
 /**

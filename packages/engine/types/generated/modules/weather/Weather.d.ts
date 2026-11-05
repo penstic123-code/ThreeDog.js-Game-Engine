@@ -17,17 +17,17 @@ export class Weather {
     current: WeatherPreset;
     /** Current weather name @type {string} */
     name: string;
-    /** Candidates for automatic weather (repeat a name to make it likelier) @type {string[]} */
+    /** Candidates for automatic weather (repeat a name to make it likelier) @type {string[]} @experimental */
     autoPool: string[];
-    /** Automatic weather interval [min, max] seconds @type {number[]} */
+    /** Automatic weather interval [min, max] seconds @type {number[]} @experimental */
     autoInterval: number[];
-    /** Transition seconds for automatic weather @type {number} */
+    /** Transition seconds for automatic weather @type {number} @experimental */
     autoTransition: number;
-    /** Seconds to the first bolt (also after a load without a saved timer) @type {number} */
+    /** Seconds to the first bolt (also after a load without a saved timer) @type {number} @experimental */
     lightningFirst: number;
-    /** [min, max] seconds between bolts while a type with lightning > 0.5 holds @type {number[]} */
+    /** [min, max] seconds between bolts while a type with lightning > 0.5 holds @type {number[]} @experimental */
     lightningInterval: number[];
-    /** Strike picture: flash (1 at the strike, fading in a third of a second) -> sky flash amount. Write it at any time @type {(flash: number, engine: any) => number} */
+    /** Strike picture: flash (1 at the strike, fading in a third of a second) -> sky flash amount. Write it at any time @type {(flash: number, engine: any) => number} @experimental */
     lightning: (flash: number, engine: any) => number;
     /** Multiplies the sky flash of every strike; write it at any time @type {number} */
     lightningBrightness: number;

@@ -7,11 +7,11 @@
 //   await tw.tween(mesh, { 'position.y': 3, 'material.color': 0xffffff }, 1.5, 'outBack');
 //   const p = tw.tween(...); p.finish() jumps to the end; p.remove() stops where it is (the cancel convention)
 import * as THREE from 'three';
-import { ease as easing } from '../../core/easing.js';
-import { allowOwned } from '../../core/owned.js';
-import { getPath } from '../../core/util.js';
-import { warnOnce } from '../../core/validate.js';
-import { coded } from '../../core/errorHints.js';
+import { ease as easing } from '../../core/base/easing.js';
+import { allowOwned } from '../../core/ops/owned.js';
+import { getPath } from '../../core/base/util.js';
+import { warnOnce } from '../../core/base/validate.js';
+import { coded } from '../../core/base/errorHints.js';
 
 const COMPS = ['x', 'y', 'z', 'w'];
 
@@ -77,7 +77,7 @@ export class Tweener {
 
   /** Property tween: to = { 'position.x': 3, 'material.color': 0xffffff }. A value may also be a function () => value (evaluated at start) */
   // a tween is a legitimate temporary takeover of what it animates (a light, the fog): those objects only skip the engine's outside-write
-  // detection (core/owned.js) while it runs, so the engine neither warns nor yields them for good; everything else stays checked
+  // detection (core/ops/owned.js) while it runs, so the engine neither warns nor yields them for good; everything else stays checked
   tween(target, to, duration = 1, ease = 'inOutCubic', group = null) {
     let props = [];
     const owner = 'tween:' + (++tweenId);

@@ -10,7 +10,7 @@
 //   - Adding or removing scene.environment changes the program key of every Lambert material: one recompile at the switch, none after.
 //   - The hemisphere light adds on top of it.
 import * as THREE from 'three';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { isWebGPU, webgpuPart } from '../../render/backend.js';
 
 const DEFAULT_INTERVAL = 1;   // seconds between rebuilds (only when the sky actually changed)

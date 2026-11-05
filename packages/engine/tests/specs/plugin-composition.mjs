@@ -85,7 +85,7 @@ export const specs = [
         const crate = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), applyEffects(new THREE.MeshLambertMaterial({ color: 0xaa8855 }), { wind: 0.05, clouds: true, engine }));
         crate.position.copy(ahead); engine.add(crate, { id: 'pcomb-crate' });
         // fog as a module plugin (it writes scene.fog and puts the old one back on dispose), with the page's sky and weather running
-        const fogRule = { name: 'pcFog', type: 'picture', install(en) { this.old = en.scene.fog; this.en = en; en.scene.fog = new en.THREE.Fog('#ff00ff', 1, 30); }, dispose() { this.en.scene.fog = this.old; } };
+        const fogRule = { name: 'pcFog', type: 'picture', install(en) { this.old = en.scene.fog; this.en = en; en.scene.fog = new __threedogThree.Fog('#ff00ff', 1, 30); }, dispose() { this.en.scene.fog = this.old; } };
         engine.plugins.add({
           './plugins/80-fog.js': { default: fogRule },
           './plugins/82-bloom.js': { default: E.bloom({ strength: 0.8, threshold: 0.2 }) },

@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 import { contentWrite, lit, stats } from '../content-write.mjs';
-import { writeChecked } from '../lib/atomic.mjs';
+import { writeChecked, writeAtomic } from '../lib/atomic.mjs';
 import { checkGame } from '../content-check.mjs';
 import { loadGame, partOf } from '../content-check/load.mjs';
 
@@ -66,9 +66,32 @@ export async function run({ check }) {
     check('a field written as null can be edited: null from the page means not set', nulled.ok && edited.ok, JSON.stringify([nulled, edited]));
     await w({ op: 'set', id: 'c', fields: { size: { w: 1, h: 2 } }, unset: ['scale'] });
     check('key order is not a value: an expect with equal fields in another order goes through', (await w({ op: 'set', id: 'c', fields: {}, unset: ['size'], expect: { size: { h: 2, w: 1 } } })).ok && props() === held, props());
+    // two fields cut together, the trailing ones included: cut one by one their spans overlapped and the write failed with "would not parse"
+    await w({ op: 'set', id: 'c', fields: { p: 1, q: 2, r: 3 } });
+    const both = await w({ op: 'set', id: 'c', fields: {}, unset: ['q', 'r'] });
+    check('unset of two trailing fields cuts both', both.ok && /\{ id: 'c',[^\n]*p: 1 \},/.test(props()) && !/q: 2|r: 3/.test(props()), both.error ?? props());
+    const kept = props();
+    writeFileSync(join(dir, 'content/props.js'), kept.replace('  ...gen,', "  { id: 'tmp', n: 1 },\n  ...gen,"));
+    const lone = await w({ op: 'set', id: 'tmp', fields: { k: 2 }, unset: ['id', 'n'] });
+    check('every field cut and a new one set: the entry body is replaced', lone.ok && props().includes('{ k: 2 }'), lone.error ?? props());
+    writeFileSync(join(dir, 'content/props.js'), kept);
+    const noFile = await w({ op: 'set', id: 'a', file: 'content/nope.js', fields: { x: 1 } });
+    check('a --file that does not exist is an answer, not a crash', !noFile.ok && /does not exist/.test(noFile.error), JSON.stringify(noFile));
     const hand = join(root, 'hand.txt');
     writeFileSync(hand, 'old');
     await writeChecked(hand, 'old', 'new', () => { writeFileSync(hand, 'saved by hand'); return ['bad']; });
+    // [guard] Windows refuses a rename while a reader has the file open: a moment's EPERM is waited out, a lasting one and any other error still throw
+    let tries = 0;
+    const rename = code => ({ writeFileSync: () => {}, renameSync: () => { if (++tries < 3 || code !== 'EPERM') throw Object.assign(new Error(code), { code }); } });
+    writeAtomic('x', 'y', rename('EPERM'));
+    check('[guard] writeAtomic waits out a busy file', tries === 3, String(tries));
+    tries = 0;
+    let threw = '';
+    try { writeAtomic('x', 'y', rename('ENOSPC')); } catch (e) { threw = e.code; }
+    check('[guard] writeAtomic does not retry another error', threw === 'ENOSPC' && tries === 1, threw);
+    let swept = false;
+    try { writeAtomic('x', 'y', { ...rename('ENOSPC'), rmSync: () => { swept = true; } }); } catch { /* the error itself is checked above */ }
+    check('[guard] a rename that fails for good leaves no temp file beside the content file', swept);
     check('a failed check does not overwrite a hand save made during it', readFileSync(hand, 'utf8') === 'saved by hand');
     check('an unknown id is explained', /no content entry with id 'zzz'/.test((await w({ op: 'set', id: 'zzz', fields: { x: 1 } })).error ?? ''));
     const t = await w({ op: 'set', id: 'crate', fields: { model: 'box' } });

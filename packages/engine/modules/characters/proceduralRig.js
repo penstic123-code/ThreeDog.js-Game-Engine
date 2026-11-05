@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { neutralMaterial } from '../../render/neutral.js';
 import { copyPatches, isEngineMade, markEngineMade } from '../../render/patches.js';
-import { warnOnce } from '../../core/validate.js';
+import { warnOnce } from '../../core/base/validate.js';
 
 /** Warned once when no model gives the character a body */
 export const NO_CHARACTER = 'characters: no model given, so characters are gray capsules (a placeholder). Character bodies are assets: '

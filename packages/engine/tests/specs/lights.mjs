@@ -1,4 +1,4 @@
-// Light pool (modules/lights) and the dev light-recompile warning (core/lightWatch.js). Page: tests/lights (40 torches, 4 pool lights, headless).
+// Light pool (modules/lights) and the dev light-recompile warning (core/inspect/lightWatch.js). Page: tests/lights (40 torches, 4 pool lights, headless).
 // The point of the pool is that the light setup never changes, so three.js never compiles a shader mid-play: this spec walks the camera
 // down the corridor past every torch and checks the program count and the scene's light count stay exactly what they were at ready.
 

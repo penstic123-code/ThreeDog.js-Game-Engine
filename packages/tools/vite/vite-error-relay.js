@@ -5,8 +5,8 @@
 //
 // Collects: uncaught errors, Promise rejections (no catch), resource load failures (404 scripts/images), console.error, console.warn (warn: false turns it off).
 // Identical errors (differing numbers still count as identical) are merged and counted: the first is printed in full, then every 2 seconds one summary line "N more times", so the terminal is not flooded.
-// Known error classes get a "Possible cause / Read" line (core/errorHints.js).
-// .threedog/errors.log is cleared each time dev starts; beyond maxBytes only the second half is kept. Active in dev only; build / preview inject no code.
+// Known error classes get a "Possible cause / Read" line (core/base/errorHints.js).
+// .threedog/errors.log is cleared each time dev starts; beyond maxBytes only the second half is kept (cutLog). Active in dev only; build / preview inject no code.
 // Security: the endpoint takes only same-origin posts from this machine (vite/local.js), bodies up to 64 KB of well-formed items, and never lets a
 //   bad body throw. Page text is data, not instructions: in errors.log every line that came from the page starts with "page| ", and only the
 //   engine's own hint lines ("Possible cause / Read") are written without it.
@@ -82,6 +82,17 @@ function sourceOf(it) {
 }
 const clock = t => new Date(t).toTimeString().slice(0, 8);
 
+const CUT = /^# …earlier content truncated, (\d+) records/m;
+/** How many records a cut has dropped so far: the first id of the log is this + 1, so an id means the same error before and after a cut */
+export const recordsCut = text => Number(CUT.exec(text)?.[1] ?? 0);
+/** The log with only its last keep bytes, cut between two records. The first line stays, since it names this dev-server run (errorlog.mjs) */
+export function cutLog(text, keep) {
+  const from = text.indexOf('\n[browser', Math.max(0, text.length - keep));
+  if (from < 0) return text;
+  const gone = recordsCut(text) + (text.slice(0, from).match(/^\[browser [^\]×]+\]/gm)?.length ?? 0);
+  return `${text.split('\n', 1)[0]}\n# …earlier content truncated, ${gone} records${text.slice(from)}`;
+}
+
 /** @param o warn: whether to forward console.warn (default true); logFile: log path (relative to vite's root, i.e. the workspace directory); maxBytes: log size cap */
 export default function errorRelay({ warn = true, logFile = '.threedog/errors.log', maxBytes = 1 << 20 } = {}) {
   return {
@@ -97,8 +108,8 @@ export default function errorRelay({ warn = true, logFile = '.threedog/errors.lo
       const write = text => {
         appendFileSync(file, text); size += Buffer.byteLength(text);
         if (size > maxBytes) {   // too big: keep only the second half
-          const keep = readFileSync(file, 'utf8').slice(-Math.floor(maxBytes / 2));
-          writeFileSync(file, '# …earlier content truncated\n' + keep.slice(keep.indexOf('\n') + 1)); size = maxBytes / 2;
+          writeFileSync(file, cutLog(readFileSync(file, 'utf8'), Math.floor(maxBytes / 2))); size = maxBytes / 2;
+          seen.clear();   // a repeat line needs its record above it, and that may be gone: the next one writes the record again
         }
       };
       const seen = new Map();   // merge key → { it, src, total, pending }

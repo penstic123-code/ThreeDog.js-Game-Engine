@@ -4,7 +4,7 @@
 //   colors follow ui.theme bg / fg / accent unless ui.theme hudBg / hudFg / hudAccent say otherwise; layout is plain CSS, so ui.css moves the stats column, sizes, fonts.
 //   Inner HTML: ui.templates.hudMarker / hudCounter / hudBar (data, { esc, t }) => HTML.
 import { esc, placeAt } from '../../ui/UI.js';
-/** @import { Engine, UIPart } from '../../types/core' */
+/** @import { Engine } from '../../types/core' */
 
 export const CSS = `
 .threedog-hud{position:fixed;inset:0;pointer-events:none;z-index:12;font:13px/1.4 var(--threedog-font);color:var(--threedog-hud-fg)}
@@ -86,7 +86,7 @@ export function defineHudParts(e, root) {
         place(el, d);
         const t = tpl('hudBar');
         if (t) { el.innerHTML = t(d, tools); return; }
-        if (label !== d.label) { label = d.label; el.innerHTML = `${d.label ? `<span>${esc(d.label)}</span>` : ''}<div class="threedog-hud-bar-track"><div class="threedog-hud-bar-fill"></div></div>`; }
+        if (label !== d.label || !el.firstChild) { label = d.label; el.innerHTML = `${d.label ? `<span>${esc(d.label)}</span>` : ''}<div class="threedog-hud-bar-track"><div class="threedog-hud-bar-fill"></div></div>`; }
         el.style.setProperty('--threedog-hud-fill', Math.max(0, Math.min(1, (d.value ?? 0) / (d.max ?? 1))));
       },
       dispose() { el.remove(); },

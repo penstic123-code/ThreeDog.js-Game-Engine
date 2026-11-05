@@ -12,9 +12,9 @@
 // - Self-collision is off: capsules of neighbouring parts overlap at the start and would push each other away; the limits keep the pose.
 //   shortcut: one collision group, so ragdolls do not collide with each other either; to pile bodies up, give each ragdoll its own group bit.
 import * as THREE from 'three';
-import { vec3 } from '../../core/math.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { codedError } from '../../core/errorHints.js';
+import { vec3 } from '../../core/base/math.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { readBones, shapeParts } from './ragdollBones.js';
 
 const KEYS = keysSchema(['impulse', 'position', 'bones', 'limits', 'mass']);
@@ -70,7 +70,7 @@ export class Ragdolls {
   /** Accepts a Character, an NPC handle, a character id, or a model that belongs to no character */
   _find(who) {
     if (who?.isObject3D) return { ch: null, root: who };
-    const ch = who?.root && who?.move ? who : typeof who === 'string' ? this.e.control._resolve(who) : who?.character;
+    const ch = who?.root && who?.move ? who : typeof who === 'string' ? this.e.control.characterOf(who) : who?.character;
     if (!ch) throw codedError('rigid-misuse', `rigid.ragdoll(character): pass a Character, an NPC handle (its model must be built), a character id or a skinned Object3D, got ${String(who?.id ?? who)}`);
     return { ch, root: ch.root };
   }
@@ -134,7 +134,7 @@ export class Ragdolls {
     const lim = { twist: given?.twist ?? base.twist, side: given?.side ?? base.side, bend: given?.bend ?? base.bend };
     const F = p.shape.frame;
     // The child's rotation relative to the parent, read in the joint frame: the imaginary x / y / z are the three values Rapier's limits use
-    const rel = toQ(p.parent.entry.body.rotation(), q1).invert().multiply(toQ(p.entry.body.rotation(), q2));
+    toQ(p.parent.entry.body.rotation(), q1).invert().multiply(toQ(p.entry.body.rotation(), q2));
     const f = q1.premultiply(q2.copy(F).invert()).multiply(F);
     const sign = f.w < 0 ? -1 : 1, ang = c => 2 * Math.asin(THREE.MathUtils.clamp(sign * c, -1, 1));
     return [[lim.twist, f.x], [lim.side, f.y], [lim.bend, f.z]].map(([[lo, hi], c]) => { const x = ang(c); return [Math.min(lo, x - 0.02), Math.max(hi, x + 0.02)]; });
@@ -181,7 +181,7 @@ export class Ragdolls {
   /** Make the character's animation, movement, capsule and camera yield. Control was already taken in start */
   _yield(rd) {
     const { ch, root } = rd, e = this.e;
-    rd.anim = ch ? ch.anim : e.assets._animators?.get(root) ?? null;
+    rd.anim = ch ? ch.anim : e.assets.animatorOf(root);
     if (rd.anim) rd.anim._held = true;
     if (ch) {
       ch._limp = rd;
@@ -262,12 +262,12 @@ export class Ragdolls {
     for (const j of rd.joints) if (j.isValid()) this.r.world.removeImpulseJoint(j, true);
     rd.joints = [];
     for (const p of list) p.entry.remove();
+    hold?.remove();   // gone too: a slot is kept by id, so an NPC whose model was torn down while limp would come back paused for good
     if (gone) return;
     for (const p of list) { p.bone.position.copy(p.pos0); p.bone.quaternion.copy(p.q0); }   // bones no animation clip writes also go back to how they were before falling
     if (anim) anim._held = false;
     if (ch) {
       ch._limp = null;
-      hold?.remove();
       if (ch !== this.e.player && ch.mover.collider && ch.mover.gen === this.r.gen) ch.mover.collider.setEnabled(true);
       if (ch.state === 'ragdoll') ch.state = ch._stateMark = 'idle';
       if (place) ch.placeAt(ch.root.position);

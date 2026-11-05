@@ -16,10 +16,11 @@ Vegetation (vegetation() module; grows on terrain or on any ground provider)
 - `vegetation.rebuild()` — Place every chunk again: after changing the ground behind the same provider (a ground function reading game state). A new setGround or level is followed automatically
 - `vegetation.setShadowRing(name: string, ring: number)` — Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default, larger = further and dearer). Takes effect at once; the define() option shadowRing is only the starting value. An unknown name warns with the known ones. Example: `engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk`
 - `vegetation.define(name: string, opts: VegetationOptions) → Species | Promise<Species>` — Define a kind of vegetation (a model name in model / lodGeometry: resolves first, so the result is a Promise of the species)
-- `vegetation.removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }) → string` — Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key 'vegetation'). Returns the entry name
-- `vegetation.restoreInstance(species: string, cx: number, cz: number, id: number)` — Restore one
+- `vegetation.isRemoved(species: string, cx: number, cz: number, id: number) → boolean` — (experimental) 
+- `vegetation.removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }) → string` — Remove one (chop a tree). regrowSeconds: grows back after this many calendar seconds, 0 = permanent. The record is saved with the save (save key 'vegetation'). Returns the entry name
+- `vegetation.restoreInstance(species: string, cx: number, cz: number, id: number)` — (experimental) Restore one
 - `vegetation.instanceAt(position: PositionLike, opts?: { radius?, species? }) → VegetationHit | null` — The one nearest to position within radius meters (default 2) (species restricts to one kind), null if none
-- Also: `vegetation.get(name: string) → Species | undefined`, `vegetation.list() → Species[]`, `vegetation.isRemoved(species: string, cx: number, cz: number, id: number) → boolean`
+- Also: `vegetation.get(name: string) → Species | undefined`, `vegetation.list() → Species[]`
 - Properties:
   - `material: Material | null` The shared default material: species with no material or model of their own draw it, as given, planted ones too; null gives the neutral default back. Until set, reading gives the neutral source of each species' own copy (only .color written there reaches them all). Throws when a game module drew the plants instead (replaces: 'vegetation-draw').
   - `patches: any[]` The engine's plant patches (season tint, sway with one amplitude, vegetation.color() code) for applyEffects(myMaterial, { patches })

@@ -6,8 +6,8 @@
 //   Stage 2 (timeout): engine is attached, wait for its stateApplied / ready. A cold start with software rendering + world generation can take a minute, so this stage is long
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { hintFor } from 'threedog/error-hints';
-import { oneLine } from './lib/oneline.mjs';   // the engine's own fix text for a "[code]" message (plain data, public subpath)
+import { hintFor } from 'threedog/error-hints';   // the engine's own fix text for a "[code]" message (plain data, public subpath)
+import { oneLine } from './lib/oneline.mjs';
 
 // Uncaught page errors per page, recorded from the moment the page is made (newGamePage calls trackPageErrors).
 // Why from creation and not from waitEngine: main.js runs during page.goto, so an error on its first lines (a missing module, a bad content file)
@@ -32,7 +32,7 @@ export function trackRequests(page) {
   for (const ev of ['requestfinished', 'requestfailed']) page.on(ev, r => open.delete(r));
 }
 
-/** The error that stopped the page, with its [code] and the engine's own fix text when the engine knows it (core/errorHints.js) */
+/** The error that stopped the page, with its [code] and the engine's own fix text when the engine knows it (core/base/errorHints.js) */
 function fatalText(e, when) {
   const head = String(e?.stack || e).split('\n').slice(0, 3).join('\n    '), h = hintFor(e?.message ?? e);
   return `the page threw ${when} (stopped waiting at once):\n    ${head}\n`
@@ -77,7 +77,7 @@ export async function waitEngine(page, { field = 'stateApplied', timeout = 90000
   try { err = await race(page.waitForFunction(() => !!window.engine, null, { timeout: g }), 0); }
   catch { await fail(`no window.engine on the page within ${Math.round(g / 1000)} s, and the page threw no error`, `${FIX}; or this page is not a game page (it creates no engine)`); }
   if (err && !(await page.evaluate(() => !!window.engine).catch(() => false))) throw new Error(fatalText(err, 'before window.engine existed'));
-  // Stage 2. A critical asset that failed stops start() for good: stop waiting at once and say which file (engine.loading, core/Loading.js).
+  // Stage 2. A critical asset that failed stops start() for good: stop waiting at once and say which file (engine.loading, core/engine/Loading.js).
   // A new uncaught error here (start() rejected, a module threw while starting) also ends the wait, after one second's look whether the engine got ready anyway
   // Errors already seen count on a page not ready yet: the dev bridge calls this before every command, so an error from before the call (the page died at start)
   // was never "new", and each command sat out the whole timeout. On a ready page an old error means nothing, so only a new one is looked at

@@ -60,7 +60,8 @@ export class Swarm {
     };
     /**
      * Visit the live objects within r meters of (x, z), height ignored: cb(d, i, dist2) with the row and the squared distance; cb returning false stops early. Returns
-     * how many were visited. The grid is built on the first query after things moved, so a swarm nobody queries pays nothing. Order is the same every run
+     * how many were visited. The grid is built on the first query after things moved, so a swarm nobody queries pays nothing. Order is the same every run. Inside onStep it stays the
+     * grid of that step's first query: distances are exact, but a row that crossed a cell line since then can be missed for one step
      * @example const hit = enemies.near(px, pz, 0.5, (d, i) => { enemies.free(d.id[i]); return false; });
      * @param {number} x
      * @param {number} z

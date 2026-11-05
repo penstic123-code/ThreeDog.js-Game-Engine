@@ -7,7 +7,7 @@
 // pack holds looks only (packages/engine/docs/recipes/09-materials-lights-models.md). Swapping the picture must never move a river. The colors of these ground types belong
 // to whichever style the game uses (e.g. style.terrain.biomeColors, keyed by the names below).
 // height and groundType run in terrain workers, so they are pure: they read only their parameters (n.params is the options below) and Math.
-// That is also why the river formula is written out in each of them (core/threadPure.js recompiles a function in an empty scope, so a shared helper is out of reach): the numbers live once, in `river`.
+// That is also why the river formula is written out in each of them (core/threads/threadPure.js recompiles a function in an empty scope, so a shared helper is out of reach): the numbers live once, in `river`.
 // The ground type names are plain strings that vegetation rules, style colors and a game's footstep map match by name.
 
 // Biome rules: checked top to bottom, the first match is the biome there (the last has no condition and is the default).

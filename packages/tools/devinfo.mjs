@@ -4,7 +4,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-export const devFile = dir => join(dir, '.threedog/dev.json');
+const devFile = dir => join(dir, '.threedog/dev.json');
 
 /**
  * What the record says about this workspace's dev server:
@@ -19,10 +19,7 @@ export function devServerInfo(dir) {
   let dev;
   try { dev = JSON.parse(readFileSync(file, 'utf8')); } catch { return { state: 'unreadable', file }; }
   if (!dev || !dev.port) return { state: 'unreadable', file };
-  if (dev.pid) {
-    try { process.kill(dev.pid, 0); } catch (e) { if (e.code === 'ESRCH') return { state: 'stale', ...dev, file }; }   // EPERM = alive, owned by someone else
-  }
-  return { state: 'live', ...dev, file };
+  return { state: dev.pid && !pidAlive(dev.pid) ? 'stale' : 'live', ...dev, file };
 }
 
 /** Is a process with this pid running (EPERM counts: it exists, it is just not ours) */

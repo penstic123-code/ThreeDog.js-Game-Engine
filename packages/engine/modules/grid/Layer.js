@@ -6,8 +6,8 @@
 //   Version 1 saved every cell whole; its step turns that into { set, whole: true } (cells not listed are empty, whatever content authors now).
 // Writes are saved gameplay state, so they pass the ops guard like world.set (write inside an op or a fixed step).
 // _ver counts changes so views (tiles) rebuild only when something changed, without events.
-import { DEV, needMaterial } from '../../core/validate.js';
-import { codedError } from '../../core/errorHints.js';
+import { DEV, needMaterial } from '../../core/base/validate.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const key = (i, j) => i + ',' + j;
 const plainErr = (where, v) => `${where}: layer data must be plain values (numbers, strings, booleans, arrays, plain objects); got ${v?.constructor?.name ?? typeof v}. Keep models in tiles / world.present`;

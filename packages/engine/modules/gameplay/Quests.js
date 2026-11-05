@@ -18,10 +18,10 @@
 // The log window is the UI part 'questLog' (questLog.js): replace it or turn it off with engine.ui.set('questLog', ...) (recipes/26-ui-parts.md).
 import { toast, toggleOnKey } from '../../ui/UI.js';
 import { questLogWindow } from './questLog.js';
-import { warnMissing, warnOnce, DEV } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { codedError } from '../../core/errorHints.js';
-import { reportError } from '../../core/errors.js';
+import { warnMissing, warnOnce, DEV } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { reportError } from '../../core/base/errors.js';
 import { toSaved, fromSaved, migrateV1, stepId } from './questSave.js';
 
 const STRINGS = {
@@ -46,7 +46,6 @@ export class Quests {
     // declared only: the game binds the key (presets.bindings.quests or its own; [] = no key), so every key in a game comes from one bindings table
     track(engine.input.action(action, { label: 'quests.action', owner: 'quests' }));
     this.win = questLogWindow(engine, this, track);   // { open, toggle, refresh } over engine.ui
-    // counters live in engine.vars
     // saved by stable step ids (questSave.js); version 1 saved positions
     engine.saves.register('quests', { atomic: true, version: 2, migrate: { 1: d => migrateV1(this.defs, d) }, save: () => this._save(), load: d => this._load(d) });
   }
@@ -66,13 +65,14 @@ export class Quests {
   define(id, def) {
     const at = `quests.define('${id}')`;
     readParams(at, keysSchema(['title', 'desc', 'steps', 'reward', 'fail', 'onFail']), def);
-    for (const s of def.steps || []) {
+    if (!Array.isArray(def?.steps)) throw codedError('quest-step', `${at}: steps is a list of steps, e.g. steps: [{ text: 'Find the key', done: e => e.vars.flag('key') }]; got ${JSON.stringify(def?.steps)}`);   // every later read needs it, and this one names the quest
+    for (const s of def.steps) {
       if (!s.all && (typeof s.done !== 'function' || s.optional !== undefined)) throw codedError('quest-step', `${at}: a step needs done (a function), or all: [parts] for parallel goals; optional goes on a part inside all`);
       readParams(`${at} steps`, keysSchema(s.all ? ['id', 'text', 'all'] : ['id', 'text', 'done', 'target']), s);
       for (const p of s.all || []) readParams(`${at} parallel part`, keysSchema(['id', 'text', 'done', 'target', 'optional']), p);
       if (s.all && !s.all.some(p => !p.optional)) throw codedError('quest-step', `${at}: a parallel step needs at least one part without optional: true, or it would finish at once`);
     }
-    const ids = (def.steps || []).map((_, i) => stepId(def, i)), dup = ids.find((x, i) => ids.indexOf(x) !== i);
+    const ids = def.steps.map((_, i) => stepId(def, i)), dup = ids.find((x, i) => ids.indexOf(x) !== i);
     if (dup != null) throw codedError('quest-step', `${at}: two steps have the id '${dup}'; step ids must be unique (saves find a step by it)`);
     this.defs.set(id, def);
     if (id in this._saved) { this._progress[id] = fromSaved(id, def, this._saved[id]); delete this._saved[id]; this.win.refresh(); }
@@ -202,7 +202,7 @@ export class Quests {
 
 const QUEST_PARAMS = {
   action: { type: 'string', default: 'quests', desc: 'input action that opens the quest log' },
-  checkInterval: { type: 'number', default: 0.5, min: 0, desc: 'seconds (game time) between quest condition checks' },
+  checkInterval: { type: 'number', default: 0.5, min: 0, desc: 'real seconds between quest condition checks' },
   notify: { type: 'any', default: true, desc: 'true = toast, false = silent, or a function ({ type, id, text }) => void' },
 };
 

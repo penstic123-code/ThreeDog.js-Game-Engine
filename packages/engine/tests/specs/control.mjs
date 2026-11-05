@@ -1,4 +1,4 @@
-// Character control (core/control.js): the "do not bypass" checks for "who decides where a character goes".
+// Character control (core/ops/control.js): the "do not bypass" checks for "who decides where a character goes".
 //   - a cutscene takes the player and gives it back: keys pause (no movement), the player-input owner is back after
 //   - a walkTo paused by a cutscene resumes and still arrives (paused, not cancelled)
 //   - two script owners on one character: control-conflict naming both; a direct move() on a held character: control-bypass
@@ -124,6 +124,30 @@ export const specs = [
       check('[guard] client: the host\'s avatar is held by net; a local script cannot take it; the own player is the client\'s', r.clientOf?.owner === 'net' && r.clientTake?.code === 'control-net'
         && r.ownFree === 'player-input', JSON.stringify([r.clientOf, r.clientTake, r.ownFree]));
       check('[guard] removing the cutscene module (replaces) gives the player back to its input', r.held === 'timeline' && r.afterSwap === 'player-input', JSON.stringify([r.held, r.afterSwap]));
+    },
+  },
+  {
+    // a bad actor threw after the player was taken: no run existed to give it back, so the keys stayed off for good
+    name: '[guard] timeline.play refused for a bad actor hands back the ones it took; a bad path point leaves the character free to move in the next run',
+    url: PAGE,
+    expectErrors: /timeline step|position/,   // the deliberate bad point
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk } = threedogThreads, T = threedogThreads.all, out = {};
+        const E = mk(T.createEngine, 'ctl-leak');
+        E.use(T.world(), T.collision(), T.characters(), T.timeline());
+        await E.start(); E.haltLoop();
+        const P = E.characters.createPlayer({ control: () => ({ x: 0, z: 0 }), spawn: { x: 0, z: 0 } });
+        const base = E.control.of(P)?.owner;
+        out.refused = await E.timeline.play([{ wait: 1 }], { actors: [P, {}] }).then(() => null, x => x.code);
+        out.same = E.control.of(P)?.owner === base; out.held = E.timeline._held.size; out.runs = E.timeline.runs.size;
+        await E.timeline.play([{ path: { object: P, points: ['nope'], duration: 1 } }]);
+        out.marked = E.timeline._pathing.size;
+        E.dispose();
+        return out;
+      });
+      check('the refusal is the coded error, and nothing stays held', r.refused === 'module-params' && r.same && r.held === 0 && r.runs === 0, JSON.stringify(r));
+      check('a path step that threw leaves no mark on its character', r.marked === 0, JSON.stringify(r));
     },
   },
 ];

@@ -2,7 +2,7 @@
 // A soft picture under low-contrast gets no intent hint, the same picture under high-contrast does; no Picture intent words = numbers only (the table is never read);
 // night-only words do not judge a noon shot. Clipped, near-black, glare and a night not dark from lighting are facts unless DESIGN.md
 // declares the opposite on the "Picture intent:" line; shot, snap and shot --image share one checker.
-import { pictureNumbers, pictureHints, readIntent, formatPicture, imagePicture, shadowEdges } from '../picture/check.mjs';
+import { pictureNumbers, pictureHints, readIntent, formatPicture, imagePicture, shadowEdges, probeSource } from '../picture/check.mjs';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -26,6 +26,7 @@ export async function run({ check }) {
     hi.length === 1 && /differs from DESIGN\.md: you wrote 'high-contrast'/.test(hi[0].text) && /measured contrast/.test(hi[0].text) && /levers:/.test(hi[0].text) && !/should|target/.test(hi[0].text), JSON.stringify(hi));
   // one mechanism: only the Picture intent line declares; the table's and "Not for this game"'s free words are never read
   check('no Picture intent words ("(none)", or no line) -> no declaration, whatever the table and Not-for list say',
+    readIntent('Picture intent:\n\nThe mood is calm').length === 0 && readIntent('Picture intent: (none yet)').length === 0 && readIntent('- **Picture intent:** dark')[0]?.want === 'dark' &&
     readIntent(design('(none)')).length === 0 && readIntent(design('').replace(/Picture intent.*\n/, '')).length === 0
     && pictureHints({ numbers: soft, intent: readIntent(design('(none)')) }).length === 0);
   check('words separated by commas or spaces, any case', readIntent(design('Bright  muted,strong-light')).map(a => a.want).join() === 'bright,muted,strongLight');
@@ -195,6 +196,10 @@ export async function run({ check }) {
   check('[guard] shot and snap both run pagePicture (one checker), shot --image runs imagePicture; neither keeps a private copy of the probe call',
     /pagePicture\(/.test(src('shot.mjs')) && /imagePicture\(/.test(src('shot.mjs')) && /pagePicture\(/.test(src('threedog/commands.mjs'))
     && !/probePicture\.toString/.test(src('shot.mjs') + src('threedog/commands.mjs')));
+  // a probe that fails while it sets up (here: no document) must not leave the engine marked as probing: the who-wrote-it record and the light watch would stay off
+  const failed = { _probing: false };
+  await (0, eval)(`(${probeSource})`)(failed, {}).catch(() => {});
+  check('[guard] a probe that throws in its setup leaves _probing off', failed._probing === false);
   const tmp = mkdtempSync(join(tmpdir(), 'threedog-picture-'));
   try {
     writeFileSync(join(tmp, 'g.png'), png(480, 270, (x, y) => ((x % 60 < 6 && y % 60 < 6) ? [255, 245, 225] : [30, 32, 40])));

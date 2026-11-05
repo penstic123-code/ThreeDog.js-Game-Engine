@@ -125,8 +125,7 @@ Code that breaks saves or manages world models: none (rule R33).
 
 - Save prefix saveKey: threedog-action
 - Save slots: slot1
-- Save entries the game registers itself: ' +
-    'action
+- Save entries the game registers itself: action
 - Saved parts of the engine modules (vars, inventory, quests, timers, world...): `threedog catalog` (saves per module)
 
 ## Style keys

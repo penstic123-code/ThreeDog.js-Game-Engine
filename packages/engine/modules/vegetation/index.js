@@ -2,11 +2,11 @@
 // felled trees; Vegetation.js) and 'vegetationDraw' (instanced meshes, wind, fade, LOD; draw.js, slot 'vegetation-draw').
 // Why two: collision, paths and felling read only the data, so engine.use(myPlants, { replaces: 'vegetation-draw' }) swaps every pixel
 // of the plants and keeps all of play.
-import { readParams, keysSchema } from '../../core/params.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { Vegetation } from './Vegetation.js';
 import { VegetationDraw } from './draw.js';
 import { GROUND_DEFAULTS } from './groundChunks.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
 const VEG_PARAMS = keysSchema(OPTS, GROUND_DEFAULTS);   // defaults of the own-chunks mode (without terrain)

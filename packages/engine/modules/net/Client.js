@@ -7,7 +7,7 @@
 //     prediction / rollback is a later step).
 //   - world.simulate does not run here: the host simulates and the result arrives as diffs (two simulations would fight).
 import { applyPart, idMap } from './sync.js';
-import { failure } from '../../core/opsFail.js';
+import { failure } from '../../core/ops/opsFail.js';
 
 const STEP = 1 / 60;
 const ASK_EVERY = 30;   // steps between snapshot requests while out of step
@@ -104,7 +104,7 @@ export class NetClient {
     }
   }
   /**
-   * A character the host drives (an NPC, another player's avatar): net holds its control slot for good (core/control.js, layer 'net'), so a
+   * A character the host drives (an NPC, another player's avatar): net holds its control slot for good (core/ops/control.js, layer 'net'), so a
    * local walkTo / cutscene / script on it is a control-net error instead of a move the next diff silently undoes. Own avatar: ours, never held.
    */
   hold(id) {

@@ -11,7 +11,7 @@ export const specs = [
         const p = engine.post, pr0 = engine.renderer.getPixelRatio(), out = { fresh: !p.composer };
         engine.setPixelRatio(1.5);   // 后期在像素比不是 1 时建起来，才会暴露"设备像素再乘像素比"
         p.setAntialias(true); engine.step(1 / 30, { render: true });
-        const css = engine.renderer.getSize(new engine.THREE.Vector2());
+        const css = engine.renderer.getSize(new __threedogThree.Vector2());
         for (const pr of [1, 2, 1.4]) {
           engine.setPixelRatio(pr); engine.step(1 / 30, { render: true });
           out[pr] = [p.composer.renderTarget1.width, p.composer.renderTarget2.height, Math.round(css.x * pr), Math.round(css.y * pr)];

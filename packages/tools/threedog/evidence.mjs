@@ -58,8 +58,7 @@ export function coverage(cov, sections = []) {
   const evPrefix = new Set(cov.events.map(n => String(n).split(/[:.]/)[0]));
   const tested = [], indirect = [], untested = [];
   for (const m of cov.modules) {
-    const why = [m.ops.some(o => ranNames.has(o)) || prefixes.has(m.id) ? 'op' : null].filter(Boolean);
-    if (why.length) { tested.push(m.id); continue; }
+    if (m.ops.some(o => ranNames.has(o)) || prefixes.has(m.id)) { tested.push(m.id); continue; }
     const via = [sections.includes(m.id) && 'describe compared', (cov.changedParts.includes(m.id) || m.saves.some(k => cov.changedParts.includes(k))) && 'state changed',
       evPrefix.has(m.id) && 'events fired'].filter(Boolean);
     if (via.length) indirect.push({ id: m.id, via }); else untested.push(m.id);

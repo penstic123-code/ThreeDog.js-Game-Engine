@@ -6,7 +6,7 @@
 // three takes this path only while vertex buffers suffice (Instance.js canReferenceInstanceData, 8-buffer limit); otherwise it compiles per mesh,
 // which would mean copying three's private logic, so that case throws by name. BatchedMesh's batch matrices are also private to three: same error.
 import { Fn, vec4, mat3, modelWorldMatrix, referenceAttribute } from 'three/tsl';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const MAX_VERTEX_BUFFERS = 8;   // three/src/nodes/accessors/Instance.js (same constant, same test)
 

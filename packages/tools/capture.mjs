@@ -42,7 +42,7 @@ const page = await newGamePage(browser, { errors, viewport: { width: W, height: 
 let spectorNote = '', file = null, failed = null;
 
 try {
-  // desktop tier like shot (core/tier.js): the captured frame is the one the game's picture is made of, costly post included
+  // desktop tier like shot (core/scene/tier.js): the captured frame is the one the game's picture is made of, costly post included
   const q = new URLSearchParams({ 'threedog-tier': 'high', wait: '1', cutscene: 'skip' });
   for (const k of ['time', 'weather', 'pos']) if (opt[k]) q.set(k, opt[k]);
   await page.goto(base + headlessUrl(url, q));

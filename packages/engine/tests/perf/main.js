@@ -13,11 +13,11 @@ import { createEngine, presets, Character, characters, createTerrain, openWorld,
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { SLOTS } from '../../render/slots.js';
 import { injectUICSS } from '../../ui/theme.js';
-import { toGLB } from '../../core/Baked.js';
-import { protoOf } from '../../core/namedModel.js';
+import { toGLB } from '../../core/assets/Baked.js';
+import { protoOf } from '../../core/assets/namedModel.js';
 import { neutralMaterial } from '../../render/neutral.js';
 import { isEngineMade } from '../../render/patches.js';
-import { Assets } from '../../core/Assets.js';
+import { Assets } from '../../core/assets/Assets.js';
 import { NOISE_GLSL } from '../../render/effects.js';
 import worldScene from '../fixtures/world-scene/index.js';   // the world example's picture and art (mode world draws that scene)
 import { models as sceneryModels, assets as sceneryArt } from '../../examples/world/art/index.js';

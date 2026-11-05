@@ -1,9 +1,9 @@
 // Main-thread side of terrain({ shape }): checks the options and turns its functions into source text for the workers (the same rules as
 // height / groundType), keeps the side material out of the worker config, and watches for things falling out of the world (terrain:void).
 // The engine does not respawn anything: what falling off means (respawn, damage, a cutscene) is the game's choice.
-import { readParams, keysSchema } from '../../core/params.js';
-import { compilePure } from '../../core/threadPure.js';
-import { codedError } from '../../core/errorHints.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { compilePure } from '../../core/threads/threadPure.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const NO_MASK = 'terrain({ shape }): mask is required, a pure (x, z, n) => number that is > 0 where there is ground, '
   + 'e.g. mask: (x, z) => 40 - Math.hypot(x, z), or a gray image { url, size: [200, 200], threshold: 0.5 }';

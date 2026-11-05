@@ -81,7 +81,7 @@ that should not see it. It is page-wide: every engine on the page loses the chan
 
 | You want | Use |
 |---|---|
-| THREE itself | `import { THREE } from 'threedog'` or `engine.THREE` (the same copy the engine uses) |
+| THREE itself | `import { THREE } from 'threedog'` (the same copy the engine uses) |
 | Scene / camera / renderer | `engine.scene`, `engine.camera` (PerspectiveCamera), `engine.renderer` (WebGPURenderer on the default route of a new game, WebGLRenderer on `--webgl`) |
 | Player, NPCs | `engine.player.root`, `engine.npcs.get('name').root` (Group); position `.position` (Vector3) |
 | Pickups, template instances | `pickups.spawn(...)` returns a handle with `.object` (Mesh); a template instance's model is `engine.world.view(id)` (exists only near) |

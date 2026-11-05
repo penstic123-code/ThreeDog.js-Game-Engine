@@ -13,10 +13,16 @@ export const specs = [
     url: PAGE,
     async run({ check }) {
       const missing = await unregistered();
-      check('no code is raised without an entry (add it to core/errorCodes.js with fix + docs)', missing.length === 0, missing.join('; '));
-      const { ERROR_CODES } = await import(new URL('../../core/errorCodes.js', import.meta.url).href);
+      check('no code is raised without an entry (add it to core/base/errorCodes.js with fix + docs)', missing.length === 0, missing.join('; '));
+      const { ERROR_CODES } = await import(new URL('../../core/base/errorCodes.js', import.meta.url).href);
       const dead = Object.entries(ERROR_CODES).flatMap(([k, v]) => (v.docs || []).filter(d => !existsSync(new URL('../../docs/' + d, import.meta.url))).map(d => `${k}: ${d}`));
       check('every docs link of every code points at an existing page', dead.length === 0, dead.join('; '));
+      check('plugin-shape lists only what plugs in (a Material or ShaderPatch is refused)', !/a Material|ShaderPatch/.test(ERROR_CODES['plugin-shape'].fix), ERROR_CODES['plugin-shape'].fix);
+      check('camera-none does not promise a camera openWorld only installs when named', !/openWorld installs followCamera/.test(ERROR_CODES['camera-none'].fix), ERROR_CODES['camera-none'].fix);
+      const { vec3 } = await import(new URL('../../core/base/math.js', import.meta.url).href);
+      let zero = null;
+      try { vec3(0); } catch (err) { zero = err.code; }
+      check('vec3: the old (x, z) form starting at 0 throws like any other number, it does not become the origin', zero === 'bad-position', String(zero));
     },
   },
   {
@@ -115,6 +121,228 @@ export const specs = [
     },
   },
   {
+    name: 'Final review: time and session -- real and repeating event timers survive a load; requests and real mods survive a tick restart; a double Restart is one',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine } = threedogThreads;
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'fr-time' });
+        await E.start();
+        const hits = { real: 0, rep: 0 };
+        E.events.on('fr:real', () => hits.real++); E.events.on('fr:rep', () => hits.rep++);
+        E.step(4);
+        E.clock.after(1, 'fr:real', { channel: 'real' });
+        E.clock.every(1, 'fr:rep', { channel: 'real' });
+        await E.saves.save('t');
+        await E.session.load('t');   // tick restarts: 'real' due times must shift with it
+        E.step(0.5); const early = hits.real;
+        E.step(3); const fired = { ...hits };
+        // a request that outlives the load, and a mod no save holds
+        E.step(5);
+        let late = false; const p = E.nextFixed(() => { late = true; });
+        E.stacks.define('fr.point', { save: false });
+        const gone = []; E.events.on('mod:end', d => gone.push(d.target));
+        E.mod('fr.point', { owner: 'fr', mul: 2, for: 1 });
+        const a = E.session.newGame(), b = E.session.newGame();   // a double-clicked Restart
+        let starts = 0; E.events.on('session:start', () => starts++);
+        await Promise.all([a, b]);
+        E.step(0.1); await p;
+        E.step(1.1);
+        const out = { early, fired, late, starts, modEnded: gone.includes('fr.point'), same: a === b };
+        E.ops.allow(() => { E.vars.flags.frKept = true; });
+        await E.saves.save('t');
+        const asked = [E.session.newGame(), E.session.load('t')];   // a load asked while ?play's new game runs
+        out.loaded = (await Promise.all(asked))[1]; out.kept = E.vars.flags.frKept === true;
+        E.dispose();
+        return out;
+      });
+      check('a real timer keeps its time left through session.load', r.early === 0 && r.fired.real === 1, JSON.stringify(r));
+      check('a repeating event timer still repeats after a load', r.fired.rep >= 3, JSON.stringify(r));
+      check('a nextFixed made before newGame lands soon after it', r.late === true, JSON.stringify(r));
+      check('an unsaved real-clock mod keeps its time left through the restart', r.modEnded === true, JSON.stringify(r));
+      check('two overlapping newGame calls are one replacement', r.starts === 1 && r.same === true, JSON.stringify(r));
+      check('a load asked during a new game waits for it and then loads', r.loaded === true && r.kept === true, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'Final review: hooks and bus -- a removed hook or listener does not fire later in the same pass; dispose in a hook ends step; no canvas works; disabled name is free again',
+    url: PAGE,
+    expectErrors: /picture/,   // the module that throws on purpose
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine } = threedogThreads;
+        const E = createEngine({ headless: true, urlState: false, saveKey: 'fr-hooks' });   // no canvas: three makes one
+        const noCanvas = E.renderer.domElement === E.input.canvas;
+        await E.start();
+        const n = { frame: 0, fixed: 0, ev: 0, hook: 0, disposed: 0 };
+        let hb, hf, he;
+        const killer = E.onFrame(() => hb.remove()); hb = E.onFrame(() => n.frame++);
+        E.onFixed(() => hf.remove()); hf = E.onFixed(() => n.fixed++);
+        E.events.on('fr:x', () => he.remove()); he = E.events.on('fr:x', () => n.ev++);
+        E.use({ name: 'frA', stage: 'control', frame(dt, e) { if (e.has('frB')) e.unuse('frB'); } }, { name: 'frB', frame() { n.hook++; }, dispose() { n.disposed++; } });
+        E.step(1 / 60, { describe: false }); E.events.emit('fr:x');
+        killer.remove();
+        // a picture module that threw and was disabled: a new one of that name gets its hooks
+        let good = 0;
+        E.use({ name: 'frP', type: 'picture', frame() { throw new Error('picture'); } });
+        E.step(1 / 60, { describe: false });
+        E.unuse('frP'); E.use({ name: 'frP', type: 'picture', frame() { good++; } });
+        E.step(1 / 60, { describe: false });
+        const undoRev = (() => {
+          E.ops.define('fr.u', { run: () => 1, undo: () => {} });
+          const a = E.ops.run('fr.u').revision; E.ops.undo('fr.u', {}, 1);
+          return E.ops.revision > a;
+        })();
+        const hold = E.freeze('threedog:load-parts'), undoHeld = E.ops.undo('fr.u', {}, 1).code; hold.remove();
+        let nullLoad = false;
+        E.saves.register('frNull', { atomic: true, save: () => null, load: () => { nullLoad = true; } });
+        E.ops.define('fr.bad', { atomic: true, run: () => ({ ok: false, code: 'no' }) });
+        E.ops.run('fr.bad');
+        let after = 0;
+        E.onFixed(() => { E.dispose(); }); E.onFixed(() => after++);
+        const stepped = E.step(1, { describe: false });
+        return { n, noCanvas, good, undoHeld, undoRev, nullLoad, after, stepped, disposed: E.disposed };
+      });
+      check('createEngine without a canvas binds input to the canvas three made', r.noCanvas === true, JSON.stringify(r));
+      check('hooks and listeners removed earlier in the pass stay silent', r.n.frame === 0 && r.n.fixed === 0 && r.n.ev === 0, JSON.stringify(r.n));
+      check('a module unloaded by an earlier hook gets no hook after its dispose', r.n.hook === 0 && r.n.disposed === 1, JSON.stringify(r.n));
+      check('a disabled module name does not disable its replacement', r.good === 1, JSON.stringify(r));
+      check('ops.undo moves the revision', r.undoRev === true, JSON.stringify(r));
+      check('ops.undo refuses like ops.run while save parts load', r.undoHeld === 'loading', JSON.stringify(r));
+      check('an atomic rollback never hands load() null', r.nullLoad === false, JSON.stringify(r));
+      check('dispose inside a fixed hook stops the pass and the step', r.after === 0 && r.stepped === null && r.disposed === true, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'Final review: input -- chorded mouse buttons, a muted key forgotten on blur, an action two owners share',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine } = threedogThreads;
+        const canvas = document.createElement('canvas'); canvas.setPointerCapture = () => {}; document.body.append(canvas);
+        const E = createEngine({ canvas, headless: true, urlState: false, saveKey: 'fr-input' });
+        await E.start();
+        const I = E.input, pe = (t, button, buttons) => canvas.dispatchEvent(new PointerEvent(t, { pointerType: 'mouse', pointerId: 1, button, buttons, bubbles: true }));
+        pe('pointerdown', 0, 1);
+        pe('pointermove', 2, 3);   // right pressed while left is held: no pointerdown in a real browser
+        const chord = [I.keys.has('Mouse0'), I.keys.has('Mouse2')];
+        pe('pointermove', 0, 2);   // left let go first
+        const leftUp = !I.keys.has('Mouse0');
+        pe('pointerup', 2, 0);
+        const allUp = !I.keys.has('Mouse0') && !I.keys.has('Mouse2');
+        I._muted.add('KeyW'); E.events.emit('page:blur', { focused: false, visible: true });
+        const muted = I._muted.size;
+        const a = I.action('frShared', { owner: 'a', optional: true }), b = I.action('frShared', { owner: 'b', optional: true });
+        a.remove(); const kept = I.actions.has('frShared'); b.remove(); const freed = !I.actions.has('frShared');
+        E.dispose(); canvas.remove();
+        return { chord, leftUp, allUp, muted, kept, freed };
+      });
+      check('a second button while one is held is seen', r.chord[0] && r.chord[1], JSON.stringify(r));
+      check('releasing in any order leaves no key stuck', r.leftUp && r.allUp, JSON.stringify(r));
+      check('blur forgets muted keys', r.muted === 0, JSON.stringify(r));
+      check('a shared action lives until its last owner goes', r.kept && r.freed, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'Final review: saves and scenarios -- a bad attachment is refused, a slot another tab deleted saves again, a scenario that throws still ends',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine } = threedogThreads;
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'fr-saves' });
+        await E.start();
+        const S = E.saves, file = JSON.stringify({ threedog: 'save', format: 1, data: S.collect(), files: [{ group: 'a', id: 'b', url: 'data:text/plain;base64,@@@' }] });
+        let imported = 'threw'; try { imported = await S.importFile(new Blob([file])); } catch { /* the bug */ }
+        await S.save('x'); await S.flush();
+        await S.store.deleteSlot('x'); S._show('x', null);   // what a note from the other tab does
+        const again = await S.save('x');
+        await E.applyState({ pos: 'abc' }).catch(() => {});
+        const applied = E.stateApplied;
+        await S.remove('x'); E.dispose();
+        return { imported, again, applied };
+      });
+      check('an attachment with bad base64 resolves null', r.imported === null, JSON.stringify(r));
+      check('a slot deleted elsewhere can be saved again', r.again === true, JSON.stringify(r));
+      check('stateApplied comes back after a scenario that failed', r.applied === true, JSON.stringify(r));
+    },
+  },
+  {
+    name: 'Final review: debug overrides -- material.clone works after a view, a game swap survives the undo, an owned value stays driven',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, THREE } = threedogThreads;
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'fr-debug' });
+        await E.start();
+        const mat = new THREE.MeshStandardMaterial(), m = new THREE.Mesh(new THREE.BoxGeometry(), mat);
+        E.scene.add(m);
+        const h = E.debug.override('fr', m, { material: 'wire' });
+        const stand = m.material;
+        h.remove();
+        let cloned = true; try { mat.clone(); stand.clone(); } catch { cloned = false; }
+        const h2 = E.debug.override('fr', m, { material: 'wire' }), swap = new THREE.MeshBasicMaterial();
+        m.material = swap; h2.remove();
+        const kept = m.material === swap;
+        const far = E.camera.far, h3 = E.debug.override('fr', E.camera, 'far', 500);
+        E.step(1 / 60, { describe: false }); h3.remove();
+        const back = E.camera.far === far;
+        let bare = ''; try { E.debug.override('fr', m); } catch (err) { bare = err.code; }
+        E.dispose();
+        return { cloned, kept, back, bare };
+      });
+      check('a material and its stand-in clone after a debug view', r.cloned === true, JSON.stringify(r));
+      check('undo leaves a material the game swapped in', r.kept === true, JSON.stringify(r));
+      check('an override gives an owned value back', r.back === true, JSON.stringify(r));
+      check('override with no patch names the fix', r.bare === 'debug-override', JSON.stringify(r));
+    },
+  },
+  {
+    name: 'Final review: stream and batching -- a throwing attach keeps queued at zero; whenReady after remove rejects; a same-count child swap redraws; mirrored stays out; refresh of a child',
+    url: PAGE,
+    expectErrors: /attach boom/,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, THREE } = threedogThreads;
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'fr-batch', batching: { minCount: 2 } });
+        await E.start();
+        let built = 0; const ownAdd = E.add;
+        E.add = () => { throw new Error('attach boom'); };
+        E.stream.add({ position: [0, 0, 0], radius: 6, build: () => { built++; return new THREE.Object3D(); } });
+        E.step(0.1, { describe: false }); await new Promise(res => setTimeout(res, 0));
+        delete E.add; if (E.add !== ownAdd) E.add = ownAdd;
+        const queued = E.stream.queued;
+        const src = E.stream.source([900, 0, 900], { name: 'fr' });
+        let rejected = false;
+        src.remove(); await Promise.race([src.whenReady.catch(() => { rejected = true; }), new Promise(res => setTimeout(res, 200))]);
+        const geo = new THREE.BoxGeometry(), mat = new THREE.MeshStandardMaterial();
+        const block = new THREE.Group(), kids = []; block.userData.batch = true;
+        for (let i = 0; i < 3; i++) { const k = new THREE.Mesh(geo, mat); k.position.x = i; block.add(k); kids.push(k); }
+        const flagA = new THREE.Object3D(), flagB = new THREE.Object3D(); block.add(flagA);
+        E.scene.add(block); E.step(1 / 60);
+        const batched = kids.every(k => k.userData.batched);
+        E.batching.skip(); E.batching.unskip();   // the draw list exists before the swap
+        block.remove(flagA); block.add(flagB);
+        let drawn = null; const h = E.onRender(() => {}, { when: 'before' });
+        E.batching.skip(); drawn = [...block.children]; E.batching.unskip(); h.remove();
+        const swapped = drawn.includes(flagB) && !drawn.includes(flagA);
+        const mirror = new THREE.Group(), left = []; mirror.userData.batch = true;
+        for (let i = 0; i < 3; i++) { const k = new THREE.Mesh(geo, mat); k.scale.x = -1; k.position.z = 5 + i; mirror.add(k); left.push(k); }
+        E.scene.add(mirror); E.step(1 / 60);
+        const mirrored = left.some(k => k.userData.batched);
+        const tracked = E.batching.roots.size; E.batching.refresh(kids[0]); E.step(1 / 60);
+        const refreshed = E.batching.roots.size === tracked;
+        E.dispose();
+        return { built, queued, rejected, batched, swapped, mirrored, refreshed };
+      });
+      check('a build whose attach throws is counted down once', r.built >= 1 && r.queued === 0, JSON.stringify(r));
+      check('whenReady after remove() rejects instead of hanging', r.rejected === true, JSON.stringify(r));
+      check('batching ran on the block', r.batched === true, JSON.stringify(r));
+      check('a child swapped in the same frame is drawn, the removed one is not', r.swapped === true, JSON.stringify(r));
+      check('a mirrored mesh is not batched', r.mirrored === false, JSON.stringify(r));
+      check('refresh of a child mesh keeps its root tracked', r.refreshed === true, JSON.stringify(r));
+    },
+  },
+  {
     name: 'Core review: session -- autosave waits outside play and stops with remove(); session.load resets parts the save lacks; newGame cancels a running skip',
     url: PAGE,
     async run({ check, ev }) {
@@ -210,18 +438,24 @@ export const specs = [
         E.use({ name: 'crLate', type: 'rules', label: 'late', init: () => { inited++; } });
         await new Promise(res => setTimeout(res, 0));
         out.lateInit = inited;
-        const THREE = E.THREE, g = new THREE.Group();
-        g.userData.animations = [new THREE.AnimationClip('idle', 1, [])];   // a model with a clip (one without clips gets no per-frame hook)
+        const THREE = __threedogThree, g = new THREE.Group();
+        g.animations = [new THREE.AnimationClip('idle', 1, [])];   // a model with a clip (one without clips gets no per-frame hook)
         E.add(g);
         const f0 = E.counts().frame;
         E.assets.animate(g, {});
         const f1 = E.counts().frame;
         E.remove(g);
         out.animator = { f0, f1, f2: E.counts().frame };
-        E.stream.addReadyCheck('cr-never', s => s.name !== 'teleport');
+        const never = E.stream.addReadyCheck('cr-never', s => s.name !== 'teleport');
         const tp = E.stream.teleport([30, 0, 30], { timeout: 0.5 }).then(() => 'moved', e => ({ code: e.code, names: /cr-never/.test(e.message) }));
         for (let i = 0; i < 20; i++) E.step(0.1);
         out.teleport = await tp;
+        never.remove();
+        const height = E.ground.height; E.ground.height = () => -Infinity;   // off a shaped terrain's outline
+        const off = E.stream.teleport([31, 0, 31]);
+        for (let i = 0; i < 5; i++) E.step(0.1);
+        await off; E.ground.height = height; out.offGroundY = E.focus.y;
+        out.badRadius = [Infinity, NaN].map(v => { try { E.stream.radius = v; return null; } catch (e) { return e.code; } });
         const src = E.stream.source([0, 0, 0]), gone = src.whenReady.then(() => 'ready', e => e.code); src.remove();
         out.removed = await gone;
         E.input._keyDown('PadRT', 'pad'); E.input._padOn = true; E.input.poll(1 / 60);
@@ -243,6 +477,7 @@ export const specs = [
       check('one name as a model and a texture throws asset-name-clash', r.clash === 'asset-name-clash', JSON.stringify(r));
       check('a module installed after start() has its init run', r.lateInit === 1, JSON.stringify(r));
       check('engine.remove of an animated model stops its animator (counts().frame back)', r.animator.f1 === r.animator.f0 + 1 && r.animator.f2 === r.animator.f0, JSON.stringify(r.animator));
+      check('teleport off the ground leaves engine.focus finite; a radius that would hang or build nothing is refused', Number.isFinite(r.offGroundY) && r.badRadius.every(c => c === 'stream-option'), JSON.stringify([r.offGroundY, r.badRadius]));
       check('teleport timeout rejects with stream-timeout naming the waiting loader; a removed source rejects whenReady', r.teleport?.code === 'stream-timeout' && r.teleport.names && r.removed === 'stream-removed', JSON.stringify(r));
       check('a gamepad that disconnects releases its buttons', r.padHeld === false, JSON.stringify(r));
       check('a clock timer error goes through the error tiers with a code, fix and docs', r.error?.code === 'clock-interval' && r.error.fix && r.error.docs > 0 && /clock timer/.test(r.error.where), JSON.stringify(r.error));

@@ -36,11 +36,12 @@
 //   A name in effects that the game never define()d is defined on the first emit/attach.
 // Material: each effect's material is a plain three.js material, swapped with fx.material = myMaterial and drawn as given; fx.uniforms are the engine's { value } objects.
 import * as THREE from 'three';
-import { vec3 } from '../../core/math.js';
+import { vec3 } from '../../core/base/math.js';
 import { Effect, NEUTRAL, KEYS } from './effect.js';
-import { warnMissing } from '../../core/validate.js';
-import { readParams, keysSchema, isOptions } from '../../core/params.js';
-import { codedError } from '../../core/errorHints.js';
+import { warnMissing } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { isOptions } from '../../core/base/util.js';
+import { codedError } from '../../core/base/errorHints.js';
 // one schema per public entry (unknown keys throw in dev with did-you-mean). Effect param values come in many shapes (number or [min, max], color), so only key names are checked
 const FX_PARAMS = keysSchema(KEYS);
 const PARTICLES_PARAMS = {
@@ -65,7 +66,7 @@ export class Particles {
     /** @internal */ this.engine = engine;
     /** @internal what particles({ effects }) gave */ this._given = effects;
     /** @internal what particles({ default }) gave */ this._fallback = fallback;
-    /** Defined effects @type {Map<string, ParticleEffect>} */
+    /** Defined effects @type {Map<string, ParticleEffect>} @experimental */
     this.effects = new Map();
     /** @internal */ this.emitters = new Set();
     /** @internal */ this._dir = new THREE.Vector3(); this._up = new THREE.Vector3(); this._t1 = new THREE.Vector3(); this._t2 = new THREE.Vector3();
@@ -153,7 +154,7 @@ export class Particles {
    * @param {string} [name]
    * @returns {void}
    */
-  clear(name) { for (const fx of name ? [this.effects.get(name)].filter(Boolean) : this.effects.values()) { fx.life.fill(0); fx.aAlpha.array.fill(0); fx.alive = 0; fx.points.visible = false; } }
+  clear(name) { for (const fx of name ? [this.effects.get(name)].filter(Boolean) : this.effects.values()) { fx.life.fill(0); fx.aAlpha.array.fill(0); fx.alive = 0; fx._stale = fx.max; fx.points.visible = false; } }
 
   /**
    * Update all effects every frame (called by the module each frame)
@@ -200,6 +201,7 @@ export function particles(opts = {}) {
   if (opts.default) readParams('particles({ default })', FX_PARAMS, opts.default);
   let p = null;
   return { name: 'particles', type: 'picture', provides: ['particles'], label: 'Particles', params: PARTICLES_PARAMS, options: opts, stage: 'effects', install(e) { e.i18n.add({ 'zh-CN': { 'module.particles': '粒子' }, en: { 'module.particles': 'particles' } }); p = new Particles(e, opts); return p; }, frame(dt) { p.update(dt); },
+    dispose() { for (const fx of p.effects.values()) fx.dispose(); p.effects.clear(); p.emitters.clear(); },
     counts() { return { alive: p.count(), emitters: p.emitters.size }; },   // engine.counts().particles
     // "did the dust burst fire": live particles in total and per effect that has any (idle effects left out to stay short). Kept under `alive`
     // because the numbers change every frame (an emitter's smoke): state comparisons (the session spec) skip that key as presentation, not game state

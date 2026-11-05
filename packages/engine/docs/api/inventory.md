@@ -7,7 +7,7 @@ Inventory (inventory() module)
   - `pauseGame?: boolean` true: gameplay freezes (engine.freeze) while the inventory window is open, default false. Also settable at runtime: engine.inventory.pauseGame
   - `capacity?: number` Slot limit of the player inventory, default Infinity (no limit)
   - `maxWeight?: number` Weight limit of the player inventory, default Infinity
-  - `defaultStack?: number` Default stack limit, default 99
+  - `defaultStack?: number` (experimental) Default stack limit, default 99
 
 ## Methods and properties
 - `inventory.of(actor?: string) → Container` — The bag of an actor (default engine.actor): the container with the actor's id, created empty on first use; inside an op pass ctx.actor
@@ -24,13 +24,13 @@ Inventory (inventory() module)
 - `inventory.container(id: string, opts?: { capacity?, maxWeight?, items? }) → Container` — Get or create a container (chest, corpse, shelf...); the id can be the id of a world record, and the contents are saved. A second call returns the same one; deleting the world record does not delete the container automatically
 - `inventory.transfer(from: Container | string, to: Container | string, item: string, n?: number) → number` — Move n (default 1) of an item or one entry key between containers (pieces keep data and key); moves fewer if the target cannot hold them all, returns how many were actually moved
 - `inventory.removeContainer(id: string) → boolean` — Delete a container together with its contents ('player' cannot be deleted), returns whether one was deleted
-- `inventory.contents() → Record<string, any[]>` — Every container's items as plain data, the player bag included: { [containerId]: entries } (what setContents takes; net syncs through these two)
-- `inventory.setContents(data: Record<string, any[] | null>, opts?: { only?: boolean })` — Replace containers' items from contents() data, silently like a save load; a null entry empties that container, only: true empties the rest too
+- `inventory.contents() → Record<string, any[]>` — (experimental) Every container's items as plain data, the player bag included: { [containerId]: entries } (what setContents takes; net syncs through these two)
+- `inventory.setContents(data: Record<string, any[] | null>, opts?: { only?: boolean })` — (experimental) Replace containers' items from contents() data, silently like a save load; a null entry empties that container, only: true empties the rest too
 - Properties:
   - `pauseGame: boolean` true: gameplay freezes while the inventory window is open (set from inventory({ pauseGame }) or at runtime)
-  - `capacity: number` Slot limit of the player inventory
-  - `bag: Container` Player inventory: the bag of engine.actor (= of())
-  - `slotsUsed: number` Slots used
+  - `capacity: number` (experimental) Slot limit of the player inventory
+  - `bag: Container` (experimental) Player inventory: the bag of engine.actor (= of())
+  - `defaultStack: number` (experimental) 
 
 ## Data structures
 - **ItemDef** Item definition
@@ -56,7 +56,7 @@ Inventory (inventory() module)
   - `radius?: number` Reach in meters, default pickups({ radius }) (2)
   - `auto?: boolean` Taken by walking into it (no key press, no prompt), by every actor in pickups.takers
   - `mesh?: Object3D | null` The game's own three.js object for this one pickup (only detached when it goes; otherwise the model name decides the shape)
-  - `respawnSeconds?: number` Game seconds until it reappears, 0 = never reappears
+  - `respawnSeconds?: number` Calendar seconds until it reappears, 0 = never reappears
   - `bob?: boolean` Bob up and down and rotate, default true
   - `initial?: boolean` Pickup authored in content (needs an id): the initial record of world; saves record only being picked up / waiting to respawn, with identical results whether the load comes before or after this spawn
   - `zone?: string | null` Which zone it belongs to (a level name, see world.zone): the data stays across level changes (a picked-up one stays picked up)

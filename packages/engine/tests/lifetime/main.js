@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import 'threedog/tsl';
 import { createEngine, terrain, vegetation, water, sky, particles, weather, mergeColored } from '../../index.js';
-import { threePatches } from '../../core/threePatches.js';
+import { threePatches } from '../../core/scene/threePatches.js';
 
 /** An engine with a few engine parts on; extra overrides createEngine options (renderer: 'webgpu', headless ...) */
 function make(extra = {}, parts = true) {

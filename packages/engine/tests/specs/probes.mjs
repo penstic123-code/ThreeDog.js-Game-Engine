@@ -60,6 +60,9 @@ export const specs = [
         try { await engine.bakeProbes({ bounds: { min: [0, 0, 0], max: [1, 1, 1] }, spacing: 1, spacng: 2 }); out.typo = 'no throw'; } catch (e) { out.typo = e.code; }
         try { await engine.bakeProbes({ bounds: { min: [0, 0, 0], max: [100, 100, 100] }, spacing: 1 }); out.tooMany = 'no throw'; } catch (e) { out.tooMany = e.code; }
         try { await engine.bakeProbes({ ...opt, follow: 'focus' }); out.follow = 'no throw'; } catch (e) { out.follow = e.code; }
+        // float noise on a flat axis (2 um over 3 m spacing): two layers a spacing apart, as an exactly flat one gets
+        const thin = await engine.bakeProbes({ bounds: { min: [0, 1, 0], max: [3, 1 + 2e-6, 3] }, spacing: 3, resolution: 4 });
+        out.thin = { counts: thin.counts, step: thin.step }; thin.remove();
         // the two checks: a lit object past the grid is named; a hemisphere light and an environment are reported as counted twice
         const stray = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshStandardMaterial()); stray.name = 'strayBox'; stray.position.set(40, 1, 0); engine.scene.add(stray);
         const hemi = new THREE.HemisphereLight(0xffffff, 0x000000, 1); hemi.name = 'fill'; engine.scene.add(hemi); engine.scene.updateMatrixWorld(true);
@@ -88,6 +91,7 @@ export const specs = [
       check('sample halfway is the average of the two grid probes; outside the grid it clamps to the edge', r.lerpErr < 1e-3 && r.clampErr < 1e-5, `${r.lerpErr} ${r.clampErr}`);
       check('toJSON -> loadProbes gives the same samples, exactly (both are half precision)', r.jsonErr === 0 && r.loadedSource === 'file', String(r.jsonErr));
       check('a damaged / foreign / version 1 file is refused (probes-data) and adds nothing', r.badData === 'probes-data' && r.badFormat === 'probes-data' && r.oldFile === 'probes-data' && r.countAfterBad === 0, J);
+      check('an axis thinner than a millionth of the spacing counts as flat: 2 layers, a whole step apart', r.thin.counts[1] === 2 && r.thin.step[1] === 3, JSON.stringify(r.thin));
       check('an option typo throws (module-params); too many probes throws (probes-option); follow is gone (module-params)', r.typo === 'module-params' && r.tooMany === 'probes-option' && r.follow === 'module-params', J);
       check('a second bake leaves one texture, the half atlas', r.texLeak === -1 || r.texLeak === 0, String(r.texLeak));
       check('[guard] describe names a lit object outside the grid and light counted twice (hemisphere), text line too', r.describe?.outside.names.includes('strayBox') && r.describe.doubled.some(x => /HemisphereLight/.test(x)) && r.text, JSON.stringify(r.describe));

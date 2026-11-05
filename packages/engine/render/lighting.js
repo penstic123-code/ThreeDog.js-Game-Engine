@@ -5,13 +5,15 @@
 // follow a toon ramp (a toon ramp is the better tool there); cloud shadows are not "shadow" for shadowTint.
 // All values are uniforms: materials differing only in numbers or colors share one program (the cacheKey holds which features are on).
 import * as THREE from 'three';
-import { readParams, keysSchema, isOptions } from '../core/params.js';
+import { readParams, keysSchema } from '../core/base/params.js';
+import { isOptions } from '../core/base/util.js';
 import { hashText } from './effects.js';
 import { declareUniforms } from './uniformDecl.js';
-import { codedError } from '../core/errorHints.js';
+import { codedError } from '../core/base/errorHints.js';
+import { LUMA } from './fxNumbers.js';
 
 const KEYS = ['wrap', 'shadowTint', 'rim', 'glsl', 'uniforms'];
-const lum = 'vec3(0.2126, 0.7152, 0.0722)';
+const lum = `vec3(${LUMA.join(', ')})`;
 
 // Callable (#include <threedog_lighting> in your own ShaderMaterial; the patch below calls the same functions, so the math lives once).
 // Plain inputs, no uniforms and no three internals: nl = dot(normal, sunDir), shadow 1 lit / 0 shadowed, viewDir from the surface to the eye.

@@ -13,7 +13,7 @@ export const specs = [
         W.set('s1-a', { hp: 4 });
         W.move(b.id, [p.x + 1, 0, p.z]);
         const near = W.query({ kind: 's1box', near: p, radius: 20 }).map(x => x.id);
-        let plainErr = null; try { W.add({ kind: 's1box', mesh: new engine.THREE.Mesh() }); } catch (e) { plainErr = e.message; }
+        let plainErr = null; try { W.add({ kind: 's1box', mesh: new __threedogThree.Mesh() }); } catch (e) { plainErr = e.message; }
         let dupErr = null; try { W.add({ id: 's1-a', kind: 's1box' }); } catch (e) { dupErr = e.message; }
         W.remove(b.id);
         h.remove();
@@ -35,7 +35,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();
-        const W = engine.world, T = engine.THREE, P = engine.player, home = P.position.clone();
+        const W = engine.world, T = __threedogThree, P = engine.player, home = P.position.clone();
         W.present('s1tree', { build: () => new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()), radius: 40 });
         let nearCalls = 0;
         W.simulate('s1crop', { near: () => { nearCalls++; }, far: (rec, dt) => W.set(rec.id, { growth: rec.growth + dt }), radius: 40 });
@@ -73,7 +73,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.haltLoop();
-        const W = engine.world, T = engine.THREE, p = engine.player.position, tick = () => new Promise(r => setTimeout(r, 0));
+        const W = engine.world, T = __threedogThree, p = engine.player.position, tick = () => new Promise(r => setTimeout(r, 0));
         const box = () => new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial());
         let R = 20;
         W.present('s1show', { build: box, show: rec => !rec.hidden, radius: () => R });

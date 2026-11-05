@@ -275,7 +275,7 @@ export interface Terrain {
   readonly voidY: number;
   /** Loaded chunks: 'cx,cz' → chunk */
   chunks: Map<string, TerrainChunk>;
-  /** View distance (in chunks); writing it takes effect like setViewChunks */
+  /** View distance (in chunks); writing it takes effect like setViewChunks @experimental */
   viewChunks: number;
   /** Vegetation density multiplier; writing it takes effect like setDensity */
   density: number;
@@ -283,13 +283,13 @@ export interface Terrain {
   applyBudgetMs: number;
   /** Statistics (for the debug panel); failed = chunks that failed every try (terrain:chunkFailed) */
   stats: { builtThisFrame: number; applyMs: number; queued: number; failed: number; visible?: number; loaded?: number; instances?: number };
-  /** Change the view distance (in chunks); camera far plane and, with viewFog, uViewDistance adjust too */
+  /** Change the view distance (in chunks); camera far plane and, with viewFog, uViewDistance adjust too @experimental */
   setViewChunks(n: number): void;
-  /** Change the vegetation density: plants are placed again on the loaded chunks; the ground and its collision stay */
+  /** Change the vegetation density: plants are placed again on the loaded chunks; the ground and its collision stay @experimental */
   setDensity(d: number): void;
   /**
    * Draw these chunks: the hooks a draw part that replaces 'terrain-draw' uses. add(c): generated (c.data holds pos / nor / col / uv / tex arrays,
-   * c.cx / c.cz the chunk); change(c): an edit rewrote c.data (same vertex count); remove(c): released; show(c, visible): in view or not.
+   * c.cx / c.cz the chunk); change(c): an edit rewrote c.data (the vertex count can differ on the rim of a shape with diagonal 'adaptive'); remove(c): released; show(c, visible): in view or not.
    * Chunks already loaded are added at once. Returns { remove() } (ctx.track it).
    * @example ctx.track(engine.terrain.view({ add(c) { draw(c) }, remove(c) { undraw(c) } }))
    */
@@ -467,13 +467,13 @@ export interface Vegetation {
   define(name: string, opts: VegetationOptions): Species | Promise<Species>;
   get(name: string): Species | undefined;
   list(): Species[];
-  isRemoved(species: string, cx: number, cz: number, id: number): boolean;
+  /** @experimental */ isRemoved(species: string, cx: number, cz: number, id: number): boolean;
   /**
-   * Remove one (chop a tree). regrowSeconds: grows back after this many game seconds, 0 = permanent. The record is saved with the save (save key
+   * Remove one (chop a tree). regrowSeconds: grows back after this many calendar seconds, 0 = permanent. The record is saved with the save (save key
    * 'vegetation'). Returns the entry name
    */
   removeInstance(species: string, cx: number, cz: number, id: number, opts?: { regrowSeconds?: number }): string;
-  /** Restore one */
+  /** Restore one @experimental */
   restoreInstance(species: string, cx: number, cz: number, id: number): void;
   /** The one nearest to position within radius meters (default 2) (species restricts to one kind), null if none */
   instanceAt(position: PositionLike, opts?: { radius?: number; species?: string | null }): VegetationHit | null;
@@ -486,7 +486,7 @@ export interface Vegetation {
 /** What engine.sky.environment reports */
 export interface SkyEnvironmentInfo { source: string, intensity: number, rotation: number, interval: number, builds: number }
 
-/** Parameters of sky({...}). The sky computes signals and draws the dome; lights and fog are the game's (sky({ sun | hemisphere | fog }) throw naming what to write). Picture values are start values here:
+/** Parameters of sky({...}). The sky computes signals and draws the dome; lights and fog are the game's. Picture values are start values here:
  *  after install the numbers are engine.uniforms (write .value), the rest engine.sky fields and calls (keyframes, clouds, layer, replace, backdrop, top, horizon, orbit, dim) */
 export interface SkyOptions extends Pick<SkyPictureOptions, 'clouds' | 'backdrop' | 'keyframes' | 'sunSize' | 'sunGlow' | 'sunBrightness' | 'moonColor' | 'moonBrightness' | 'starDensity' | 'dim'> {
   /**
@@ -530,10 +530,10 @@ export interface SkyPictureOptions {
   sunSize?: number;
   /** Sun glow, default 0.18 */
   sunGlow?: number;
-  /** Sun brightness, default 6 */
+  /** Sun brightness, default 6 @experimental */
   sunBrightness?: number;
-  moonColor?: ColorLike;
-  moonBrightness?: number;
+  /** @experimental */ moonColor?: ColorLike;
+  /** @experimental */ moonBrightness?: number;
   /** Share of the sky grid cells (0-1) that hold a star at night, default 0.0025 (0 = no stars). A probability, not a brightness: near 1 every cell is lit and the upper sky turns into a white sheet. */
   starDensity?: number;
   /**
@@ -551,18 +551,18 @@ export interface SkyPictureOptions {
 
 /**
  * One extra sky layer (modules/sky/domeLayers.js)
- * @example layers: [{ blend: 'add', uniforms: { uAurora: [0.2, 1, 0.6] }, glsl: `vec4 threedogSkyLayer(vec3 d, float time, vec3 sunDir, float night){
+ * @example engine.sky.layer('aurora', { blend: 'add', uniforms: { uAurora: [0.2, 1, 0.6] }, glsl: `vec4 threedogSkyLayer(vec3 d, float time, vec3 sunDir, float night){
  *   float band = smoothstep(0.25, 0.45, d.y) * (1.0 - smoothstep(0.55, 0.8, d.y)) * threedogNoise(vec2(d.x * 4.0 + time * 0.05, d.z * 2.0));
- *   return vec4(uAurora, band * night); }` }]
+ *   return vec4(uAurora, band * night); }` })
  */
 export interface SkyLayerOptions {
-  /** The layer's name, the key for engine.sky.layer(name, spec); default layer0, layer1 ... by position */
+  /** Not read: the layer's name is the first argument of engine.sky.layer(name, spec) */
   name?: string;
   /** Defines `vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)` returning (rgb, amount 0..1); renamed per layer, so layers never clash. WebGLRenderer draws it */
   glsl?: string;
   /** WebGPURenderer form: (ctx) => vec4 node (rgb, amount); ctx = { dir, time, sunDir, night, color (sky so far), uniforms, fx: { noise, hash }, tsl } (recipe 52 'tsl forms') */
   tsl?: (ctx: any) => any;
-  /** Custom uniforms (numbers, THREE.Color, [x, y(, z, w)], THREE.Texture), live in engine.sky.dome.material.uniforms */
+  /** Custom uniforms (numbers, THREE.Color, [x, y(, z, w)], THREE.Texture), live in engine.sky.uniforms on both renderers */
   uniforms?: Record<string, any>;
   /** Draw order among the layers, smaller first (default 0) */
   order?: number;
@@ -654,7 +654,7 @@ export interface MaterialDetail {
 export interface CalendarOptions {
   /** Time of day at start: 'HH:MM' or fraction of a day 0–1 (0.5 noon), default 0.33 (afterwards read / write engine.calendar.timeOfDay) */
   time?: string | number;
-  /** Game seconds per day, default Infinity: the time of day never moves until the game sets a length (presets.calendar.cycle has 360) (one hour = dayLength / hoursPerDay game seconds; with clock.rate 1 calendar seconds are real seconds) */
+  /** Calendar seconds per day, default Infinity: the time of day never moves until the game sets a length (presets.calendar.cycle has 360) (one hour = dayLength / hoursPerDay calendar seconds; with clock.rate 1 calendar seconds are real seconds) */
   dayLength?: number;
   /** Hours per day of the displayed clock and of clock notation ('18:30'), default 24 */
   hoursPerDay?: number;
@@ -1101,8 +1101,8 @@ export interface BudgetOver { category: string; value: number; limit: number; to
 export interface BudgetTagStat { tag: string; drawCalls: number; triangles: number }
 /** Budget report: ok means everything is within budget */
 export interface BudgetReport { ok: boolean; over: BudgetOver[] }
-// Budget (engine.budget) is generated from the JSDoc in core/Budget.js (npm run map); only the types are re-exported here
-import type { Budget } from './generated/core/Budget';
+// Budget (engine.budget) is generated from the JSDoc in core/inspect/Budget.js (npm run map); only the types are re-exported here
+import type { Budget } from './generated/core/inspect/Budget';
 export type { Budget };
 
 export type TerrainModule = ModuleDef<Terrain>;

@@ -5,15 +5,15 @@
 //     canGrow: (rec, e) => rec.watered }
 // Why the stage lives on the record and not on a separate registry: the record is what world saves, what content-check / content.fields() describe
 // and what the editor edits, so `stage` is an ordinary state field (default 0, range 0..n-1) and `stageAt` (engine.clock.now when it entered the stage)
-// sits beside it. Growth is counted in game seconds (clock.now), so a far record, a loaded save or a time skip all catch up in one pass.
+// sits beside it. Growth is counted in calendar seconds (clock.now), so a far record, a loaded save or a time skip all catch up in one pass.
 // Node-safe (no three): content-check imports this file directly, so the engine and the check accept the same stages.
-import { closest } from '../../core/validate.js';
-import { isModelName } from '../../core/util.js';
+import { closest } from '../../core/base/validate.js';
+import { isModelName } from '../../core/base/util.js';
 
 const STAGE_KEYS = ['name', 'duration', 'scale', 'model'];
 
 /**
- * Problems of a template's stages list (empty list = fine). Every stage but the last needs a duration (game seconds spent there); the last may omit it
+ * Problems of a template's stages list (empty list = fine). Every stage but the last needs a duration (calendar seconds spent there); the last may omit it
  * (stays there). model is a model name like the template's own model (no functions: stages are data an editor can show and content-check can read).
  * @param {string} where e.g. "template 'crop'"
  * @param {any} stages
@@ -37,8 +37,8 @@ export function stagesProblems(where, stages) {
     else if (names.has(s.name)) out.push(`${at}: name '${s.name}' is used by an earlier stage; stage names must differ`);
     else names.add(s.name);
     const last = i === stages.length - 1;
-    if (s.duration === undefined) { if (!last) out.push(`${at} needs duration (game seconds spent in this stage); only the last stage may leave it out`); }
-    else if (!Number.isFinite(s.duration) || s.duration <= 0) out.push(`${at}: duration must be a positive number of game seconds, got ${JSON.stringify(s.duration)}`);
+    if (s.duration === undefined) { if (!last) out.push(`${at} needs duration (calendar seconds spent in this stage); only the last stage may leave it out`); }
+    else if (!Number.isFinite(s.duration) || s.duration <= 0) out.push(`${at}: duration must be a positive number of calendar seconds, got ${JSON.stringify(s.duration)}`);
     if (s.scale !== undefined && (!Number.isFinite(s.scale) || s.scale <= 0)) {
       out.push(`${at}: scale must be a positive number (multiplies the instance scale), got ${JSON.stringify(s.scale)}`);
     }

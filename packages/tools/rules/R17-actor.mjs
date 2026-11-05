@@ -1,5 +1,5 @@
 // R17 "who acts" read straight from the player: `player?.position ?? …focus` / `player ? player.position : focus` in packages/engine/modules → warning.
-// Why: interactions, trigger zones, markers and ops measure from engine.actor (core/actor.js). A module that reads engine.player on its own
+// Why: interactions, trigger zones, markers and ops measure from engine.actor (core/ops/actor.js). A module that reads engine.player on its own
 // breaks as soon as a game hands control to a vehicle, another squad member or a selected unit, and each module would grow its own fallback.
 // Fix: engine.actorPosition() (the player by default, engine.focus without one). Code that really means the player's own body
 // (its physics capsule, its model) ends the line with // player-body.

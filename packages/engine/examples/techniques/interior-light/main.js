@@ -2,7 +2,7 @@
 // Technique example: interior light (page /interior-light.html, README.md next to this file). A neutral gray room (8 x 6 m, 3 m high) with a
 // window in the west wall and a door in the south wall. One skill: lighting a room from outside (sun through the opening, sky light through the
 // window), filling the shadowed side with bounce, the exposure change between outside and inside, and lamps at night.
-// (time and view are the engine's own URL scenario keys, see core/UrlState.js: page params use other names)
+// (time and view are the engine's own URL scenario keys, see core/inspect/UrlState.js: page params use other names)
 // URL: ?night=1  ?cam=inside|doorway|outside  ?fill=probes|light|none  ?area=0 (no window area light)  ?leak=1 (keep outdoor ambient indoors)
 // Test page for tests/specs/techniques-light.mjs: window.interiorTest = { THREE, ready, points, picture }. Shapes only here; the whole picture is picture/.
 import { createEngine, sky, fixedCamera, THREE } from 'threedog';

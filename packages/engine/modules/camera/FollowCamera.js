@@ -12,8 +12,8 @@
 import * as THREE from 'three';
 import { rigModule, defineRig, YAW_RIG, HIDE_RIG, clickToLock, releaseLock } from './common.js';
 import { setProjection } from './projection.js';
-import { codedError } from '../../core/errorHints.js';
-import { wrapAngle } from '../../core/math.js';
+import { codedError } from '../../core/base/errorHints.js';
+import { wrapAngle } from '../../core/base/math.js';
 
 const GROUND = ['raise', 'shorten', 'none'];
 // ground: 'shorten' sampling. 0.2 m: narrower than this the ground height rarely has a feature that blocks the view (posts and walls are colliders,

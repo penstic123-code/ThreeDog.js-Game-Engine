@@ -25,8 +25,8 @@ import { ts, walk, read, abs, dtsFiles, P } from './_lib.mjs';
 const ALLOW = [
   [`${P.RECIPES_REL}/11-vehicles.md`, 1, "'number | boolean'", 'in JS, [[x, z, true, false]].map(([x, z, steer, drive]) => …) destructuring is inferred as (number|boolean), a TypeScript inference limit, not a doc mistake'],
 ];
-// the folders of templates/game, plus what recipes name as a game's own helper folder
-const TEMPLATE_DIRS = new Set([...readdirSync(abs(`${P.TOOLS_REL}/templates/game`), { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name)]);
+// the folders of templates/game
+const TEMPLATE_DIRS = new Set(readdirSync(abs(`${P.TOOLS_REL}/templates/game`), { withFileTypes: true }).filter(d => d.isDirectory()).map(d => d.name));
 // forward slashes: it goes inside an import string, where a Windows backslash is an escape and the import silently stops resolving
 const INDEX = abs(P.INDEX_JS_REL).replaceAll('\\', '/');
 const CANARY = '<canary>';
@@ -61,7 +61,7 @@ export default {
             inBlock = false;
             if (ALLOW.some(([d, k, frag]) => d === doc && k === n && frag == null)) return;
             const code = buf.join('\n').replace(/(from\s+|import\s*\(\s*)(['"])(?:[^'"]*engine\/index\.js|@threedog\/engine|threedog)\2/g, (m, a, q) => `${a}${q}${INDEX}${q}`);
-            for (const m of code.matchAll(/\bfrom\s+['"]\.\/([\w-]+)\/[^'"]+['"]/g)) if (!TEMPLATE_DIRS.has(m[1])) bad.push({ level: 'error', file: doc, line: start + code.slice(0, m.index).split('\n').length - 1, msg: `js code block #${n}: imports ./${m[1]}/, a folder new games do not have`, fix: `use a folder of the game template (${[...TEMPLATE_DIRS].join(', ')}), or create the file in the same recipe and add it to R13's list` });
+            for (const m of code.matchAll(/\bfrom\s+['"]\.\/([\w-]+)\/[^'"]+['"]/g)) if (!TEMPLATE_DIRS.has(m[1])) bad.push({ level: 'error', file: doc, line: start + code.slice(0, m.index).split('\n').length - 1, msg: `js code block #${n}: imports ./${m[1]}/, a folder new games do not have`, fix: `use a folder of the game template (${[...TEMPLATE_DIRS].join(', ')})` });
             for (const m of code.matchAll(/\bslot:\s*'([^']+)'/g)) if (!slots.has(m[1])) bad.push({ level: 'error', file: doc, line: start + code.slice(0, m.index).split('\n').length - 1, msg: `js code block #${n}: '${m[1]}' is not a slot name`, fix: `use one of: ${[...slots].join(', ')}` });
             const file = join(dir, `${doc.replace(/[/.]/g, '_')}__${n}.js`);
             writeFileSync(file, code + '\nexport {};\n');

@@ -60,7 +60,7 @@ export * from './types/nav';
 /** three.js itself (the same instance the engine uses; typed by @types/three) */
 export * as THREE from 'three';
 
-/** Create an engine (core only). canvas is required; style is the game's style (see recipes/09-materials-lights-models.md) */
+/** Create an engine (core only). canvas is required */
 export function createEngine(opts: EngineOptions): Engine;
 /** The picture slots: what each one is and which describe('picture').picture.writers names it covers (a name ending in '.' covers everything under it) */
 export const PICTURE_SLOTS: Readonly<Record<PictureSlot, { readonly what: string; readonly values: readonly string[] }>>;
@@ -82,7 +82,7 @@ export interface OpenWorldOptions {
   flatten?: FlattenZone[];
   /** Start time 0-1 */
   time?: number;
-  /** Game seconds per day (default 360) */
+  /** Calendar seconds per day (default 360) */
   dayLength?: number;
   /** Starting weather name, false (no weather module) or weather() options */
   weather?: WeatherName | (string & {}) | Part<typeof weather>;
@@ -223,6 +223,7 @@ export function ease(e: Ease): (t: number) => number;
  * Warn once about unknown keys in extensible data (your item / record definitions where players or mods add their own fields), with a
  * "did you mean" hint. Options bags go through readParams instead (an unknown key throws in dev). loose only warns on near-misses.
  * @example checkOptions('crops.define()', def, ['grow', 'yield', 'season'], { loose: true });
+ * @experimental
  */
 export function checkOptions(where: string, opts: object | null | undefined, known: string[], flags?: { loose?: boolean }): void;
 /**
@@ -272,10 +273,10 @@ export type { UIPart, UIPartFactory, UIPartValue, UIPartDef, UIParts, UITitleIte
 export function parseClock(clock: string | number, hoursPerDay?: number): number;
 /** Fraction of the day -> 'HH:MM': formatClock(0.75) = '18:00' */
 export function formatClock(t: number, hoursPerDay?: number): string;
-/** Is time t (0-1, e.g. calendar.timeOfDay) inside the range [from, to)? from and to are 'HH:MM' or 0-1; from > to wraps past midnight. Used by calendar.between and the audio rule condition { time: [from, to] } */
+/** Is time t (0-1, e.g. calendar.timeOfDay) inside the range [from, to)? from and to are 'HH:MM' or 0-1; from > to wraps past midnight. Used by calendar.between and the audio rule condition { time: [from, to] } @experimental */
 export function inRange(t: number, from: string | number, to: string | number, hoursPerDay?: number): boolean;
 
-// ---------- Target selection (core/targeting.js, pure functions) ----------
+// ---------- Target selection (core/scene/targeting.js, pure functions) ----------
 /**
  * Options of pickTarget / switchTarget: radius meters (15); cone half-angle in radians (1.4); close meters inside which angle is ignored (2.5);
  * angleWeight meters per radian off the view (6); blocked(c) true skips c (occlusion); at(c) reads a candidate's position (default c.position ?? c)

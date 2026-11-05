@@ -1,4 +1,4 @@
-// Stage 2 item 4 (AI tools): describe snapshots instead of screenshots (tools/describe-snapshot.mjs) and errors that carry the likely cause + the doc page to read (core/errorHints.js).
+// Stage 2 item 4 (AI tools): describe snapshots instead of screenshots (tools/describe-snapshot.mjs) and errors that carry the likely cause + the doc page to read (core/base/errorHints.js).
 // Baselines live in packages/engine/tests/snapshots/*.describe.json; after an intended change update them with `threedog test "describe snapshot" --update-snapshots`.
 import { expectDescribe } from '@threedog/tools/describe-snapshot';
 
@@ -55,7 +55,7 @@ export const specs = [
       check('engine.error.at: the first stack line, also on the describeText error line', /^at |@\S+:\d+/.test(r.error?.at ?? '') && r.text.includes(`(${r.error.at})`), JSON.stringify(r.error?.at));
       // 为什么：一次试玩里 world.present 只调 modelNow 拿代码生成的模型，一直是 null 也没有说明
       const m = await ev(async () => {
-        engine.assets.manifest({ name: 'mn', models: { mnBox: { build: () => new engine.THREE.Mesh(new engine.THREE.BoxGeometry(1, 1, 1)) } } });
+        engine.assets.manifest({ name: 'mn', models: { mnBox: { build: () => new __threedogThree.Mesh(new __threedogThree.BoxGeometry(1, 1, 1)) } } });
         const first = await __t.warns(() => engine.assets.modelNow('mnBox'));
         await engine.assets.model('mnBox');
         const later = await __t.warns(() => engine.assets.modelNow('mnBox'));

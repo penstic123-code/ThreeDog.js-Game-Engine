@@ -2,7 +2,7 @@
 // so one module's file layout can change without breaking another. Flags any import in packages/engine/modules/<module>/ (`from '...'`, `import '...'`,
 // dynamic `import('...')`) whose path, resolved, lands in another module folder ('../nav/x.js' and '../../modules/nav/x.js' alike).
 // Allowed pairs below, each with its reason: only worker-safe files that the owning module itself says it shares with a worker (the module's
-// public entry imports core/math.js and with it three.js, which a worker must not load). R25 covers the same boundary for _private members.
+// public entry imports core/base/math.js and with it three.js, which a worker must not load). R25 covers the same boundary for _private members.
 import { lines, walk, importSpecs, moduleTarget, P } from './_lib.mjs';
 
 // [importing module, target path prefix, why]

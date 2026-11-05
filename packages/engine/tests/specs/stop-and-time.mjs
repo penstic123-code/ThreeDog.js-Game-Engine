@@ -6,7 +6,7 @@ export const specs = [
     async run({ page, check, ev }) {
       await page.waitForFunction(() => window.engine?.ready && window.engine.rigid?.ready, null, { timeout: 60000 });
       const r = await ev(async () => {
-        const e = window.engine, R = e.rigid, T = e.THREE;
+        const e = window.engine, R = e.rigid, T = __threedogThree;
         e.haltLoop();
         const drop = () => { const b = R.addBox(new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()), { size: [1, 1, 1], mass: 1 }); R.setPosition(b, [3, 80, 3]); return b; };
         const fall = (mod) => {

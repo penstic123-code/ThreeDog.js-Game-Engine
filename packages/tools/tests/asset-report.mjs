@@ -1,11 +1,11 @@
-// Import report: engine.assets.report logic (core/assetReport.js) on a scene built with three in node.
+// Import report: engine.assets.report logic (core/assets/assetReport.js) on a scene built with three in node.
 // Guards: normal map lost / material replaced by a style role / clip lost / unmapped clip are flagged, wrong color spaces are flagged, output color space is checked.
 import * as THREE from 'three';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
-const { reportGltf } = await import(pathToFileURL(join(ENGINE, 'core/assetReport.js')).href);
+const { reportGltf } = await import(pathToFileURL(join(ENGINE, 'core/assets/assetReport.js')).href);
 
 export const name = 'assets report: lost normal maps, replaced materials, clips, color spaces';
 

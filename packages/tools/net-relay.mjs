@@ -24,9 +24,11 @@ const server = createServer((req, res) => { res.writeHead(200, { 'content-type':
 server.on('upgrade', (req, socket) => {
   const key = req.headers['sec-websocket-key'];
   if (!key) return socket.destroy();
+  let url;
+  try { url = new URL(req.url, 'http://x'); } catch { return socket.destroy(); }   // a bad target throws here, and one stray request must not end every room
   const accept = createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64');
   socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
-  const url = new URL(req.url, 'http://x'), name = url.pathname.slice(1) || 'default';
+  const name = url.pathname.slice(1) || 'default';
   const conn = wrap(socket);
   // only a host creates a room: a guest knocking on an empty name must not leave an entry behind (every random name would stay in memory forever)
   if (url.searchParams.has('host')) {
@@ -64,6 +66,7 @@ function wrap(socket) {
     close() { if (closed) return; closed = true; live.delete(c); socket.end(frame(0x8, Buffer.alloc(0))); c.onClose?.(); },
   };
   socket.on('data', chunk => {
+    if (closed) return;   // close() only half closes: what the other side still writes is no message any more
     buf = Buffer.concat([buf, chunk]);
     for (;;) {
       if (buf.length < 2) return;
@@ -92,6 +95,8 @@ function wrap(socket) {
       c.onMessage?.(d);
     }
   });
+  // the http server's sockets stay half open by default: a peer that sends FIN with no close frame was still a guest of the room, and the host never heard it leave
+  socket.on('end', () => { c.close(); socket.destroy(); });
   socket.on('close', () => { if (!closed) { closed = true; live.delete(c); c.onClose?.(); } });
   live.add(c);
   socket.on('error', () => socket.destroy());

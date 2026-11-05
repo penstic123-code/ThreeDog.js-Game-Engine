@@ -1,4 +1,4 @@
-// describe().render: current renderer / post / light values, each tagged engine | style | game (core/describeRender.js).
+// describe().render: current renderer / post / light values, each tagged engine | style | game (core/inspect/describeRender.js).
 export const specs = [
   {
     name: '[guard] describe picture: values set directly on three.js objects are what describe().picture reports, with no engine call in between',
@@ -6,7 +6,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();
-        const T = engine.THREE, R = engine.renderer, S = engine.scene;
+        const T = __threedogThree, R = engine.renderer, S = engine.scene;
         const was = { tone: R.toneMapping, exposure: R.toneMappingExposure, fog: S.fog, bg: S.background, env: S.environment, envI: S.environmentIntensity, type: R.shadowMap.type, on: R.shadowMap.enabled };
         R.toneMapping = T.CineonToneMapping; R.toneMappingExposure = 0.00125;
         S.fog = new T.FogExp2(0x123456, 0.0375); S.background = new T.Color(0xabcdef);
@@ -45,8 +45,8 @@ export const specs = [
         const before = engine.describe().render;
         // tone mapping is plain three.js (written once at creation, never again): the game's direct write shows as game and stays after frames
         const m0 = engine.renderer.toneMapping;
-        engine.renderer.toneMapping = engine.THREE.NeutralToneMapping; engine.step(0.05); engine.step(0.05);
-        const after = engine.describe().render, kept = engine.renderer.toneMapping === engine.THREE.NeutralToneMapping;
+        engine.renderer.toneMapping = __threedogThree.NeutralToneMapping; engine.step(0.05); engine.step(0.05);
+        const after = engine.describe().render, kept = engine.renderer.toneMapping === __threedogThree.NeutralToneMapping;
         const text = engine.describeText({ full: true });
         engine.renderer.toneMapping = m0;
         return { before, after, kept, text };

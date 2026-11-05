@@ -1,8 +1,8 @@
 // Container table: implementation of inventory.container() / transfer() and the containers save part.
-import { DEV, warnOnce } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { DEV, warnOnce } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { Container } from './Container.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 /** Container table: implementation of inventory.container() / transfer(); bag is the home bag 'player' (saved as its own part, never removed). @internal */
 export class Containers {
@@ -32,7 +32,8 @@ export class Containers {
       this.map.set(id, c = new Container(this.inv, id, opts));
       // place goods only on first creation; seeding is setup, so the ops guard lets it through
       if (opts?.items) { c._start = { ...opts.items }; this._seed(c); }
-    } else {   // container created first by a load, game code sets the limits afterwards; if it already exists, goods are not placed again
+    } else {   // container created first by a load, game code sets the limits afterwards; if it already exists, goods are not placed again, but a later load of an older save needs them
+      if (opts?.items) c._start ??= { ...opts.items };
       if (opts?.capacity != null) c.capacity = opts.capacity;
       if (opts?.maxWeight != null) c.maxWeight = opts.maxWeight;
     }

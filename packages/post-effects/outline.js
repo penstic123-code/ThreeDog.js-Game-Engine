@@ -10,6 +10,8 @@ import { FULLSCREEN_VERT, DEPTH_GLSL, depthUniforms, writeDepthUniforms, depthNo
 /** Layer number to put on objects that should get no outline: mesh.layers.enable(OUTLINE_OFF_LAYER), with outline({ offLayer: OUTLINE_OFF_LAYER }) */
 export const OUTLINE_OFF_LAYER = RESERVED_LAYERS.outlineOff;
 const MODES = { depth: 0, normal: 1, both: 2 };
+// linear (0.5, 0.5, 1): an empty pixel reads as a normal facing the camera, and for the mask its red 0.5 stays below the > 0.5 test
+const EMPTY = new THREE.Color().setRGB(0.5, 0.5, 1, THREE.LinearSRGBColorSpace), _clear = new THREE.Color();
 const badMode = mode => codedError('post-effect', `outline: unknown mode '${mode}', use 'depth' | 'normal' | 'both'`);
 
 class OutlinePass extends Pass {
@@ -60,13 +62,14 @@ class OutlinePass extends Pass {
   }
   // Render the scene once with an override material into a target the size of the input
   _pass(renderer, rt, mat, layer) {
-    const { scene, camera } = this, bg = scene.background, fog = scene.fog, mask = camera.layers.mask, color = renderer.getClearColor(new THREE.Color()), alpha = renderer.getClearAlpha();
+    const { scene, camera } = this, bg = scene.background, fog = scene.fog, over = scene.overrideMaterial, mask = camera.layers.mask, alpha = renderer.getClearAlpha();
+    renderer.getClearColor(_clear);
     scene.overrideMaterial = mat; scene.background = null; scene.fog = null;
     if (layer != null) camera.layers.set(layer);
-    // linear (0.5, 0.5, 1): an empty pixel reads as a normal facing the camera, and for the mask its red 0.5 stays below the > 0.5 test
-    renderer.setClearColor(new THREE.Color().setRGB(0.5, 0.5, 1, THREE.LinearSRGBColorSpace), 1);
-    renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, camera);
-    scene.overrideMaterial = null; scene.background = bg; scene.fog = fog; camera.layers.mask = mask; renderer.setClearColor(color, alpha);
+    renderer.setClearColor(EMPTY, 1);
+    // what was there goes back, even when the render throws: an override may be a debug view's, and it must outlive this pass
+    try { renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, camera); }
+    finally { scene.overrideMaterial = over; scene.background = bg; scene.fog = fog; camera.layers.mask = mask; renderer.setClearColor(_clear, alpha); }
   }
   _target(rt, w, h, depth) {
     if (rt && (rt.width !== w || rt.height !== h)) { rt.setSize(w, h); return rt; }

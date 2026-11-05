@@ -29,7 +29,7 @@ import { applyDeps } from './lib/scaffold.mjs';
 
 // The engine alone (step 6): no style given, so neutral placeholders and flat ground
 const SOLO_MAIN = `// @ts-check
-import { createEngine, openWorld, THREE } from 'threedog';
+import { createEngine, openWorld, presets, THREE } from 'threedog';
 
 const canvas = /** @type {HTMLCanvasElement} */ (document.getElementById('view'));
 const engine = createEngine({ canvas });
@@ -113,7 +113,7 @@ export async function packExternal({ check, browser, keep = false }) {
     writeFileSync(join(app, 'package.json'), JSON.stringify({ name: 'threedog-external-check', private: true, type: 'module',
       scripts: { test: 'threedog test', check: 'threedog check', map: 'threedog map' },
       dependencies: { ...deps, '@threedog/post-effects': `file:../${postPkg.filename}` } }, null, 2));
-    copyTemplate(join(TOOLS, 'templates', 'game'), app);   // index.html, main.js, content/, vite.config.js and the docs of a new game
+    copyTemplate(app);   // index.html, main.js, content/, vite.config.js and the docs of a new game
     usePost(app);   // plugins/10-bloom.js: export default bloom(), as the docs show it, so types, build and the preview page need the post-effects package added above
     writeFileSync(join(app, 'bad.js'), BAD);
     writeFileSync(join(app, 'tsconfig.strict.json'), JSON.stringify(TSCONFIG, null, 2));

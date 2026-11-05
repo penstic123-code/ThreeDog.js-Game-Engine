@@ -1,11 +1,10 @@
 // GAMEMAP sections for what a game declares in code rather than in one content file (used by packages/tools/gamemap.mjs):
 // the content inventory line, object templates (content/templates.js + props { template } + engine.content.spawn), grids (grids.add / grids.define)
 // and the game's own events (interface GameEvents in the game's *.d.ts, merged with the events its code emits and listens to).
-import { walk as walkAll, read, uniq, balanced, balancedAll, splitTop } from '../lib/text.mjs';
+import { walk as walkAll } from '../lib/text.mjs';
+import { read, uniq, balanced, balancedAll, splitTop, noComments, cut } from './text.mjs';
 
-const noComments = t => t.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
 const flat = s => s.replace(/\s+/g, ' ').trim();
-const cut = (s, n) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 const NOT_CONTENT = new Set(['rules', 'startItems']);
 
 /** "Content: items 12 · npcs 5 · props 40 (templates 2) · kinds: crops 6": the inventory an AI sees before the details */
@@ -18,8 +17,11 @@ export function contentLine(c) {
   return parts.length ? `Content: ${parts.join(' · ')}` : 'Content: none (no content/ folder)';
 }
 
+/** Where an NPC is through the day: its schedule, its behavior, or where it stands (start and nothing else is a valid NPC). pos prints a position */
+export const npcWhere = (n, pos) => n.schedule?.length ? n.schedule.map(s => `${s.at} ${pos(s)}`).join(' · ') : n.behavior ?? (n.start ? `stands at ${pos(n.start)}` : '—');
+
 /** ops the game defines in code (ops.define('name', …)) */
-export const opsDefined = code => new Set([...code.matchAll(/ops\.define\(\s*'([\w.:-]+)'/g)].map(m => m[1]));
+const opsDefined = code => new Set([...code.matchAll(/ops\.define\(\s*'([\w.:-]+)'/g)].map(m => m[1]));
 
 /** Object templates: one table row per template, with placements (props { template }) and runtime spawns (engine.content.spawn('name', …)) */
 export function templateLines(c, files, g) {

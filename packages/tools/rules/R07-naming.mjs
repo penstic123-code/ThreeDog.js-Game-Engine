@@ -19,7 +19,7 @@
 //    names other APIs (load: saves.load, session.load, level.load...). Error.
 // Limitation: B only looks at the shape of the return type; it cannot know about methods that "return void but should be removable" (such as pickups.spawn, which
 // has no way to delete).
-import { ts, dtsProgram, dtsFiles, abs, rel, read, P } from './_lib.mjs';
+import { ts, dtsProgram, dtsFiles, abs, rel, read } from './_lib.mjs';
 
 const PREFIX = /^(add|attach|spawn|marker|register)/;
 // Allowlist: ['Type.member', reason]
@@ -34,7 +34,7 @@ const ENGINE_BANNED = new Map([['raycaster', 'engine.rays'], ['loader', 'engine.
 // hooks the game implements (module definitions, UI parts) and user-driven objects (Animator, like AnimationMixer)
 const HOOK_OWNERS = /^(ModuleDef|Module\w*Def|\w*Hooks|UIPart|Animator)$/;
 const NAMES = { off: 'returns a cancel function off()', handle: 'returns a handle with .remove()', stop: 'returns { stop() }' };
-export const CONVENTION_FILE = '.claude/rules/api-design.md';
+const CONVENTION_FILE = '.claude/rules/api-design.md';
 const SECTION = /^## Interface conventions\s*$/m;
 
 /** Parse the cancel convention out of the doc text; returns { kind } or { error } (exported for the rule tests) */
@@ -66,7 +66,6 @@ export default {
     function cancelKind(t) {
       t = checker.getNonNullableType(t);
       if (t.isUnion()) { const ks = [...new Set(t.types.map(cancelKind).filter(Boolean))]; return ks.length === 1 ? ks[0] : null; }
-      if (isFn(t) && !checker.getPropertiesOfType(t).length) return 'off';
       if (isFn(t)) return 'off';
       for (const [k, m] of [['handle', 'remove'], ['stop', 'stop']]) { const p = checker.getPropertyOfType(t, m); if (p
         && isFn(checker.getTypeOfSymbol(p))) return k; }
@@ -89,13 +88,14 @@ export default {
           readies.push({ who, kind, ...at(m) });
         }
         const isMethod = ts.isMethodSignature(m) || ts.isMethodDeclaration(m);
+        const chain = m.type && (ts.isThisTypeNode(m.type) || m.type.getText() === o.name.text);   // returning this is chaining, not a handle
         // G
         if (o.name.text === 'Engine' && ENGINE_BANNED.has(name))
           shape.push({ level: 'error', ...at(m), msg: `Engine.${name} reads like a three.js class or a verb used by other APIs`,
             fix: `use ${ENGINE_BANNED.get(name)} instead` });
         // C
         if (COLLECTION.has(name) && !isMethod && !isFn(checker.getTypeOfSymbol(sym)))
-          shape.push({ level: 'error', ...at(m), msg: `${who} is a property; list / get / has / count / find are methods everywhere else`,
+          shape.push({ level: 'error', ...at(m), msg: `${who} is a property; list / get / has are methods everywhere else`,
             fix: `make it ${name}()` });
         // D
         if (PLUMBING.has(name) && isMethod && !isInternalDoc(m) && !HOOK_OWNERS.test(o.name.text))
@@ -105,14 +105,11 @@ export default {
         if (isMethod) {
           const sig = checker.getSignatureFromDeclaration(m), ret = sig && checker.getNonNullableType(sig.getReturnType());
           const has = n => { const p = ret && checker.getPropertyOfType(ret, n); return p && isFn(checker.getTypeOfSymbol(p)); };
-          // returning this is chaining, not a handle
-          const selfRet = m.type && (ts.isThisTypeNode(m.type) || m.type.getText() === o.name.text);
-          if (ret && !selfRet && !ret.isUnion() && (has('stop') || has('cancel')) && !has('remove'))
+          if (ret && !chain && !ret.isUnion() && (has('stop') || has('cancel')) && !has('remove'))
             shape.push({ level: 'error', ...at(m), msg: `${who}() returns ${has('stop') ? 'stop()' : 'cancel()'} without remove()`,
               fix: 'return a handle with remove() (the cancel convention)' });
         }
-        const chain = m.type && (ts.isThisTypeNode(m.type) || m.type.getText() === o.name.text);   // returning this is chaining, not cancelling
-        if (PREFIX.test(name) && !chain && (ts.isMethodSignature(m) || ts.isMethodDeclaration(m))) {
+        if (PREFIX.test(name) && !chain && isMethod) {
           const sig = checker.getSignatureFromDeclaration(m);
           const k = sig && cancelKind(sig.getReturnType());
           if (k) cancels.push({ who, kind: k, ...at(m) });

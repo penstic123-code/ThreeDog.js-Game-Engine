@@ -4,7 +4,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { listArt, copyArt } from '../art.mjs';
+import { listArt, copyArt, exportsOf } from '../art.mjs';
 
 export const name = 'art: copy rewrites relative imports, brings referenced files, never overwrites without --force; list shows exports';
 
@@ -60,6 +60,14 @@ export async function run({ check }) {
     const forced = copyArt('../old-game', ['tree'], { cwd: now, force: true });
     check('--force overwrites; identical files are skipped', forced.conflicts.length === 0 && readFileSync(join(now, 'art', 'tree.js'), 'utf8') === copied
       && existsSync(join(now, 'art', 'parts', 'leaves.js')) && forced.same.length >= 1, JSON.stringify(forced));
+    const def = exportsOf('export default function makeWater() {}\nexport default function () {}\nexport function other() {}');
+    check('[guard] a default export reads as default, with its own name beside it', def[0].name === 'default' && def[0].local === 'makeWater' && def[1].name === 'default' && def[2].name === 'other', JSON.stringify(def));
+    mkdirSync(join(tmp, 'blender'));
+    writeFileSync(join(tmp, 'blender', 'rock.glb'), 'x');
+    check('[guard] a folder with no code copies its files', copyArt(join(tmp, 'blender'), [], { game: now, cwd: tmp, dry: true }).writes.length === 1);
+    mkdirSync(join(tmp, 'noted'));
+    writeFileSync(join(tmp, 'noted', 'a.js'), '// adapted from "The Book of Shaders"\nexport const a = () => 1;\n');
+    check('[guard] words in a comment are no package', !copyArt(join(tmp, 'noted'), [], { game: now, cwd: tmp, dry: true }).packages.length);
     let err = '';
     try { copyArt('../old-game', ['nothing-here'], { cwd: now }); } catch (e) { err = e.message; }
     check('an unknown name is an error that names art list', /art list/.test(err), err);

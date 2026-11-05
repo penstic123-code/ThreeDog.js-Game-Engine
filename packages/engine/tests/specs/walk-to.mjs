@@ -6,7 +6,7 @@ export const specs = [
     async run({ check, ev }) {
       await ev(() => __t.until(() => engine.nav.ready, 10000).catch(() => {}));
       const r = await ev(async () => {
-        const Character = window.Character, T = engine.THREE;
+        const Character = window.Character, T = __threedogThree;
         engine.haltLoop();
         const body = new T.Group(); body.add(new T.Mesh(new T.BoxGeometry(0.5, 1, 0.5), new T.MeshBasicMaterial()));
         const guard = new Character(engine, { rig: { root: body } }); engine.add(guard.root);
@@ -31,6 +31,28 @@ export const specs = [
       check('arrived near the goal after detouring around the wall', r.status === 'arrived' && Math.hypot(r.end[0] + 4, r.end[1] - 6) < 1 && r.detourX < -11, JSON.stringify(r));
       check('target inside a wall: status noPath', r.blocked === 'noPath', JSON.stringify(r));
       check('remove() resolves cancelled', r.cancelled === 'cancelled', JSON.stringify(r));
+    },
+  },
+  {
+    name: '[guard] walkTo: a path of many long legs arrives without a replan: passing a point is progress, not a stuck clock',
+    url: '/tests/nav/index.html',
+    async run({ check, ev }) {
+      await ev(() => __t.until(() => engine.nav.ready, 10000).catch(() => {}));
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const Character = window.Character, T = __threedogThree, C = engine.characters;
+        const body = new T.Group(); body.add(new T.Mesh(new T.BoxGeometry(0.5, 1, 0.5), new T.MeshBasicMaterial()));
+        const guard = new Character(engine, { rig: { root: body } }); engine.add(guard.root);
+        guard.placeAt({ x: -10, z: -9 });
+        const legs = [[-10, -9], [-2, -9], [-2, -2], [-10, -2], [-10, -9], [-2, -9], [-2, -2], [-9, -3]].map(([x, z]) => ({ x, z }));   // round a square: no point is skipped as closer
+        const real = C.findPath; let asked = 0;
+        C.findPath = () => { asked++; return legs.map(p => ({ ...p })); };   // six corners, every leg longer than the 1.5 s stuck window
+        let st = null; guard.walkTo(legs[7]).then(x => { st = x.status; });
+        for (let i = 0; i < 2400 && !st; i++) { engine.step(1 / 60, { render: false, describe: false }); await Promise.resolve(); }
+        C.findPath = real;
+        return { st, asked };
+      });
+      check('arrived on the first plan', r.st === 'arrived' && r.asked === 1, JSON.stringify(r));
     },
   },
 ];

@@ -16,11 +16,11 @@ import { defineGridOps, placed } from './ops.js';
 
 /** Grids save part: version 1 stored every cell of a layer whole ([[i, j, data]]); version 2 stores a diff against the authored cells (Layer.js) */
 const GRIDS_MIGRATE = { 1: d => Object.fromEntries(Object.entries(d || {}).map(([g, ls]) => [g, Object.fromEntries(Object.entries(ls || {}).map(([n, rows]) => [n, { set: rows, whole: true }]))])) };
-import { closest, DEV, warnOnce, fmt } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { failure } from '../../core/opsFail.js';
+import { closest, DEV, warnOnce, fmt } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { failure } from '../../core/ops/opsFail.js';
 import { STRINGS as TEXT } from './strings.js';
-import { codedError, coded } from '../../core/errorHints.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
 
 const STRINGS = {
   dup: "grids.add('{name}'): a grid with this name exists",

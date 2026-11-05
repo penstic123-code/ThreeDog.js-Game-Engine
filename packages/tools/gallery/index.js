@@ -7,7 +7,7 @@
 // That renderer is a WebGPURenderer when the game draws with one or an asset carries a node material (WebGLRenderer cannot draw TSL),
 // else a WebGLRenderer. Each grid cell is a 2D canvas the picture is copied into, so both renderers fill the grid the same way.
 // Plain three.js equivalent: a scene per asset, a camera fitted to its bounding sphere, one render per cell.
-// three comes from the engine (engine.THREE): the same instance as the game's materials, whatever the tools package resolves
+// three comes from the engine's package when the gallery opens: the same instance as the game's materials; this file also loads in node (gallery.mjs)
 let THREE;
 
 /** Light setups: [name, sun elevation in degrees or null, sun intensity, sun color, sky intensity]. Neutral: no style lives here */
@@ -18,7 +18,7 @@ export const LIGHTS = [
 ];
 
 /** Registered model and texture names (named manifest entries, built-in ones left out) */
-export function assetNames(engine) {
+function assetNames(engine) {
   const out = { models: [], textures: [] };
   for (const [name, e] of engine.assets.entries) {
     if (!e.named || e.builtIn) continue;
@@ -110,7 +110,6 @@ async function rendererLike(engine, canvas, staged) {
  *  outline alone; value: the midday shot as grayscale luminance, to see the light/dark structure without hue. They measure facts, never a verdict. */
 export const MODES = ['silhouette', 'value'];
 
-/** "--mode a,b" -> the list; throws on an unknown mode, or a mode without --shots (the live grid shows the light setups only) */
 /** Options that only mean something with --shots, and a port that is a number: wrong ones stop with the fix instead of being ignored (like --mode). Returns the modes */
 export function parseGalleryOptions(opt) {
   for (const k of ['size', 'only']) if (opt[k] != null && opt[k] !== false && !opt.shots) throw new Error(`--${k} works with --shots (it shapes the pictures written to disk; the live gallery has its own controls)`);
@@ -118,15 +117,15 @@ export function parseGalleryOptions(opt) {
   return parseModes(opt.mode, opt.shots);
 }
 
-/** One file stem per asset name: characters outside [\w.-] become _, and two names that end up alike ('a/b', 'a_b') get -2, -3 so no picture overwrites another */
+/** One file stem per asset name: characters outside [\w.-] become _, and two names that end up alike ('a/b', 'a_b', or 'Rock' and 'rock' on a disk that ignores case) get -2, -3 so no picture overwrites another */
 export function fileStems(names) {
   const used = new Set(), out = new Map();
   for (const n of names) {
     if (out.has(n)) continue;
     const base = n.replace(/[^\w.-]+/g, '_');
     let stem = base;
-    for (let i = 2; used.has(stem); i++) stem = `${base}-${i}`;
-    used.add(stem); out.set(n, stem);
+    for (let i = 2; used.has(stem.toLowerCase()); i++) stem = `${base}-${i}`;
+    used.add(stem.toLowerCase()); out.set(n, stem);
   }
   return out;
 }
@@ -134,6 +133,7 @@ export function fileStems(names) {
 /** Text into HTML (asset names are the game's own strings: a name with < or & must not break the page) */
 export const escapeHtml = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
+/** "--mode a,b" -> the list; throws on an unknown mode, or a mode without --shots (the live grid shows the light setups only) */
 export function parseModes(mode, shots) {
   if (mode == null || mode === false) return [];
   if (!shots) throw new Error('--mode works with --shots (it writes extra pictures; the live gallery shows the light setups only)');
@@ -215,7 +215,7 @@ function drawSilhouette(R, st, cam, rig, yaw) {
  * @returns {Promise<{ name: string, type: string, light: string, png?: string, error?: string, facts?: Record<string, number> }[]>}
  */
 export async function shots(engine, { size = 256, yaw = -0.6, only = null, modes = [] } = {}) {
-  THREE = engine.THREE;
+  ({ THREE } = await import('threedog'));
   const { models, textures } = assetNames(engine), canvas = document.createElement('canvas'), staged = [];
   for (const [type, names] of [['model', models], ['texture', textures]]) for (const name of names)
     if (!only || only.includes(name)) staged.push(await stageOf(engine, type, name));
@@ -252,7 +252,7 @@ export async function shots(engine, { size = 256, yaw = -0.6, only = null, modes
  * @param {any} engine @returns {Promise<{ close(): void }>}
  */
 export async function openGallery(engine) {
-  THREE = engine.THREE;
+  ({ THREE } = await import('threedog'));
   const { models, textures } = assetNames(engine);
   const hold = engine.haltLoop('gallery');   // the game stands still behind the overlay (its own halt owner: nothing of the game's is touched)
   const host = document.createElement('div');

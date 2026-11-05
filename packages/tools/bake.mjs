@@ -11,7 +11,7 @@
 //   npm run bake -- --force      re-bake everything
 //   npm run bake -- -w my-game  bake a game's (default: the workspace of the current directory, then the engine package)
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
-import { resolve, dirname, join, basename } from 'node:path';
+import { resolve, dirname, basename } from 'node:path';
 import { keyMaker, staleBaked } from './vite/vite-threedog-cache.js';
 import { cli, rel, TOOLS, viteOptions } from './paths.mjs';
 
@@ -29,7 +29,7 @@ if (!force && !only.length && existsSync(SIG) && readFileSync(SIG, 'utf8') === s
   console.log(`Nothing changed, no re-bake needed (${Object.keys(index).length} total, took ${((Date.now() - t0) / 1000).toFixed(1)} s)`);
   process.exit(0);
 }
-const withExists = Object.fromEntries(Object.entries(index).map(([k, v]) => [k, { ...v, exists: !force && existsSync(resolve(DIR, v.file)) }]));
+const withExists = Object.fromEntries(Object.entries(index).map(([k, v]) => [k, { ...v, exists: (!force || v.source === 'file') && existsSync(resolve(DIR, v.file)) }]));
 
 const [{ createServer }, { launchBrowser }] = await Promise.all([import('vite'), import('./browser.mjs')]);   // loaded only when there is something to bake
 // Use its own dependency cache directory: do not fight with a running npm run dev over node_modules/.vite
@@ -56,6 +56,15 @@ if (errors.length) { console.log('Bake page error:\n  ' + errors.join('\n  ')); 
 
 mkdirSync(DIR, { recursive: true });
 const seen = new Set(results.map(r => r.name));
+const unknown = only.filter(n => !seen.has(n));
+if (unknown.length) { console.log(`✗ not in the bake list: ${unknown.join(', ')}`); process.exit(1); }
+/** The model's file: letters of any script kept, and never one another model has (城门 and 宝塔 both came out as _.glb, Tree and tree are one file on Windows) */
+function fileFor(name) {
+  const stem = name.replace(/[^\p{L}\p{N}_.-]+/gu, '_'), used = new Set(Object.entries(index).filter(([n]) => n !== name).map(([, v]) => String(v.file).toLowerCase()));
+  let file = `${stem}.glb`;
+  for (let i = 2; used.has(file.toLowerCase()); i++) file = `${stem}-${i}.glb`;
+  return file;
+}
 let baked = 0, bytes = 0;
 for (const r of results) {
   if (r.status !== 'baked') {
@@ -64,7 +73,7 @@ for (const r of results) {
     if (why) console.log(`  ${why}  ${r.name}`);
     continue;
   }
-  const buf = Buffer.from(r.data, 'base64'), file = r.name.replace(/[^\w.-]+/g, '_') + '.glb';
+  const buf = Buffer.from(r.data, 'base64'), file = fileFor(r.name);
   writeFileSync(resolve(DIR, file), buf);
   index[r.name] = { file, key: r.key, src: r.src, params: r.params, from: r.from, bytes: buf.length, ...(r.source === 'file' ? { source: 'file' } : {}) };
   baked++; bytes += buf.length;
@@ -78,7 +87,7 @@ for (const name of Object.keys(index)) if (!seen.has(name)) {   // no longer in 
   delete index[name];
 }
 writeFileSync(INDEX, JSON.stringify(index, null, 1));
-mkdirSync(dirname(SIG), { recursive: true });
-writeFileSync(SIG, keyOf.filesHash(keyOf.bakeLists()) + ':' + Object.keys(index).sort().join(','));
+// a run on named models skipped the others: only a whole run may say everything is baked
+if (!only.length) { mkdirSync(dirname(SIG), { recursive: true }); writeFileSync(SIG, keyOf.filesHash(keyOf.bakeLists()) + ':' + Object.keys(index).sort().join(',')); }
 console.log(`\n${rel(ROOT)}: baked ${baked} (${kb(bytes)}), ${Object.keys(index).length} total, took ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 process.exit(0);

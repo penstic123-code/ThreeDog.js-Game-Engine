@@ -84,7 +84,7 @@ Playing a game through from a script, the five things that cost the most time:
 - **Continue finishes after `press` returns.** The load is async, so the first lines of `press` on a title still say `windows open title`; the `Changed:` line and the next command show it closed. A load that waits on frames needs a `step` on a halted page.
 - **Read why it was refused.** `interaction.use` fails with `inputLocked` and `facts: { by }` (`title`, `dialogue`, `settings`...), `tooFar` with the distance.
 - **Press real keys when input is the question**: the title menu, whether a key reaches the action, a hold. For rules use `op` and `state`: faster and exact.
-  Neither tells you how the game feels or sounds, and a headless picture is usually WebGL2 (the `shot` / `snap` line says): report those as not verified.
+  Neither tells you how the game feels or sounds, and a headless picture falls back to software WebGL2 where no hardware GPU is reachable (the `shot` / `snap` line says): report those as not verified.
 
 ## 3. Windows / PowerShell notes
 - **Quote commas**: PowerShell splits `pos=1,-8` into two arguments and the coordinates become NaN. Write `threedog state "pos=1,-8"` (the bridge

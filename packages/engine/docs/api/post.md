@@ -9,5 +9,22 @@
 - `post.list() → { name, slot, order, enabled }[]` — (experimental) Effects in render order: [{ name, slot, order, enabled }]
 - `post.render(dt: number, target?: any)` — Draw the frame through the chain. target: a render target to draw the finished picture into instead of the canvas (engine.renderOnce(target)); it gets the canvas's pixels (tone mapped, output color space). Why a target argument and not "set the render target first": the WebGL chain's last pass always writes to the canvas (EffectComposer renderToScreen); the WebGPU pipeline draws into whatever target is set.
 - Properties:
-  - `antialias: boolean` MSAA on. Writing it takes effect like setAntialias.
+  - `antialias: boolean` (experimental) MSAA on. Writing it takes effect like setAntialias.
   - `active: boolean` Whether the post chain runs: an effect is on, or antialias differs from the canvas's own MSAA (fixed when the renderer was made, so a runtime switch away from it goes through the chain's targets)
+
+## Data structures
+- **PostEffect** An effect as data, the form post.add() takes. node (WebGPURenderer): returns the effect's output color node built on input (the color node so far); called again only when a param that is not a number, boolean, color or vector changes (those are live in ctx.p). An effect with only create cannot run on WebGPURenderer (it throws by name). create: builds the implementation the first time the effect is on (WebGL: a three.js postprocessing Pass); optional when fuse is given. fuse: see PostFuse; effects with a fuse in the same slot next to each other are merged (never in slot 'scene'), their params update in place (no update() needed). slot: a PostSlot; typed as any string too because a slot in a plain JS object (an effect returned from a function) is a string to TypeScript, and the chain throws on an unknown slot naming the valid ones.
+  - `name: string`
+  - `create?: (ctx: PostContext) => object`
+  - `node?: (input: any, ctx: PostNodeContext) => any`
+  - `fuse?: PostFuse`
+  - `slot?: PostSlot | (string & {})`
+  - `order?: number`
+  - `enabled?: boolean`
+  - `needsDepth?: boolean`
+  - `needsBuffers?: ("normal" | "diffuse" | "velocity")[]`
+  - `backend?: "webgpu"`
+  - `skipOnLowTier?: boolean`
+  - `facts?: () => Record<string, any> | null`
+  - `params?: Record<string, any>`
+  - `update?: (impl: any, params: Record<string, any>) => void`

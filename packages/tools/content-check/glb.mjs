@@ -6,7 +6,7 @@ import { hasReader, readModel } from '../assets-check/read.mjs';
 import { levelManifest, checkAgainstContent } from '../assets-check/level.mjs';
 
 /** Level glb files of a game folder: the Blender source wins over the compressed copy of the same name */
-export function levelFiles(dir) {
+function levelFiles(dir) {
   const byName = new Map();
   for (const sub of ['public/models', 'art/models']) {
     const d = join(dir, sub);

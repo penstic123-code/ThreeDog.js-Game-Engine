@@ -25,6 +25,11 @@ export const specs = [
         };
         out.retried = F.terrain.retry();
         out.statAfter = F.terrain.stats.failed;
+        // failed again, then walked away from: the count is of failed chunks loaded now, not of every failure so far
+        for (let i = 0; i < 400 && (!F.terrain.stats.failed || busy()); i++) { F.step(1 / 60, { describe: false, render: false }); await new Promise(res => setTimeout(res, 0)); }
+        out.statAgain = F.terrain.stats.failed;
+        F.focus.set(4000, 0, 4000); F.step(1 / 60, { describe: false, render: false });
+        out.statGone = F.terrain.stats.failed;
         F.dispose();
         return out;
       });
@@ -33,6 +38,7 @@ export const specs = [
       check('报告带错误码 terrain-chunk-failed', r.coded, s);
       check('没有块卡在 pending', r.pending === 0, s);
       check('retry() 把失败的块重新排队，计数清零', r.retried > 0 && r.statAfter === 0, s);
+      check('失败的块被释放后不再计数', r.statAgain > 0 && r.statGone === 0, s);
     },
   },
 ];

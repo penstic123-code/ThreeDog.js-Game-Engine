@@ -1,12 +1,13 @@
 // Sky per-frame work (helper of Sky.js): signals (uSunDir, uSunColor, uSkyTop, uSkyHorizon, season, cover) and the dome. Lights, fog,
 // exposure and the environment are the game's (its picture/ folder reads the signals): nothing here writes them, because a value with two writers
-// is what made a game's picture depend on code it never saw (plan 2026-11-04 rule 1). The shadow box around the focus is engine.shadows.box (core/shadows.js).
-import { defineOwned } from '../../core/owned.js';
+// is what made a game's picture depend on code it never saw (plan 2026-11-04 rule 1). The shadow box around the focus is engine.shadows.box (render/shadows.js).
+import { defineOwned } from '../../core/ops/owned.js';
 import { applySeason } from './season.js';
 import { applyCover, skyTint } from './tint.js';
 import { fogBand } from './fog.js';
 import { signalWatch } from '../../render/daylight.js';
-import { sunAngle } from '../../core/dayTime.js';
+import { sunAngle } from '../../core/time/dayTime.js';
+import { LUMA } from '../../render/fxNumbers.js';
 
 /**
  * Brightness of the sky's ambient light for one sky color pair: ambient intensity x the luminance of the hemi color (top / horizon halfway,
@@ -14,16 +15,16 @@ import { sunAngle } from '../../core/dayTime.js';
  * @param {import('three').Color} top @param {import('three').Color} horizon @param {number} ambient
  */
 export const skyLight = (top, horizon, ambient) => ambient * (lum(top) + lum(horizon)) / 2;
-const lum = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+const lum = c => LUMA[0] * c.r + LUMA[1] * c.g + LUMA[2] * c.b;
 
-// The copyable takeover calls each owned property's warning quotes (core/owned.js): the engine yields to a direct write, these say it explicitly
+// The copyable takeover calls each owned property's warning quotes (core/ops/owned.js): the engine yields to a direct write, these say it explicitly
 const L = {
   background: { manual: 'engine.sky.dome.visible = false', back: 'engine.sky.replace(null)' },
   sunDir: { manual: "engine.autoView.manual('sunDir')", back: "engine.autoView.manual('sunDir', false)" },
 };
 
 /**
- * Register what the sky still moves on its own: the background (backdrop / skybox). It yields to a direct write. (The shadow box is engine.shadows.box, core/shadows.js)
+ * Register what the sky still moves on its own: the background (backdrop / skybox). It yields to a direct write. (The shadow box is engine.shadows.box, render/shadows.js)
  */
 export function watchOwned(sky) {
   const e = sky.engine, scene = e.scene;

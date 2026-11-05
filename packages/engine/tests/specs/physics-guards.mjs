@@ -22,7 +22,7 @@ export const specs = [
       const src = ['core', 'render', 'modules', 'ui'].flatMap(d => walk(join(ENGINE, d)));
       const own = src.filter(p => /modules[\\/](nav|rigid)[\\/]/.test(p) && readFileSync(p, 'utf8').includes('forEachStatic'));
       check('nav / rigid never walk collision.forEachStatic themselves (they use engine.collision.mirror)', own.length === 0, own.map(rel).join(', '));
-      const bare = src.filter(p => !rel(p).startsWith('core/Assets.js') && /assets\.texture\(\s*[^)\s]/.test(readFileSync(p, 'utf8').replace(/^\s*(\/\/|\*).*$/gm, '')));
+      const bare = src.filter(p => !rel(p).startsWith('core/assets/Assets.js') && /assets\.texture\(\s*[^)\s]/.test(readFileSync(p, 'utf8').replace(/^\s*(\/\/|\*).*$/gm, '')));
       check('engine code calls assets.useTexture, not assets.texture().then().catch()', bare.length === 0, bare.map(rel).join(', '));
       const r = await ev(async () => {
         const out = {}, C = engine.collision, I = engine.interactions;

@@ -17,7 +17,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
 import { resolve, relative, dirname, extname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
-import { isLocalRequest } from './local.js';
+import { isLocalRequest, readBody } from './local.js';
 import { ROOT as REPO, abs, rel, ENGINE_PKG, INDEX_JS_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, optionalEntry, SKIP_DIRS as SKIP_DIR_NAMES } from '../paths.mjs';
 
 const SKIP_DIRS = new Set(SKIP_DIR_NAMES);
@@ -43,7 +43,7 @@ function makeReader() {
 
 /** Hash helpers for generators (shared by the dev server, the build check and npm run bake). root is the workspace directory (engine package or a game) */
 export function keyMaker(root) {
-  // Directory to search: this workspace only. A game's models live in its own folder (its style/ included), so no other folder holds
+  // Directory to search: this workspace only. A game's models live in its own folder (its picture/ included), so no other folder holds
   // generator source the game uses
   const read = makeReader();
   let list = null, listAt = 0;
@@ -133,7 +133,6 @@ export default function threedogCache({ maxFiles = 200 } = {}) {
   let root = process.cwd(), base = '/', keyOf = null, command = 'serve';
   const cacheDir = () => resolve(root, '.threedog/cache');
   const indexFile = () => resolve(root, 'public/models/baked/index.json');
-  const body = req => new Promise((ok, bad) => { const a = []; req.on('data', c => a.push(c)); req.on('end', () => ok(Buffer.concat(a))); req.on('error', bad); });
   const prune = () => {
     const files = readdirSync(cacheDir()).map(f => ({ f, t: statSync(resolve(cacheDir(), f)).mtimeMs })).sort((a, b) => b.t - a.t);
     for (const { f } of files.slice(maxFiles)) unlinkSync(resolve(cacheDir(), f));
@@ -155,13 +154,13 @@ export default function threedogCache({ maxFiles = 200 } = {}) {
         try {
           const name = path.slice('/__threedog/cache/'.length);
           if (name === 'key' && req.method === 'POST') {
-            const { key, files } = keyOf(JSON.parse(await body(req)));
+            const { key, files } = keyOf(JSON.parse(await readBody(req, Infinity)));
             res.setHeader('Content-Type', 'application/json');
             return res.end(JSON.stringify({ key, files, hit: existsSync(resolve(cacheDir(), key + '.glb')) }));
           }
           if (!/^[0-9a-f]{16}\.glb$/.test(name)) return next();
           const file = resolve(cacheDir(), name);
-          if (req.method === 'PUT') { mkdirSync(cacheDir(), { recursive: true }); writeFileSync(file, await body(req)); prune(); return res.end('ok'); }
+          if (req.method === 'PUT') { mkdirSync(cacheDir(), { recursive: true }); writeFileSync(file, await readBody(req, Infinity)); prune(); return res.end('ok'); }
           if (!existsSync(file)) return next();
           res.setHeader('Content-Type', 'model/gltf-binary');
           res.end(readFileSync(file));

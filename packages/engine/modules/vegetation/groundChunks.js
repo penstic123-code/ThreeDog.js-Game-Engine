@@ -1,6 +1,6 @@
 // Vegetation on any ground (no terrain module): a level model, a code-built ground, the flat default. Chunks of the same shape as the terrain's
 // ({ cx, cz, state, plants, colliders, ring, inView, ... }), streamed around every engine.stream source, placed by the same rule code
-// (core/scatter.js) over engine.surface / slope / groundType -- whoever provides the ground. Data only: the vegetation drawing draws c.plants.
+// (core/stream/scatter.js) over engine.surface / slope / groundType -- whoever provides the ground. Data only: the vegetation drawing draws c.plants.
 //
 // Why the main thread and not a worker: a ground provider is arbitrary main-thread code (a level heightfield, a game's closure), not
 // serializable data like a terrain generator. Placement is cheap (a few height lookups per attempt) and runs under a per-frame budget.
@@ -8,8 +8,8 @@
 // changes whether the player bumps into a tree, the same contract as terrain chunks.
 // The ground changing (setGround, a level loaded or switched: ground.staticVersion) rebuilds every chunk.
 import * as THREE from 'three';
-import { makePlacer, makeNoise } from '../../core/scatter.js';
-import { ChunkStream, bookCollision, collidersNear, ringsReady } from '../../core/chunkStream.js';
+import { makePlacer, makeNoise } from '../../core/stream/scatter.js';
+import { ChunkStream, bookCollision, collidersNear, ringsReady } from '../../core/stream/chunkStream.js';
 
 export const GROUND_DEFAULTS = { chunkSize: 32, viewChunks: 3, density: 1, seed: 1 };   // shown by engine.catalog too
 
@@ -24,7 +24,7 @@ export class GroundChunks {
     this.gen = 0;
     this.stats = { loaded: 0, visible: 0, instances: 0, queued: 0 };
     this._want = []; this._ground = null; this._groundVer = undefined;
-    // which chunks the sources need, ring, culling: the same helper as the terrain chunks (core/chunkStream.js), so both rings mean the same
+    // which chunks the sources need, ring, culling: the same helper as the terrain chunks (core/stream/chunkStream.js), so both rings mean the same
     this._stream = new ChunkStream(this, { show: (c, v) => this.veg._emit('show', c, v), level: (c, ring) => this._setLevel(c, ring),
       count: (c, ring) => { let n = 0; for (const k in c.plants) { const sp = this.veg.get(k); if (sp && ring <= sp.maxRing) n += c.plants[k].n; } return n; },
       inArea: (cx, cz) => this._inArea(cx, cz) });

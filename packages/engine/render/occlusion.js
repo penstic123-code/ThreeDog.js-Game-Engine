@@ -12,7 +12,8 @@
 // once the scene is drawn (_sceneDrawn), every display.pass on WebGPU renders without it.
 import * as THREE from 'three';
 import { isWebGPU, onRendererSwap } from './backend.js';
-import { codedError } from '../core/errorHints.js';
+import { codedError } from '../core/base/errorHints.js';
+import { engineOwned } from '../core/scene/things.js';
 import { RESERVED_LAYERS } from './layers.js';
 
 const { occlusionHidden: HIDDEN_LAYER, occlusionBox: BOX_LAYER } = RESERVED_LAYERS;
@@ -61,7 +62,7 @@ export class Occlusion {
     this._on = v;
     const cam = this.engine.camera;
     if (v) {
-      this._root ??= Object.assign(new THREE.Group(), { name: 'occlusion boxes' });
+      this._root ??= engineOwned('occlusion', Object.assign(new THREE.Group(), { name: 'occlusion boxes' }));
       this.engine.scene.add(this._root);
       this._material ??= new THREE.MeshBasicMaterial({ colorWrite: false, depthWrite: false, side: THREE.DoubleSide });
       for (const it of this._items) this._box(it);

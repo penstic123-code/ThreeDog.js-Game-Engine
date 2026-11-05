@@ -8,16 +8,17 @@
 // Where a pull puts things: systems/<name>/, a wiring file plugins/<name>.js, tests in tests/specs/<name>-<file> (only that folder is run), one line in
 //   content/index.js. Proof: an entry with tests is pulled into an empty game and run there at add (proveEntry); the result stays in entry.json.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { noComments } from './lib-card.mjs';
 import { contentFiles } from './lib-records.mjs';
 import { copyTemplates } from './scaffold.mjs';
+import { splitTop } from './text.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const CODE = /\.m?js$/;
-const noComments = t => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
 const ART = [[/\b0x[0-9a-fA-F]{6}\b|['"]#[0-9a-fA-F]{6}['"]/, 'a color'], [/['"`][^'"`\n]*\.(?:png|jpe?g|webp|glb|gltf|ktx2|hdr)['"`]/, 'an art file']];
 const TEXT = /\b(?:text|title|message|tooltip)\s*:\s*['"`]|\.textContent\s*=\s*['"`]/;
 
@@ -60,33 +61,20 @@ const placesOf = (e, game) => contentFiles(e.dir).map(f => {
   return [join(e.dir, f), test ? join(game, 'tests', 'specs', `${e.name}-${test[1]}`) : join(game, 'systems', e.name, f)];
 });
 
-/** The top-level entries of an object literal body ("places, items: { a: 1 }, ...x"), split at commas outside brackets, strings kept whole */
-function splitTop(body) {
-  const out = []; let depth = 0, q = '', cur = '';
-  for (let i = 0; i < body.length; i++) {
-    const c = body[i];
-    if (q) { cur += c; if (c === '\\') cur += body[++i] ?? ''; else if (c === q) q = ''; continue; }
-    if (c === '"' || c === "'" || c === '`') q = c;
-    else if ('{[('.includes(c)) depth++;
-    else if ('}])'.includes(c)) depth--;
-    if (c === ',' && depth === 0) { out.push(cur.trim()); cur = ''; } else cur += c;
-  }
-  if (cur.trim()) out.push(cur.trim());
-  return out;
-}
-
 /**
  * The content/index.js with the system's content merged in section by section, or null when its shape is not the usual one (the caller prints the line to add).
  * Why section by section: a bare spread (`...tide`) replaces a section the game already has, so a pulled system with an `items` section would wipe the game's own items.
  * sections: { name: 'list' | 'object' } of the system's content. Handles `export default { a, b, c: expr }`; after a merge the entry reads `items: { ...items, ...tide.items }`.
  */
-export function withContent(text, id, path, sections) {
+function withContent(text, id, path, sections) {
   const at = text.search(/export default\s*\{/);
   if (at < 0) return null;
   const open = text.indexOf('{', at);
   let depth = 0, close = -1;
   for (let i = open; i < text.length && close < 0; i++) { if (text[i] === '{') depth++; else if (text[i] === '}' && --depth === 0) close = i; }
   if (close < 0) return null;
+  // a comment inside the object cannot be merged by splitting on commas (it would swallow the closing brace, or hide a key): the caller prints the manual line
+  if (/\/\/|\/\*/.test(text.slice(open + 1, close))) return null;
   const parts = splitTop(text.slice(open + 1, close));
   for (const [name, shape] of Object.entries(sections)) {
     const i = parts.findIndex(x => x === name || x.startsWith(name + ':'));
@@ -100,7 +88,7 @@ export function withContent(text, id, path, sections) {
 
 /** The ids the system's content would add that the game's content already has with another value, as "items.sword"; null when the game's content cannot be loaded here */
 async function clashes(index, contentFile) {
-  const { pathToFileURL } = await import('node:url'), stamp = `?t=${Date.now()}`;
+  const stamp = `?t=${Date.now()}`;
   const mine = (await import(pathToFileURL(contentFile).href + stamp)).default ?? {};
   let theirs;
   try { theirs = (await import(pathToFileURL(index).href + stamp)).default ?? {}; } catch { return null; }
@@ -113,9 +101,12 @@ async function clashes(index, contentFile) {
   return out;
 }
 
+/** A name that can follow `import`: 2dWater and class are entry names, not identifiers */
+const identifier = s => { try { new Function(`let ${s}`); return s; } catch { return '_' + s; } };
+
 /** Pull a system entry: same all-or-nothing rule as art copy. Returns the shape of copyArt's result plus wiring and contentNote */
 export async function pullSystem(e, game, { force = false, dry = false, plugText }) {
-  const sys = readSystem(e.dir, 'lib pull'), places = placesOf(e, game), id = e.name.replace(/\W+(\w)/g, (_, c) => c.toUpperCase()).replace(/\W/g, '');
+  const sys = readSystem(e.dir, 'lib pull'), places = placesOf(e, game), id = identifier(e.name.replace(/\W+(\w)/g, (_, c) => c.toUpperCase()).replace(/\W/g, ''));
   const file = join(game, 'plugins', e.name + '.js'), text = plugText(sys);
   const differs = (to, body) => existsSync(to) && !readFileSync(to).equals(body);
   const conflicts = [...places.filter(([f, to]) => differs(to, readFileSync(f))).map(([, to]) => to), ...(differs(file, Buffer.from(text)) ? [file] : [])];
@@ -125,7 +116,7 @@ export async function pullSystem(e, game, { force = false, dry = false, plugText
   let sections = null, was = null, path = null;
   if (sys.content) {
     path = `../systems/${e.name}/${sys.content}`; was = existsSync(index) ? readFileSync(index, 'utf8') : null;
-    const { pathToFileURL } = await import('node:url'), mine = (await import(pathToFileURL(join(e.dir, sys.content)).href)).default ?? {};
+    const mine = (await import(pathToFileURL(join(e.dir, sys.content)).href)).default ?? {};
     sections = Object.fromEntries(Object.entries(mine).map(([k, v]) => [k, Array.isArray(v) ? 'list' : 'object']));
     // refuse before any file moves: two things with one id in one section would silently shadow each other
     if (was && !was.includes(path)) {
@@ -160,7 +151,8 @@ export async function proveEntry(e, from, pull) {
   if (!modules) return no(`not run: ${from} has no node_modules with threedog (npm install there, then lib add again)`);
   const game = mkdtempSync(join(tmpdir(), 'threedog-lib-proof-'));
   try {
-    copyTemplates(game, { name: 'proof', example: false, openWorld: false });
+    // the game speaks what the entry draws on: a new game starts on WebGPU, where a GLSL entry stops at start and its own game's proof would fail for no fault of its own
+    copyTemplates(game, { name: 'proof', openWorld: false, webgl: !!e.backends?.length && !e.backends.includes('webgpu') });
     symlinkSync(modules, join(game, 'node_modules'), 'junction');
     await pull(game);
     // an empty game has only the template's modules: install what the entry says it needs (the template's own stay as they are)

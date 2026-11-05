@@ -15,7 +15,7 @@ export const specs = [
         A.manifest({ models: { king2: kingUrl, king3: kingUrl + '?spec=3', king4: kingUrl + '?spec=4', broken: new URL('/tests/anim/public/broken.glb', location.href).href }, name: 'character-model-spec' });
         const events = []; engine.events.on('character:model', ({ character }) => events.push(character));
         const make = o => { const c = new Character(engine, o); engine.add(c.root); c.placeAt({ x: 2, z: 0 }); engine.onFrame(dt => c.animate(dt)); return c; };
-        const hasModel = c => !!c.root.children.find(o => o.userData.animations?.length);
+        const hasModel = c => !!c.root.children.find(o => o.animations.length);
         const out = {};
 
         // console.warn captured over the whole run; only the broken-model warnings are checked (section 5)
@@ -32,7 +32,7 @@ export const specs = [
 
           // 3. removed before loading finished: nothing reaches the scene, the copy is released
 
-          const kingUsers = A._users('king4'), sceneCount = () => { let n = 0; engine.scene.traverse(o => { if (o.userData.animations?.length) n++; }); return n; };
+          const kingUsers = A._users('king4'), sceneCount = () => { let n = 0; engine.scene.traverse(o => { if (o.animations.length) n++; }); return n; };
           const n0 = sceneCount(), d = make({ model: 'king4' }); d.dispose(); await d.whenReady; engine.step(0.1);
           out.early = { added: sceneCount() - n0, users: A._users('king4') - kingUsers, anim: d.anim ?? null, inScene: !!d.root.parent };
 
@@ -49,7 +49,7 @@ export const specs = [
           // 6. two characters sharing one asset animate independently
           const c1 = make({ model: 'king' }), c2 = make({ model: 'king' }); await Promise.all([c1.whenReady, c2.whenReady]);
           c1.state = 'walk'; c1.moveAmount = 2; engine.step(0.6);
-          const m1 = c1.root.children.find(o => o.userData.animations), m2 = c2.root.children.find(o => o.userData.animations);
+          const m1 = c1.root.children.find(o => o.animations.length), m2 = c2.root.children.find(o => o.animations.length);
           const s1 = m1.getObjectByProperty('isSkinnedMesh', true).skeleton, s2 = m2.getObjectByProperty('isSkinnedMesh', true).skeleton;
           out.shared = { states: [c1.anim.state, c2.anim.state], mixers: c1.anim.mixer !== c2.anim.mixer, bones: s1.bones[0] !== s2.bones[0],
             pose: s1.bones.some((bn, i) => bn.quaternion.angleTo(s2.bones[i].quaternion) > 0.01) };

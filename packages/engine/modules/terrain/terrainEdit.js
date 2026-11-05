@@ -3,12 +3,14 @@
 // the same maps (so engine.surface / slope / groundType and collision see an edit at once); each worker job carries the edits around its chunk,
 // so a chunk generated later -- or regenerated after the player walked away and back -- comes out edited, identically with threads on or off.
 // Loaded chunks around an edit are rebuilt on the spot (mesh, vegetation, collision token); a worker result built before the edit is dropped.
-import { DEV, fmt } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { xzOf } from '../../core/math.js';
-import { codedError } from '../../core/errorHints.js';
+import { DEV, fmt } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { xzOf } from '../../core/base/math.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { unkey } from './terrainGen.js';
 
+// grid points past its edge that a chunk reads: a shared point, then the neighbor smooth normals and the color map's border read
+const REACH = 2;
 const EDIT_KEYS = ['radius', 'shape', 'raise', 'lower', 'flatten', 'paint'];
 const STRINGS = {
   none: "terrain.edit(): pass at least one of raise, lower, flatten or paint, e.g. engine.terrain.edit(pos, { radius: 2, lower: 1 })",
@@ -75,36 +77,39 @@ export class TerrainEdits {
     return { heights, cells };
   }
 
-  /** Edits a worker needs to build chunk (cx, cz): those of the chunk and its 8 neighbors (normals and borders read one grid point past the edge) */
+  /** Edits a worker needs to build chunk (cx, cz): those on its grid and REACH points around it */
   forChunk(cx, cz) {
     if (!this.h.size && !this.t.size) return null;
-    const R = this.mgr.generator.RES, near = (i, j) => Math.abs(Math.floor(i / R) - cx) <= 1 && Math.abs(Math.floor(j / R) - cz) <= 1;
-    const h = [], t = [];
-    for (const [k, v] of this.h) { const [i, j] = unkey(k); if (near(i, j)) h.push(i, j, v); }
-    for (const [k, v] of this.t) { const [i, j] = unkey(k); if (near(i, j)) t.push([i, j, v]); }
+    // looked up point by point: every job pays for this, so its cost must not grow with the edits made elsewhere in the world
+    const T = this.mgr.generator, R = T.RES, h = [], t = [];
+    for (let j = cz * R - REACH; j <= (cz + 1) * R + REACH; j++) for (let i = cx * R - REACH; i <= (cx + 1) * R + REACH; i++) {
+      const k = T.key(i, j), a = this.h.get(k), b = this.t.get(k);
+      if (a !== undefined) h.push(i, j, a);
+      if (b !== undefined) t.push([i, j, b]);
+    }
     return h.length || t.length ? { h, t } : null;
   }
   version(key) { return this.ver.get(key) ?? 0; }
 
-  /** Grid range [i0, i1] x [j0, j1] changed: bump the version of every chunk it reaches, rebuild loaded ones now, tell listeners */
-  _touch(i0, i1, j0, j1) {
+  /** Grid range [i0, i1] x [j0, j1] changed: bump the version of every chunk it reaches, rebuild loaded ones now, tell listeners. rebuilt (load): chunks already done in this pass, rebuilt whole because their own range is skipped */
+  _touch(i0, i1, j0, j1, rebuilt = null) {
     if (i0 > i1) return;
     const m = this.mgr, R = m.generator.RES, C = m.generator.CELL;
-    // a grid point is shared by the cells on both sides, and smooth normals read one point further
-    for (let cz = Math.floor((j0 - 2) / R); cz <= Math.floor((j1 + 2) / R); cz++)
-      for (let cx = Math.floor((i0 - 2) / R); cx <= Math.floor((i1 + 2) / R); cx++) {
+    const cells = rebuilt ? null : { i0: i0 - REACH, i1: i1 + REACH, j0: j0 - REACH, j1: j1 + REACH };   // the color map pixels that read the range
+    for (let cz = Math.floor((j0 - REACH - 1) / R); cz <= Math.floor((j1 + REACH) / R); cz++)
+      for (let cx = Math.floor((i0 - REACH - 1) / R); cx <= Math.floor((i1 + REACH) / R); cx++) {
         const k = cx + ',' + cz, c = m.chunks.get(k);
         this.ver.set(k, this.version(k) + 1);
-        if (c?.state === 'ready') this._rebuild(c);
+        if (c?.state === 'ready' && !rebuilt?.has(k)) { rebuilt?.add(k); this._rebuild(c, cells); }
       }
     this.e.events.emit('ground:change', { x0: (i0 - 1) * C, z0: (j0 - 1) * C, x1: (i1 + 2) * C, z1: (j1 + 2) * C });
   }
 
-  // same code as the worker on the full edit maps, so a rebuilt chunk equals a freshly generated one
-  _rebuild(c) {
-    const m = this.mgr, T = m.generator, t = T.buildChunk(c.cx, c.cz);
-    c.data = t;   // data only: each draw part copies the new arrays in its change(c) hook
-    c.sphere.center.set(t.sphere[0], t.sphere[1], t.sphere[2]); c.sphere.radius = t.sphere[3];
+  // same code as the worker on the full edit maps, so a rebuilt chunk equals a freshly generated one. The color map is most of a chunk's time, so
+  // only its pixels in cells are repainted: a loaded chunk's map already holds every earlier edit (cells null: the whole map)
+  _rebuild(c, cells) {
+    const m = this.mgr, T = m.generator, tex = c.data.tex, t = T.buildChunk(c.cx, c.cz, cells && tex && { ...cells, data: tex.data });
+    m._adopt(c, t);   // data only: each draw part copies the new arrays in its change(c) hook
     m._emit('change', c);
     const P = m.plants;
     for (const sp of P.list()) {
@@ -127,11 +132,11 @@ export class TerrainEdits {
     for (let n = 0; n < (d?.h?.length ?? 0); n += 3) this.h.set(T.key(d.h[n], d.h[n + 1]), d.h[n + 2]);
     for (const [i, j, v] of d?.t || []) this.t.set(T.key(i, j), v);
     // rebuild what changed: chunks that had edits before and chunks that have them now
-    const seen = new Set(), R = T.RES;
+    const seen = new Set(), rebuilt = new Set(), R = T.RES;   // rebuilt: a touch reaches the 8 neighbors too, and one rebuild already reads every edit
     for (const k of [...before, ...this.h.keys(), ...this.t.keys()]) {
       const [i, j] = unkey(k), cx = Math.floor(i / R), cz = Math.floor(j / R);
       if (seen.has(cx + ',' + cz)) continue;
-      seen.add(cx + ',' + cz); this._touch(cx * R, cx * R + R, cz * R, cz * R + R);
+      seen.add(cx + ',' + cz); this._touch(cx * R, cx * R + R, cz * R, cz * R + R, rebuilt);
     }
   }
 }

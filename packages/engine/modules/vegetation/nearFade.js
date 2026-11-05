@@ -4,7 +4,7 @@
 // no extra draw call or shader program per frame (the patch is part of the material's one program), the sway of the wind patch is scaled with it, and the
 // shadow pass shrinks the same way. The band ends where the ring can first end, so a clump is already gone when its chunk drops out.
 import * as THREE from 'three';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const PARS = 'uniform vec2 uNearFade; uniform vec3 uNearFadeCenter;';
 const VERTEX = `

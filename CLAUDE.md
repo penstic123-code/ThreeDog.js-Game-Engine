@@ -6,7 +6,7 @@ threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no
 1. `docs/design.md`: the owner's intent and principles (Chinese). It wins over every other document.
 2. `docs/architecture.md`: how the engine is built now, each part with its files, its one rule, and the test that guards it.
 3. `docs/workflow.md`: helpers and worktrees, merging, testing, commits, reporting.
-4. `HANDOFF.md`: current status and what runs next.
+4. `HANDOFF.md`, only when it is present (it stays local; the public repository does not ship it): current status and what runs next.
 5. `.claude/rules/*.md`: loaded by path when you touch matching files (core and modules, API design, docs and tests, styles and i18n, performance, tools).
 6. `docs/plans/`: only the open plans (`done/README.md` lists the finished ones); `docs/testing/`: test log `runs.md`, reviews, usability runs.
 
@@ -14,7 +14,7 @@ threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no
 1. **The engine provides mechanisms, never hard-coded art.** Colors, models, sky, lighting, particles and UI colors come from the game (its `picture/` code, names in `assets.js`, or plain three.js); without them the engine shows neutral gray. Engine modules build plain three.js through `render/neutral.js` and hand it out as `engine.<module>.material`.
 2. **Core never depends on modules.** `packages/engine/core` must not import `packages/engine/modules` or name one; module dependencies go in `requires` / `provides`, optional ones are used as `engine.xxx?.` and listed in `optional`.
 3. **Game content never enters the engine.** Dialogue, quests, items and map layout live in the game's `content/`; no game's name or data appears in the engine.
-4. **three.js stays fully writable.** A direct three.js write takes a value over and the engine yields. The engine never hides three.js: it coordinates, provides tools, builds wheels, and offers only features that do not make games alike. Every change the engine makes to three.js itself is listed in `core/threePatches.js` (`describe().threePatches`).
+4. **three.js stays fully writable.** A direct three.js write takes a value over and the engine yields. The engine never hides three.js: it coordinates, provides tools, builds wheels, and offers only features that do not make games alike. Every change the engine makes to three.js itself is listed in `core/scene/threePatches.js` (`describe().threePatches`).
 
 ## Repository layout
 ```

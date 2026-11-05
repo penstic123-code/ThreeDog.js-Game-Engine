@@ -320,7 +320,7 @@ window.tslIdentity = async () => {
   console.error = () => {};
   for (let i = 0; i < 2; i++) e.renderer.onDeviceLost({ api: 'WebGPU', message: 'test', reason: null });
   console.error = logged;
-  // a halted engine has no real-time loop to hold, so the 'page' freeze comes up when the loop restarts (core/page.js): read it on both sides of that
+  // a halted engine has no real-time loop to hold, so the 'page' freeze comes up when the loop restarts (core/engine/page.js): read it on both sides of that
   const lostWhileHalted = { frozen: e.frozen, lost: e.page.contextLost };
   e._unhalt();
   out.lost = { halted: lostWhileHalted, held: e.stacks.get('freeze').has('page'), events, three: e.renderer._isDeviceLost === true };

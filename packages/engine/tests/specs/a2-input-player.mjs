@@ -146,4 +146,126 @@ export const specs = [
       check('running straight through vs save-then-load: near-field results are bit-identical', r.same, JSON.stringify(r));
     },
   },
+  {
+    name: 'character create and replace: a refused createPlayer keeps the old player; a new one takes over the record, the control slot and the frame hook; the old one answers nothing; a record loaded first places the player (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const C = engine.characters, W = engine.world, old = engine.player, out = {}, step = s => engine.step(s, { describe: false });
+        const code = f => { try { f(); return 'no error'; } catch (x) { return x.code; } };
+        out.noControl = code(() => C.createPlayer({}));
+        out.badControl = code(() => C.createPlayer({ control: 'manual' }));
+        out.badKey = code(() => C.createPlayer({ control: 'camera', contrl: 1 }));
+        out.keptOld = engine.player === old && !!old.root.parent;
+        const x = old.position.x + 3, z = old.position.z;
+        old.placeAt({ x, z });
+        let oldLoads = 0, oldFrames = 0, steps = 0, frames = 0;
+        old.loadMotion = () => { oldLoads++; }; old.animate = () => { oldFrames++; };
+        const p = C.createPlayer({ control: (who, input, dt) => { steps++; out.args = who === engine.player && input === engine.input && dt > 0; return null; } });
+        p.animate = () => { frames++; };
+        out.swapped = engine.player === p && p !== old && !old.root.parent && !!p.root.parent;
+        const open = C.findSpawn();
+        out.respawned = Math.hypot(p.position.x - open.x, p.position.z - open.z) < 0.01;   // replacing removes the old record first: nothing to continue from
+        out.owner = engine.control.of(p)?.owner; out.oldHolder = engine.control.of(old) ?? null;
+        step(0.1);
+        out.steps = steps; out.frames = frames; out.oldFrames = oldFrames;
+        const q = C.createPlayer({ control: 'camera', spawn: { x: x + 3, z } });
+        out.spawned = Math.hypot(q.position.x - x - 3, q.position.z - z) < 0.01 && Math.abs(W.get('player').position.x - q.position.x) < 0.01;
+        const before = steps; step(0.1); out.replacedStepRan = steps !== before;
+        await engine.saves.save('char-replace');
+        q.placeAt({ x: x + 8, z }); step(0.05);
+        await engine.saves.load('char-replace');
+        out.loaded = Math.abs(q.position.x - x - 3) < 0.05; out.oldLoads = oldLoads;
+        C.removePlayer();
+        await engine.saves.load('char-replace');
+        const late = C.createPlayer({ control: 'camera' });
+        out.continued = Math.abs(late.position.x - x - 3) < 0.05 && Math.abs(late.position.z - z) < 0.05;
+        return out;
+      });
+      const J = JSON.stringify(r);
+      check('no control, a bad control and a misspelt key are refused by name', r.noControl === 'player-control' && r.badControl === 'player-control' && r.badKey !== 'no error', J);
+      check('a refused createPlayer leaves the old player in place', r.keptOld, J);
+      check('replacing: engine.player is the new one, the old model left the scene', r.swapped, J);
+      check('replacing without spawn looks for a spawn; with spawn it stands there and the record follows', r.respawned && r.spawned, J);
+      check('a record loaded before the player is created places it', r.continued, J);
+      check('the new player holds the control slot as player-input, the old one holds nothing', r.owner === 'player-input' && r.oldHolder === null, J);
+      check('the control function runs per step with (player, input, dt); the frame hook animates the new player only', r.steps > 0 && r.args === true && r.frames > 0 && r.oldFrames === 0, J);
+      check('a replaced control function stops', r.replacedStepRan === false, J);
+      check('a load places the current player and never the replaced one', r.loaded && r.oldLoads === 0, J);
+    },
+  },
+  {
+    name: 'character dispose: removePlayer drops the model, record, control and hooks, twice is safe; a save without a player record gets one from the player on load (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const C = engine.characters, W = engine.world, p = engine.player, out = {}, step = s => engine.step(s, { describe: false });
+        let frames = 0; p.animate = () => { frames++; };
+        C.removePlayer();
+        out.gone = engine.player === null && !W.get('player') && !p.root.parent && p.recordId === null;
+        out.holder = engine.control.of(p) ?? null;
+        C.removePlayer();
+        step(0.1);
+        out.frames = frames; out.describe = engine.describe().player ?? null;
+        await engine.saves.save('char-none');
+        await engine.saves.load('char-none');
+        out.noRecordYet = !W.get('player');
+        const q = C.createPlayer({ control: 'camera', spawn: { x: 4, z: 4 } });
+        out.fresh = W.get('player')?.kind === 'player';
+        await engine.saves.load('char-none');
+        const rec = W.get('player');
+        out.rebuilt = !!rec && Math.abs(rec.position.x - q.position.x) < 0.01 && Math.abs(rec.position.z - q.position.z) < 0.01;
+        return out;
+      });
+      const J = JSON.stringify(r);
+      check('removePlayer: engine.player null, record gone, model out of the scene', r.gone, J);
+      check('nothing holds the removed player and its frame hook stopped', r.holder === null && r.frames === 0, J);
+      check('a second removePlayer and later steps are safe; describe reports no player', r.describe === null, J);
+      check('a removed player is not brought back by a load', r.noRecordYet, J);
+      check('createPlayer after removePlayer makes a new record', r.fresh, J);
+      check('a save from before the player: the record is rebuilt from the player', r.rebuilt, J);
+    },
+  },
+  {
+    name: 'character input: an autopilot speed is one move.speed entry, taken once and released with it; the player alone sounds its steps and hard landings (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.haltLoop();
+        const p = engine.player, out = {}, step = s => engine.step(s, { render: false, describe: false }), stack = engine.stacks.get('move.speed');
+        const mod = engine.mod; let takes = 0;
+        engine.mod = (name, o) => { if (name === 'move.speed' && o.owner === 'autopilot') takes++; return mod.call(engine, name, o); };
+        engine.input.autopilot = { x: 0, y: 1, speed: 3 };
+        step(0.2);
+        out.held = stack.has('autopilot', 'player'); out.takes = takes;
+        engine.input.autopilot = { x: 0, y: 1, speed: 5 };
+        step(0.2);
+        out.takesAfterChange = takes;
+        engine.input.autopilot = null;
+        step(0.05);
+        out.released = !stack.has('autopilot', 'player');
+        engine.mod = mod;
+        const sfx = engine.audio.sfx, heard = [];
+        engine.audio.sfx = (name, o) => { heard.push(o?.volume ?? null); };
+        const other = new p.constructor(engine, {});
+        engine.events.emit('character:step', { character: other });
+        engine.events.emit('character:land', { character: other, impact: 9 });
+        out.otherHeard = heard.length;
+        engine.events.emit('character:step', { character: p });
+        engine.events.emit('character:land', { character: p, impact: 2 });
+        engine.events.emit('character:land', { character: p, impact: 6 });
+        engine.events.emit('character:land', { character: p, impact: 60 });
+        out.heard = heard;
+        engine.audio.sfx = sfx; other.dispose();
+        return out;
+      });
+      const J = JSON.stringify(r);
+      check('one take while the speed stays, one more when it changes', r.held && r.takes === 1 && r.takesAfterChange === 2, J);
+      check('the entry leaves with the autopilot', r.released, J);
+      check('another character makes no player sound', r.otherHeard === 0, J);
+      check('a step sounds, a soft landing does not, a hard one scales with the impact up to 2', JSON.stringify(r.heard) === '[null,1,2]', J);
+    },
+  },
 ];

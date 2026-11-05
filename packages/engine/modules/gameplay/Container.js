@@ -6,11 +6,11 @@
 //   stackable ones with equal data share an entry, a stack-1 item is one entry per piece. Keys are unique across containers and kept when moved.
 // Every method that takes an item also takes a key: count('sword') counts all swords, count('sword#3') only that one.
 // Limits are optional: capacity (slots; an entry uses ceil(count / stack) slots) and maxWeight (sum of item weight × count). Locks and prices stay game rules.
-import { fmt, DEV } from '../../core/validate.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { failure } from '../../core/opsFail.js';
+import { fmt, DEV } from '../../core/base/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { failure } from '../../core/ops/opsFail.js';
 import { sig, freeze, canTrade, acceptsFrom, putIn, loadEntries } from './boxOps.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 // Developer messages (warned once in DEV): add doesn't throw when full, which an AI would hardly notice
 const STRINGS = {

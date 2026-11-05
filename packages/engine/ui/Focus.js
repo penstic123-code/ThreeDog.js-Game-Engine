@@ -21,6 +21,7 @@ const stacks = new WeakMap();   // engine -> UI focus stack
 
 /**
  * UI focus stack: windows, dialogue and cutscenes push in open order; the back key (Esc) goes to the top only; an empty stack hands it to the settings menu
+ * @experimental the stable route for a screen of your own is engine.input.push (recipes/07-flow-scenes-pause.md)
  * @param {Engine} engine
  * @returns {UIFocus}
  */
@@ -62,7 +63,7 @@ export function uiFocus(engine) {
     else root?.();
   });
   // Esc under pointer lock never reaches the page: the browser keeps the key and ends the lock, so the first Esc of a mouse-look game would pause nothing.
-  // Only the empty stack in running play. A game ending the lock itself (engine.page.releaseLock(), or document.exitPointerLock(): core/page.js marks both as byEngine)
+  // Only the empty stack in running play. A game ending the lock itself (engine.page.releaseLock(), or document.exitPointerLock(): core/engine/page.js marks both as byEngine)
   // to show its own window or screen must not have it closed or covered.
   f.unlock = engine.events.on('page:pointerlock', ({ locked, byEngine }) => {
     if (!locked && !byEngine && !entries.length && !engine.page.away && engine.runState.state === 'running') root?.();

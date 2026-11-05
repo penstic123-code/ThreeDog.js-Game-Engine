@@ -2,13 +2,13 @@
 // The chain is one node graph: scenePass = pass(scene, camera, { samples }) -> each hdr effect's node() -> renderOutput() (tone mapping + output
 // color space, placed by hand: outputColorTransform = false) -> ldr -> final. Fuse effects bring fuse.tsl (color, uv, t) => color; neighbors are
 // just nested calls, so three compiles them into one fullscreen pass and fuse.js's merging is not needed here (nor loaded).
-// Registered on a global when threedog/tsl loads (see PostFX.js for why not an import). Only three/webgpu, three/tsl and three's TSL display
+// Registered with render/backend.js when threedog/tsl loads (see PostFX.js for why not an import). Only three/webgpu, three/tsl and three's TSL display
 // nodes are imported: this file must never pull EffectComposer or other WebGL code.
 import { RenderPipeline } from 'three/webgpu';
 import * as TSL from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { registerWebGPUPart, MSAA_SAMPLES } from '../backend.js';
 import { RESERVED_LAYERS } from '../layers.js';
 import * as FX from './library.tsl.js';
@@ -95,7 +95,6 @@ const webgpuPost = {
     if (h.enabled) { h._impl?.dispose?.(); h._impl = null; post._pipe && (post._pipe.key = null); post._sync(); }
     return true;
   },
-  refresh() {},
   samples: post => (post.active ? post._pipe?.samples ?? (post._aa ? MSAA_SAMPLES : 0) : post.engine.renderer.samples),
   setAntialias(post) { if (post._pipe) post._pipe.key = null; },
   sync(post) {
@@ -111,6 +110,7 @@ const webgpuPost = {
     if (post._pipe?.key === key) return;
     let P = post._pipe;
     if (!P) P = post._pipe = { pipeline: new RenderPipeline(renderer), scenePass: null, samples: -1, buffers: '', key: null, order: [] };
+    P.key = null;   // the graph is coming down: when a node() throws below, PostFX syncs the old list again, and that sync must rebuild, not find its key current
     if (P.samples !== samples || P.buffers !== `${buffers}`) {
       P.scenePass?.dispose(); P.scenePass = pass(scene, camera, { samples }); P.samples = samples; P.buffers = `${buffers}`;
       if (buffers.length) P.scenePass.setMRT(mrt({ output, ...Object.fromEntries(buffers.map(b => [b, BUFFERS[b]])) }));
@@ -132,9 +132,8 @@ const webgpuPost = {
       e._read = new Set(); e._building = true;
       try {
         if (e._def.fuse) {
-          const f = e._def.fuse, t = { ...ctxOf(e, made), time, resolution: screenSize, input: f.reads ? convertToTexture(color) : null };
-          if (t.input) made.push(t.input);
-          return f.tsl(color, screenUV, t);
+          const f = e._def.fuse, c = ctxOf(e, made);
+          return f.tsl(color, screenUV, { ...c, time, resolution: screenSize, input: f.reads ? c.display.texture(color) : null });
         }
         return e._def.node(color, ctxOf(e, made));
       } finally { e._building = false; }

@@ -1,5 +1,6 @@
-import { coded, codedError } from '../core/errorHints.js';
-import { DEV, warnOnce } from '../core/validate.js';
+import { coded, codedError } from '../core/base/errorHints.js';
+import { DEV, warnOnce } from '../core/base/validate.js';
+import { isObject } from '../core/base/util.js';
 // UI theme and default CSS in <head> (part of ui/UI.js): the --threedog-* variables from createEngine({ ui: { theme } }), the engine's base classes, module
 // defaults, the game's css. The classes use only var(--threedog-*), never a color of their own.
 /** @import { UIOptions } from '../types/core' */
@@ -122,7 +123,7 @@ export function applyUITheme(engine, ui = {}) {
 // The picture keys sit beside the part names in createEngine({ ui }), so a wrong shape would otherwise do nothing or reach a part: refuse it with the right form.
 /** @param {UIOptions} ui */
 function checkUiOptions({ theme, css, fonts, templates }) {
-  const plain = v => v == null || (typeof v === 'object' && !Array.isArray(v));
+  const plain = v => v == null || isObject(v);
   if (!plain(theme)) throw codedError('ui-misuse', `ui.theme is an object of CSS values, got ${JSON.stringify(theme)}. Example: ui: { theme: { bg: '#1c140e', accent: '#e8a13a' } }`);
   if (DEV && theme?.promptHeight != null) warnOnce(coded('ui-misuse', `ui.theme.promptHeight moves nothing: the interaction prompt's height is interactions({ promptHeight: ${theme.promptHeight} })`));
   if (css != null && typeof css !== 'string') throw codedError('ui-misuse', `ui.css is CSS text placed after every default, got ${typeof css}`);

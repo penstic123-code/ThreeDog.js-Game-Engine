@@ -5,26 +5,28 @@
 // The handles and the selection box live in a little scene of their own, drawn after the game's frame: nothing is added to engine.scene, so the game's scene
 // count, its pick results and its save see no editor, and the box needs no exception anywhere. While a handle is dragged design.js moves the real model
 // (previewEntry); the box wraps that model every frame, so what is on screen is the model itself and not a stand-in. Letting go saves.
-import { uiFocus } from 'threedog';
+import { uiFocus, screenToGround, THREE as T } from 'threedog';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { entryAt, thingAt, pickAt, modelOf, previewEntry, moveEntry, fieldsOf, setField, catalog, addEntry, removeEntry, undo, redo } from './design.js';
 
 const CLICK_PX = 5;   // a press that travels further is a camera move, not a click
 const VIEW = 'threedog-editor-view';   // camera and selection across the reloads of a save that needs one
-const PANEL = 'position:fixed;top:8px;right:8px;width:280px;max-height:calc(100vh - 16px);overflow:auto;z-index:2147483000;padding:8px 10px;background:#000c;color:#fff;font:12px/1.5 sans-serif;overflow-wrap:anywhere';
+const PANEL = 'position:fixed;top:8px;right:8px;width:240px;box-sizing:border-box;max-height:calc(100vh - 16px);overflow:auto;z-index:2147483000;padding:8px 10px;background:#000c;color:#fff;font:12px/1.5 sans-serif;overflow-wrap:anywhere';
 const ROW = 'display:flex;gap:6px;align-items:center;margin-top:2px';
 const INPUT = 'flex:1;min-width:0;font:inherit;background:#222;color:#fff;border:1px solid #555';
 const el = (tag, props = {}, ...kids) => { const n = Object.assign(document.createElement(tag), props); n.append(...kids); return n; };
 
-/** The floating panel; data-state is what tests read: idle | selected | saving | saved | refused */
+/** The floating panel, folded by a click on its first line; data-state is what tests read: idle | selected | saving | saved | refused */
 function makePanel() {
-  const root = el('div', { id: 'threedog-editor' }), status = el('div'), tools = el('div'), rows = el('div'), add = el('div');
+  const root = el('details', { id: 'threedog-editor', open: true }), mark = el('span'), status = el('div'), tools = el('div'), add = el('div');
+  const common = el('div'), rare = el('div'), more = el('details', { hidden: true }, el('summary', { textContent: 'More' }), rare), rows = el('div', {}, common, more);
   status.style.whiteSpace = 'pre-wrap';
   root.style.cssText = PANEL;
-  root.append(el('div', { textContent: 'Editor (F2 to leave)' }), tools, add, status, rows);   // the buttons first: the text below them changes length, and a button that moves is missed on the next click
+  root.append(el('summary', {}, 'Editor (F2 to leave)', mark), tools, add, status, rows);   // the buttons first: the text below them changes length, and a button that moves is missed on the next click
   document.body.appendChild(root);
-  return { tools, rows, add, say(state, text) { root.dataset.state = state; status.textContent = text; status.style.color = state === 'refused' ? '#ff9a8a' : ''; } };
+  // the state stays in the first line: folded, that line is the only sign a save took. A refusal unfolds, its reason is the thing to read
+  return { root, tools, rows, common, rare, more, add, say(state, text) { root.dataset.state = state; mark.textContent = ` · ${state}`; status.textContent = text; status.style.color = state === 'refused' ? '#ff9a8a' : ''; if (state === 'refused') root.open = true; } };
 }
 
 /**
@@ -32,8 +34,11 @@ function makePanel() {
  * @param {any} engine
  */
 export function openEditor(engine) {
-  const T = engine.THREE, canvas = engine.renderer.domElement, panel = makePanel(), { say } = panel;
+  const canvas = engine.renderer.domElement, panel = makePanel(), { say } = panel;
   engine.ui.close('title');   // a full-screen title covers the canvas, and F2 always arrives at one: nothing could be clicked until it was gone
+  // a game's own title, written by hand, covers it the same way and has no part to close. F2 reloads the page on the way out, so hiding it is enough
+  const r = canvas.getBoundingClientRect();
+  for (const n of document.elementsFromPoint(r.left + r.width / 2, r.top + r.height / 2)) { if (n === canvas) break; if (!panel.root.contains(n)) n.style.display = 'none'; }
   uiFocus(engine).push('editor');   // no cancel: Esc is swallowed, or it opens the game's menu over the scene being edited
   engine.freeze('editor');
   engine.takeCamera('editor');
@@ -47,7 +52,7 @@ export function openEditor(engine) {
   const handles = new TransformControls(engine.camera, canvas);
   overlay.add(anchor, box, handles.getHelper());
 
-  let entry = null, pressed = null, turn = 0, mode = 'translate';
+  let entry = null, pressed = null, turn = 0, mode = 'translate', lost = null;   // lost: a refusal the selection may have moved past
   const place = e => { anchor.position.set(e.position.x, e.position.y, e.position.z); anchor.rotation.set(0, e.yaw, 0); };
   // Y first: in the default order Euler y folds back at a quarter turn
   const turnOf = new T.Euler(0, 0, 0, 'YXZ');
@@ -81,13 +86,17 @@ export function openEditor(engine) {
 
   async function select(thing) {
     const mine = ++turn, next = await entryAt(engine, thing);
-    if (mine === turn) hold(next);   // else a later click won while this one waited for the server
+    if (mine !== turn) return;   // a later click won while this one waited for the server
+    hold(next);
+    if (lost && lost.id !== next?.id) say('refused', lost.text);   // the click that moved on also ended the typing whose save came back refused: the user must still read why
+    lost = null;
   }
 
   /** Show how a change went; the entry it gives back replaces the one held. By id: an earlier step of the same queue may have replaced the object, and this reply still counts */
   function landed(was, r, gone = false) {
     if (r.reloading) return say('saving', 'reloading to show the change…');
-    if (was.id !== entry?.id) return;
+    if (!r.ok) lost = { id: was.id, text: `${was.id} not saved: ${r.error}` };
+    if (was.id !== entry?.id) { if (!r.ok) say('refused', lost.text); return; }
     if (r.ok) hold(gone ? null : r.entry ?? entry, 'saved', r.change ?? 'no change');
     else if (r.change) say('refused', r.error);   // the file took it, the page did not: the message says to reload
     else { hold(entry, 'refused', r.error); }
@@ -95,6 +104,7 @@ export function openEditor(engine) {
   async function change(job, gone = false) {
     if (!entry) return;
     const was = entry;
+    lost = null;
     say('saving', `${was.id}\nsaving…`);
     landed(was, await job(was), gone);
   }
@@ -108,7 +118,7 @@ export function openEditor(engine) {
   }
 
   function drawTools() {
-    const button = (label, on, disabled = false) => el('button', { textContent: label, onclick: on, disabled, id: `threedog-editor-${label.toLowerCase()}` });
+    const button = (label, on, disabled = false) => { const b = el('button', { textContent: label, onclick: on, disabled, id: `threedog-editor-${label.toLowerCase()}` }); b.style.cssText = 'font:inherit;padding:0 3px'; return b; };
     const line = el('div', {}, button('Move', () => setMode('translate'), mode === 'translate'), button('Turn', () => setMode('rotate'), mode === 'rotate' || !entry?.turn),
       button('Delete', () => change(e => removeEntry(engine, e), true), !entry?.removable), button('Undo', () => walk(undo)), button('Redo', () => walk(redo)));
     line.style.cssText = ROW;
@@ -117,7 +127,7 @@ export function openEditor(engine) {
 
   function drawRows() {
     const rows = entry ? fieldsOf(engine, entry) : [];
-    panel.rows.replaceChildren(...rows.map(r => {
+    const draw = r => {
       const save = raw => change(e => setField(engine, e, r.key, raw));
       const input = r.input === 'select'
         // blur: a list keeps the focus after a choice, and Ctrl+Z or Delete would then do nothing with no word why
@@ -127,11 +137,14 @@ export function openEditor(engine) {
       if (r.input !== 'select') input.value = r.value == null ? '' : typeof r.value === 'object' ? JSON.stringify(r.value) : r.value;
       input.dataset.field = r.key;
       input.style.cssText = INPUT;
-      const line = el('label', { title: r.desc ?? '' }, el('span', { textContent: r.key }), input);
+      const line = el('label', { title: `${r.key}${r.desc ? `: ${r.desc}` : ''}` }, el('span', { textContent: r.label }), input);
       line.style.cssText = ROW;
-      line.firstChild.style.cssText = 'width:70px';
+      line.firstChild.style.cssText = 'width:80px';
       return line;
-    }));
+    };
+    panel.common.replaceChildren(...rows.filter(r => !r.rare).map(draw));
+    panel.rare.replaceChildren(...rows.filter(r => r.rare).map(draw));
+    panel.more.hidden = !rows.some(r => r.rare);
   }
 
   function drawAdd() {
@@ -141,7 +154,7 @@ export function openEditor(engine) {
     pick.style.cssText = INPUT;
     const add = async () => {
       // on the ground under the middle of the view: where the user is looking, and always a place the handles can then be grabbed from
-      const hit = engine.pick(0, 0), at = hit?.point ?? orbit.target;
+      const at = engine.pick(0, 0)?.point ?? screenToGround(engine, 0, 0) ?? orbit.target;   // terrain is not pickable; the target is left for a view of the open sky
       say('saving', 'saving…');
       turn++;
       const r = await addEntry(engine, list[+pick.value], at);
@@ -179,7 +192,7 @@ export function openEditor(engine) {
   });
   addEventListener('pagehide', () => {
     const c = engine.camera.position, t = orbit.target;
-    try { sessionStorage.setItem(VIEW, JSON.stringify({ id: entry?.id ?? null, camera: [c.x, c.y, c.z], target: [t.x, t.y, t.z] })); } catch { /* blocked storage: the view starts fresh */ }
+    try { sessionStorage.setItem(VIEW, JSON.stringify({ id: entry?.id ?? null, folded: !panel.root.open, camera: [c.x, c.y, c.z], target: [t.x, t.y, t.z] })); } catch { /* blocked storage: the view starts fresh */ }
   });
 
   const measure = new T.Box3(), size = new T.Vector3();
@@ -205,6 +218,7 @@ export function openEditor(engine) {
   if (view) {
     engine.camera.position.fromArray(view.camera);
     orbit.target.fromArray(view.target);
+    panel.root.open = !view.folded;
     if (view.id) select(thingAt(engine, view.id));
   }
 }

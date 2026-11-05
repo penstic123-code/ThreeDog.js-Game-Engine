@@ -7,7 +7,7 @@
   - `density?: number` Vegetation density multiplier
   - `flatten?: FlattenZone[]` Flatten a plot (for a house)
   - `time?: number` Start time 0-1
-  - `dayLength?: number` Game seconds per day (default 360)
+  - `dayLength?: number` Calendar seconds per day (default 360)
   - `weather?: WeatherName | (string & {}) | Part<typeof weather>` Starting weather name, false (no weather module) or weather() options
   - `autoWeather?: boolean` Automatic weather changes
   - `camera: 'follow' | 'firstPerson' | 'rts' | 'fixed' | ModuleDef | false` Required, no default: 'follow' / 'firstPerson' / 'rts' / 'fixed', a camera module with options (e.g. followCamera(presets.camera.overShoulder)), or false

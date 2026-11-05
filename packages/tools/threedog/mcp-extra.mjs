@@ -17,7 +17,7 @@ const LABEL = [
 /** Tool name (underscore form) → label for the front of its description */
 export const label = name => LABEL.find(([cmds]) => cmds.includes(name.replace('_', '-')))?.[1] ?? '';
 
-/** engine.runState.state values, copied from core/holds.js (tests/run-state-enum.mjs keeps the two equal) */
+/** engine.runState.state values, copied from core/ops/holds.js (tests/run-state-enum.mjs keeps the two equal) */
 export const RUN_STATES = ['loading', 'title-frozen', 'halted', 'frozen', 'running'];
 /**
  * The shape every tool result has (structuredContent), explained once at the front of the server instructions. The time sentence is generated
@@ -76,12 +76,17 @@ export const EXTRA_TOOLS = {
 
 // Static tools: answered from the files alone (no dev server, no page). run(dir, input) → { ok, text, data }; mcp.mjs wraps it in the result shape.
 const HERE = dirname(fileURLToPath(import.meta.url));
+/** op arguments object → key=value strings; the page converts them back by the op's args shape. Numbers stay x,y,z for a position; other lists go as JSON, joined they read as one string */
+export const pairs = args => Object.entries(args
+  || {}).map(([k, v]) => `${k}=${Array.isArray(v) && v.every(x => typeof x === 'number') ? v.join(',') : v !== null && typeof v === 'object' ? JSON.stringify(v) : v}`);
+
 /** The errors of a `check --json` result (lib/result.mjs) as lines with their fix, then the summary; capped (the full run is `npm run check` in a terminal) */
 const checkDigest = (r, max) => {
   const lines = r.items.filter(i => i.level === 'error').map(i => `✗ ${i.code ? i.code + ' ' : ''}${i.file ? i.file + (i.line ? ':' + i.line : '') + '  ' : ''}${i.message}${i.fix ? `\n    Fix: ${i.fix}` : ''}`);
   const text = [...lines, r.summary].join('\n');
   return text.length > max ? text.slice(0, max - 40) + `\n… (${text.length - max + 40} more characters)` : text;
 };
+const CHECK_MS = 10 * 60000;
 export const STATIC_TOOLS = {
   how: {
     description: 'Which API, recipe or plain three.js way answers a task, from the docs alone (no game needed). Ask before building a system or a picture; plain three.js hits come first.',
@@ -123,11 +128,13 @@ export const STATIC_TOOLS = {
     schema: { type: 'object', properties: { rule: str('Optional: only these rules, e.g. "R33,R18"'), max: { type: 'number', description: 'Output cap in characters (default 2000)' } }, required: [] },
     run: (dir, a) => new Promise(res => {
       const args = [join(HERE, '..', 'check.mjs'), '--json', ...(a.rule ? ['--rule', String(a.rule)] : [])];
-      const c = spawn(process.execPath, args, { cwd: dir });
+      const c = spawn(process.execPath, args, { cwd: dir, timeout: CHECK_MS });   // a check that hangs would hold every tool call queued behind it
+      c.on('error', e => res({ ok: false, text: `✗ check could not run: ${e.message}`, data: { exit: null, errors: [] } }));
       let out = '';
+      c.stdout.setEncoding('utf8'); c.stderr.setEncoding('utf8');   // a Chinese character split over two chunks stays whole
       c.stdout.on('data', d => out += d); c.stderr.resume();   // stdout is only the JSON result; the text goes to stderr
-      c.on('close', code => {
-        const r = parseResult(out) ?? result([item({ code: 'check', message: 'check did not print a result' })], 'check failed', false);
+      c.on('close', (code, signal) => {
+        const r = parseResult(out) ?? result([item({ code: 'check', message: signal ? `check stopped after ${CHECK_MS / 60000} minutes` : 'check did not print a result' })], 'check failed', false);
         res({ ok: code === 0, text: (code === 0 ? '✓ check passed\n' : '✗ check failed\n') + checkDigest(r, a.max > 0 ? a.max : 2000), data: { exit: code, errors: r.items.filter(i => i.level === 'error') } });
       });
     }),

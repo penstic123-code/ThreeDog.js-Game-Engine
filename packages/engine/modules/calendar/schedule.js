@@ -1,10 +1,10 @@
 // Calendar clock-time / season timers (implementation of engine.calendar.at / between / daily / onSeason; Calendar owns one Schedule).
-// They read the calendar's time of day calendar.timeOfDay, not game seconds; for "after N seconds / every N seconds" use engine.clock.after / every.
+// They read the calendar's time of day calendar.timeOfDay, not calendar seconds; for "after N seconds / every N seconds" use engine.clock.after / every.
 // at is a "cross a clock time" event: when time moves forward (natural flow, fast-forward, raising calendar.timeOfDay) across several triggers, catchUp decides replay: 'once' fires once (default), 'all' fires all, 'skip' fires none;
 // rewinding time (applyState to an earlier time, lowering calendar.timeOfDay) and loading a save only reset the baseline, no replay. To hold a state during a time range use between.
-import { parseClock, inFrac } from '../../core/dayTime.js';
-import { reportError } from '../../core/errors.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { parseClock, inFrac } from '../../core/time/dayTime.js';
+import { reportError } from '../../core/base/errors.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 
 const AT_KEYS = ['days', 'catchUp'], BETWEEN_KEYS = ['on', 'off'];
 

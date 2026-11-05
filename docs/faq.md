@@ -2,7 +2,7 @@
 
 English · [中文](faq.zh-CN.md) · [How ThreeDog thinks](philosophy.md)
 
-These answers describe version 0.7. Versions up to 0.5 had the look layer. Items marked *planned* are not built yet.
+These answers describe version 0.8. Versions up to 0.5 had the look layer. Items marked *planned* are not built yet.
 
 ## The idea
 
@@ -32,7 +32,7 @@ That is the risk the design works hardest against. The engine has no default sty
 
 ### The number of public names went up from 1682 to 1731. Did the engine get bigger?
 
-Version 0.7 stands at 1759 after adding optional features. The rise in 0.6 was mostly how the counting works. The old `look.fog.set({ ... })` wrote dozens of values but counted its verb once, and those values now have names of their own. So the count says little in either direction. Whether the engine is simpler has to show in how often agents go wrong.
+Version 0.8 stands at 1770 after adding optional features. The rise in 0.6 was mostly how the counting works. The old `look.fog.set({ ... })` wrote dozens of values but counted its verb once, and those values now have names of their own. So the count says little in either direction. Whether the engine is simpler has to show in how often agents go wrong.
 
 ## Coordination
 
@@ -50,7 +50,7 @@ No. Tools can measure size, orientation, color space and which values an item wr
 
 ### How do assets fit together, and how are gameplay systems reused?
 
-The library holds models, textures, materials, shaders, effects and modules today. *Planned:* records of where each pulled item came from, one card per item saying what it needs, provides and writes, whole gameplay systems with their data and tests, a `lib check` command, and combination entries that show how several pieces connect.
+The library holds models, textures, materials, shaders, effects, modules and whole gameplay systems with their data and tests. Every entry has a card saying what it needs, provides and writes, every pull leaves a record of where the item came from (`lib status`), and `lib check` tells whether what a game pulled fits together. *Planned:* combination entries that show how several pieces connect.
 
 ## Rendering
 
@@ -100,4 +100,4 @@ Yes. It is a JavaScript library with documentation. The docs and tools are shape
 
 ### Is it ready for a real game?
 
-Not yet. It is an early release, its APIs still change, and there is no compatibility layer between versions. Multiplayer exists as a basic `engine.net` but is not being developed for now. Texture compression and staged loading wait until a game needs them.
+Not yet. It is an early release, its APIs still change, and there is no compatibility layer between versions. Multiplayer exists as a basic `engine.net` but is not being developed for now. Texture compression is `threedog assets optimize`. Staged loading waits until a game needs it.

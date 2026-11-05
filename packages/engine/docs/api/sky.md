@@ -1,6 +1,6 @@
 # engine.sky — sky(opts?: SkyOptions)
 
-Sky dome, sun / moon light and fog drawn from the calendar's time (sky() module)
+Sky dome and the sun / daylight / sky-color signals, from the calendar's time; it writes no light or fog (sky() module)
 
 - Options `SkyOptions` (also includes the fields of Pick<SkyPictureOptions, 'clouds' | 'backdrop' | 'keyframes' | 'sunSize' | 'sunGlow' | 'sunBrightness' | 'moonColor' | 'moonBrightness' | 'starDensity' | 'dim'>):
   - `time?: string | number` The fixed time of day drawn while no calendar() is installed: 'HH:MM' or 0–1 (0.5 noon), default 0.33 (a sunset arena: sky({ time: '18:30' })). With calendar() the sky draws engine.calendar.timeOfDay and this option throws (start the day with calendar({ time }))
@@ -17,11 +17,12 @@ Sky dome, sun / moon light and fog drawn from the calendar's time (sky() module)
   - `dim: { tint: boolean; stars: boolean }` What the sky dims for every game, plain fields read each frame (a fantasy sky can stay bright at night, keep its stars through clouds): tint false keeps a sky.tint color at full strength at any hour, stars false keeps the stars through the weather's cover
   - `top: any` Zenith color over the keyframes, any THREE.Color input (null = the keyframes); read each frame
   - `horizon: any` Horizon color over the keyframes, any THREE.Color input (null = the keyframes); read each frame. The color drawn: engine.uniforms.uSkyHorizon
+  - `uniforms: Record<string, { value: any }>` The dome's { value } objects, live on both renderers: the built-in ones (the same objects as engine.uniforms where the names match) and the uniforms given to engine.sky.clouds() and engine.sky.layer(), which join here once the call has run
   - `dome: THREE.Object3D` Dome mesh
   - `orbit: { tilt: number; sway: number; distance: number }` Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters)
   - `sunDir: THREE.Vector3` Sun direction (unit vector toward the sun): the same vector as engine.uniforms.uSunDir. Computed each frame from the time and orbit until a game writes either, then the value is the game's (the sun at a compass direction of your choice); engine.autoView.manual('sunDir', false) gives it back.
   - `backdrop: any` One flat color in place of the dome, a THREE.Color while on, else null (sky({ backdrop }) starts with one). Set any THREE.Color input, null gives the dome back.
-  - `drawnTime: any` Time of day being drawn, 0-1: engine.calendar.timeOfDay, or fixedTime without a calendar. Read-only: the time itself is the calendar's
-  - `sunHeight: number` Sun elevation -1 (midnight) ... 0 (horizon) ... 1 (noon) of the drawn sun (the calendar's daylight is the gameplay value)
+  - `drawnTime: any` (experimental) Time of day being drawn, 0-1: engine.calendar.timeOfDay, or fixedTime without a calendar. Read-only: the time itself is the calendar's
+  - `sunHeight: number` (experimental) Sun elevation -1 (midnight) ... 0 (horizon) ... 1 (noon) of the drawn sun (the calendar's daylight is the gameplay value)
   - `isDay: boolean` Whether the drawn sun is above the horizon (picture functions: ({ sky }) => sky.isDay ? ...; gameplay reads engine.calendar.isDay)
   - `daylight: number` Daylight of the drawn sun 0-1 (0 at night, 1 at noon)

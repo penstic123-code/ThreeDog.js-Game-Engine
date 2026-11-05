@@ -1,8 +1,8 @@
-// Timeline camera and path steps (helper of Timeline.js): a shot takes the camera over with engine.takeCamera (core/holds.js) and gives it back when the run ends;
+// Timeline camera and path steps (helper of Timeline.js): a shot takes the camera over with engine.takeCamera (core/ops/holds.js) and gives it back when the run ends;
 // a path moves any object (a character, the camera) along a spline. Each function takes the Timeline as `t`.
 import * as THREE from 'three';
-import { vec3 as v3 } from '../../core/math.js';
-import { surfaceOr } from '../../core/ground.js';
+import { vec3 as v3 } from '../../core/base/math.js';
+import { surfaceOr } from '../../core/scene/ground.js';
 
 /** Camera: { from?, to: { position, lookAt }, duration, ease, fov } or { release: true } */
 export function cameraStep(t, c, run) {
@@ -32,7 +32,6 @@ export function cameraStep(t, c, run) {
     },
   });
 }
-/** */
 function takeCamera(t, run) {
   const e = t.engine;
   if (!run.cam) {
@@ -43,7 +42,6 @@ function takeCamera(t, run) {
   }
   return run.cam;
 }
-/** */
 export function releaseCamera(t, run) {
   const st = run.cam; if (!st) return;
   run.cam = null;
@@ -57,10 +55,10 @@ export function pathStep(t, p, run) {
   // a character (Character) can be passed directly
   const e = t.engine, chr = p.object?.root?.isObject3D ? p.object : null, obj = chr ? chr.root : p.object;
   if (!obj || !p.points?.length) return Promise.resolve();
-  // a character on a path is the cutscene's to drive until the run ends (core/control.js): its keys / walk / behavior pause meanwhile
+  const pts = p.points.map(x => v3(x));   // before the character is marked: a bad point throws, and nothing would unmark it
+  // a character on a path is the cutscene's to drive until the run ends (core/ops/control.js): its keys / walk / behavior pause meanwhile
   if (chr) { t._take(run, chr); t._pathing.set(chr.id, (t._pathing.get(chr.id) ?? 0) + 1); }
   const unpath = () => { if (!chr) return; const n = (t._pathing.get(chr.id) ?? 1) - 1; if (n > 0) t._pathing.set(chr.id, n); else t._pathing.delete(chr.id); };
-  const pts = p.points.map(x => v3(x));
   if (pts.length === 1) pts.unshift(obj.position.clone());
   const curve = new THREE.CatmullRomCurve3(pts, !!p.closed, p.curve ?? 'centripetal', p.tension ?? 0.5);
   const isCam = obj === e.camera;

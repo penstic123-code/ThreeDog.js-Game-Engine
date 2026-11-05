@@ -3,7 +3,8 @@
 import { injectUICSS, toastPart, esc } from './UI.js';
 import { loadingScreen } from './LoadingScreen.js';
 import { touchPart } from './touchPart.js';
-import { codedError } from '../core/errorHints.js';
+import { codedError } from '../core/base/errorHints.js';
+import { fmt } from '../core/base/validate.js';
 /** @import { Engine, UIPart, UITitleItem } from '../types/core' */
 
 const STRINGS = {
@@ -40,7 +41,7 @@ function titleItems(e, items) {
     if (typeof it === 'string' && BUILTIN[it]) { const b = BUILTIN[it]; if (!b.when || b.when(e)) out.push({ id: it, label: e.t('title.' + it), run: () => b.run(e) }); }
     else if (typeof it === 'string' && e.ui.titleItems.has(it)) out.push(own(e, { id: it, ...e.ui.titleItems.get(it) }));
     else if (it && typeof it.run === 'function') out.push(own(e, it));
-    else throw codedError('ui-misuse', DEV.badItem.replace('{added}', [...e.ui.titleItems.keys()].join(', ') || 'none').replace('{got}', JSON.stringify(it)));
+    else throw codedError('ui-misuse', fmt(DEV.badItem, { added: [...e.ui.titleItems.keys()].join(', ') || 'none', got: String(JSON.stringify(it)) }));
   }
   return out;
 }

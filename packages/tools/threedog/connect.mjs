@@ -29,7 +29,8 @@ export function bridgeDriver(dir, { page } = {}) {
     let res;
     try { res = await fetch(`http://localhost:${port}/__threedog/cmd`, { method: 'POST', headers: { 'x-threedog-token': token }, body: JSON.stringify({ ...body, page }) }); }
     catch { throw bridgeError(`cannot reach the dev server (port ${port})\nIt may have been closed: run npm run dev again and retry`); }
-    const r = await res.json();
+    // not the bridge's JSON: the port belongs to something else now, which is the diagnosis' question, not a parse error for the reader
+    const r = await res.json().catch(() => { throw bridgeError(`port ${port} did not answer as the dev bridge (HTTP ${res.status})`); });
     if (!r.ok) throw new Error(r.error);
     return r.value;
   };

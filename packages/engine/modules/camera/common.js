@@ -9,18 +9,18 @@
 //   update(dt, input)   per-frame camera update
 // What a game's own camera module must provide instead (what control: 'camera', characters, photo, grid placement read): camera/contract.js.
 //
-// Cutscene takeover contract: engine.takeCamera(owner, { focus? }) -> { remove() } (core/holds.js); engine.cameraOverride is the holder in charge.
+// Cutscene takeover contract: engine.takeCamera(owner, { focus? }) -> { remove() } (core/ops/holds.js); engine.cameraOverride is the holder in charge.
 //   A cutscene, a named view or a photo mode that places the camera itself takes it; several can hold it, the latest is in charge.
 //   While anyone holds it the camera module leaves the camera alone; with a focus, engine.focus is set to it (the world loads around it).
 //   When the last holder removes its claim the camera module resumes from its previous state. cameraOverride itself is read-only.
 import * as THREE from 'three';
-import { defineOwned } from '../../core/owned.js';
-import { readParams, keysSchema } from '../../core/params.js';
+import { defineOwned } from '../../core/ops/owned.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { setProjection } from './projection.js';
-import { setFov } from '../../core/view.js';
-import { codedError } from '../../core/errorHints.js';
+import { setFov } from '../../core/scene/view.js';
+import { codedError } from '../../core/base/errorHints.js';
 
-// the takeover calls the owned-camera warning quotes (core/owned.js): takeCamera is the one explicit entry (its remove() gives the camera back);
+// the takeover calls the owned-camera warning quotes (core/ops/owned.js): takeCamera is the one explicit entry (its remove() gives the camera back);
 // back is the hand-back for a camera the engine yielded to a direct write (that takeover has no handle)
 const LEVELS = { manual: "const cam = engine.takeCamera('me') (cam.remove() gives it back)", back: "engine.autoView.manual('camera', false)" };
 
@@ -61,7 +61,7 @@ export const HIDE_RIG = {
       if ((o.isMesh || o.isSkinnedMesh || o.isPoints || o.isLine) && !o.layers.isEnabled(this.hideLayer)) { this._hidden.push([o, o.layers.mask]); o.layers.set(this.hideLayer); }
     });
   },
-  _unhide() { for (const [o, mask] of this._hidden) o.layers.mask = mask; this._hidden = []; },
+  _unhide() { for (const [o, mask] of this._hidden) o.layers.mask = mask; this._hidden.length = 0; },   // follow calls it every frame
   // Lights present now (the sky module has built them by onEnter); a light added later calls shadow.camera.layers.enable(hideLayer) itself
   _shadowLayers() { this.engine.scene.traverse(o => { if (o.isLight && o.shadow?.camera) o.shadow.camera.layers.enable(this.hideLayer); }); },
 };
@@ -102,11 +102,11 @@ export function clickToLock(rig, switched) {
  */
 function lockView(e, st) {
   if (!st?.configured) return { state: 'off' };
-  const state = !st.configured ? 'off' : !st.supported ? 'unsupported' : st.locked ? 'locked' : st.lastError ? 'refused' : st.requested ? 'requesting' : 'waiting-click';
+  const state = !st.supported ? 'unsupported' : st.locked ? 'locked' : st.lastError ? 'refused' : st.requested ? 'requesting' : 'waiting-click';
   const c = e.renderer.domElement, r = c.getBoundingClientRect();
   const top = typeof document.elementFromPoint === 'function' ? document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) : null;
   return { ...st, state, covered: top && top !== c ? (top.id ? '#' + top.id : top.className ? '.' + String(top.className).split(' ')[0] : top.tagName.toLowerCase()) : null,
-    cameraOverride: e.cameraOverride?.owner ?? null, lastFailure: st?.lastError ? { reason: st.lastError, agoSec: Math.round((e.time.now('real') - st.failedAt) / 100) / 10 } : null };
+    cameraOverride: e.cameraOverride?.owner ?? null, lastFailure: st.lastError ? { reason: st.lastError, agoSec: Math.round((e.time.now('real') - st.failedAt) / 100) / 10 } : null };
 }
 /** Release the mouse lock; stop listening for clicks too when switched away (call from onExit; from onOverride with keepListening) */
 export function releaseLock(rig, keepListening = false) {
@@ -123,12 +123,12 @@ export function viewForward(camera, fallback) {
   return planar(_v, fallback);
 }
 
-import { screenToGround } from '../../core/screenToGround.js';   // shared with grid placement and click-to-move; lives in core
+import { screenToGround } from '../../core/scene/screenToGround.js';   // shared with grid placement and click-to-move; lives in core
 export { screenToGround };
 
 /**
  * A rig placed the camera outside its update (fixedCamera cut, rtsCamera moveTo instant): that write is the engine's, not the game's, so the
- * next frame's single ownership check (core/owned.js) must not take it for an outside write and stop the rig. Rigs call this from the one
+ * next frame's single ownership check (core/ops/owned.js) must not take it for an outside write and stop the rig. Rigs call this from the one
  * method that writes the pose (their _place), instead of the module wrapping every rig method with a pose compare (that ran on every
  * forward() / right() read, several times per fixed step).
  * @internal
@@ -171,7 +171,9 @@ export function rigModule(kind, opts) {
     old.onExit?.();
     setProjection(engine.camera);   // back to perspective; an orthographic rig sets its own in onEnter / constructor
     setFov(engine, fov0);   // fov returns to the value at install; each camera applies its own in onEnter / constructor
-    const next = o || !cache.has(k) ? make(k, o) : cache.get(k);
+    let next;
+    // a bad kind or option throws here: the old rig goes back on, or the game keeps a rig that let go of its target and of the mouse
+    try { next = o || !cache.has(k) ? make(k, o) : cache.get(k); } catch (err) { old.onEnter?.(false); old.follow(target ?? null); throw err; }
     c = engine.cameraRig = next;
     // set up before play (boot code, the title up): this is the game's camera, so the playthrough starts from it, not from the module's options
     if (!engine.session.playing) { home = next; kind = k; opts = builtWith.get(next); }
@@ -183,7 +185,7 @@ export function rigModule(kind, opts) {
     return c;
   }
   return {
-    name: 'cameraRig', type: 'picture', label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision', 'characters'], stage: 'control',
+    name: 'cameraRig', type: 'picture', provides: ['cameraRig'], label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision', 'characters'], stage: 'control',
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.cameraRig': '相机' }, en: { 'module.cameraRig': 'camera' } });
       engine = e; fov0 = e.camera.fov; modInput = ctx.input; declared.clear();
       e.setCamera = setCamera;
@@ -238,7 +240,7 @@ export function rigModule(kind, opts) {
       // a platform moved this frame (onFrame, a timeline tween before this hook): the rider goes with it first, so the rig does not read last frame's position.
       // Here and not by moving rigs after characters: prompts, markers, bubbles and chunk culling run in between and must see this frame's camera
       e.characters?.carryRiders?.();
-      if (owned.on) c.update(dt, e.input);
+      if (owned.on) e._poses.around(c.target, () => c.update(dt, e.input));   // the rig follows what is drawn this frame
       e.focus.copy(c.focusPoint());   // decides only where the view (terrain, models) loads; the gameplay simulation center is world.anchor (default the player), so moving the camera away changes nothing
       owned.mark(); fresh = false;
     },

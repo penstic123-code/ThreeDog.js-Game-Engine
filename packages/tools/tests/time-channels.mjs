@@ -1,4 +1,4 @@
-// Time channels (core/time.js) + mod({ for }) expiry, save / load and skip. The plan's acceptance (docs/plans/done/2026-11-02-gameplay-architecture.md §5.1, §7 steps 2-3):
+// Time channels (core/time/time.js) + mod({ for }) expiry, save / load and skip. The plan's acceptance (docs/plans/done/2026-11-02-gameplay-architecture.md §5.1, §7 steps 2-3):
 //   - bullet time + haste + stopwatch + pause menu: all 24 orders of ending them give the formula's scale at every step
 //   - frozen: no channel moves and no `for` runs down; a plain onFixed dt is always 1 / 60
 //   - bullet time with 1.2 s left survives save -> load with 1.2 s left; skip across the end points ends them in the same order as stepping
@@ -8,15 +8,15 @@ import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
 const imp = f => import(pathToFileURL(join(ENGINE, f)).href);
-const { Stacks } = await imp('core/stacks.js');
-const { Time, STEP } = await imp('core/time.js');
-const { Clock } = await imp('core/Clock.js');
-const { holdMethods, defineHoldStacks } = await imp('core/holds.js');
-const { loopMethods } = await imp('core/loop.js');
-const { defineSkipOp } = await imp('core/skip.js');
+const { Stacks } = await imp('core/ops/stacks.js');
+const { Time, STEP } = await imp('core/time/time.js');
+const { Clock } = await imp('core/time/Clock.js');
+const { holdMethods, defineHoldStacks } = await imp('core/ops/holds.js');
+const { loopMethods } = await imp('core/engine/loop.js');
+const { defineSkipOp } = await imp('core/time/skip.js');
 const { NPCManager } = await imp('modules/characters/NPC.js');
 const { Sim } = await imp('modules/world/sim.js');
-const { Control } = await imp('core/control.js');
+const { Control } = await imp('core/ops/control.js');
 
 export const name = 'time channels: engine.mod on time / clock.rate, 24 end orders, for + save + skip';
 
@@ -29,9 +29,9 @@ function fake() {
     saves: { register: (k, p) => { parts[k] = p; } },
     events: { emit: (n, d) => events.push([n, d]), on: () => ({ remove() {} }) },
     ops: { defs: new Map(), define: (n, d) => { e.ops.defs.set(n, d); if (n === 'time.skip') e._skipOp = d; } } }, { ...Object.getOwnPropertyDescriptors(loopMethods), ...Object.getOwnPropertyDescriptors(holdMethods) });   // descriptors: spreading holdMethods itself would run its getters
-  e.stacks = new Stacks(e); e.mod = (n, o) => e.stacks.mod(n, o);
+  e.stacks = new Stacks(e); e.stacks._hook(); e.mod = (n, o) => e.stacks.mod(n, o);
   e.clock = new Clock(e); e.time = new Time(e);
-  e.control = new Control(e);   // NPC behaviors run through the character control slot (core/control.js)
+  e.control = new Control(e);   // NPC behaviors run through the character control slot (core/ops/control.js)
   defineHoldStacks(e);   // the engine's own hold stacks (halt does the loop side effect itself)
   defineSkipOp(e);
   e.onFixed = (fn, { channel } = {}) => { e._fixed.push(channel ? () => fn(e.time.dt(channel)) : fn); };   // same as Engine.onFixed

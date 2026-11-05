@@ -1,4 +1,4 @@
-// Field descriptions of content entries: one table per entry shape, in the core/params.js spec format (no second format).
+// Field descriptions of content entries: one table per entry shape, in the core/base/params.js spec format (no second format).
 // Three sources, one result (engine.content.fields(), content-check, the template loader all go through here):
 //   1. placement fields of the engine's files (rules.js PLACEMENT_FIELDS: props, props.template, props.grid, pickups, views)
 //   2. a template's state fields: the default is the value in state (the one place it is written), the type is inferred from it; the template's
@@ -7,8 +7,9 @@
 // Why `default` is refused inside fields: a default written twice (state and fields) drifts; the value in state / the data is the only one.
 // Node-safe (no three): packages/tools/content-check imports this file directly.
 import { PLACEMENT_FIELDS } from './rules.js';
-import { parseSpec, whyBad } from '../../core/params.js';
-import { closest, fmt } from '../../core/validate.js';
+import { parseSpec, whyBad, schemaInfo } from '../../core/base/params.js';
+import { closest, fmt, missingText } from '../../core/base/validate.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const STRINGS = {
   noDefault: "{where}: fields.{key} has a default; defaults live only in {home} (one place), fields hold only type, min, max, values, desc",
@@ -99,4 +100,24 @@ export function entryProblems(where, entry, shape, { required = false, also = nu
   }
   if (required) for (const key of keys) if (!all[key].optional && entry[key] === undefined) out.push(fmt(STRINGS.required, { where, key }));
   return out;
+}
+
+/** content.fields: the table of a template, an engine entry shape, a game kind, or the shape a world record came from */
+export function fieldsOf(e, api, st, name) {
+  if (st.templates.has(name)) {
+    const state = st.templates.get(name).state ?? {}, own = schemaInfo(st.templateFields.get(name));
+    for (const k in own) own[k].default = structuredClone(state[k]);   // the default is the state value: written once, in state
+    return { ...schemaInfo(placementShape('props.template')), ...own };
+  }
+  if (PLACEMENT_FIELDS[name]) return schemaInfo(placementShape(name));
+  const kind = st.kinds[name];
+  if (kind?.fields) {
+    const { shape, problems } = fieldsShape(`kind '${name}'`, kind.fields);
+    if (problems.length) throw codedError('content-misuse', problems.join('; '));
+    return schemaInfo(shape);
+  }
+  const rec = e.world?.get(name);
+  if (rec) return api.fields(rec.kind === 'prop' ? 'props' : rec.kind === 'pickup' ? 'pickups' : rec.kind);
+  const known = [...st.templates.keys(), ...Object.keys(PLACEMENT_FIELDS), ...Object.keys(st.kinds).filter(k => st.kinds[k]?.fields)];
+  throw codedError('unknown-name', `content.fields: ${missingText('field table', name, known)} (a template name, ${Object.keys(PLACEMENT_FIELDS).join(' / ')}, a game kind with fields, or a world record id)`);
 }

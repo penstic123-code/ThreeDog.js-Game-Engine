@@ -1,5 +1,5 @@
 // The plugins folder (docs/plans/2026-11-03-slot-map.md section 6): a page whose folder has plugins/ gets every file in it imported before
-// main.js runs, so the engine plugs them at start() with no registration line in main.js (engine.plugins, core/plugins.js).
+// main.js runs, so the engine plugs them at start() with no registration line in main.js (engine.plugins, core/engine/plugins.js).
 // How: transformIndexHtml adds one inline module script at the top of <head> that imports a generated module; that module imports each
 // plugins/*.js and puts { files, config } on globalThis.__threedogPlugins, which engine.start() reads. Module scripts run in document order,
 // so it has run before main.js calls createEngine / start.

@@ -7,7 +7,7 @@ shows in `describe()` and the dev bridge, and can be driven by ops, without spec
 1. **State.** Prefer world records (`engine.world.add({ kind, ... })`, recipe 18): saved, streamed and far-simulated for you. State that is not a
    record (a counter, a machine's queue) goes in `engine.saves.register(key, { save, load, version?, migrate? })`. Raise `version` by 1 whenever the
    saved shape changes and add `migrate: { oldVersion: d => newData }`. Never keep game state only in a closure or module variable.
-2. **Time, normal play.** Store *when* something happened in game seconds (`engine.clock.now`), and derive the state from `now - startedAt`. Never use
+2. **Time, normal play.** Store *when* something happened in calendar seconds (`engine.clock.now`), and derive the state from `now - startedAt`. Never use
    `Date.now`, `performance.now` or `setTimeout` for game time: they ignore pause, time channels, `step` and saves. If you must accumulate, do it in
    the module `fixed(dt, e)` hook (dt is real seconds; a speed several systems change goes through `engine.mod`, recipe 06).
 3. **Time, skipped** (`engine.skip`, the op `time.skip`, recipe 06 section 2). `fixed` hooks, physics and near simulation do **not** run during a skip.
@@ -30,7 +30,7 @@ modules. The module `name` must not clash with an existing engine property.
 ## One copyable module: something that finishes after a delay (a smelter, a turret recharge, a crop)
 ```js
 export const machines = () => {
-  const started = new Map();                                 // id -> startedAt (game seconds)
+  const started = new Map();                                 // id -> startedAt (calendar seconds)
   return {
     name: 'machines', type: 'rules', stage: 'gameplay', requires: ['inventory'],
     install(e) {

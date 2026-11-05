@@ -12,10 +12,11 @@
 // recipe (they run to 28 KB); an AI.md row is resolved to the best-matching section of the recipe it points at.
 // English only: the docs are English, and an AI asked in another language translates the task into English words first.
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE, command } from './paths.mjs';
 import { devServerInfo } from './devinfo.mjs';
+import { walk } from './lib/text.mjs';
 import { STOP as STOP_WORDS, SYNONYMS } from './how-words.mjs';
 
 /** Lower-case word / number tokens of a text */
@@ -46,7 +47,7 @@ function concept(w) {
 }
 
 /** { main: the distinct tokens typed, stop words dropped; concepts: each with its stem and synonyms } */
-export function queryTokens(q) {
+function queryTokens(q) {
   const main = [...new Set(tokens(q).filter(t => !STOP.has(t)))], concepts = main.map(concept);
   // each typed word counts on its own: fps no longer lists slow among its synonyms (slow is a word of its own), or one slow in a text counts twice,
   // and a networking recipe that mentions slow in passing would beat the performance line that says both slow and fps
@@ -125,7 +126,7 @@ function plainRows(file, where, out) {
 }
 
 /** GitHub-style heading anchor: "4b. Third-person action" -> "4b-third-person-action" */
-export const slug = h => h.toLowerCase().replace(/`/g, '').replace(/[^\p{L}\p{N} _-]/gu, '').trim().replace(/ /g, '-');
+const slug = h => h.toLowerCase().replace(/`/g, '').replace(/[^\p{L}\p{N} _-]/gu, '').trim().replace(/ /g, '-');
 /** The first prose paragraph from line i (code, tables and the next heading end it), at most ~480 chars */
 function paragraph(lines, i) {
   const out = [];
@@ -141,11 +142,11 @@ function paragraph(lines, i) {
 function sectionText(lines, i) { let t = ''; for (; i < lines.length && !/^#/.test(lines[i]); i++) t += lines[i] + ' '; return t; }
 
 /** All candidates from the docs: AI.md rows, recipe sections, THREE.md rows (plain three.js, or engine + three.js) */
-export function docEntries(docsDir) {
+function docEntries(docsDir) {
   const out = [], ai = join(docsDir, 'AI.md');
   if (existsSync(ai)) {
     for (const line of readFileSync(ai, 'utf8').split('\n')) {
-      if (!line.startsWith('|') || /^\|[\s|:-]+\|?$/.test(line) || /^\|\s*To do\s*\|/i.test(line)) continue;
+      if (!line.startsWith('|') || isRule(line) || /^\|\s*To do\s*\|/i.test(line)) continue;
       const c = line.split('|').slice(1, -1).map(x => x.trim());
       if (c.length < 2) continue;
       // the recipe column is a pointer, not task words: "content-actions-save.md" must not make the content row answer "save game"
@@ -199,32 +200,24 @@ export function docEntries(docsDir) {
 /** Every prose line of every docs file ([{ file, n, text, code }]): the full-text floor under the ranked entries. Why: the entries cover tasks and names; a word that sits only in a
  *  recipe's body must still be found, and "the docs never use it" may only be said after looking here. Cached per folder (a docs folder does not change during a run). */
 const linesCache = new Map();
-export function docLines(docsDir) {
+function docLines(docsDir) {
   let out = linesCache.get(docsDir);
   if (out) return out;
   out = [];
-  const walk = (rel) => {
-    const abs = rel ? join(docsDir, rel) : docsDir;
-    if (!existsSync(abs)) return;
-    for (const d of readdirSync(abs, { withFileTypes: true })) {
-      const r = rel ? rel + '/' + d.name : d.name;
-      if (d.isDirectory()) walk(r);
-      else if (d.name.endsWith('.md')) {
-        let fence = false;
-        readFileSync(join(docsDir, r), 'utf8').split('\n').forEach((text, i) => {
-          if (text.startsWith('```')) { fence = !fence; return; }
-          if (text.trim() && !isRule(text)) out.push({ file: r, n: i + 1, text, code: fence });
-        });
-      }
-    }
-  };
-  walk('');
+  for (const f of walk(docsDir, { exts: /\.md$/, unscoped: true })) {
+    const file = relative(docsDir, f).replaceAll('\\', '/');
+    let fence = false;
+    readFileSync(f, 'utf8').split('\n').forEach((text, i) => {
+      if (text.startsWith('```')) { fence = !fence; return; }
+      if (text.trim() && !isRule(text)) out.push({ file, n: i + 1, text, code: fence });
+    });
+  }
   linesCache.set(docsDir, out);
   return out;
 }
 
 /** Which renderer the game at `dir` writes shaders for: 'webgpu' (TSL), 'webgl' (GLSL) or null when unknown. Read from main.js: that is where the game says `renderer: 'webgpu'`. */
-export function gameRenderer(dir) {
+function gameRenderer(dir) {
   for (const f of ['main.js', 'src/main.js']) {
     const p = join(dir, f);
     if (!existsSync(p)) continue;

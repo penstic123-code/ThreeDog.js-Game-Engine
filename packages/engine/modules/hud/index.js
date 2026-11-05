@@ -13,11 +13,11 @@
 import * as THREE from 'three';
 import { injectUICSS, worldToScreen } from '../../ui/UI.js';
 
-import { readParams, keysSchema } from '../../core/params.js';
-import { vec3 } from '../../core/math.js';
-import { surfaceOr } from '../../core/ground.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { vec3 } from '../../core/base/math.js';
+import { surfaceOr } from '../../core/scene/ground.js';
 import { CSS, defineHudParts } from './parts.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Hud, HudOptions } from '../../types/gameplay' */
 
@@ -185,6 +185,12 @@ export function hud(opts = {}) {
       return api;
     },
     frame() { for (const m of api.markers) updateMarker(m); },
+    // unloaded: nothing updates these any more, so they leave the screen too
+    dispose() {
+      for (const m of api.markers) m.remove();
+      for (const id of [...items.keys()]) api.remove(id);
+      quest.clear(); root?.layer.remove(); root = null;
+    },
     describe() {
       return {
         markers: api.markers.map(m => ({ label: typeof m.o.label === 'function' ? m.o.label() : m.o.label ?? null, distance: m.dist, onScreen: m.onScreen, visible: m.visible })),

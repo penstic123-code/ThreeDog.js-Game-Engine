@@ -1,8 +1,8 @@
-// Terrain chunk meshes (flat / smooth / texture shading) and the terrain's vegetation placement (the shared rule code in core/scatter.js).
+// Terrain chunk meshes (flat / smooth / texture shading) and the terrain's vegetation placement (the shared rule code in core/stream/scatter.js).
 // Pure computation, no three.js dependency, shared by the main thread and the Worker.
 // makeMesher(ctx) takes the height, slope and biome functions from createTerrain and returns { buildChunk, place }.
 
-import { makePlacer } from '../../core/scatter.js';
+import { makePlacer } from '../../core/stream/scatter.js';
 import { makeColorMap } from './terrainColorMap.js';
 import { makeIslandBuilder, faceN } from './terrainIsland.js';
 
@@ -25,7 +25,8 @@ export function makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biome
   const sphereOf = (ox, oz, minH, maxH) => [ox + half, (minH + maxH) / 2 + pad.up, oz + half, Math.hypot(half, half, (maxH - minH) / 2 + pad.radius)];
   // build one chunk's terrain mesh (flat: one normal and color per triangle; smooth: per grid point; texture: colors come from the color map, vertex colors are white).
   // uv = world xz / chunk size, continuous across chunks for tiling textures
-  function buildChunk(cx, cz) {
+  // keep: an edit's repaint of the color map (see terrainColorMap.js)
+  function buildChunk(cx, cz, keep) {
     const n = RES, i0 = cx * n, j0 = cz * n, ox = cx * CHUNK, oz = cz * CHUNK;
     const len = n * n * 18;
     const pos = new Float32Array(len), nor = new Float32Array(len), col = new Float32Array(len), uv = new Float32Array(len / 3 * 2);
@@ -78,12 +79,12 @@ export function makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biome
       }
     }
     const out = { pos, nor, col, uv, minH, maxH, sphere: sphereOf(ox, oz, minH, maxH) };
-    if (colorMap) out.tex = colorMap(cx, cz);
+    if (colorMap) out.tex = colorMap(cx, cz, keep);
     return out;
   }
 
   function inFlatZone(x, z) { for (const f of cfg.flatten) if (Math.hypot(x - f.x, z - f.z) < f.radius * (f.clearRatio ?? 0.8)) return true; return false; }
-  // vegetation placement: the shared rule code (core/scatter.js) over this terrain's height, slope, ground types and edits
+  // vegetation placement: the shared rule code (core/stream/scatter.js) over this terrain's height, slope, ground types and edits
   const skip = shape ? (x, z) => !shape.has(x, z) || editedCell(x, z) : editedCell;
   const place = makePlacer({ chunk: CHUNK, seed: SEED, surface, slope, typeAt: biomeAt, fbm, skip, flat: cfg.flatten.length ? inFlatZone : null });
 

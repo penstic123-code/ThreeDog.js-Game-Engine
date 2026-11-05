@@ -7,7 +7,7 @@ Background music (music() module)
   - `rules?: MusicRule[]` Auto track rules (same as engine.music.rules(list))
   - `fade?: number` Default crossfade seconds, default 2
   - `duckDialogue?: number | false` Duck the music bus during dialogue to this (0-1, e.g. 0.35); default false = no duck (the game opts in)
-  - `duckFade?: number` Fade seconds for the ducking
+  - `duckFade?: number` (experimental) Fade seconds for the ducking
   - `hold?: number` Rule debounce seconds, default 2
   - `interval?: number` Rule check interval (seconds), default 1
 
@@ -24,7 +24,7 @@ Background music (music() module)
   - `current: string | null` Name of the track playing (or wanted)
   - `intensity: number` 0-1: how loud each stem of the playing track is (see the stems `at` range); fades in about half a second
   - `ready: boolean` Whether audio is usable
-  - `ruled: boolean` Auto track rules are in use
+  - `ruled: boolean` (experimental) Auto track rules are in use
   - `state: { current, playing, pending, override, intensity, gain, … }` State (for debugging and tests): gain is the playing track's fade level, stems each stem's level
 
 ## Data structures

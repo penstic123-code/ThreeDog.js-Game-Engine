@@ -13,7 +13,7 @@ export const specs = [
     async run({ check, ev }) {
       // 测试页跑的是打包产物，拿不到源码模块：页面里只读全局登记，纯函数在 node 里测（copies.js 不依赖浏览器）
       const real = await ev(async () => { await engine.loading.settled(); return globalThis[Symbol.for('threedog.engine.copies')] ?? []; });
-      const m = await import('../../core/copies.js');
+      const m = await import('../../core/engine/copies.js');
       const reg = {};
       const first = m.noteCopy({ version: '0.2.1', url: 'http://h/node_modules/threedog/render/patches.js' }, reg);
       const hot = m.noteCopy({ version: '0.2.1', url: 'http://h/node_modules/threedog/render/patches.js?t=123' }, reg);
@@ -25,20 +25,20 @@ export const specs = [
       check('a second copy at another path: one warning with both versions + paths, the dedupe line first, and the code',
         r.second.includes('0.2.1 at http://h/node_modules/threedog/') && r.second.includes('0.1.0 at http://h/packages/engine/') &&
         /load one, e\.g\. vite\.config\.js: resolve: \{ dedupe:/.test(r.second) && r.second.endsWith('[engine-two-copies]'), r.second);
-      const ver = JSON.parse(read('package.json')).version, src = read('core/copies.js');
-      check('core/copies.js VERSION equals package.json version (the warning names real versions)', src.includes(`export const VERSION = '${ver}'`), ver);
+      const ver = JSON.parse(read('package.json')).version, src = read('core/engine/copies.js');
+      check('core/engine/copies.js VERSION equals package.json version (the warning names real versions)', src.includes(`export const VERSION = '${ver}'`), ver);
     },
   },
   {
     // 生成器自己设的阴影开关要留着（地毯只接收不投射）；清单项 castShadow 统一改；什么都没设才给默认的投射+接收。
     // 内容摆件和 assets.model 走同一个 shadowDefaults，源码扫描保证不再自己强行写 true。
-    // 按名字建模型的那条路在 ae04bac9 搬到了 core/namedModel.js（content/models.js 只转调它），所以两个文件都查。
+    // 按名字建模型的那条路在 ae04bac9 搬到了 core/assets/namedModel.js（content/models.js 只转调它），所以两个文件都查。
     name: '[guard] shadow flags: a generator keeps its own castShadow / receiveShadow, the manifest entry sets them, none set = cast + receive; content props use the same rule',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        const T = engine.THREE, box = () => new T.Mesh(new T.BoxGeometry(1, 0.1, 1), new T.MeshStandardMaterial());
+        const T = __threedogThree, box = () => new T.Mesh(new T.BoxGeometry(1, 0.1, 1), new T.MeshStandardMaterial());
         engine.assets.manifest({ name: 'shadowTest', models: {
           shRug: function () { const g = new T.Group(), m = box(); m.receiveShadow = true; g.add(m, box()); return g; },
           shPlain: function () { const g = new T.Group(); g.add(box(), box()); return g; },
@@ -50,9 +50,9 @@ export const specs = [
       check('a generator that set receiveShadow on a mesh keeps its flags (no cast forced on)', JSON.stringify(r.rug) === '[[false,true],[false,false]]', JSON.stringify(r.rug));
       check('a generator that set nothing: every mesh casts and receives', JSON.stringify(r.plain) === '[[true,true],[true,true]]', JSON.stringify(r.plain));
       check('{ build, castShadow: false } in the manifest: no mesh casts (receive still the default)', JSON.stringify(r.off) === '[[false,true]]', JSON.stringify(r.off));
-      const named = read('core/namedModel.js'), models = read('modules/content/models.js'), forced = /castShadow\s*=\s*\w+\.receiveShadow\s*=\s*true/;
-      check('content props go through shadowDefaults (core/namedModel.js; no forced castShadow = receiveShadow = true there or in content/models.js)',
-        named.includes('shadowDefaults(p,') && !forced.test(named) && !forced.test(models) && /from '\.\.\/\.\.\/core\/namedModel\.js'/.test(models));
+      const named = read('core/assets/namedModel.js'), models = read('modules/content/models.js'), forced = /castShadow\s*=\s*\w+\.receiveShadow\s*=\s*true/;
+      check('content props go through shadowDefaults (core/assets/namedModel.js; no forced castShadow = receiveShadow = true there or in content/models.js)',
+        named.includes('shadowDefaults(p,') && !forced.test(named) && !forced.test(models) && /from '\.\.\/\.\.\/core\/assets\/namedModel\.js'/.test(models));
     },
   },
   {
@@ -63,7 +63,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        const T = engine.THREE;
+        const T = __threedogThree;
         let builds = 0;
         const inst = new T.DataTexture(new Uint8Array([255, 0, 0, 255]), 1, 1); inst.needsUpdate = true; inst.repeat.set(2, 2);
         engine.assets.manifest({ name: 'texTest', textures: {
@@ -145,7 +145,7 @@ export const specs = [
         engine.haltLoop();
         const out = {};
         // batching: 12 copies of one game mesh opted in (userData.batch = true) in one cell -> a batch, and stats carries the note
-        const T = engine.THREE, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial();
+        const T = __threedogThree, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial();
         for (let i = 0; i < 12; i++) { const x = new T.Mesh(g, m); x.position.set(500 + i * 0.5, 0, 500); x.userData.batch = true; engine.add(x); }
         engine.step(0.05); engine.step(0.05);
         out.batch = engine.batching.stats;

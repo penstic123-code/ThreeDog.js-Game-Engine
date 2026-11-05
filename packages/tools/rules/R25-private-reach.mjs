@@ -8,13 +8,11 @@ import { walk, read, codeOnly, P } from './_lib.mjs';
 
 // [folder, member, reason]; folder '*' = any folder
 const ALLOW = [
-  ['rigid', 'control._resolve', 'ragdoll takes a character id: control is the one place that finds a character by id'],
-  ['rigid', 'assets._animators', 'ragdoll holds the animator of a bare model: the only record of it, and a public getter would be one more name for one caller'],
-  ['characters', 'collision._blocked', 'the simple mover skips blockedAt when no blocked ground exists (a per-step shortcut); characters is being changed by another pass: give collision a hasBlocked getter then'],
   ['debug', '_cpuMs', 'the panel adds up the cost of every frame; engine.inspect.perf() walks the materials and is too heavy to call each frame'],
+  ['*', '_poses', 'engine._poses (core/scene/stepPoses.js): the things the engine itself moves on the fixed step sign in to be drawn between steps; internal, so no public name for what only characters, rigid and the camera rig use'],
   ['world', '_things', 'adds its record store with engine._things.addSource at install: the one door core offers to record stores'],
 ];
-// LookPart private fields reached through any name (part._owners, p._write, look.fog._params ...): the engine-prefix pattern above misses an alias
+// A private of the engine (e._x) or of a module reached from it (e.world._x)
 const REACH = /\b(?:e|engine|this\.engine|this\.e)(?:\?)?\.(?:(\w+)\??\.)?(_\w+)/g;
 // Another module held in a local first (const inv = e.inventory; inv._containers): the alias is followed within the file. Why: net reached
 // inventory._containers this way and the engine-prefix pattern alone never saw it (review 0.4 E)

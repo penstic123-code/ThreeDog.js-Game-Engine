@@ -6,7 +6,6 @@
 //   engine.ui.set('inventory', (engine) => ({ show: d => …, update: d => …, hide: () => …, dispose: () => … }))   your own
 import { esc, iconHTML as icon, injectUICSS } from '../../ui/UI.js';
 
-
 /** Texts of the inventory window, the got / full toasts and the ops (zh-CN and en) @internal */
 export const INVENTORY_STRINGS = {
   'zh-CN': { 'module.inventory': '背包', 'inventory.title': '背包', 'inventory.action': '背包', 'inventory.empty': '背包是空的。', 'inventory.full': '背包满了',

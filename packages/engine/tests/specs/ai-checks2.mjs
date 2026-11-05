@@ -22,7 +22,8 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.timeline.skip(); engine.haltLoop();
-        const raw = await engine.checkSkip(30);                              // 跳过不跑近处模拟：玩家/NPC 位置、world.step 必然不同，应被报告
+        engine.clock.after(1000, 't-real', { channel: 'real' });             // 没到点的 real 定时器：跳过和逐步走完，到期时间要一样
+        const raw = await engine.checkSkip(30);                            // 跳过不跑近处模拟：玩家/NPC 位置、world.step 必然不同，应被报告
         const ign = await engine.checkSkip(30, { ignore: ['parts.world', 'parts.rigid', 'parts.random'] });   // 刚体也是近处模拟：跳过时不动
         engine.freeze('t-refuse'); const ref = await engine.checkSkip(30); engine.stacks.get('freeze').release('t-refuse');
         return { ok: raw.ok, diffs: raw.diffs, ign, refused: { ok: ref.ok, code: ref.code, diffs: ref.diffs.length, noReason: !('reason' in ref) } };

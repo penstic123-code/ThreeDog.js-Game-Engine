@@ -5,10 +5,11 @@
 // end of start() is the point GLSL calls lights_fragment_end (reflectedLight still writable). The GLSL threedogSunShadow() helper is not needed there.
 // Why not import lighting.js: it registers a ShaderChunk and the WebGL patch, which threedog/tsl must not pull in.
 import { Fn, vec3, float, max, mix, smoothstep, clamp, pow, dot } from 'three/tsl';
+import { LUMA } from '../fxNumbers.js';
 
 /** @template {string} T @typedef {import('three/webgpu').Node<T>} N */
 
-const LUM = vec3(0.2126, 0.7152, 0.0722);   // the same Rec. 709 weights as lighting.js `lum`
+const LUM = vec3(...LUMA);
 
 /**
  * GLSL vec3 threedogWrapDiffuse(float nl, float wrap, vec3 lightColor, float shadow, vec3 albedo): the half-lambert light beyond plain Lambert,

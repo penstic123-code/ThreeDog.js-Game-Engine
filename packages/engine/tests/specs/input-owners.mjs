@@ -1,6 +1,6 @@
 // Input by context, can't-bypass checks (docs/plans/done/2026-11-03-ownership-design.md section 4):
 //   - no built-in module binds a key: every built-in module installed with no bindings leaves only the basics with keys
-//   - static: key names ('KeyQ', 'Digit1', 'F3', 'Backspace'...) never appear in modules/, ui/ or render/ code (only core/inputDefaults.js and
+//   - static: key names ('KeyQ', 'Digit1', 'F3', 'Backspace'...) never appear in modules/, ui/ or render/ code (only core/input/inputDefaults.js and
 //     presets.js name keys; the rest of core/ is the input layer itself: key events, gamepad buttons, key display names)
 //   - two owners binding one action -> input-bound-twice with the fix; two contexts for one action -> input-action-context
 //   - an unbound action a module needs -> input-unbound once naming the one-line bind; an optional one stays silent
@@ -35,7 +35,7 @@ export const specs = [
         const code = codeOnly(readFileSync(f, 'utf8'));
         for (const m of code.matchAll(KEY_NAME)) hits.push(`${rel}: '${m[1]}'`);
       }
-      check('[guard] modules/, ui/, render/ name no key (keys live in core/inputDefaults.js and presets.js)', !hits.length, hits.slice(0, 12).join('; '));
+      check('[guard] modules/, ui/, render/ name no key (keys live in core/input/inputDefaults.js and presets.js)', !hits.length, hits.slice(0, 12).join('; '));
 
       const r = await ev(async () => {
         const { mk, createEngine } = threedogThreads, T = threedogThreads.all, out = {};
@@ -84,6 +84,11 @@ export const specs = [
         const mod = { name: 'ioMod', type: 'rules', install(e, ctx) { ctx.input.action('ioModAct', { keys: ['KeyT'] }); ctx.input.bind('ioJump2', ['KeyY']); } };
         out.rollback = err(() => E.use(mod, { name: 'ioBoom', type: 'rules', install() { throw new Error('io boom'); } }));
         out.left = [E.input.actions.has('ioModAct'), E.input.keysOf('ioModAct').length, E.input.keysOf('ioJump2').length];
+        // a declaration leaving takes only itself: keys the game bound stay readable; an action nobody bound goes with it
+        E.input.bind('ioKept', ['KeyI']);
+        E.input.action('ioKept', { owner: 'ioDecl' }).remove();
+        E.input.action('ioAlone', { owner: 'ioDecl' }).remove();
+        out.declLeft = [E.input.actions.has('ioKept'), E.input.keysOf('ioKept').join(), E.input.actions.has('ioAlone')];
         // settings: the player's key is the settings layer of 'input.keys', saved and reset through input.rebind
         const S = mk(createEngine, 'io-settings');
         S.use(T.settings()); await S.start();
@@ -98,6 +103,7 @@ export const specs = [
         return out;
       });
       const J = JSON.stringify(r);
+      check('a declaration removed leaves keys the game bound; an unbound action goes with it', JSON.stringify(r.declLeft) === '[true,"KeyI",false]', JSON.stringify(r.declLeft));
       check('[guard] a second owner binding one action throws input-bound-twice naming both and the fix', /input-bound-twice/.test(r.twice ?? '') && /'game'/.test(r.twice) && /someModule/.test(r.twice) && /Fix/.test(r.twice), J);
       check('the same owner binding again replaces its keys', r.same === 'KeyH', J);
       check('[guard] one action in two contexts throws input-action-context; the same context is shared', /input-action-context/.test(r.ctx ?? '') && r.shared === null, J);

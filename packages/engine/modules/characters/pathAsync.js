@@ -7,9 +7,9 @@
 // invalidates engine.commits is dropped (its done never runs), the same as a batch already sent.
 // done stays a callback on purpose: it runs inside the fixed step. A Promise's then runs after the whole frame's steps, so a write there would depend on how many
 // steps a frame ran, and a dropped request would leave the Promise pending forever.
-import { xzOf } from '../../core/math.js';
+import { xzOf } from '../../core/base/math.js';
 import { solveBatch, pathHandler, astarDefaults, RES, TILE, tileOf } from './pathJob.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 /** Steps between sending a batch and its answers taking effect (4 = 67 ms): enough for a worker round trip, short enough that an NPC barely waits */
 const PATH_LAG = 4;
@@ -25,7 +25,7 @@ export class AsyncPaths {
     this.perStep = 32;
     this.lane = null;
     this.sent = { rev: -1, ver: -1 };   // what the workers mirror
-    this.tiles = new Map();             // 'tx:tz' -> { data, trees, at }
+    this.tiles = new Map();             // 'tx:tz' -> { data, trees, at, bv }
   }
   request(from, to, done, o = {}) {
     if (typeof done !== 'function') throw codedError('character-option', NO_DONE);
@@ -36,7 +36,7 @@ export class AsyncPaths {
   }
   /** Which walkable state answers now: navmesh revision, collision version, or nothing */
   key() { const e = this.e; return e.nav?.ready ? 'n' + e.nav.revision : e.collision ? 'g' + e.collision.version : '-'; }
-  /** End of each fixed step: send up to perStep queued requests as one batch */
+  /** Each fixed step (characters fixed): send up to perStep queued requests as one batch */
   flush() {
     const list = [];
     const epoch = this.e.commits.epoch;
@@ -76,12 +76,12 @@ export class AsyncPaths {
     const e = this.e, c = this.tiles.get(k);
     const bv = e.collision.blockedVersion;
     if (c && c.bv === bv && e.time.tick - c.at < TILE_TTL) return c;
-    const data = new Uint8Array(TILE * TILE), col = e.collision, trees = [], span = TILE * RES, blocked = col._blocked.length > 0;
+    const data = new Uint8Array(TILE * TILE), col = e.collision, trees = [], span = TILE * RES;
     // addBlocked fields are functions and cannot go to a worker: they are sampled into this same raster (the worker sees blocked cells as unwalkable).
     // A cell counts as blocked if fn is true at its centre or on a ring of half a cell (blockedAt), so a 1 m cell never hides a thin river; bounds skip the sampling outside.
     for (let j = 0; j < TILE; j++) for (let i = 0; i < TILE; i++) {
       const x = (tx * TILE + i) * RES, z = (tz * TILE + j) * RES;
-      data[j * TILE + i] = col.groundWalkable(x, z) && !(blocked && col.blockedAt(x, z, RES / 2)) ? 1 : 0;
+      data[j * TILE + i] = col.groundWalkable(x, z) && !col.blockedAt(x, z, RES / 2) ? 1 : 0;
     }
     // every collider that can touch a point of the tile: half diagonal + the largest character radius we expect + 1 (the same reach walkableAt uses)
     e.ground.forEachCollider?.((tx + 0.5) * span, (tz + 0.5) * span, span * 0.71 + 3, (x, z, r) => { trees.push(x, z, r); });
@@ -93,7 +93,7 @@ export class AsyncPaths {
   /** Forget cached tiles overlapping a world box (ground:change) */
   dropTiles({ x0, z0, x1, z1 }) {
     const span = TILE * RES;
-    for (const [k, v] of this.tiles) {
+    for (const k of this.tiles.keys()) {
       const [tx, tz] = k.split(':').map(Number);
       if ((tx + 1) * span + 3 >= x0 && tx * span - 3 <= x1 && (tz + 1) * span + 3 >= z0 && tz * span - 3 <= z1) this.tiles.delete(k);
     }

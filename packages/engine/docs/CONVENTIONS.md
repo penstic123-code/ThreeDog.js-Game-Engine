@@ -65,9 +65,22 @@ logic need none of this.
 | Let several systems change one shared value (speed, time scale, gravity, damage taken): the game sets, effects multiply, settings cap | `engine.mod(point, { owner, set \| add \| mul \| clamp, for })`, in a module `ctx.mod`; `mul` / `add` cooperate, two owners' `set` on one layer is an error with the fix; your own point: `engine.stacks.define` | `recipes/55-mods-time-wrap.md` |
 | Run code before / after / around a module method (a weight limit on `inventory.add`) | `engine.wrap(engine.inventory, 'add', (next, ...a) => next(...a), { owner })` | `recipes/55-mods-time-wrap.md` |
 | Close one action for a while (stunned: no jump) | `engine.input.gate(action, { owner, for })` | `recipes/55-mods-time-wrap.md` |
-| Replace a whole system (your own inventory, interactions, dialogue, quests, flow, characters, camera; your own vehicle for `character.enter`) | `engine.use(mine(), { replaces: '<slot>' })` for a part that `provides` that slot; a module (or object) that meets that contract (`<module>.contract.js`; vehicle: `modules/characters/vehicle.contract.js`), checked with `runContract` | `recipes/55-mods-time-wrap.md` "Replacing a module" |
+| Replace a whole system (your own inventory, interactions, dialogue, quests, flow, characters, camera, collision, level, navmesh; your own vehicle for `character.enter`) | `engine.use(mine(), { replaces: '<slot>' })` for a part that `provides` that slot; a module (or object) that meets that contract (`<module>.contract.js`; vehicle: `modules/characters/vehicle.contract.js`), checked with `runContract` | `recipes/55-mods-time-wrap.md` "Replacing a module" |
 | Change a picture value (light, fog, sky, water, tone, post) | write it in your `picture/` code on the three.js object or the module's `material` (recipe 62); a value the engine drives (camera far, fov, pixel ratio): `engine.autoView.manual(key)` first; a screen effect: `engine.post.add(x)` |
 | Write the picture yourself | plain three.js on `engine.scene / camera / renderer` (own material, `ShaderMaterial`, pass); a direct write takes that value over and the engine yields | `THREE.md` |
+
+**What can be replaced**: a slot with a contract file (inventory, interactions, dialogue, quests, flow, characters, calendar, cameraRig, particles, collision, level, nav) lists what a replacement must supply, and `runContract` checks it. The slots below have no contract; a replacement must supply what the engine's own callers read:
+
+| Slot | A replacement must supply |
+|---|---|
+| `sky` | the `engine.uniforms` signals your `picture/` code reads; `dome` (the object a photo leaves out) if it has one |
+| `terrain` | the ground through `engine.setGround`; `chunkSize`, `stats`, `edit` (nav), `view` and `setPlanter` (vegetation). Replace `terrain-draw` with it: the drawing half reads the engine terrain's chunks |
+| `weather` | `types`, `name`, `current`, `label(name)`, `set(name, { seconds })`, `setAuto(on)`. Replace `weatherDraw` with it |
+| `vegetation` | `define(name, rule)` (content), `instanceAt(point, { radius })` (photo), `host` (settings). Replace `vegetation-draw` with it |
+| `rigid` | `vehicles`, a list of objects that meet `modules/characters/vehicle.contract.js` |
+| `swarm` | nothing: no other module calls it |
+
+**Not replaceable**: `world` (saves, the shared id space, streaming and content stand on its records; it provides the slot so that `requires: ['world']` names a capability), and the player inside `characters` (a replacement of `characters` leaves a live player's `world` record behind, and `engine.player` is the engine's own character; steer it with `control.take`).
 
 The starting picture comes from the game's `picture/` folder; what it builds as a factory can also be passed at the call site, and the
 call site wins (`terrain({ material })` and the like; the water surface is `engine.water.material`); a new style factory ships with its call-site option. No module option starts a value taken over.
@@ -110,7 +123,7 @@ Everything that holds the engine is named by an owner, and only that owner relea
 not contain functions.
 Workers are created only through `engine.threads.lane({ create, local })` (the same handler runs on the main thread when there are no workers); no
 `new Worker` / `postMessage` elsewhere (`npm run check` rule R19). Worker files import only worker-safe code (a game:
-`import { serve } from 'threedog/worker'`; inside the engine `core/threadServe.js`, `core/threadPure.js`), never `core/Threads.js` or three.js.
+`import { serve } from 'threedog/worker'`; inside the engine `core/threads/threadServe.js`, `core/threads/threadPure.js`), never `core/threads/Threads.js` or three.js.
 
 ### Worker results that change gameplay: `engine.commits`
 A result that changes gameplay never takes effect "when it arrives"; it takes effect on a fixed tick decided when you ask (`engine.time.tick + lag`,
@@ -169,7 +182,7 @@ inside template strings, which then throw on the first call).
 - **Event names are `noun:action`**: the noun is the emitter's singular camelCase name (`item`, `template`...), the action is a lowercase verb or state
   (`add`, `done`, `change`); a game's own events follow the same rule (`door:open`).
 - **Time**: one source, `engine.time.tick`; real, ambient, channel and calendar seconds are read-only views (`engine.time.now(name)`), and only
-  `core/time.js` adds to them (a spec checks). Always name the unit, real, channel or calendar seconds; `recipes/06-clock-events.md` defines them (and the calendar's time of day) and has
+  `core/time/time.js` adds to them (a spec checks). Always name the unit, real, channel or calendar seconds; `recipes/06-clock-events.md` defines them (and the calendar's time of day) and has
   the table of which one to use for movement, action timelines, cooldowns, hit-stop, crop growth, calendar and UI, and what pause / freeze /
   `clock.rate` 2 do to each. Speeds change only through `engine.mod` (the "Customization ladder" above).
 - **Input**: gameplay keys (attack, jump, interact...) are read in the fixed step (`onFixed` / module `fixed`), where `pressed / down / released` give
@@ -196,7 +209,7 @@ inside template strings, which then throw on the first call).
   belongs to the Character mover; other systems only request movement (`placeAt` / `move` / vehicle `enter`) and never set `player.position` directly.
   Who calls `move` is the character's control holder (`engine.control`, `recipes/57-control.md`): one per step; anyone else is `[control-bypass]`.
 - Units are meters, Y is up, north is -Z. Characters and vehicles face the model's +Z; `facing` 0 = +Z, forward = (sin f, cos f).
-- Never call `requestAnimationFrame` or `renderer.render` yourself. **Game logic always uses fixed seconds or game seconds** (the hook's `dt`,
+- Never call `requestAnimationFrame` or `renderer.render` yourself. **Game logic always uses real seconds or calendar seconds** (the hook's `dt`,
   `engine.clock`; see the time table in `recipes/06-clock-events.md`); no `setTimeout` / `setInterval` / `performance.now()`: they ignore pause,
   freeze and `engine.step` fast-forward, so they can't be tested or saved.
 - To be saved, call `engine.saves.register(key, { save, load })` (`load` may return a Promise); `saves.save / load` always return `Promise<boolean>`,
@@ -209,7 +222,7 @@ inside template strings, which then throw on the first call).
   `terrain({ height, groundType })` must be pure functions.
 - Loading follows the `engine.stream` sources (player + camera focus by default); display, physics and world data are separate: unloading a model
   never removes its world record.
-- Window blur, tab hidden, pointer lock and WebGL context loss are listened to only in `core/page.js`; modules read `engine.page` or listen to
+- Window blur, tab hidden, pointer lock and WebGL context loss are listened to only in `core/engine/page.js`; modules read `engine.page` or listen to
   `page:*`. Show "saved" only after `saves.save` returns true.
 - Character bodies are assets: `createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' | 'hero' })` (a procedural builder is built
   now; a file shows a gray capsule and is swapped in when it loads: `await player.whenReady`, event `character:model`), or `{ rig }`; a name no model
@@ -222,7 +235,7 @@ inside template strings, which then throw on the first call).
 ## Failures: which shape
 A runtime "can't" (not enough money, shelf empty) is returned as `{ ok: false, code, facts, nextActions }` (ops.run / can / undo, and direct calls such as `container.trade`, which a module builds by returning that shape, or a code string from an op's `can`). Misuse (a wrong call, a typo) is a thrown `codedError`. Documented exceptions: `checkSkip` / `checkSave` return `{ ok, diffs }`, `walkTo` returns `{ status }`. Read `code` (there is no `reason` field). Predicates (op `can`, `grid.can()`) may return a plain code string.
 
-Inside the engine a failure takes one of three forms, so every one reaches the reader with a code, a fix and a page: misuse throws `codedError(code, message)` with an `ERROR_CODES` entry (`core/errorCodes.js`: what to change, which page to read); a recoverable problem warns once with `warnOnce(coded(code, message))`; a game or module callback that threw goes to `reportError`. Check rule R45 rejects a plain `throw new Error` and a bare `console.warn` / `console.error` in engine code.
+Inside the engine a failure takes one of three forms, so every one reaches the reader with a code, a fix and a page: misuse throws `codedError(code, message)` with an `ERROR_CODES` entry (`core/base/errorCodes.js`: what to change, which page to read); a recoverable problem warns once with `warnOnce(coded(code, message))`; a game or module callback that threw goes to `reportError`. Check rule R45 rejects a plain `throw new Error` and a bare `console.warn` / `console.error` in engine code.
 
 ## Stability
 
@@ -232,6 +245,8 @@ Inside the engine a failure takes one of three forms, so every one reaches the r
 - **How it is kept.** The API lock (rule R55) lets a marked name change. Marking a stable name needs a line in the changelog: the mark takes a promise back.
 - **Objects from other libraries**, which follow that library's version: `rigid.rapier / world / playerBody / playerCollider`, `nav.navMesh / query / tileCache / crowd / helper`, `assets.gltf / draco / ktx2`, `post.object / targets`, `shadows.csm`.
 - **Effects still moving with three.js**: all of `threedog/tsl` and `@threedog/post-effects/tsl`.
+- **Names nothing uses yet**: a public name no game, recipe, example or template used at 0.8 stays marked until one does; `docs/api-surface.txt` lists them.
+- **Coordination no test game has used**: `engine.stacks`, `engine.wrap`, `engine.mod`, `time.channel / channels`.
 - **Systems still settling**: `net()`, `engine.threads`, `engine.commits`, `grids()`, `hlod()`, `swarm()`, `stream.source / teleport / addReadyCheck / sources`, `post.get / own / setAntialias / list`, `world.simulate({ worker })`, `terrain.edit`, `ops.guard / allow`, `terrainDraw`, `vegetationDraw`, `weatherDraw`, `engine.bakeProbes / loadProbes / loadLightmap`.
 - **Flat content**: an entry's `source`, `content stamp`, `content capture`.
 - **Tuning and readings**: `engine.moduleOrder / moduleStates / disabledModules`, `player.saveMotion / loadMotion`, `jobs.loadingMs / maxSteps / slowStepMs`, `stream.unloadFactor`, `batching.held`, `world.steps`, `level.heightfield`.

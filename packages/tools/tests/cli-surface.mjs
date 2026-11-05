@@ -1,16 +1,19 @@
 // The CLI surface an AI meets first: page arguments, options, which workspace a bridge command talks to, the art-code scope of R1, and COMMANDS.md.
 // Why a unit test: each of these failed silently in a real session (Git Bash turned "/" into "C:/Git/", `shot --out` was ignored, `threedog catalog`
 // at the repo root said "no dev server" while a game's ran, a 21 KB art generator was "too big", `threedog hold` was missing from COMMANDS.md).
-import { readFileSync, mkdirSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
+import { readFileSync, mkdirSync, mkdtempSync, writeFileSync, rmSync, existsSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { ROOT, ENGINE, TOOLS, workspaceFor, workspaces, isArtFile } from '../paths.mjs';
 import { devServerInfo } from '../devinfo.mjs';
 import { pagePath, parseOptions } from '../lib/cli-args.mjs';
 import { SCRIPTS, BRIDGE, VITE, main } from '../bin/threedog.mjs';
-import { BRIEF } from '../threedog/pageFns.mjs';
+import { BRIEF, atPath } from '../threedog/pageFns.mjs';
+import { errorsCommand, errorMark, errorsSince, markReload, currentErrors } from '../threedog/errorlog.mjs';
 import { oneLine, ONE_LINE_MAX } from '../lib/oneline.mjs';
+import { cutLog } from '../vite/vite-error-relay.js';
 import { NODE_RANGE, nodeSupported } from '../lib/node-version.mjs';
 
 export const name = 'cli surface: MSYS page paths, unknown options, live dev server pick, R1 art files, every command in COMMANDS.md, Node version preflight';
@@ -37,17 +40,50 @@ export async function run({ check }) {
   const { mergeKey } = await import('../vite/vite-error-relay.js');
   const warn = msg => ({ type: 'warn', msg }), k1 = mergeKey(warn('[threedog] WebGPU unavailable (no adapter), running webgl2'), 'a.js:1'), k2 = mergeKey(warn('THREE.WebGPURenderer: WebGPU is not available, running under WebGL2 backend.'), 'b.js:9');
   check('errors.log: every wording of the WebGPU fallback warning merges into one line', k1 === k2);
+  check('[guard] describe path: a null value is that value, a missing field is undefined, position still reads off x, y, z',
+    atPath({ ui: { dialogue: null } }, 'ui.dialogue') === null && atPath({ ui: {} }, 'ui.dialogue') === undefined && atPath({ p: { x: 1, y: 2, z: 3 } }, 'p.position').y === 2);
+  // [guard] the log and the three positions in it: a repeat raises a count, and a size cut must not renumber
+  {
+  const elog = mkdtempSync(join(tmpdir(), 'td-errlog-')), blk = (t, msg) => `[browser error] ${t}\npage| /index.html\npage| ${msg}\npage| at f (main.js:3:4)\n\n`;
+  const rep = (n, msg) => `[browser error ×${n}, ${n + 1} total] 12:00:09 same as above: ${msg}\n`;
+  mkdirSync(join(elog, '.threedog'));
+  const wlog = t => writeFileSync(join(elog, '.threedog/errors.log'), t), head = '# Browser error log\n', two = head + blk('12:00:01', 'old one') + blk('12:00:02', 'old two');
+  wlog(two);
+  errorsCommand(elog, [], {});
+  const mark = errorMark(elog);
+  markReload(elog);
+  wlog(two + rep(3, 'old one'));
+  const again = errorsCommand(elog, [], {});
+  check('[guard] errors: a repeat of an error already read is news, not "No new errors"', /old one/.test(again.text) && !again.ok, again.text);
+  check('[guard] errors: read once, the same repeat is not news again', /No new errors/.test(errorsCommand(elog, [], {}).text));
+  check('[guard] status after a reload: the page that repeats an old error has that error', currentErrors(elog).map(r => r.id).join() === '1');
+  check('[guard] verify: a repeat since the mark counts', errorsSince(elog, mark).map(r => r.id).join() === '1');
+  const pad = Array.from({ length: 20 }, (_, i) => blk('12:01:00', 'filler ' + i)).join(''), big = two + pad + blk('12:02:00', 'last');
+  wlog(big);
+  const before = errorMark(elog), cut = cutLog(big, 300);
+  wlog(cut);
+  const kept = errorsCommand(elog, ['latest', '1'], {});
+  check('[guard] errors.log cut: ids stay what they were', /^E23 .*last/m.test(kept.text) && kept.data.cursor === 23, kept.text);
+  check('[guard] errors.log cut: the first line, which names the dev run, stays', cut.startsWith(head));
+  check('[guard] errors.log cut: nothing old reads as new to verify', errorsSince(elog, before).length === 0);
+  wlog(cut + blk('12:03:00', 'after the cut'));
+  check('[guard] errors.log cut: a new error after it is seen by verify', errorsSince(elog, before).map(r => r.id).join() === '24');
+  rmSync(elog, { recursive: true, force: true });
+  }
   check('errors.log: an error about WebGPU and any other warning stay apart', mergeKey({ type: 'error', msg: 'WebGPU unavailable' }, '') !== k1 && mergeKey(warn('other'), '') !== k1);
 
   // the bridge commands read their options through the one parser: a typo fails before anything reaches the page
   const { run: bridgeRun } = await import('../threedog/commands.mjs'), typo = (cmd, ...a) => bridgeRun({ evaluate: () => { throw new Error('reached the page'); } }, cmd, a).then(() => '', e => e.message);
   check('[guard] a mistyped bridge option fails naming the closest one', /did you mean --full/.test(await typo('describe', '--fulll')) && /unknown option --foo/.test(await typo('ops', '--foo')) && /unknown option --fast/.test(await typo('step', '2', '--fast')));
 
+  const pageSays = text => ({ evaluate: async () => text });
+  check('[guard] inspect: an op that cannot run now is the answer, not a failure of the command', (await bridgeRun(pageSays('hero at (0, 0)\n✗ shop.buy (closed)'), 'inspect', [])).ok);
+  check('[guard] inspect materials: its ✗ lines are problems found', !(await bridgeRun(pageSays('3 materials\n✗ map not sRGB'), 'inspect', ['materials'])).ok);
+
   // a snap that times out says what the page was doing; here the page answers nothing, so it says the main thread is busy
-  const { run: runCommand } = await import('../threedog/commands.mjs');
   let calls = 0; const alive = setInterval(() => {}, 500);   // readRuntime's timer is unref'd: a real bridge call keeps the process up, this fake does not
   const stuck = { evaluate: () => ++calls === 1 ? Promise.resolve(true) : new Promise(() => {}), screenshot: () => Promise.reject(new Error('page.screenshot: Timeout 30000ms exceeded.\nCall log:')) };
-  const snapMsg = await runCommand(stuck, 'snap', ['x'], { dir: '.' }).then(() => '', e => e.message); clearInterval(alive);
+  const snapMsg = await bridgeRun(stuck, 'snap', ['x'], { dir: '.' }).then(() => '', e => e.message); clearInterval(alive);
   check('snap timeout: keeps the browser line and says the page main thread is busy', /Timeout 30000ms/.test(snapMsg) && /main thread is busy/.test(snapMsg) && !/Call log/.test(snapMsg), snapMsg);
 
   // ── the one-line brief of a bridge command: engine.error is an object (printed "engine error [object Object]" once) ──
@@ -187,4 +223,6 @@ export async function run({ check }) {
     check(`[guard] ${c} takes the -w its usage line lists: an unknown game is named, the option is not refused`, /no-such-game/.test(r.stdout + r.stderr) && !/unknown option/.test(r.stdout + r.stderr), (r.stdout + r.stderr).slice(0, 200));
   }
   check('doctor reports the Node version through the same check', /nodeProblem\(\)/.test(readFileSync(join(TOOLS, 'doctor.mjs'), 'utf8')));
+  // [guard] real-webgpu built into dist/ while buildAndPreview served .threedog/tool-build: the pages it opened never had its rewrites
+  check('[guard] real-webgpu builds into the folder buildAndPreview serves', /build: TOOL_BUILD/.test(readFileSync(join(TOOLS, 'real-webgpu.mjs'), 'utf8')));
 }

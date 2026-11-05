@@ -9,7 +9,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();
-        const T = engine.THREE, Character = engine.player.constructor;
+        const T = __threedogThree, Character = engine.player.constructor;
         const model = window.makeRig();   // skinned dummy with Idle / Walk / Run / Wave clips
         let crouch = true;
         const c = new Character(engine, { model, clips: { crouch: 'Wave' }, states: (ch, f) => crouch && f.grounded && f.base !== 'run' ? 'crouch' : null }); engine.add(c.root);
@@ -39,7 +39,7 @@ export const specs = [
         const off = engine.events.on('character:water', ({ character, in: inn, mode }) => { if (character === p) events.push(`${inn ? 'in' : 'out'}:${mode}`); });
         // deep water east of x = 20 (south of the maze wall), dry land west of it
         engine.waterAt = (x) => (typeof x === 'object' ? x.x : x) > 20 ? 10 : -Infinity;
-        const h = engine.control.take(p, { owner: 'test', layer: 'script' });   // the test drives the player (its keys pause): core/control.js
+        const h = engine.control.take(p, { owner: 'test', layer: 'script' });   // the test drives the player (its keys pause): core/ops/control.js
         const walk = mode => { p.water = mode; p.placeAt([17, 0, -8]); p.swimming = false; for (let i = 0; i < 90; i++) h.move(1, 0, false, 1 / 60); return { x: +p.position.x.toFixed(2), swim: p.swimming, state: p.state }; };
         const out = { swim: walk('swim'), block: walk('block'), wade: walk('wade'), fn: walk((c, { depth }) => depth > 5 ? 'block' : 'swim') };
         p.water = 'swim'; p.placeAt([17, 0, -8]); for (let i = 0; i < 3; i++) h.move(0, 0, false, 1 / 60);
@@ -116,15 +116,16 @@ export const specs = [
       const r = await ev(async () => {
         engine.haltLoop();
         const p = engine.player; p.placeAt({ x: 20, z: 20 });
-        let usedAt = null;
-        const h = engine.interactions.add({ x: 26, y: 0, z: 20 }, { id: 'clerk', label: 'Talk', radius: Infinity, approach: true, onUse: () => { usedAt = Math.hypot(p.position.x - 26, p.position.z - 20); return 'served'; } });
+        let usedAt = null, allowed = false;
+        const h = engine.interactions.add({ x: 26, y: 0, z: 20 }, { id: 'clerk', label: 'Talk', radius: Infinity, approach: true, onUse: () => { usedAt = Math.hypot(p.position.x - 26, p.position.z - 20); allowed = engine.ops._allowDepth > 0; return 'served'; } });
         const res = engine.ops.run('interaction.use', { id: 'clerk' }, { source: 'test' });
         let settled = null; res.value?.approaching?.then(v => { settled = v; });
         const immediately = usedAt;
         for (let i = 0; i < 600 && settled === null; i++) { engine.step(1 / 60, { render: false, describe: false }); await Promise.resolve(); }
         h.remove();
-        return { ok: res.ok, approaching: !!res.value?.approaching, immediately, usedAt, settled };
+        return { ok: res.ok, approaching: !!res.value?.approaching, immediately, usedAt, settled, allowed };
       });
+      check('[guard] the use after the walk may write saved state (the op itself ended steps ago)', r.allowed, JSON.stringify(r));
       check('[guard] the op starts a walk instead of using it at once', r.ok && r.approaching && r.immediately === null, JSON.stringify(r));
       check('onUse runs after arriving (within reach) and its result settles the walk', r.usedAt !== null && r.usedAt < 2 && r.settled === 'served', JSON.stringify(r));
     },

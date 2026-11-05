@@ -118,7 +118,7 @@ export const specs = [
         out.bad = (() => { try { engine.characters.material = 'gold'; return ''; } catch (x) { return x.code; } })();
         const e2 = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'picture-ch' });
         e2.use(world(), characters({ animation: { fade: 0.07 } }));
-        const hero = new THREE.Group(); hero.userData.animations = [];
+        const hero = new THREE.Group(); hero.animations = [];
         out.fade = new Character(e2, { model: hero }).anim?.fade ?? null;
         e2.dispose();
         return out;
@@ -160,7 +160,7 @@ export const specs = [
     name: '[guard] assets palette: this.palette reads engine.assets.palette, and a write reaches every cache: cached key, named model, code texture, model prototype, modelNow',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev, page }) {
-      const bad = reaching(['core/Assets.js', 'core/assetEntry.js', 'core/assetLoad.js', 'core/namedModel.js', 'modules/characters/assetModel.js']);
+      const bad = reaching(['core/assets/Assets.js', 'core/assets/assetEntry.js', 'core/assets/assetLoad.js', 'core/assets/namedModel.js', 'modules/characters/assetModel.js']);
       check('no engine.look / engine.style / makeMaterial in the asset path', !bad.length, bad.join(' | '));
       await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 });
       const r = await ev(async () => {
@@ -197,7 +197,7 @@ export const specs = [
     name: '[guard] baked materials: a neutral material and a plain three.js one come back from the GLB as recorded, the neutral one still engine-made; no style is asked',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev, page }) {
-      const bad = reaching(['core/Baked.js', 'core/assetReport.js', 'core/MaterialInfo.js']);
+      const bad = reaching(['core/assets/Baked.js', 'core/assets/assetReport.js', 'core/inspect/MaterialInfo.js']);
       check('no engine.look / engine.style / makeMaterial in the bake path', !bad.length, bad.join(' | '));
       await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 });
       const r = await ev(async () => {

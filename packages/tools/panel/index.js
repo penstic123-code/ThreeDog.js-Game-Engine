@@ -143,11 +143,11 @@ export async function openPanel(engine) {
   const post = pane.addFolder({ title: '后期 post', expanded: false });
   for (const { name, enabled } of engine.post.list()) {
     const h = engine.post.get(name), f = post.addFolder({ title: name, expanded: false });
-    f.addBinding({ enabled }, 'enabled', { label: '开 on' }).on('change', e => h._enable(e.value));
+    f.addBinding({ enabled }, 'enabled', { label: '开 on' }).on('change', e => { h.enabled = e.value; });
     for (const [k, v] of Object.entries(h.params)) {
       if (typeof v !== 'number' && typeof v !== 'boolean') continue;   // lut textures, functions...: not editable here
       const range = typeof v === 'number' ? { step: Math.abs(v) >= 10 ? 1 : 0.01, min: Math.min(0, v * 2), max: Math.max(1, v * 3) } : {};
-      f.addBinding({ [k]: v }, k, range).on('change', e => h._set({ [k]: e.value }));
+      f.addBinding({ [k]: v }, k, range).on('change', e => h.set({ [k]: e.value }));
     }
   }
 

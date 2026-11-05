@@ -9,6 +9,7 @@ import { createInterface } from 'node:readline';
 import { TOOLS, ROOT, ENGINE, viteOptions } from '../paths.mjs';
 import { readFileSync } from 'node:fs';
 import { TIME } from '../threedog/runtime.mjs';
+import { pairs, STATIC_TOOLS } from '../threedog/mcp-extra.mjs';
 
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
@@ -68,6 +69,11 @@ async function steps(check, plain) {
   // 1b. Static tools answer from the files, with or without a dev server
   const how = await plain.rpc('tools/call', { name: 'how', arguments: { task: 'tone mapping' } });
   check('how: static, the plain three.js answer first (no dev server needed)', !how.isError && /^1\. plain three\.js/.test(how.content[0].text) && how.structuredContent.ok, how.content[0].text.slice(0, 300));
+  // [guard] a list of strings was joined: the op got the one string "a,b,c", with no way to tell ['a,b', 'c'] from ['a', 'b', 'c']
+  check('[guard] op arguments: a string list goes as JSON, numbers stay x,y,z', pairs({ tags: ['a,b', 'c'], at: [1, 2, 3], n: 2 }).join(' ') === 'tags=["a,b","c"] at=1,2,3 n=2');
+  // [guard] a child that cannot start had no error listener: the error ended the MCP server
+  const noCheck = await STATIC_TOOLS.check.run(join(ROOT, '.threedog', 'no-such-folder'), {});
+  check('[guard] check that cannot start answers with a failure', !noCheck.ok, noCheck.text);
   const chk = await plain.rpc('tools/call', { name: 'check', arguments: { rule: 'R33' } });
   check('check: static, runs npm run check (one rule here) and answers with a verdict line', /^[✓✗] check (passed|failed)/.test(chk.content[0].text) && typeof chk.structuredContent.data?.exit === 'number', chk.content[0].text.slice(0, 300));
 

@@ -45,7 +45,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();
-        const T = engine.THREE, GROW = 120, growth = rec => Math.min(1, (engine.clock.now - rec.plantedAt) / GROW);
+        const T = __threedogThree, GROW = 120, growth = rec => Math.min(1, (engine.clock.now - rec.plantedAt) / GROW);
         let disposed = 0;
         engine.world.present('e-crop', {
           build: () => new T.Mesh(new T.ConeGeometry(0.25, 0.8, 6), new T.MeshBasicMaterial()),
@@ -60,7 +60,7 @@ export const specs = [
         engine.world.remove(rec.id); engine.step(0.1);
         return { young, old, ripe, disposed, gone: engine.world.view(rec.id) == null };
       });
-      check('freshly planted is small, fully grown after fast-forwarding 130 game seconds', r.young < 0.5 && Math.abs(r.old - 1) < 0.01 && r.ripe === 1, JSON.stringify(r));
+      check('freshly planted is small, fully grown after fast-forwarding 130 calendar seconds', r.young < 0.5 && Math.abs(r.old - 1) < 0.01 && r.ripe === 1, JSON.stringify(r));
       check('after the record is removed dispose(rec, obj) is called and the model is gone', r.disposed === 1 && r.gone, JSON.stringify(r));
     },
   },

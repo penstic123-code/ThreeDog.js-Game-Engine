@@ -5,7 +5,7 @@ import * as THREE from 'three';
 // Chunks around physics stream sources ([cx, cz, rings] each): terrain uses triangle-mesh colliders (identical to what is drawn), vegetation uses cylinders.
 // Data comes from the ground API ground.chunkCollision
 // Building a trimesh costs a few ms and the broadphase pays again on the next world step; a whole new ring (9 chunks, or after a teleport) in one fixed step
-// was the worst frame of streaming. So once playing, the chunk under the source is built at once and the others share COLLIDER_STEP_MS per step, nearest first.
+// was the worst frame of streaming. So once playing, the chunk under the source is built at once and the others go CHUNKS_PER_STEP per step, nearest first.
 // Returns true while chunks are still waiting, so the caller syncs again on the next step instead of after 0.5 s.
 const CHUNKS_PER_STEP = 1;
 export function syncTerrain(r, src) {

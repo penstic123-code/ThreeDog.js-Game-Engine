@@ -18,10 +18,10 @@
 
 import * as THREE from 'three';
 
-import { builtInSounds } from '../../core/assetManifest.js';
-import { readParams, keysSchema } from '../../core/params.js';
-import { codedError, coded } from '../../core/errorHints.js';
-import { warnOnce } from '../../core/validate.js';
+import { builtInSounds } from '../../core/assets/assetManifest.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
+import { warnOnce } from '../../core/base/validate.js';
 /** @import { ModuleDef, AmbienceRule } from '../../types/core' */
 /** @import { AmbienceOptions } from '../../types/gameplay' */
 const RULE_KEYS = ['sound', 'when', 'volume', 'fade', 'every', 'bus'];
@@ -125,7 +125,7 @@ export class Ambience {
     if (s.level > 0.001) {
       s.offT = 0;
       if (!s.voice?.playing) s.voice = a.sfx(r.sound, { bus: r.bus ?? 'ambience', loop: true, volume: 0 });
-      s.voice?._fade(s.level, fade);   // every frame: the internal form skips the option parse
+      s.voice?._fade(s.level, fade);   // every check: the internal form skips the option parse
     } else if (s.voice) {
       if (s.offT === 0) s.voice._fade(0, fade);
       if ((s.offT += dt) > fade) { s.voice._stop(0); s.voice = null; s.offT = 0; }   // faded out: stop the loop so an idle rule costs nothing
@@ -189,6 +189,7 @@ export function ambience(opts = {}) {
       return a;
     },
     frame(dt) { a.update(dt); },
+    dispose() { a.rules(null); },   // its loops would play on with nobody left to fade them
     // "is the rain sound on here" without listening: the rules whose condition holds now, with their target volume; failed = files that did not load
     describe() {
       const on = a.info.filter(r => r.on).map(r => ({ sound: r.sound, volume: r.volume })), failed = a._rules.filter(s => s.failed).map(s => s.rule.sound);

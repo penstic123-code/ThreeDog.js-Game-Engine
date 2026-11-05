@@ -29,6 +29,28 @@ export const specs = [
     },
   },
   {
+    name: 'settings: a graphics row the game omits has no control, and no preset, stored value or reset moves it',
+    url: '/tests/settings/index.html?pixel=1',
+    async run({ page, check, ev }) {
+      const r = await ev(() => {
+        const S = engine.settings, ratio = () => engine.renderer.getPixelRatio(), start = ratio();
+        S.open();
+        const set = [...S.win.el.querySelectorAll('[data-set], [data-range]')].map(c => c.dataset.set ?? c.dataset.range);
+        S.close();
+        S.preset('low'); const low = ratio(), shadows = S.get('shadows'); S.reset();
+        localStorage.setItem(S.storageKey, JSON.stringify({ v: 2, values: { pixelRatio: 0.5, antialias: true } }));
+        return { start, low, reset: ratio(), shadows, set };
+      });
+      check('the omitted rows are gone, the others stay', !['pixelRatio', 'antialias', 'adaptive'].some(k => r.set.includes(k)) && r.set.includes('quality') && r.set.includes('shadows'), JSON.stringify(r.set));
+      check('a preset leaves the ratio alone and sets the rest', r.low === r.start && r.reset === r.start && r.shadows === false, JSON.stringify(r));
+      await page.reload(); await page.waitForFunction(() => window.engine?.stateApplied, null, { timeout: 60000 });
+      const after = await ev(() => { const o = { ratio: engine.renderer.getPixelRatio() }; localStorage.removeItem(engine.settings.storageKey); return o; });
+      check('a stored value of an omitted row is not applied', after.ratio === r.start, JSON.stringify([after, r.start]));
+      const err = await ev(() => { try { new engine.settings.constructor(engine, { sections: [{ id: 'graphics', omit: ['scale'] }] }); return ''; } catch (x) { return x.code + ' ' + x.message; } });
+      check('a row name that does not exist throws and lists the rows', /^settings-tab .*pixelRatio/.test(err), err);
+    },
+  },
+  {
     name: '[guard] conflicts V2: settings keep only what the player changed; presets are shares of the default ratio; get(pixelRatio) is the real ratio',
     url: '/tests/settings/index.html',
     async run({ page, check, ev }) {
@@ -84,7 +106,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const { THREE } = engine, o = engine.occlusion, m = new THREE.Mesh(), it = { meshes: [m] };
+        const THREE = __threedogThree, o = engine.occlusion, m = new THREE.Mesh(), it = { meshes: [m] };
         const round = write => { m.layers.set(0); o._hide(it); write?.(); o._show(it); return m.layers.mask; };
         return { plain: round(), set: round(() => m.layers.set(3)), enable: round(() => m.layers.enable(2)) };
       });

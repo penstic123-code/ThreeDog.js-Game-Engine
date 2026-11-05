@@ -8,7 +8,7 @@
 //   data-reset="controls"                 restore default keys
 //   data-locale="en"                      switch language
 
-import { setFov } from '../../core/view.js';
+import { setFov } from '../../core/scene/view.js';
 
 const pct = v => Math.round(v * 100) + '%';
 /** Value shown beside a slider */
@@ -51,15 +51,17 @@ export const BUILTIN_SECTIONS = {
     render(tools, e, s) {
       const { esc, t } = tools, v = s.values;
       const opts = ['low', 'medium', 'high', 'custom'].map(k => [k, t('settings.quality.' + k)]);
-      let h = row(t('settings.quality'), segmented('quality', v.quality, opts, tools, ['custom']), esc);
-      h += row(t('settings.pixelRatio'), range('pixelRatio', v.pixelRatio, 0.5, 2, 0.05, tools), esc);
-      h += row(t('settings.shadows'), toggle('shadows', v.shadows, tools), esc);
-      h += row(t('settings.antialias'), toggle('antialias', v.antialias, tools), esc);
-      if (e.post.get('bloom')) h += row(t('settings.bloom'), toggle('bloom', v.bloom, tools), esc);
-      if (e.post.get('ao')) h += row(t('settings.ao'), toggle('ao', v.ao, tools), esc);
-      h += row(t('settings.adaptive'), toggle('adaptive', v.adaptive, tools), esc);
-      if (s.chunkHost()?.setViewChunks) h += row(t('settings.viewDistance'), range('viewChunks', v.viewChunks, 2, 8, 1, tools), esc);
-      if (s.chunkHost()?.setDensity) h += row(t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools), esc);
+      let h = '';
+      const add = (key, label, ctl) => { if (!s._omit.has(key)) h += row(label, ctl, esc); };   // a row the game left out: settings({ sections: [{ id: 'graphics', omit }] })
+      add('quality', t('settings.quality'), segmented('quality', v.quality, opts, tools, ['custom']));
+      add('pixelRatio', t('settings.pixelRatio'), range('pixelRatio', v.pixelRatio, 0.5, 2, 0.05, tools));
+      add('shadows', t('settings.shadows'), toggle('shadows', v.shadows, tools));
+      add('antialias', t('settings.antialias'), toggle('antialias', v.antialias, tools));
+      if (e.post.get('bloom')) add('bloom', t('settings.bloom'), toggle('bloom', v.bloom, tools));
+      if (e.post.get('ao')) add('ao', t('settings.ao'), toggle('ao', v.ao, tools));
+      add('adaptive', t('settings.adaptive'), toggle('adaptive', v.adaptive, tools));
+      if (s.chunkHost()?.setViewChunks) add('viewChunks', t('settings.viewDistance'), range('viewChunks', v.viewChunks, 2, 8, 1, tools));
+      if (s.chunkHost()?.setDensity) add('density', t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools));
       return h;
     },
   },

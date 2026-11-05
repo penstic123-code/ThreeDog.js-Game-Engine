@@ -5,7 +5,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const E = engine, THREE = E.THREE, scene = E.scene, cam = E.camera;
+        const E = engine, THREE = __threedogThree, scene = E.scene, cam = E.camera;
         E.haltLoop();
         const fog0 = scene.fog; scene.fog = null;
         cam.position.set(0, 5, 20); cam.lookAt(0, 5, 0); cam.updateMatrixWorld(true);
@@ -92,7 +92,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const E = engine, THREE = E.THREE; E.haltLoop();
+        const E = engine, THREE = __threedogThree; E.haltLoop();
         const a = new THREE.MeshLambertMaterial({ color: '#3b5168' }), tex = new THREE.Texture();
         const b = new THREE.MeshBasicMaterial({ color: 0x3b5168, map: tex }); b.name = 'tinted';
         const ma = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), a), mb = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), b); ma.name = 'zz-a'; mb.name = 'zz-b';

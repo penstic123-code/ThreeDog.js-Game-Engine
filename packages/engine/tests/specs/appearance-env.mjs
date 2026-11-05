@@ -46,7 +46,7 @@ export const specs = [
   },
   {
     software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
-    name: "[guard] fog is the game's: the sky writes none and keeps the game's object as it is; the dome's band reads scene.fog (off in the horizon color or at density 0, on otherwise); sky({ fog }) names scene.fog",
+    name: "[guard] fog is the game's: the sky writes none and keeps the game's object as it is; the dome's band reads scene.fog (off in the horizon color or at density 0, on otherwise)",
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
@@ -66,7 +66,6 @@ export const specs = [
         x.density = 0;
         out.exp2Zero = band(e);
         e.dispose();
-        out.option = make({ sky: { fog: {} } }).error;
         return out;
       }));
       check('no fog written by the sky: scene.fog stays null, the band is off', r.none.fog === null && r.none.band === 0, JSON.stringify(r.none));
@@ -74,7 +73,6 @@ export const specs = [
       check('a fog in the horizon color: band off, nothing to hide', r.horizon === 0, String(r.horizon));
       check('a fog in another color: band on, the dome fades to it (compiles, picture differs)', r.colored === 1 && r.dome.err === '' && r.dome.differs, JSON.stringify(r.dome));
       check('FogExp2 turns the band on, density 0 draws nothing and turns it off', r.exp2 === 1 && r.exp2Zero === 0, `${r.exp2} ${r.exp2Zero}`);
-      check('sky({ fog }) throws and names scene.fog', /scene\.fog = new THREE\.Fog/.test(r.option || ''), r.option);
     },
   },
   {

@@ -3,6 +3,7 @@
 // join / leave reach the host, the relay stamps `from` itself (a guest cannot claim another id), big messages survive framing, a key gets the old id back,
 // and the abuse limits hold: no room entries left by guests or closed rooms, the size cap counts a whole fragmented message.
 import { spawn } from 'node:child_process';
+import { connect } from 'node:net';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { TOOLS, ENGINE } from '../paths.mjs';
@@ -16,7 +17,34 @@ export async function run({ check }) {
   const relay = spawn(process.execPath, [join(TOOLS, 'net-relay.mjs'), String(PORT)], { stdio: 'pipe' });
   try {
     await new Promise((res, rej) => { relay.stdout.once('data', res); relay.once('exit', rej); });
+    // [guard] a request target URL cannot parse threw in the handler and ended the relay with every room in it
+    await new Promise(res => { const s = connect(PORT, '127.0.0.1', () => s.write('GET //[ HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n')); s.on('close', res); s.on('error', res); });
+    await wait(100);
+    check('[guard] one bad request does not end the relay', relay.exitCode === null);
     const { webSocket } = await import(pathToFileURL(join(ENGINE, 'modules/net/transports.js')).href);
+    // [guard] a guest whose side sent FIN with no close frame stayed in the room: the raw socket half closes and keeps reading
+    {
+      const raw = (path, on) => new Promise(res => { const s = connect({ port: PORT, host: '127.0.0.1', allowHalfOpen: true }, () => { s.write(`GET ${path} HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n`); res(s); }); s.on('data', on); s.on('error', () => {}); });
+      let heard = '';
+      const host = await raw('/half?host=1', d => heard += d.toString('latin1'));
+      await wait(150);
+      const guest = await raw('/half', () => {});
+      await wait(200);
+      guest.end();
+      await wait(300);
+      check('[guard] a half-closed guest leaves: the host hears it', /"join":1/.test(heard) && /"leave":1/.test(heard), heard.slice(-120));
+      // [guard] a connection the relay closed only half closes, and what the other side still wrote went on to the host under the peer's id
+      const text = o => { const b = Buffer.from(JSON.stringify(o)); return Buffer.concat([Buffer.from([0x81, 0x80 | b.length, 0, 0, 0, 0]), b]); };   // a zero mask leaves the bytes as they are
+      let hello = '';
+      const old = await raw('/half', d => hello += d.toString('latin1'));
+      await wait(200);
+      const fresh = await raw(`/half?key=${/"key":"(\w+)"/.exec(hello)?.[1]}`, () => {});
+      await wait(200);
+      old.write(text({ msg: 'stale' })); fresh.write(text({ msg: 'current' }));
+      await wait(200);
+      check('[guard] the newer connection of a key speaks, the replaced one no longer reaches the host', heard.includes('current') && !heard.includes('stale'), heard.slice(-120));
+      old.destroy(); fresh.destroy(); host.destroy(); guest.destroy();
+    }
     const url = `ws://localhost:${PORT}/test-room`, log = [];
     const H = webSocket(url, { host: true });
     H.on('join', id => { log.push('join ' + id); H.send({ big: 'x'.repeat(70000) }, id); });

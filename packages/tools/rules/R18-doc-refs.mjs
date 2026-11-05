@@ -13,7 +13,6 @@
 //   6. free functions `name(` at the start of a span (error): exported by the engine, named in any d.ts, declared in the doc set or game code,
 //      or a JS / DOM global. ```js blocks are type-checked by R13, so classes 4–6 skip them.
 //   7. links to `file.md#anchor` and `#anchor` (error): the target has that heading or an <a id>. Why: a recipe's section gets renamed and the link keeps sending readers nowhere.
-//   8. `look.<part>` (error, the MIGRATING pages aside): the placeholder form of an API that no longer exists, which class 5 reads as a placeholder and lets through.
 // Known limits: names built at runtime and paths without an extension are not checked; class 6 accepts any name a d.ts mentions; option keys are R13's job (js blocks only);
 //   `§` section numbers, chains after a call (`describe().x`: module names decide those), .js template comments, d.ts comments and error texts are not read.
 // False positives: ALLOW below ([doc or '*', token, reason]), `<!-- r18-ignore-line -->` on the line or the line before, or the words
@@ -29,7 +28,7 @@ const ALLOW = [
   ['*', 'door:open', 'the naming convention example for a game event'],
   ['*', 'noun:action', 'the naming convention itself'],
   ['*', 'noun:verb', 'the naming convention itself'],
-  ['*', 'manual:game', "a describe().owned writer tag ('manual:<who>', core/owned.js), not an event"],
+  ['*', 'manual:game', "a describe().owned writer tag ('manual:<who>', core/ops/owned.js), not an event"],
   [`${P.RECIPES_REL}/14-custom-module.md`, 'stamina:empty', 'the event the example module in this recipe defines'],
   [`${P.RECIPES_REL}/23-ops.md`, 'npc:state', 'an example of an event name a game may declare'],
   [`${P.RECIPES_REL}/16-dev-bridge.md`, 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
@@ -37,8 +36,8 @@ const ALLOW = [
   [`${P.DOCS_REL}/COMMANDS.md`, 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
   [`${P.RECIPES_REL}/49-game-module-contract.md`, 'engine.machines', 'the copyable module of this recipe (named so it does not clash with engine.jobs)'],
   [`${P.RECIPES_REL}/51-capability-catalog.md`, 'engine.shop', 'the example module of this recipe'],
-  [`${P.RECIPES_REL}/15-perf.md`, 'serve', 'the worker-side helper of core/threadServe.js, imported inside the worker file'],
-  ['*', 'codedError', "engine-internal helper (core/errorHints.js) named for the people who write engine code; a game never imports it"],
+  [`${P.RECIPES_REL}/15-perf.md`, 'serve', 'the worker-side helper of core/threads/threadServe.js, imported inside the worker file'],
+  ['*', 'codedError', "engine-internal helper (core/base/errorHints.js) named for the people who write engine code; a game never imports it"],
   ['*', 'warnOnce', 'engine-internal helper named for the people who write engine code; a game never imports it'],
   [`${P.RECIPES_REL}/09-materials-lights-models.md`, 'neutralMaterial', 'engine-internal (render/neutral.js), named in the section for engine developers'],
   [`${P.RECIPES_REL}/62-picture-code.md`, 'dayNightLights', 'a helper the example game writes in its own picture/ folder, named as a shape to copy'],
@@ -244,14 +243,13 @@ export function checkDoc(doc, text, ctx) {
 const slug = h => h.trim().toLowerCase().replace(/[`*]/g, '').replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
 const anchorsOf = text => new Set([...[...text.matchAll(/^#{1,6}\s+(.+)$/gm)].map(m => slug(m[1])), ...[...text.matchAll(/<a\s+(?:id|name)="([^"]+)"/g)].map(m => m[1])]);
 
-/** Classes 7 and 8 on one doc's text */
+/** Class 7 on one doc's text */
 export function checkAnchors(doc, text, readFile = f => existsSync(f) ? readFileSync(f, 'utf8') : null) {
   const out = [], lineAt = i => text.slice(0, i).split('\n').length;
   for (const m of text.matchAll(/\]\(([^()\s#]*\.md)?#([^()\s]+)\)/g)) {
     const target = m[1] ? readFile(resolve(dirname(abs(doc)), m[1])) : text;
     if (target != null && !anchorsOf(target).has(decodeURIComponent(m[2]))) out.push({ level: levelOf(doc), file: doc, line: lineAt(m.index), msg: `link to ${m[1] ?? ''}#${m[2]}: no such heading or <a id>`, fix: 'point it at the section as it is named now' });
   }
-  if (!/MIGRATING-/.test(doc)) for (const m of text.matchAll(/\blook\.<part>/g)) out.push({ level: levelOf(doc), file: doc, line: lineAt(m.index), msg: 'look.<part> no longer exists', fix: 'name what replaced it: MIGRATING-0.6.md lists each one' });
   return out;
 }
 

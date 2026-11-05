@@ -1,6 +1,7 @@
 // gallery --mode silhouette|value: the parts that run in node. Why: the facts are what an AI reads instead of the pictures, so a wrong mask or
 // percentile would mislead silently; and the material swap touches the game's cached assets, so the restore must be exact.
 import * as THREE from 'three';
+import { readFileSync } from 'node:fs';
 import { parseModes, parseGalleryOptions, fileStems, escapeHtml, swapMaterials, silhouetteFacts, valueFacts, MODES } from '../gallery/index.js';
 
 export const name = 'gallery review modes: --mode parsing, silhouette / value facts, materials restored after the swap';
@@ -26,7 +27,12 @@ export async function run({ check }) {
   check('--port must be a number', /--port is a port number/.test(throws(() => parseGalleryOptions({ port: 'abc' }))) && parseGalleryOptions({ port: '5181' }).length === 0);
   const stems = fileStems(['a/b', 'a_b', 'a/b', 'c']);
   check('names that sanitize alike get different file stems; the same name keeps one', stems.get('a/b') === 'a_b' && stems.get('a_b') === 'a_b-2' && stems.get('c') === 'c', JSON.stringify([...stems]));
+  const cased = fileStems(['Rock', 'rock']);
+  check('[guard] names that differ only by case get different file stems: on Windows and macOS they are one file', cased.get('Rock') === 'Rock' && cased.get('rock') === 'rock-2', JSON.stringify([...cased]));
   check('asset names are escaped in the page', escapeHtml('<b>&"x"</b>') === '&lt;b&gt;&amp;&quot;x&quot;&lt;/b&gt;');
+
+  const cli = readFileSync(new URL('../gallery.mjs', import.meta.url), 'utf8');
+  check('[guard] --shots sets THREEDOG_TEST before the server starts: the vite preset reads it there, set later it does nothing', cli.indexOf('THREEDOG_TEST') > 0 && cli.indexOf('THREEDOG_TEST') < cli.indexOf('createServer('));
 
   // ── silhouette facts: a 20×10 block in a 100×100 frame ──
   const sil = picture(100, 100, [10, 30, 30, 40]);

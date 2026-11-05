@@ -25,6 +25,7 @@ export const specs = [
         const right0 = sun.shadow.camera.right, calls1 = engine.budget.byTag().reduce((a, s) => a + s.drawCalls, 0);
         const cs = engine.shadows.cascades(sun, { count: 3, low: { count: 3 } });
         engine.step(1 / 30, { describe: false });
+        out.ownedBy = engine.shadows.csm.lights.slice(1).flatMap(l => [l, l.target]).map(o => engine._things.byObj.get(o)?.owner);
         out.on = { names: materialPatches(m).join(), before, depth: materialPatches(tree.customDepthMaterial).join(), basic: materialPatches(basic.material).join(),
           lights: engine.shadows.csm.lights.length, sunFirst: engine.shadows.csm.lights[0] === sun, inScene: engine.shadows.csm.lights.every(l => l.parent === engine.scene), cast: engine.shadows.csm.lights.every(l => l.castShadow) };
         const s = compile(m, L.lambert), d = compile(tree.customDepthMaterial, L.depth);
@@ -88,12 +89,13 @@ export const specs = [
       check('影子深度材质仍是风吹补丁（风吹阴影照样摆动），编译后的顶点 / 片元都带风吹、季节、云影和级联代码，lights_fragment_begin 只被换一次',
         r.on.depth === 'wind' && Object.values(r.glsl).every(Boolean), JSON.stringify({ depth: r.on.depth, ...r.glsl }));
       check('3 盏灯：engine.lights.sun 是第 0 级，其余加在场景里，全部投影', r.on.lights === 3 && r.on.sunFirst && r.on.inScene && r.on.cast, JSON.stringify(r.on));
+      check("the cascade lights and their targets are the engine's: not things of the game, no 'lights add up' warning", r.ownedBy.length === 4 && r.ownedBy.every(o => o === 'engine:shadows'), JSON.stringify(r.ownedBy));
       check('ShaderChunk.lights_fragment_begin / lights_pars_begin 全程未被替换（不影响别的材质和同页别的引擎）', r.chunksKept && r.off.chunks);
       check('budget 的阴影估算按级联数加倍', r.calls.three > r.calls.one, JSON.stringify(r.calls));
       check('engine.shadows.mapSize（拍照提分辨率）改到每一级，各级阴影图按新尺寸重建，改回也到每一级',
         r.mapSize.sizes.every(s => s === r.mapSize.half) && r.mapSize.drawn.every(w => w === r.mapSize.half) && r.mapSize.back, JSON.stringify(r.mapSize));
       check('之后加进场景的受光材质下一帧自动接上 csm', r.late === 'csm', r.late);
-      check('开启后不再整场景遍历（core/sceneDelta.js 只看新加的子树）：嵌套加进组里的网格、换掉的 mesh.material 下一帧接上 csm',
+      check('开启后不再整场景遍历（core/scene/sceneDelta.js 只看新加的子树）：嵌套加进组里的网格、换掉的 mesh.material 下一帧接上 csm',
         r.walk.quiet === 0 && r.walk.nested === 'csm' && r.walk.swapped === 'csm' && r.walk.total === 0, JSON.stringify(r.walk));
       check('类自带 material 访问器（如 troika-three-text）：引擎不覆盖它，原 getter / setter 照样执行，换材质下一帧仍接上 csm',
         r.lib.setterRan && r.lib.getterRan && r.lib.stored && r.lib.csm === 'csm', JSON.stringify(r.lib));
@@ -113,7 +115,7 @@ export const specs = [
     async run({ page, check, ev }) {
       await page.waitForFunction(() => window.engine?.stateApplied && engine.world.ready, null, READY);
       const r = await ev(() => {
-        const T = engine.THREE, sky = engine.sky, sun = styletest.picture.sun, cam = engine.camera, R = engine.renderer, gl = R.getContext();
+        const T = __threedogThree, sky = engine.sky, sun = styletest.picture.sun, cam = engine.camera, R = engine.renderer, gl = R.getContext();
         engine.haltLoop();
         engine.ops.run('styletest.view', { name: 'path' });
         engine.calendar.timeOfDay = 0.4;   // the sun off to one side, so pole shadows run diagonally across the floor

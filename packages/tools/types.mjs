@@ -58,6 +58,8 @@ try { tscBin = createRequire(import.meta.url).resolve('typescript/bin/tsc'); } c
 const run = spawnSync(process.execPath, [tscBin, '-p', PROJECT, '--pretty', 'false', '--listFiles'], { cwd: ROOT, encoding: 'utf8' });
 if (run.error) { jsonItems.push(item({ code: 'tsc', message: 'failed to run tsc: ' + run.error.message })); console.error('✗ failed to run tsc:', run.error.message); process.exit(1); }
 const out = (run.stdout || '') + (run.stderr || '');
+// a tsc that died (out of memory, killed) printed no error line: with nothing to read below that would be a clean pass
+if (run.status !== 0 && !/error TS\d+/.test(out)) { const why = `tsc stopped without a result (exit ${run.status ?? run.signal}): ${out.trim().slice(-300)}`; jsonItems.push(item({ code: 'tsc', message: why })); console.error('✗ ' + why); process.exit(1); }
 
 // Generated declarations (types/generated/) must match the source, or games see the wrong types (monorepo only)
 if (P.MODE === 'monorepo' && !ENG) {
@@ -224,12 +226,13 @@ const isTslMember = d => d.code === 2339 && tslType(d.msg + ' ' + d.more.join(' 
  * Plain JS that TypeScript cannot follow, in a game's own code: a field added to the game's own object after it was made (fx.density = …),
  * a property read on a union the game's own ternary built (gpu ? nodeMaterial : shaderMaterial), a default `{}` parameter, a call that leaves
  * out a name the game's own untyped function destructures, a TSL node whose
- * type TypeScript narrowed by inference (let s = float(0); s = s.add(…)), a call of a function made with Fn(...), two geometry classes in one variable. It runs fine, so it is a hint, not an error. Why not stricter: an AI
+ * type TypeScript narrowed by inference (let s = float(0); s = s.add(…)), a call of a function made with Fn(...), two geometry classes in one variable, a name declared and never read (noUnusedLocals). It runs fine, so it is a hint, not an error. Why not stricter: an AI
  * that gets errors for ordinary JS turns the check off for the whole file (// @ts-nocheck) and loses the engine checks with it. Anything that
  * names an engine type stays an error, and so does the engine's own code (packages/, examples included).
  */
 function isPlainJs(d) {
   if (d.file.startsWith('packages/')) return false;
+  if ([6133, 6192, 6196, 6198, 6199].includes(d.code)) return true;
   const all = d.msg + ' ' + d.more.join(' ');
   for (const w of all.matchAll(/\b[A-Z]\w+/g)) if (engineTypes.has(w[0])) return false;
   const tsl = tslType(all);
@@ -269,8 +272,8 @@ function jsExports(file) {
       if (!s.exportClause) star.push(s.moduleSpecifier?.text);
       else if (ts.isNamedExports(s.exportClause)) for (const el of s.exportClause.elements) names.add(el.name.text);
     } else if ((ts.isFunctionDeclaration(s) || ts.isClassDeclaration(s)) && exported(s) && s.name) names.add(s.name.text);
-    else if (ts.isVariableStatement(s) && exported(s)) for (const d of s.declarationList.declarations) if (ts.isIdentifier(d.name)) names.add(d.name.text);
     else if (ts.isExportAssignment(s)) names.add('default');
+    else if (ts.isVariableStatement(s) && exported(s)) for (const d of s.declarationList.declarations) if (ts.isIdentifier(d.name)) names.add(d.name.text);
   }
   return { names, star };
 }
@@ -304,7 +307,7 @@ else {
 // ---------------------------------------------------------------------
 // Grouped by source: examples, each game games/<name> (a game's picture/ folder counts as that game)
 const group = f => P.under(f, P.EXAMPLES_REL) ? 'examples' : P.MODE === 'game' ? (f.startsWith('games/') ? f.split('/').slice(0, 2).join('/') : 'game') : f.split('/').slice(0, 2).join('/');
-if (ENG) { SCOPE.engine(coverage.length); coverage.length = 0; }   // the engine's
+if (ENG) { SCOPE.engine(coverage.length); coverage.length = 0; }   // the engine's own to fix: a count, no failure of this game
 for (const c of coverage) jsonItems.push(item({ code: 'declarations', message: c}));
 const shown = SCOPE ? checked.filter(SCOPE.mine) : checked;
 console.log(`Type check: ${shown.length} game files (${[...new Set(shown.map(group))].join(', ') || 'none'})`);

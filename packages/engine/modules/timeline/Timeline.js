@@ -16,7 +16,7 @@
 //
 // Options: skippable (default true); letterbox black bars top and bottom (default false); actors: the characters the cutscene drives (default: the
 // player when there is one; [] leaves everyone free, e.g. a bubble scene the player walks through)
-// Control (core/control.js): the run takes each actor's control slot on layer 'cutscene' (owner 'timeline'), and a path step takes its character too.
+// Control (core/ops/control.js): the run takes each actor's control slot on layer 'cutscene' (owner 'timeline'), and a path step takes its character too.
 // What they were doing pauses, not cancels: the player's keys, a walkTo, an NPC's schedule carry on when the run ends or is skipped. While the
 // player is an actor the 'cutscene' input context is up, so gameplay keys do nothing. Every run is one owner ('timeline'), counted per character,
 // so two overlapping cutscenes never conflict with each other; the slot goes back when the last run using that character ends.
@@ -35,11 +35,12 @@ import { fadeScreen, uiFocus } from '../../ui/UI.js';
 import { cameraStep, pathStep, releaseCamera } from './shots.js';
 import { buildLetterbox } from './letterbox.js';
 
-import { readParams, keysSchema, isOptions } from '../../core/params.js';   // isOptions: a step part can also be a shot name, a text or a point list
-import { warnOnce } from '../../core/validate.js';
+import { readParams, keysSchema } from '../../core/base/params.js';   // isOptions: a step part can also be a shot name, a text or a point list
+import { isOptions } from '../../core/base/util.js';
+import { warnOnce } from '../../core/base/validate.js';
 const TWEEN_KEYS = ['duration', 'ease'];
-import { coded, codedError } from '../../core/errorHints.js';
-import { reportError } from '../../core/errors.js';
+import { coded, codedError } from '../../core/base/errorHints.js';
+import { reportError } from '../../core/base/errors.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Ease } from '../../types/common' */
 /** @import { TimelineStep, TimelinePlayOptions, TimelineOptions, TweenTo, TweenPromise } from '../../types/gameplay' */
@@ -71,7 +72,7 @@ export class Timeline {
     /** @internal */ this._tweener = new Tweener();
     /** @internal */ this.runs = new Set();
     /** @internal numbers the runs of this engine (timeline:start / timeline:end id) */ this._runSeq = 0;
-    /** Skip every cutscene immediately (set by scenario param cutscene=skip) @type {boolean} */
+    /** Skip every cutscene immediately (set by scenario param cutscene=skip) @type {boolean} @experimental */
     this.skipAll = false;
     ctx.track(engine.input.action('skip', { context: 'cutscene', label: 'timeline.skipAction', optional: true, owner: 'timeline' }));   // cancel skips anyway
     buildLetterbox(this);
@@ -80,6 +81,7 @@ export class Timeline {
   /**
    * Whether a cutscene is playing
    * @returns {boolean}
+   * @experimental
    */
   get playing() { return this.runs.size > 0; }
 
@@ -108,7 +110,8 @@ export class Timeline {
     const actors = opts.actors ?? (e.player ? [e.player] : []);
     if (!Array.isArray(actors)) throw codedError('module-params', `timeline.play(steps, { actors }): actors is a list of characters (or ids) the cutscene drives, e.g. [engine.player, guard]; [] drives nobody. Got ${typeof actors}`);
     const run = { id: ++this._runSeq, skippable, letterbox, skipping: false, cancels: new Set(), cam: null, actors: new Set(), ctx: null, line: false };
-    for (const a of actors) this._take(run, a);
+    // a bad or remote actor throws: the ones already taken go back, or the player stays in the cutscene with no run left to end it
+    try { for (const a of actors) this._take(run, a); } catch (err) { this._give(run); throw err; }
     // enter the UI focus stack: skippable cutscenes skip on Esc, unskippable ones swallow Esc (so it does not open the settings menu)
     run.focus = uiFocus(e).push('timeline', { cancel: skippable ? () => this.skip(run) : null });
     this.runs.add(run);
@@ -212,7 +215,6 @@ export class Timeline {
     run.cancels.delete(now);
   }
 
-  /** @internal */
   /**
    * { wait: s }: a timer on the 'real' view of engine.time, so it ends inside a fixed step (game logic only in fixed steps) and counts real
    * seconds whatever the frame rate; before it rode the frame tweener, so the step after a wait ran between frames. Skip / cancel resolve it now
@@ -288,7 +290,7 @@ export function timeline(opts = {}) {
   readParams('timeline', TIMELINE_PARAMS, opts);
   let t = null;
   return {
-    name: 'timeline', type: 'rules', params: TIMELINE_PARAMS, options: opts, label: 'Timeline', stage: 'control', before: ['cameraRig'],   // before the camera, so the takeover applies on the same frame
+    name: 'timeline', type: 'rules', params: TIMELINE_PARAMS, options: opts, label: 'Timeline', stage: 'control', before: ['cameraRig'], optional: ['dialogue'],   // before the camera, so the takeover applies on the same frame
     install(e, ctx) {
       e.i18n.add(STRINGS); t = new Timeline(e, ctx);
       // a running cutscene ends with its playthrough (session waits one macrotask for its steps to settle)

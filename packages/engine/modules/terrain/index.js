@@ -23,13 +23,13 @@
 import { ChunkManager } from './ChunkManager.js';
 import { DEFAULT_TERRAIN } from './terrainGen.js';
 
-import { readParams, keysSchema } from '../../core/params.js';
-import { compilePure } from '../../core/threadPure.js';
-import { warnOnce } from '../../core/validate.js';
-import { loadGray } from '../../core/grayMap.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
+import { compilePure } from '../../core/threads/threadPure.js';
+import { warnOnce } from '../../core/base/validate.js';
+import { loadGray } from '../../core/scene/grayMap.js';
 import { prepareShape, voidWatcher } from './terrainShapeMain.js';
 import { TerrainDraw, checkGround } from './draw.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const NO_HEIGHT = 'terrain(): no height function or height map was given, so the ground is flat gray at y = 0 (a placeholder, not a picture). '
   + 'Pass terrain({ height, groundType }) or a preset, e.g. terrain({ ...terrainPreset() }) with terrainPreset from @threedog/terrain-noise';
@@ -84,7 +84,7 @@ export function terrain(opts = {}) {
       });
       w.setViewChunks(viewChunks);
       // a source is ready when the ring around it is generated, and for a physics source its collision has taken effect (chunkCollision non-null)
-      e.stream.addReadyCheck('terrain', s => w.readyAt(s, { rings: 1 }) && (!s.physics || w.readyAt(s, { rings: 1, solid: true })));
+      ctx.track(e.stream.addReadyCheck('terrain', s => w.readyAt(s, { rings: 1 }) && (!s.physics || w.readyAt(s, { rings: 1, solid: true }))));
       e.budget.metric('chunkApplyMs', () => w.stats.applyMs);   // chunk upload ms per frame (the limit comes from the game's budget)
       return w;
     },

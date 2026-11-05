@@ -5,22 +5,23 @@
 // How: split into cells of `cell` meters (default = engine.stream cell size); per cell, meshes sharing a material are baked to world space and merged into one proxy mesh;
 // a node named xxx_LOD1 is a simplified xxx and is preferred when merging (it stays hidden itself). Merging runs in engine.jobs, spread over frames, so startup does not hitch.
 // Every 0.25 s, switch by distance from the full-detail engine.stream sources: cell center farther than `near` meters from all of them shows the proxy and hides originals; with terrain, uses chunk-ring distance (same measure as terrain LOD).
-// Merges, never simplifies: engine.assets.lod is the one that lowers one model's triangles (core/assetLod.js says how the neighbours split the work).
+// Merges, never simplifies: engine.assets.lod is the one that lowers one model's triangles (core/assets/assetLod.js says how the neighbours split the work).
 // Owns far: batching (engine.batching) owns repeated near props; a mesh hlod registers is marked userData.hlod and batching skips it, and a mesh already
 // batched (userData.batched) is skipped here, so the two never fight. Skips vegetation (it has its own instancing and LOD); no mesh simplification; proxies are not raycast (rays only hit originals): originals hidden when far sit on the batch layer, which rays see,
-// so engine.raycast still hits far buildings (see core/Rays.js).
+// so engine.raycast still hits far buildings (see core/scene/Rays.js).
 // The game's visible stays the game's: a far original moves to the batch layer (RESERVED_LAYERS.batched: not drawn, no shadows, rays hit it), the same way engine.batching
 // hides what it draws, so nothing here sits between the game and three.js. A building the game hides (near or far) stays hidden after the switch and is not hit by rays.
 // Skips meshes whose material moves vertices (wind and other shadow: true patches): that code reads object space (height above the
 // model origin, phase from the origin), so a world-space proxy would sway far more on high ground and every merged object in lockstep.
-// Those meshes stay as they are (always drawn) and keep their own sway.
+// Those meshes stay as they are (always drawn) and keep their own sway. Mirrored meshes (negative scale) stay out of the proxies the same way.
 // After install, engine.hlod: add() returns a handle { cells, ready (boolean: all proxies merged), whenReady (Promise), remove() }; each cell is { key, proxy, originals, center, far }.
 import * as THREE from 'three';
 import { mergeCommon } from '../../render/mergeCommon.js';
 
-import { readParams, keysSchema } from '../../core/params.js';
+import { readParams, keysSchema } from '../../core/base/params.js';
 import { movesVertices } from '../../render/patches.js';
-import { warnOnce } from '../../core/validate.js';
+import { warnOnce } from '../../core/base/validate.js';
+import { isShown, isUnder } from '../../core/base/util.js';
 import { RESERVED_LAYERS } from '../../render/layers.js';
 import { unhideMask, FAR_BIT, noRaycast } from '../../render/occlusion.js';
 /** @import { ModuleDef } from '../../types/core' */
@@ -68,8 +69,6 @@ export function hlod(opts = {}) {
     if (c.watch) c.watch = watch(c);
   }
   const watch = c => e.occlusion.watch(c.far ? c.proxy : c.originals);
-  /** Shown: the mesh and every parent, by the game's own visible */
-  const shown = m => { for (let p = m; p; p = p.parent) if (!p.visible) return false; return true; };
 
   const api = {
     cells: [],
@@ -93,7 +92,8 @@ export function hlod(opts = {}) {
         for (const c of n.children) walk(c);
       };
       roots.forEach(walk);
-      for (let i = originals.length; i--;) if (movesVertices(originals[i].material)) originals.splice(i, 1);   // swaying meshes keep their own transform (see header)
+      // swaying meshes keep their own transform (see header); so do mirrored ones (negative scale): baked into a proxy their faces turn inside out, and only a mesh's own matrix flips the winding back
+      for (let i = originals.length; i--;) if (movesVertices(originals[i].material) || originals[i].matrixWorld.determinant() < 0) originals.splice(i, 1);
       for (const m of originals) m.userData.hlod = true;   // engine.batching leaves hlod's meshes alone (marked after the filter: swaying meshes stay batchable)
       // the LOD1 copy is only merge material: never drawn, never hit by rays; remove() gives it its visible back
       for (const l of lods.values()) { l.visible = l.node.visible; l.node.visible = false; }
@@ -157,7 +157,7 @@ export function hlod(opts = {}) {
       const src = handles.size ? e.stream.sources(FULL) : [];
       for (const h of handles) {
         const srcs = src.map(f => ({ x: f.x, z: f.z, n: f.reach(h.near) }));
-        for (const c of h.cells) if (c.proxy.length) setFar(c, isFar(c, srcs) && c.originals.every(shown));
+        for (const c of h.cells) if (c.proxy.length) setFar(c, isFar(c, srcs) && c.originals.every(m => isShown(m) && isUnder(m, e.scene)));
       }
     },
   };

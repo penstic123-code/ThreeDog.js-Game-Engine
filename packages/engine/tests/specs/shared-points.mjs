@@ -1,4 +1,4 @@
-// Shared points: the "do not bypass" checks for the one ownership core (core/sharedPoint.js, core/stacks.js, ctx.mod / provides in modules.js).
+// Shared points: the "do not bypass" checks for the one ownership core (core/ops/sharedPoint.js, core/ops/stacks.js, ctx.mod / provides in modules.js).
 //   - two different owners set one point on one layer: dev error naming both and the three fixes; the same owner rewriting is fine
 //   - layer order: game set, effect mul, settings clamp, debug set; describe().shared shows value, writer, how it combined, who else
 //   - settings only restricts: a settings set on a number, a mul above 1, a clamp floor, or set true on a value point throws; set false switches
@@ -17,6 +17,13 @@ export const specs = [
         const { mk, createEngine } = threedogThreads, out = {};
         const E = mk(createEngine, 'sp-core');
         const S = E.stacks, err = f => { try { f(); return null; } catch (x) { return { code: x.code, msg: x.message }; } };
+        // world:remove clears per-record points; input.keys / input.gate are keyed by action, and a record may share an action's name
+        E.input.bind('spFire', ['KeyF']);
+        const stun = E.input.gate('spFire', { owner: 'spStun' });
+        S.define('spHp', { per: true }); E.mod('spHp', { owner: 'x', id: 'spFire', mul: 2 });
+        E.events.emit('world:remove', { id: 'spFire' });
+        out.sameName = [E.input.keysOf('spFire').join(), S.get('input.gate').size('spFire'), S.get('spHp').size('spFire')];
+        stun.remove();
         S.define('fog.far', { base: 600, min: 0 });
         const cave = E.mod('fog.far', { owner: 'cave', set: 180 });
         out.rewrite = err(() => E.mod('fog.far', { owner: 'cave', set: 170 }));   // same owner again: replaces its own entry
@@ -63,6 +70,7 @@ export const specs = [
         E.dispose();
         return out;
       });
+      check('a removed record clears its per-record entries, not the keys or gate of an action of that name', JSON.stringify(r.sameName) === '["KeyF",1,0]', JSON.stringify(r.sameName));
       check('the same owner rewriting its own value is not a conflict', r.rewrite === null, JSON.stringify(r.rewrite));
       check('two owners set on one layer: shared-conflict naming both owners', r.clash?.code === 'shared-conflict' && r.clash.msg.includes("'cave'") && r.clash.msg.includes("'boss'"), JSON.stringify(r.clash));
       check('... with the three copyable fixes (mul, another layer, take over)', /\(1\).*mul: 0\.5.*\(2\).*layer: 'effect'.*\(3\).*layer: 'system'/.test(r.clash?.msg ?? ''), r.clash?.msg);
@@ -138,6 +146,33 @@ export const specs = [
       check('bullet time: engine.mod time.enemies mul 0.35 for 2, then back to 1', Math.abs(r.bullet - 0.35) < 1e-9 && r.bulletEnded === 1, `${r.bullet} ${r.bulletEnded}`);
       check('dev hint once: game set 3 shown 1.8 because weather x0.6, with the lock line', r.hints.length === 1 && r.hints[0].includes('shown 1.8') && r.hints[0].includes('weather') && r.hints[0].includes("layer: 'system'"), JSON.stringify(r.hints));
       check('dispose releases every module entry and slot', r.disposed.length === 0, JSON.stringify(r.disposed));
+    },
+  },
+  {
+    name: 'replaces: characters, flow and cameraRig each swap for a part that provides the slot',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, createEngine, world, collision, characters, all } = threedogThreads;
+        const E = mk(createEngine, 'sp-replace'), out = { ran: {} }, slots = ['characters', 'flow', 'cameraRig'];
+        E.use(world(), collision(), characters(), all.flow(), all.followCamera(), { name: 'spUser', type: 'rules', requires: slots });
+        await E.start();
+        E.characters.createPlayer({ ...all.presets.player.thirdPerson, spawn: [0, 0, 0] });
+        E.step(0.1, { render: false });
+        for (const slot of slots) {
+          // the callers of each slot keep running on the stand-in: the steps below are the proof
+          const mine = { name: 'my-' + slot, type: 'rules', provides: [slot], fixed() { out.ran[slot] = true; }, install: () => ({ mine: slot, define() {}, go() {}, transition() {},
+            forward: () => ({ x: 0, z: -1 }), right: () => ({ x: 1, z: 0 }), follow() {}, focusPoint: () => E.focus, screenToGround: () => null, target: null, carryRiders() {}, removePlayer() {} }) };
+          E.use(mine, { replaces: slot });
+          E.step(0.1, { render: false });
+          out[slot] = { api: E[slot]?.mine, holder: E.stacks.get(slot).value(), held: E.has('my-' + slot), dependent: E.has('spUser') };
+        }
+        out.setCamera = E.setCamera?.toString().slice(0, 60);
+        E.dispose();
+        return out;
+      });
+      for (const slot of ['characters', 'flow', 'cameraRig']) check(`replaces '${slot}': the newcomer holds the slot, engine.${slot} is its API, the dependent stays, steps run`,
+        r[slot]?.api === slot && r[slot].holder === 'my-' + slot && r[slot].held && r[slot].dependent && r.ran[slot], JSON.stringify(r));
     },
   },
 ];

@@ -11,7 +11,7 @@ Content loading (content() module)
 - `content.place(name: string) → XZ | null` — Place name -> position (load's places first, then level markers), null if none
 - `content.where(p: { place?, x?, z? }) → XZ` — Position form in content { place?, x?, z? } -> world coordinates
 - `content.template(name: string) → Readonly<ContentTemplate>` — The shared, frozen definition of a content template (content/templates.js); instance state lives on the world record. e.g. template('chest').container.capacity
-- `content.fields(name: string) → Record<string, ContentField>` — The fields one content entry may have (core/params.js spec format): what an editor panel lists and what content-check validates against. name: a template name (placement fields plus its state fields, default = the value in state), an engine entry shape ('props', 'props.template', 'props.grid', 'pickups', 'views'), a game kind that declares fields (content/rules.js kinds), or a world record id. Unknown names throw. Example: `engine.content.fields('crop').stage   // { type: 'int', optional: true, default: 0, min: 0, max: 4 }`
+- `content.fields(name: string) → Record<string, ContentField>` — The fields one content entry may have (core/base/params.js spec format): what an editor panel lists and what content-check validates against. name: a template name (placement fields plus its state fields, default = the value in state), an engine entry shape ('props', 'props.template', 'props.grid', 'pickups', 'views'), a game kind that declares fields (content/rules.js kinds), or a world record id. Unknown names throw. Example: `engine.content.fields('crop').stage   // { type: 'int', optional: true, default: 0, min: 0, max: 4 }`
 - `content.spawn(name: string, at: any, fields?: { id?, rot?, scale?, y?, items?, … }) → WorldRecord` — Place a new runtime instance of a content template (inside an op or a fixed step), saved whole; returns the world record (kind = template name, id `<template>#<n>` unless fields.id is given). fields: id, rot, scale, y (height above ground), items (container start goods), state fields (stage too, for a template with stages). Example: `engine.ops.define('chest.build', { run: (e, { x, z }) => e.content.spawn('chest', { x, z }, { items: { stick: 3 } }).id })`
 - Properties:
   - `ready: boolean` All vegetation models are fetched and the models of world data such as nearby props are built (world.ready)
@@ -54,7 +54,7 @@ Conditions are used in quest step done, dialogue option if and line variant if; 
   - `actions.js` own key actions of the game (action name -> default key, label)
   - `places.js` place names (name -> { x, z, y?, rot? }; rot turns everything placed there about Y; coordinates may be computed at runtime in main.js)
   - `triggers.js` trigger zones (tag -> position / from level, enter/exit effects)
-  - `level.js` level markers (spawn point, NPCs, trigger zones)
+  - `level.js` level markers (spawn point, NPCs, trigger zones) of a code-built level: for the tools (content checks, GAMEMAP); load() accepts the file and does not read it
   - `vegetation.js` vegetation (name -> model, growth rule)
   - `props.js` props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand
   - `templates.js` reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions

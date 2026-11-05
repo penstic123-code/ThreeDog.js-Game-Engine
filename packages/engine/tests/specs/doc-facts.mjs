@@ -3,7 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { makeNoise } from '../../core/scatter.js';
+import { makeNoise } from '../../core/stream/scatter.js';
 import { bloom } from '../../../post-effects/hdr.js';
 import { unknownContent } from '../../modules/content/rules.js';
 
