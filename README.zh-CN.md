@@ -2,7 +2,7 @@
   <img src="docs/brand/threedog-square.png" alt="ThreeDog.js 标志：三只卡通小狗" width="200">
 </p>
 
-<h1 align="center">ThreeDog.js</h1>
+<h1 align="center">Threedog.js</h1>
 
 <p align="center">
   让 AI 在 three.js 上做网页游戏的引擎。
