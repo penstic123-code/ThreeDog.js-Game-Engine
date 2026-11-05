@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/brand/threedog-square.png" alt="ThreeDog.js logo: three cartoon dogs" width="200">
+  <img src="docs/brand/threedog-square.png" alt="Threedog.js logo: three cartoon dogs" width="200">
 </p>
 
 <h1 align="center">Threedog.js</h1>
@@ -18,7 +18,7 @@
 
 ## What it is
 
-ThreeDog.js is a game engine built for AI agents. It sits on three.js and handles everything a game needs besides its own rules and look: a fixed time step, input, saves, physics, content, large-world streaming, an in-browser editor, and the tools an agent uses to check its own work.
+Threedog.js is a game engine built for AI agents. It sits on three.js and handles everything a game needs besides its own rules and look: a fixed time step, input, saves, physics, content, large-world streaming, an in-browser editor, and the tools an agent uses to check its own work.
 
 Everything is still three.js. Engine objects are ordinary three.js objects, `scene.add`, materials and shaders work as usual, and a value the game writes directly takes effect. The engine keeps the systems in agreement: a save restores the weather, a cutscene stops the player, a newly streamed stretch of world appears in the physics.
 
@@ -102,13 +102,13 @@ A new game starts on WebGPU with TSL, the node shader language of three.js. In a
 
 **A large city.** On one RTX 5060 laptop with WebGPU at 1280×720, a city 1.9 km across (about 6,400 buildings and 72,000 meshes) runs at about 60 fps with 14,000 moving cars and people, 200 NPCs and 8 real lights, measured with the machine under full load from other tests. Moving objects set the limit: 28,000 of them run at 26 to 35 fps, while a map four times the size holds the same frame time. A 10-minute walk showed no leak, and 12 rounds of save and load came back correct. [Full report](docs/testing/field/2026-11-05-city/acceptance.md) (in Chinese).
 
-**Test suite.** 6,130 checks in 836 items, all passing. CI runs the static checks, a browser group and a build on every push.
+**Test suite.** 6,651 checks in 894 items, all passing. CI runs the static checks, a browser group and a build on every push.
 
 ## Status
 
 1.0 is close. npm holds 0.8.0 and this page describes it, including the editor and `engine.swarm`. Names can still change until 1.0.
 
-ThreeDog runs in desktop browsers on Windows and Linux. Mac support comes after 1.0. Multiplayer is not a goal.
+Threedog runs in desktop browsers on Windows and Linux. Mac support comes after 1.0. Multiplayer is not a goal.
 
 ## Quick start
 

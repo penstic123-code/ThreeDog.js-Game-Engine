@@ -2,6 +2,8 @@
 
 What changed in each version and how a game upgrades.
 
+## Unreleased
+
 ## 0.8.0 (2026-11-06)
 
 npm never had 0.7.1: coming from 0.7.0, read this section and the 0.7.1 section below it, and follow `docs/MIGRATING-0.8.md`, which goes from 0.7.0 straight to 0.8.0.
@@ -22,10 +24,6 @@ npm never had 0.7.1: coming from 0.7.0, read this section and the 0.7.1 section 
 - A model's clips moved from `model.userData.animations` to `model.animations`, three's own place. A game that cloned a model and then animated the clone crashed: three copies `userData` through JSON, which breaks the clips. A model with clips is now never batched, as the batching rule always said.
 - `phase` on the engine has one more value, `'starting'`, while modules run their `init`; `'loading'` now starts after them.
 - `uiFocus` is marked experimental: its shape may still change. `engine.input.push` is the stable route.
-
-## 0.8.0 (2026-11-05)
-
-npm never had 0.7.1: coming from 0.7.0, read this section and the 0.7.1 section below it, and follow `docs/MIGRATING-0.8.md`, which goes from 0.7.0 straight to 0.8.0.
 
 - 249 public names are now `@experimental`, so 1.0 does not freeze them: the ones no game, recipe, example or template uses, and the coordination features no test game has used (`engine.stacks`, `engine.wrap`, `engine.mod`, `time.channel`). None is removed; `docs/api-surface.txt` lists each one. They sit in: `adaptive`, `assets`, `audio`, `batching`, `budget`, `calendar`, `characters`, `checkOptions`, `collision`, `control`, `decoders`, `dialogue`, `error`, `firstPersonCamera`, `fixedCamera`, `flow`, `followCamera`, `ground`, `i18n`, `inRange`, `input`, `interactions`, `inventory`, `jobs`, `level`, `materialPatches`, `mod`, `music`, `nav`, `ops`, `page`, `particles`, `photo`, `pickups`, `player`, `post`, `quests`, `random`, `rays`, `rigid`, `rtsCamera`, `runState`, `saves`, `session`, `settings`, `sky`, `stacks`, `startup`, `stateApplied`, `stateRefused`, `stream`, `terrain`, `terrainMaterial`, `time`, `timeline`, `toggleOnKey`, `ui`, `uniforms`, `urlState`, `validate`, `vars`, `vegetation`, `water`, `weather`, `world`, `wrap`.
 - NPCs and `character.walkTo` follow a path by one rule: an NPC skips points it has passed and no longer stands still for a step at each point, so it runs a few centimetres ahead of where it was mid-walk.
