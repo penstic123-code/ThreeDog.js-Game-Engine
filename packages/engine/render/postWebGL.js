@@ -15,7 +15,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { FusedPass, groupFuse, checkDepthOrder } from './fuse.js';
 import { codedError } from '../core/errorHints.js';
-import { holdShadowRedraw } from './backend.js';
+import { holdShadowRedraw, MSAA_SAMPLES } from './backend.js';
 import { notePatch, patchOn } from '../core/threePatches.js';
 
 // One FusedPass per group of neighboring fuse effects, kept while the same effects stay grouped (a changed group recompiles once)
@@ -28,7 +28,7 @@ function fuseEntry(post, group, used) {
 }
 
 // Shadow maps once a frame. three redraws every shadow map in each renderer.render() while shadowMap.autoUpdate is on, and effects that render the
-// scene again for their own buffers (ao's normals, outline's depth) did so a second time: measured 2 redraws a frame with ao on, 5-20 % frame
+// scene again for their own buffers (ao's normals, outline's normals and mask) did so a second time: measured 2 redraws a frame with ao on, 5-20 % frame
 // time (tests/specs/shadow-passes.mjs). So the pass that draws the scene (index 0 of the chain) turns redraws off once it has drawn, and
 // render() puts the switch back after the whole chain. Why after the scene pass and not before the chain: that pass is the one whose
 // shadows the picture shows, and it also uses up a requested redraw (needsUpdate, sky's shadow.updateEvery), so "every N frames" still works.
@@ -42,6 +42,7 @@ function holdAfterScene(post, pass) {
   const render = pass.render;
   pass.render = function (...a) {
     const out = render.apply(this, a);
+    post.engine.occlusion?._sceneDrawn();   // whichever pass drew the scene: the later passes must not see occlusion's boxes
     if (post._shadowRelease === null && patchOn('post-shadow-hold')) post._shadowRelease = holdShadowRedraw(post.engine.renderer, post.engine.scene);
     return out;
   };
@@ -115,23 +116,21 @@ export const webglPost = {
   },
   /** a fuse effect's params changed: its fused pass re-reads the values (uniforms, no recompile) */
   refresh(post) { for (const p of post._fused.values()) p.refresh(); },
-  samples: post => (post.active ? post.composer?.renderTarget1.samples ?? (post._aa ? 4 : 0) : post._ownAA ? 4 : 0),
+  samples: post => (post.active ? post.composer?.renderTarget1.samples ?? (post._aa ? MSAA_SAMPLES : 0) : post._ownAA ? MSAA_SAMPLES : 0),
   setAntialias(post, on) {
-    if (post.composer) for (const rt of [post.composer.renderTarget1, post.composer.renderTarget2]) { rt.samples = on ? 4 : 0; rt.dispose(); }
+    if (post.composer) for (const rt of [post.composer.renderTarget1, post.composer.renderTarget2]) { rt.samples = on ? MSAA_SAMPLES : 0; rt.dispose(); }
   },
   // Rebuild the pass chain from the list: scene (or the default RenderPass) -> hdr -> tone (or the default OutputPass) -> ldr -> final.
   // Only enabled effects are in the chain; an implementation is built the first time its effect is on and kept after.
   sync(post) {
     const { renderer, scene, camera } = post.engine, size = post._size();
     if (!post.composer) {
-      const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: post._aa ? 4 : 0 });
+      const rt = new THREE.WebGLRenderTarget(size.x, size.y, { type: THREE.HalfFloatType, samples: post._aa ? MSAA_SAMPLES : 0 });
       post.composer = new EffectComposer(renderer, rt);
       // EffectComposer takes a given target's size (device pixels) as its CSS size; reset it so setPixelRatio does not scale twice
       const css = renderer.getSize(new THREE.Vector2());
       post.composer.setSize(css.x, css.y);
       post._scenePass = new RenderPass(scene, camera);
-      const drawScene = post._scenePass.render.bind(post._scenePass);
-      post._scenePass.render = (...a) => { drawScene(...a); post.engine.occlusion?._sceneDrawn(); };
       post._output = new OutputPass();
     }
     const c = post.composer, on = post._sorted().filter(e => e.enabled);

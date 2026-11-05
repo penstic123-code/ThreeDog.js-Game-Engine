@@ -6,11 +6,11 @@
 export class Jobs {
     /** Milliseconds allowed per frame, default 3 */
     budgetMs: number;
-    /** Milliseconds allowed per frame while the loading screen is up, default 12 */
+    /** Milliseconds allowed per frame while the loading screen is up, default 12 @experimental */
     loadingMs: number;
-    /** Max steps per deterministic run (stops jobs that keep adding jobs from hanging), default 100000 */
+    /** Max steps per deterministic run (stops jobs that keep adding jobs from hanging), default 100000 @experimental */
     maxSteps: number;
-    /** A step slower than this many ms warns in dev (default 8) */
+    /** A step slower than this many ms warns in dev (default 8) @experimental */
     slowStepMs: number;
     /** Number of jobs not yet finished @returns {number} */
     get pending(): number;

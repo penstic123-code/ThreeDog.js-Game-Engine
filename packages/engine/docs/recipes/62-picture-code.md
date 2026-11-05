@@ -1,7 +1,7 @@
 # The whole picture in plain three.js: signals in, picture out
 
-**In this recipe**: the `picture/` folder (0), setup (1), signals (2), the hook (3), rules for a bigger game (3b), wiring and who wrote a value (3c), the library (3d), shared values (the other 3d),
-picture parts: code from different sources in one game (3e), a flat look (4), what the engine still does (5), checking (6).
+**In this recipe**: the `picture/` folder (0), setup (1), signals (2), the hook (3), rules for a bigger game (3b), wiring and who wrote a value (3c), the library (3d), shared values (3e),
+picture parts: code from different sources in one game (3f), a flat look (4), what the engine still does (5), checking (6).
 
 Any picture (flat illustration, toon, painterly, realistic) can be written as plain three.js in one folder of the game, the picture code: its own
 lights, materials, fog, sky colors and post passes. The engine hands it signals (time of day, weather) and keeps doing the engineering
@@ -56,17 +56,19 @@ Without `calendar` and `sky()` there is no day and night: `uDaylight` stays 1 an
 | `uSunDir` | unit `Vector3` toward the sun | sky |
 | `uSunColor` | `Color` of the sun now, from the keyframes (white with no sky): `sun.color.copy(...)` | sky |
 | `uTimeOfDay` | 0-1 (0 midnight, 0.5 noon) | calendar, else the sky's fixed time |
-| `uRain`, `uSnow`, `uCloud` | 0-1 | weather state |
+| `uRain`, `uSnow`, `uWeatherCloud` | 0-1 | weather state |
 | `uWind` | wind multiplier (1 = calm) | weather state |
 | `uWeatherLight`, `uWeatherFog` | multipliers (1 = clear): apply them to your own light and fog distance | weather state |
 | `uViewDistance` | how far the world is meant to be seen, meters (default 600): your fog's far; the stream radius without terrain | `terrain({ viewFog: true })` |
-| `uFoliageTint`, `uGroundTint`, `uCover` | season tints, snow cover | sky + calendar |
+| `uFoliageTint`, `uGroundTint`, `uGroundCover` | season tints, snow cover | sky + calendar |
 | `uSkyTop`, `uSkyHorizon` | the engine dome's colors (its neutral keyframes unless the game sets them) | sky |
 
 Read `.value` in JS, or share the object in a shader (`uniforms: { uDaylight: engine.uniforms.uDaylight }`): one object, no copy. The sky
 colors are the engine dome's picture, not physics: a styled game keeps its own palette and mixes them in only if it wants (the example takes 15 %
 of the horizon). Gameplay that should change the picture (a cutscene dims the world, a status effect tints it) goes through a signal of your
 own, read by the picture code, so the picture still has one writer.
+
+Written every frame: `uSkyTop` and `uSkyHorizon` take `engine.sky.top` / `engine.sky.horizon`, `uDaylight` and `uTimeOfDay` take a `daylight` / `timeOfDay` measure; a direct write is lost and warns once (`signal-overwritten`). `uSunDir` (the same vector as `engine.sky.sunDir`) and `camera.aspect` stay as written: `engine.autoView.manual('sunDir', false)` gives one back.
 
 ## 3. The hook: `engine.onRender`, not `onFrame`
 ```js
@@ -145,7 +147,7 @@ export function flatMaterials(THREE, palette, nightGlow = 0.2) {
 A day-and-night light group is the same shape: `dayNightLights(THREE, scene, { day, night })` takes the two colors as arguments, adds a sun and a
 hemisphere light, and its `update(signals)` blends them by `uDaylight`. The copy in your game is yours: pull, then adapt it to that game's picture.
 
-## 3d. Several parts change one picture value
+## 3e. Several parts change one picture value
 A sunset and a cutscene both dim the sun. If each writes the light, the second one's end brings back a value that is already wrong. Make the value a shared point
 (recipe 55): everyone changes it with `engine.mod`, and one place in `picture/` reads the result and writes three.js once.
 ```js
@@ -162,7 +164,7 @@ dusk.remove();                                                                  
 An amount that moves takes one entry and changes it: `const wet = ctx.mod('sun.level', { mul: 1 });` once in the install, then `wet.change(1 - 0.5 * rain)` each frame. Calling `ctx.mod` every frame would pile up entries. In a module use `ctx.mod`, not `engine.mod`: the change then goes with the module.
 `describe().shared` shows who holds it and why it reads what it reads. A value only one part writes needs none of this: write the light.
 
-## 3e. Picture parts: three.js code from different sources in one game
+## 3f. Picture parts: three.js code from different sources in one game
 Code you write alone stays the plain functions of section 0, and pays nothing for this section. Use a part when code has to live beside code you did not write: an entry from the library,
 another agent's sky, a rain from an old game. A part is an ordinary module with `type: 'picture'`. There is no new layer and no new way to write a picture: inside it is plain three.js.
 ```js
@@ -190,7 +192,7 @@ export const harborFog = ({ near = 10, far = 200 } = {}) => ({
 | Kind | Example | Rule | On a collision |
 |---|---|---|---|
 | Only one can exist | the fog, the tone curve, the main light | take a slot: `provides: ['fog']` | a second claim stops at install (`shared-taken`); `{ replaces: 'fog' }` swaps on purpose |
-| Several parties change it | rain and a cutscene both dim the sun | a shared value: `engine.stacks.define` and `engine.mod` (the other 3d), one place writes three.js | combined by the formula |
+| Several parties change it | rain and a cutscene both dim the sun | a shared value: `engine.stacks.define` and `engine.mod` (3e), one place writes three.js | combined by the formula |
 | Just more things | another lamp, another mesh | add it | none, it only costs budget |
 
 **The slot names**, so two sources spell a claim the same way (`PICTURE_SLOTS`, type `PictureSlot`). Slot names are free text, and a near miss of these in a picture module is warned about:

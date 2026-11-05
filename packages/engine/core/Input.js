@@ -52,6 +52,7 @@ export class Input {
     /** @internal */ this._fx = { keys: new Set(), pressed: new Set(), released: new Set(), x: 0, y: 0 };   // this fixed step's snapshot
     /** @internal */ this._live = { keys: this.keys, pressed: this.justPressed, released: this.justReleased };
     /** @internal */ this._inFixed = false;
+    /** @internal frames ended so far. A press lives until endFrame, so this is what "the same press" means to ui/Focus.js, from any fixed step or frame hook */ this.frameCount = 0;
     /** This frame's look-drag amount (pixels) and wheel notches */
     this.look = { dx: 0, dy: 0, zoom: 0 };
     /** Mouse/touch pointer @type {Pointer} */
@@ -336,5 +337,5 @@ export class Input {
 
 
   /** @internal */
-  endFrame() { this.justPressed.clear(); this.justReleased.clear(); this.look.dx = this.look.dy = this.look.zoom = 0; this.pointer.clicked = false; }
+  endFrame() { this.frameCount++; this.justPressed.clear(); this.justReleased.clear(); this.look.dx = this.look.dy = this.look.zoom = 0; this.pointer.clicked = false; }
 }

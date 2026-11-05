@@ -1,7 +1,7 @@
 // One ownership model for every property the engine writes on its own (a sky's background, the shadow box's center, camera, pixel ratio ...).
 //
 //   const o = defineOwned(engine, { id: 'view.far', part: 'view', key: 'far', read: () => camera.far, write: v => { camera.far = v; },
-//     levels: { manual: "engine.view.manual('far')" } });
+//     levels: { manual: "engine.autoView.manual('far')" } });
 //   per frame:  o.check();  if (o.on) target.position.copy(focus);  o.mark();      (or o.drive(v) when the write is one value: needs write)
 //
 // Why "the engine yields" (user decision 1, 2026-11-02): a game that writes sun.target.position directly means it. Silently writing the old value
@@ -9,8 +9,8 @@
 // to the game (mode 'yielded'), the value stays, and one warning names the explicit takeover and the hand-back. Detection runs in release builds too
 // (a few number compares per frame), so the game behaves the same with and without dev checks; only the warning text is dev-only.
 //
-// Modes per property: 'engine' (the engine writes it) | 'manual' (engine.view.manual(key), or the entry that hands the value to the game) | 'yielded'
-// (the game wrote it directly). engine.view.manual(key, false) hands any of them back. describe().owned lists them all.
+// Modes per property: 'engine' (the engine writes it) | 'manual' (engine.autoView.manual(key), or the entry that hands the value to the game) | 'yielded'
+// (the game wrote it directly). engine.autoView.manual(key, false) hands any of them back. describe().owned lists them all.
 import { warnOnce, DEV } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 
@@ -114,7 +114,7 @@ export function checkWrittenOnce(engine) { for (const o of engine._owned?.values
  * @param {any} engine
  * @param {{ id: string, part: string, key?: string, read: () => any, write?: (v: any) => void, objects?: any[],
  *   levels: { manual: string, set?: string, back?: string }, onChange?: (o: Owned) => void, once?: boolean }} spec
- *   part: the group whose manual() takes it (engine.view.manual(key)); key: the name manual() matches (prefix match on dots: 'sun' takes
+ *   part: the group whose manual() takes it (engine.autoView.manual(key)); key: the name manual() matches (prefix match on dots: 'sun' takes
  *   'sun.intensity' and 'sun.color'); once: written only at creation (read now is the creation value; needs write for the hand-back); levels: the copyable calls the warning quotes (manual is required); onChange: mode changed (the sky hides its dome when the game
  *   takes scene.background)
  * @returns {Owned}
@@ -122,7 +122,7 @@ export function checkWrittenOnce(engine) { for (const o of engine._owned?.values
 export function defineOwned(engine, spec) {
   if (!spec?.id || !spec.part || typeof spec.read !== 'function') throw codedError('owned-misuse', 'defineOwned(engine, { id, part, read, write?, levels }): id, part and read are required');
   // the yield warning leads with this call, so a property nobody can take on purpose cannot be registered
-  if (typeof spec.levels?.manual !== 'string' || !spec.levels.manual) throw codedError('owned-misuse', `defineOwned(engine, { id: '${spec.id}', levels: { manual } }): levels.manual is required, the copyable takeover call the warning quotes, e.g. levels: { manual: "engine.view.manual('far')" }`);
+  if (typeof spec.levels?.manual !== 'string' || !spec.levels.manual) throw codedError('owned-misuse', `defineOwned(engine, { id: '${spec.id}', levels: { manual } }): levels.manual is required, the copyable takeover call the warning quotes, e.g. levels: { manual: "engine.autoView.manual('far')" }`);
   const reg = engine._owned ??= new Map();
   const o = new Owned(engine, spec);
   const old = reg.get(spec.id); if (old) live.delete(old);
@@ -140,7 +140,7 @@ function ownedOf(engine, part, keys) {
 }
 
 /**
- * manual(keys?, on?) of a group (engine.view.manual): the game takes these properties (the engine stops writing them) or hands them back (on false).
+ * manual(keys?, on?) of a group (engine.autoView.manual): the game takes these properties (the engine stops writing them) or hands them back (on false).
  * Throws with the part's takeable keys when nothing matches, so a typo does not silently do nothing.
  * @returns {{ remove(): void }} remove() hands them back
  */
@@ -167,5 +167,3 @@ export function describeOwned(engine) {
  * @param {any} engine @param {string} id @param {() => (object | undefined)} row
  */
 export function ownedRow(engine, id, row) { (engine._ownedRows ??= {})[id] = row; }
-/** Remove an ownedRow (its module disposed) @param {any} engine @param {string} id */
-export function dropOwnedRow(engine, id) { if (engine._ownedRows) delete engine._ownedRows[id]; }

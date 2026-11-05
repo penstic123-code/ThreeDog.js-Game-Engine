@@ -13,24 +13,22 @@ export function pageMark() {
   const e = window.engine, h = e.ops.recent(), parts = {};
   try { for (const [k, v] of Object.entries(e.saves.collect().parts)) parts[k] = JSON.stringify(v); } catch { /* a failing save() is reported elsewhere */ }
   // count too: a refusal identical to the previous one (same op, reason, actor) is merged into that entry (count++), with no new seq, so seq alone would miss it
-  window.__verifyMark = { seq: h.length ? h.at(-1).seq : 0, count: h.length ? h.at(-1).count : 0, tick: e.tick, parts };
+  window.__verifyMark = { seq: h.length ? h.at(-1).seq : 0, count: h.length ? h.at(-1).count : 0, tick: e.time.tick, parts };
 }
 
-/** Page side: what exists (catalog or fallback) and what the run did (op history after the mark, changed save parts, events fired) */
+/** Page side: what exists (the catalog) and what the run did (op history after the mark, changed save parts, events fired) */
 export function pageCoverage() {
-  const e = window.engine, cat = typeof e.catalog === 'function' ? e.catalog() : null, m = window.__verifyMark ?? { seq: 0, tick: 0, parts: {} };
-  const names = xs => (Array.isArray(xs) ? xs : Object.keys(xs ?? {})).map(x => typeof x === 'string' ? x : x?.name ?? x?.id).filter(Boolean);
+  const e = window.engine, cat = e.catalog(), m = window.__verifyMark ?? { seq: 0, tick: 0, parts: {} };
   // engine.catalog() is a list of { id, ops: [names], saves: [keys] }, with 'core' and 'game' entries besides the modules
-  const mods = Array.isArray(cat) ? cat.filter(c => c.id !== 'core' && c.id !== 'game').map(c => ({ id: c.id, ops: c.ops ?? [], saves: c.saves ?? [] }))
-    : (cat?.modules ? names(cat.modules) : [...e.modules.keys()]).map(id => ({ id, ops: [], saves: [] }));
+  const mods = cat.filter(c => c.id !== 'core' && c.id !== 'game').map(c => ({ id: c.id, ops: c.ops ?? [], saves: c.saves ?? [] }));
   // the catalog can miss ops defined late (by a test or a console call), so the live definitions are added
-  const ops = [...new Set([...(Array.isArray(cat) ? cat.flatMap(c => c.ops ?? []) : cat?.ops ? names(cat.ops) : []), ...e.ops.defs.keys()])];
+  const ops = [...new Set([...cat.flatMap(c => c.ops ?? []), ...e.ops.defs.keys()])];
   // every history entry after the mark, whatever its source: refused ops are logged too, and nested ops and key presses (source bridge / player) are exercised as well
   const ran = e.ops.recent().filter(h => h.seq > m.seq || (h.seq === m.seq && h.count > m.count)).map(h => ({ name: h.name, ok: h.ok, code: h.code, count: h.count, depth: h.depth, source: h.source }));
   const changedParts = [];
   try { for (const [k, v] of Object.entries(e.saves.collect().parts)) if (JSON.stringify(v) !== m.parts[k]) changedParts.push(k); } catch { /* see pageMark */ }
   const events = [...new Set(e.events.recent().filter(x => x.tick >= m.tick).map(x => x.name))];
-  return { source: cat ? 'engine.catalog' : 'ops.defs + modules', ops, modules: mods, ran, changedParts, events };
+  return { ops, modules: mods, ran, changedParts, events };
 }
 
 /** Always true of a scenario run: the bridge sends synthetic events into a headless page */
@@ -67,8 +65,7 @@ export function coverage(cov, sections = []) {
     if (via.length) indirect.push({ id: m.id, via }); else untested.push(m.id);
   }
   const untestedOps = cov.ops.filter(o => !ranNames.has(o));
-  return { source: cov.source,
-    ops: { total: cov.ops.length, ran: cov.ops.length - untestedOps.length, refused: [...refused].filter(o => !okNames.has(o)), untested: untestedOps },
+  return { ops: { total: cov.ops.length, ran: cov.ops.length - untestedOps.length, refused: [...refused].filter(o => !okNames.has(o)), untested: untestedOps },
     modules: { total: cov.modules.length, tested, indirect, untested, exercised: tested.length + indirect.length },
     changedParts: cov.changedParts, events: cov.events };
 }
@@ -88,7 +85,7 @@ export function evidenceText(rows, cov, { checks = true } = {}) {
     lines.push('NOT proven: ' + NOT_PROVEN.join(' · '));
   }
   const { ops, modules: m } = cov;
-  lines.push(`Coverage (${cov.source}): ops ${ops.ran}/${ops.total} ran${ops.refused.length ? ` (refused: ${list(ops.refused, 4)})` : ''} · modules ${m.tested.length} tested, ${m.indirect.length} indirect, ${m.untested.length} untested`);
+  lines.push(`Coverage: ops ${ops.ran}/${ops.total} ran${ops.refused.length ? ` (refused: ${list(ops.refused, 4)})` : ''} · modules ${m.tested.length} tested, ${m.indirect.length} indirect, ${m.untested.length} untested`);
   if (m.indirect.length) lines.push('  indirect: ' + list(m.indirect.map(x => `${x.id} (${x.via.join(', ')})`), 6));
   if (ops.untested.length) lines.push('  untested ops: ' + list(ops.untested, 10));
   if (m.untested.length) lines.push('  untested modules: ' + list(m.untested, 10));

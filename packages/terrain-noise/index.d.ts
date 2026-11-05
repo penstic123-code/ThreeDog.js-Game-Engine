@@ -21,7 +21,7 @@ export interface BiomeRule extends BiomeCondition { name: string; any?: BiomeCon
 export interface TerrainPresetOptions {
   /** Landform, default 'hills' */
   shape?: 'hills' | 'island' | 'canyon' | 'flat';
-  /** Overall relief multiplier */
+  /** Multiplies the base land and hills around sea level (lows get deeper as highs rise); the mountain part (`mountains`) is separate and not scaled by it */
   heightScale?: number;
   /** Mountain strength */
   mountains?: number;
@@ -29,6 +29,8 @@ export interface TerrainPresetOptions {
   rivers?: boolean;
   /** River width (0.02 narrow, 0.05 wide) */
   riverWidth?: number;
+  /** Where rivers run and how their banks fall: noise scale and offset, bank width in river widths, the depth share outside the river itself */
+  river?: { scale?: number; offset?: number[]; bank?: number; edge?: number };
   /** Biome rule table (default BIOMES) */
   biomes?: BiomeRule[];
   tempScale?: number; moistScale?: number;
@@ -41,13 +43,15 @@ export interface TerrainPresetOptions {
 /** The default biome rule table: beach, snow, rock, riverbank, wetland, savanna, forest, highland, meadow */
 export const BIOMES: BiomeRule[];
 /**
- * Noise terrain generator for terrain() / openWorld({ terrain }) / createTerrain(): noise hills (or island, canyon, plain), rivers, biomes.
+ * Noise terrain generator for terrain() / openWorld({ terrain }) / createTerrain(): noise hills (or island, canyon, flat), rivers, biomes.
  * @example engine.use(openWorld({ seed: 7, camera: 'follow', terrain: terrainPreset({ shape: 'island' }) }))
  */
 export function terrainPreset(opts?: TerrainPresetOptions): {
   height: (x: number, z: number, n: TerrainNoise) => number;
   groundType: (x: number, z: number, h: number, slope: number, n: TerrainNoise) => string;
   params: Record<string, any>;
+  /** Sea level this generator carves rivers and coasts toward */
+  waterLevel: number;
 };
 /** Display names of the preset's ground types ('ground.<type>' keys in zh-CN and en): engine.i18n.add(terrainStrings) */
 export const terrainStrings: Record<string, Record<string, string>>;

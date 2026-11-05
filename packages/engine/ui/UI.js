@@ -143,7 +143,7 @@ export function placeAt(el, x, y) {
 }
 
 const fades = new WeakMap();   // engine → { el, value, from, to, t, d, done }
-// color --threedog-fade-bg. Follows engine frames (step() advances it too; stops while pause()d). A new fade interrupts the old (the old Promise resolves at once).
+// color --threedog-fade-bg. Follows engine frames (step() advances it too; stops while the loop is halted). A new fade interrupts the old (the old Promise resolves at once).
 // Scene transitions use engine.flow.transition and cutscenes use the timeline's { fade: seconds, to } step; both go through here.
 /**
  * Fade the whole screen to `to` (0 clear ... 1 fully covered) over `seconds` (default 0.5); the Promise resolves when the fade ends.

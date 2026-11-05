@@ -26,7 +26,7 @@ Hand-built level (level() module)
   - `root: Object3D | null` Scene root node
   - `markers: Record<string, LevelMarker>` All markers: name -> marker
   - `spawn: Vector3` Spawn point position
-  - `heightfield: any` Heightfield (for debugging)
+  - `heightfield: any` (experimental) Heightfield (for debugging)
   - `ready: boolean` Whether loading is finished
 
 ## Data structures

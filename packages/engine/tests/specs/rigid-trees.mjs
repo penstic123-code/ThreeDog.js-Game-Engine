@@ -7,7 +7,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const pump = async (cond, max = 900) => { for (let i = 0; i < max && !cond(); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); } return cond(); };
-        engine.pause();
+        engine.haltLoop();
         const R = engine.rigid, P = engine.player, G = engine.ground, CH = G.chunkSize ?? 64, T = engine.THREE, home = P.position.clone(), out = {};
         const chunkOf = (x, z) => Math.floor(x / CH) + ',' + Math.floor(z / CH);
         const trunkCount = () => { let n = 0; for (const t of R.trees.values()) n += t.colliders.length; return n; };

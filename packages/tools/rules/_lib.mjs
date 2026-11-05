@@ -1,29 +1,28 @@
 // Shared helpers for rules: project paths, file walking, syntax trees (TypeScript parses JS / d.ts), line numbers, allowlist comments.
 // One file per rule, packages/tools/rules/Rxx-name.mjs, exporting default { id, title, run(ctx) }; run returns [{ level: 'error'|'warn', file, line, msg, fix }].
 // packages/tools/check.mjs calls them all and prints the results grouped by rule.
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
+import { readFileSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import ts from 'typescript';
 import * as P from '../paths.mjs';
 import { ROOT, rel, abs } from '../paths.mjs';
+import { walk as walkFiles } from '../lib/text.mjs';
+
+/** How hard a doc finding lands: a game's own docs (a plan names files that do not exist yet, docs cannot break a game) warn, engine docs fail */
+export const docLevel = doc => P.MODE === 'game' || /^games\//.test(doc) || P.gameDirs().some(d => doc.startsWith(`${rel(d)}/`)) ? 'warn' : 'error';
 
 export { ts, ROOT, rel, abs, P };
 
-const SKIP_DIRS = new Set(P.SKIP_DIRS);
+/** Does this object literal node have a property of that name */
+export const hasProp = (obj, name) => obj.properties.some(p => p.name?.getText() === name);
+/** The parameter names a module factory takes its options under */
+export const OPT_NAMES = new Set(['opts', 'options', 'all']);
+/** The function around node n (the module factory of a module definition), methods skipped */
+export function factoryOf(n) { for (let p = n.parent; p; p = p.parent) if (ts.isFunctionLike(p) && !ts.isMethodDeclaration(p)) return p; return null; }
+
 /** Recursively list files (paths relative to ROOT); exts is an array of suffixes */
 export function walk(dir, exts = ['.js']) {
-  const out = [], start = abs(dir);
-  if (!existsSync(start)) return out;
-  (function go(d) {
-    for (const f of readdirSync(d).sort()) {
-      if (SKIP_DIRS.has(f)) continue;
-      const p = join(d, f), dir = statSync(p).isDirectory();
-      if (P.notGameSource(p, start, dir)) continue;   // a game in its own repo: only its own sources (paths.mjs gameSources)
-      if (dir) go(p);
-      else if (exts.some(e => f.endsWith(e))) out.push(rel(p));
-    }
-  })(start);
-  return out;
+  return walkFiles(abs(dir), { exts: { test: p => exts.some(e => p.endsWith(e)) } }).map(rel);
 }
 
 const textCache = new Map();

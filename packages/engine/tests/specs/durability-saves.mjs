@@ -224,7 +224,7 @@ export const specs = [
     url: '/?threedog-headless',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const R = engine.rigid, RA = R.R, src = R.bodies.find(b => b.mesh?.isMesh)?.mesh;
+        const R = engine.rigid, RA = R.rapier, src = R.bodies.find(b => b.mesh?.isMesh)?.mesh;
         if (!src) return { none: true };
         const mk = (dx, dy, o) => { const m = new src.constructor(src.geometry, src.material); m.position.set(src.position.x + dx, src.position.y + dy, src.position.z); return R.addBox(m, { size: [1, 1, 1], ...o }); };
         const anchor = mk(8, 12, { fixed: true, id: 'jt-anchor' }), weight = mk(8, 10), post = mk(12, 1.5, { fixed: true }), door = mk(13, 1.5);

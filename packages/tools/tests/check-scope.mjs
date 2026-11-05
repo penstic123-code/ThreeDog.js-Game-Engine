@@ -1,13 +1,15 @@
-// Scoped check: `threedog check -w <game>` (also what new-game runs) reports only that game; another broken game is one summary line and does not fail it.
+// Scoped check: `threedog check -w <game>` (also what new-game runs) reads only that game; another broken game neither fails it nor costs it time.
+// Why it does not read them: an AI runs check constantly, and tsc over every game plus R18 over every engine doc was a minute spent on results that were thrown away.
 // Why: new-game used to run the repo-wide check, so a clean new game "failed" on dozens of type errors from other games.
 // Fixture: two throwaway games under games/ (one with a type error and a direct material, which games may use, one clean), removed afterwards.
 // Run: threedog test "scoped check"
-import { mkdirSync, writeFileSync, rmSync, existsSync, readdirSync, rmdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync, rmSync, existsSync, readdirSync, rmdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { GAMES, TOOLS } from '../paths.mjs';
+import { GAMES, TOOLS, ROOT } from '../paths.mjs';
+import { docFiles } from '../rules/R18-doc-refs.mjs';
 
-export const name = 'scoped check: check -w <game> reports only that game, other games are one summary line';
+export const name = 'scoped check: check -w <game> reads and reports only that game';
 
 const CLI = join(TOOLS, 'bin', 'threedog.mjs');
 const game = (dir, main) => {
@@ -31,7 +33,11 @@ export async function run({ check }) {
     const tail = ok.out.split(/\r?\n/).slice(-6).join(' | ');
     check('the clean game passes (exit 0) although the other one is broken', ok.code === 0, tail);
     check('no line names the broken game', !/zz-scope-broken/.test(ok.out), ok.out.split(/\r?\n/).filter(l => /zz-scope-broken/.test(l)).slice(0, 3).join(' | '));
-    check('other games are summed in one line', ok.out.split(/\r?\n/).filter(l => /^other workspaces: \d+ games? with \d+ errors?/.test(l)).length === 1, tail);
+    const config = JSON.stringify(JSON.parse(readFileSync(join(ROOT, '.threedog', 'tsconfig.games-zz-scope-clean.json'), 'utf8')).include);
+    check('[guard] tsc is given this game and no other', config.includes('games/zz-scope-clean/') && !config.includes('games/*') && !config.includes('examples'), config);
+    writeFileSync(join(clean, 'DESIGN.md'), '# clean\n');
+    const docs = docFiles({ notEngine: true, dir: clean });
+    check('[guard] R18 reads this game\'s docs and no engine doc', docs.length === 1 && docs[0].endsWith('zz-scope-clean/DESIGN.md'), docs.slice(0, 3).join(', '));
     check('types ran for the clean game only', /Type check: 1 game files \(games\/zz-scope-clean\)/.test(ok.out), ok.out.match(/Type check:.*/)?.[0]);
 
     const bad = cli('check', '-w', 'games/zz-scope-broken');

@@ -37,8 +37,8 @@ export class Saves {
   /** @internal */
   constructor(engine, { prefix = 'game-' } = {}) {
     /** @internal */ this.engine = engine;
-    /** Save name prefix (start of the key names in the localStorage fallback, and of the IndexedDB database name) */
-    this.prefix = prefix + 'save-';
+    /** @internal Start of the key names in the localStorage fallback and of the IndexedDB database name; a module asks storageKey(name) instead */
+    this._prefix = prefix + 'save-';
     /** @internal */ this.providers = new Map();
     /** @internal */ this._auto = null;
     /** @internal Slot -> JSON text (all saves stay in memory: list / check / export are synchronous) */ this._json = new Map();
@@ -50,7 +50,7 @@ export class Saves {
     this._tab = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${performance.now()}`;   // wall-clock: only a fallback id, unique per tab
     /** @internal */ this._n = 0;
     /** @internal other tabs of this game: 'slot changed' notes */
-    this._bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel(this.prefix + 'db') : null;
+    this._bc = typeof BroadcastChannel === 'function' ? new BroadcastChannel(this._prefix + 'db') : null;
     if (this._bc) this._bc.onmessage = ev => this._remote(ev.data?.slot);
     /** @internal Parts of the last loaded save that no registered module owns (a module not installed in this build): written back unchanged on every save */
     this._foreign = { parts: {}, versions: {} };
@@ -60,7 +60,7 @@ export class Saves {
      * @type {{ mode: 'idb' | 'localStorage', blobs(group?: string): Promise<{ group: string, id: string, at: number, blob: Blob, meta: any }[]>,
      *   putBlob(group: string, id: string, blob: Blob, meta?: any, at?: number): Promise<void>, deleteBlob(group: string, id: string): Promise<void> }}
      */
-    this.store = /** @type {any} */ (new SaveStore(this.prefix + 'db', this.prefix));
+    this.store = /** @type {any} */ (new SaveStore(this._prefix + 'db', this._prefix));
     /** Has the save index been read into memory? (start() waits for it; game code rarely needs to care) */
     this.ready = false;
     /** Resolves once the save index is in memory; await it only to list / load before start() @type {Promise<void>} */
@@ -115,13 +115,8 @@ export class Saves {
       }
     } catch (e) { this._fail(e); }
   }
-  /**
-   * Queue a disk write (runs in call order once storage is ready; flush waits for it; used by attachments such as photos).
-   * @template T
-   * @param {() => Promise<T>} fn
-   * @returns {Promise<T>}
-   */
-  queue(fn) {
+  /** @internal Disk writes run in call order once storage is ready, and flush waits for them: the one place that order is kept */
+  _enqueue(fn) {
     const p = this._queue.then(() => this.whenReady).then(fn);
     this._queue = p.catch(() => {});
     return p;
@@ -133,6 +128,34 @@ export class Saves {
     else warnOnce(coded('save-write', `[saves] failed to write ${slot ? `slot "${slot}"` : 'save'}: ${err?.message ?? err}`));
     toast(this.engine, why, { kind: 'error', ms: 5000 });
   }
+  /**
+   * Store a binary attachment outside the world save (a photo, a replay). It rides in the queue of save writes, so flush() waits for it, and exportFile() carries it.
+   * Pass a function to make the bytes when the write runs: flush() then waits for that too. Without IndexedDB it is not kept.
+   * @example await engine.saves.putAttachment('replay', 'run-1', blob, { score: 12 });
+   * @param {string} group what the attachment is for
+   * @param {string} id unique inside the group; the same id replaces
+   * @param {Blob | (() => Promise<Blob>)} blob
+   * @param {any} [meta] plain data kept with it
+   * @returns {Promise<void>}
+   */
+  putAttachment(group, id, blob, meta) {
+    return this._enqueue(async () => this.store.putBlob(group, id, typeof blob === 'function' ? await blob() : blob, meta));
+  }
+  /** Delete an attachment; no such id is fine @param {string} group @param {string} id @returns {Promise<void>} */
+  removeAttachment(group, id) { return this._enqueue(() => this.store.deleteBlob(group, id)); }
+  /**
+   * The attachments of a group, once storage is ready. Empty without IndexedDB.
+   * @param {string} group
+   * @returns {Promise<{ group: string, id: string, at: number, blob: Blob, meta: any }[]>}
+   */
+  async attachments(group) { await this.whenReady; return this.store.blobs(group); }
+  /**
+   * A localStorage key for what belongs to this game but is not a save (settings, a last-used tab): it shares the game's name, so two games on one site stay apart, and stays out of list().
+   * @example localStorage.setItem(engine.saves.storageKey('lastTab'), 'map');
+   * @param {string} name
+   * @returns {string}
+   */
+  storageKey(name) { return this._prefix.replace(/save-$/, '') + name; }
   /** Wait for all queued disk writes to finish (for tests and before the page closes) @returns {Promise<void>} */
   flush() { return this._queue; }
 
@@ -177,7 +200,7 @@ export class Saves {
     const prev = this._json.get(slot), prevAt = this._meta.get(slot), rev = `${this._tab}:${++this._n}`;
     this._json.set(slot, json); this._meta.set(slot, savedAt);
     // expect is read when the write runs, not now: an earlier queued save of this tab moves _mine first
-    return this.queue(() => this.store.putSlot(slot, savedAt, json, rev, this._mine.get(slot) ?? null)).then(() => {
+    return this._enqueue(() => this.store.putSlot(slot, savedAt, json, rev, this._mine.get(slot) ?? null)).then(() => {
       this._rev.set(slot, rev); this._mine.set(slot, rev);
       this._tell(slot);
       return true;
@@ -204,7 +227,7 @@ export class Saves {
   /** @internal Another tab changed a slot: read it again (after this tab's queued writes, so a late note cannot undo a newer own write) */
   _remote(slot) {
     if (typeof slot !== 'string' || !this._bc) return;
-    this.queue(() => this.store.getSlot(slot)).then(r => this._show(slot, r), () => {});
+    this._enqueue(() => this.store.getSlot(slot)).then(r => this._show(slot, r), () => {});
   }
   /** @internal Tell the other tabs a slot changed (they read it again from storage: the note carries no save text, which can be MBs) */
   _tell(slot) { this._bc?.postMessage({ slot }); }   // BroadcastChannel, not a worker
@@ -255,7 +278,7 @@ export class Saves {
     this._json.delete(slot); this._meta.delete(slot);
     // the revs are cleared when the delete runs, not now: a save queued before this remove sets _mine when its write lands,
     // and a _mine left over for a deleted record would refuse every later save of this slot as "another tab saved"
-    return this.queue(async () => { await this.store.deleteSlot(slot); this._rev.delete(slot); this._mine.delete(slot); })
+    return this._enqueue(async () => { await this.store.deleteSlot(slot); this._rev.delete(slot); this._mine.delete(slot); })
       .then(() => this._tell(slot), e => this._fail(e, slot));
   }
   /** Export as a piece of text (can be copied as a backup; synchronous, without binary attachments) @param {string} [slot] @returns {string} */

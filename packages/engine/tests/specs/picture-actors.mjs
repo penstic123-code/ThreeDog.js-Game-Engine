@@ -82,7 +82,7 @@ export const specs = [
         out.lookOff = { read: off.material, set: (() => { try { off.material = pm; return ''; } catch (x) { return x.code; } })() };
         off.remove();
         out.key = key === mine.customProgramCacheKey?.();
-        engine._resume?.();
+        engine._unhalt?.();
         return out;
       });
       check('tiles: the table and lift come from grids({ tiles, tileLift }), layer.material is the tile mesh\'s', r.defaultIsMesh && r.tiles === 1 && r.lift === 0.1, JSON.stringify(r));

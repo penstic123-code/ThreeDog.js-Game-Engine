@@ -47,7 +47,7 @@ export async function run({ check, browser }) {
     const t1 = await toastCount(); await threedog('step', '3'); const snapT = await threedog('snap', 'toast-step'), t2 = await toastCount();
     check('a toast expires with threedog step (stepped time) before snap', t1 >= 1 && t2 === 0 && snapT.code === 0, JSON.stringify({ t1, t2 }));
     check('describe: compact plus the state line', d.code === 0 && d.out.includes('Player') && d.out.split('\n').length <= 4 && d.out.length < 600
-      && /Headless page paused, tick \d+/.test(d.out), d.out);
+      && /Headless page, tick \d+/.test(d.out), d.out);
     check('describe --full: the full text', (await threedog('describe', '--full')).out.includes('[Game state]'));
     check('describe path: one item', /^\d\d:\d\d$/.test(startClock), startClock);
     const clockOf = async () => (await threedog('eval', 'engine.describe().time.real')).out.replace('✓ ', '');
@@ -63,7 +63,21 @@ export async function run({ check, browser }) {
     const before = await where(), h = (await threedog('hold', 'moveForward', '1')), after = await where();
     check('hold: the player position changes', h.out.startsWith('✓ Held moveForward') && Math.hypot(after.x - before.x, after.z - before.z) > 0.3,
       `${h.out} ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+    const tickOf = async () => +(await threedog('eval', 'engine.time.tick')).out.replace(/[^\d]/g, '');
+    const tick0 = await tickOf();
     check('state: change time and weather', (await threedog('state', 'time=12:00', 'weather=rain')).out.includes('12:00'));
+    // [guard] state and snap only set up and look: game time moves on step, press, hold, skip (docs/COMMANDS.md), never as a side effect
+    await threedog('snap', 'no-tick', '--no-picture');
+    check('state and snap advance no game time', await tickOf() === tick0, String(tick0));
+    // [guard] the exit code is the verdict: what did not take effect is not a success
+    const noWeather = await threedog('state', 'weather=no-such-weather');
+    check('state: a weather the game lacks fails with the reason', noWeather.code !== 0 && /Not applied: weather=no-such-weather/.test(noWeather.out), noWeather.out);
+    const longOut = await threedog('describe', 'modules', '--max', '40');
+    check('describe: cut output says it was cut and how to see it all', /cut at 40 of \d+ characters \(--max \d+/.test(longOut.out), longOut.out);
+    const badBool = await threedog('op', 'thing.set', 'id=x', 'visible=yes');
+    check('op: a value that does not fit the shape is refused before the op', badBool.code !== 0 && /visible=yes is not true or false/.test(badBool.out), badBool.out);
+    const help = await threedog('step', '--help');
+    check('--help on a bridge command answers and exits 0', help.code === 0 && help.out.includes('advance N game seconds'), help.out);
     check('eval: expression / statements / error', (await threedog('eval', '1 + 1')).out === '✓ 2' && (await threedog('eval',
       'const a = 3; return a * 2')).out === '✓ 6' && (await threedog('eval', 'engine.nope.x')).code === 1);
     check('eval: await works (expression and multi-line statements)', (await threedog('eval',
@@ -112,7 +126,7 @@ export async function run({ check, browser }) {
         && /scenario tmp-bridge: 2 checks passed/.test(sc.out), [ex.out, ins.out, sc.out].join(' | '));
     check('verify: PASS, tested and not tested', vf.code === 0 && /verify tmp-bridge: PASS/.test(vf.out) && vf.out.includes('Tested: ops test.take') && vf.out.includes('Not tested:'), vf.out);
     check('verify: evidence report has layers, NOT proven (pointer lock / GPU / FPS) and untested coverage',
-      /Evidence \(per check[\s\S]*direct: 2 checks/.test(vf.out) && /NOT proven: .*pointer lock.*real GPU.*real FPS/.test(vf.out) && /Coverage \([\w. +]+\): ops [1-9]\d*\/\d+ ran \(refused: test\.take\) · modules \d+ tested, \d+ indirect, \d+ untested/.test(vf.out)
+      /Evidence \(per check[\s\S]*direct: 2 checks/.test(vf.out) && /NOT proven: .*pointer lock.*real GPU.*real FPS/.test(vf.out) && /Coverage: ops [1-9]\d*\/\d+ ran \(refused: test\.take\) · modules \d+ tested, \d+ indirect, \d+ untested/.test(vf.out)
         && /scenario tmp-bridge: 2 checks passed\nCoverage[^\n]*refused: test\.take/.test(sc.out), vf.out.split('\n').filter(l => /^Coverage|untested/.test(l)).join(' | ').slice(0, 300) + ' || ' + sc.out);
     // loading: the same view as describe().loading; a degradable missing file shows as a failure with path and fallback, exit code 1
     await threedog('js', "engine.assets.manifest({ name: 'bridge-test', textures: { bridgeMissing: '/textures/bridge-missing.png' } }); await " +
@@ -199,11 +213,13 @@ export async function run({ check, browser }) {
     // commands go to the real page once its hello arrived (the headless page has ?threedog-headless in its URL)
     await until(async () => !(await threedog('eval', 'location.search')).out.includes('threedog-headless'));
     const live = (await threedog('step', '1'));
-    check('real page: step pauses first and says to resume', live.out.includes('threedog resume') && await page.evaluate(() => engine.paused), live.out);
+    check('real page: step pauses first and says to resume', live.out.includes('threedog resume') && await page.evaluate(() => engine.halted), live.out);
     check('real page: the command takes effect on this page', (await page.evaluate(() => engine.describe().time.real)) > 0);
+    const liveTick = await page.evaluate(() => engine.time.tick);
     check('real page: snap can capture (canvas only)', (await threedog('snap',
       'bridge-live')).code === 0 && existsSync(join(dir, '.threedog/shots/bridge-live.png')));
-    check('real page: resume restores real time', (await threedog('resume')).code === 0 && !(await page.evaluate(() => engine.paused)));
+    check('real page: snap advances no game time', await page.evaluate(() => engine.time.tick) === liveTick, String(liveTick));
+    check('real page: resume restores real time', (await threedog('resume')).code === 0 && !(await page.evaluate(() => engine.halted)));
     // a command still running when its page reloads fails at once, not after the 2-minute timeout
     const tr = Date.now(), hang = threedog('eval', 'window.__hang = true; return new Promise(() => {})');
     await until(() => page.evaluate(() => window.__hang));

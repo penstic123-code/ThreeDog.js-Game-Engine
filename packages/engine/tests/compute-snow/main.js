@@ -62,7 +62,7 @@ window.snowCheck = async () => {
   for (let i = 0; i < COUNT; i++) if (c[i] === d[i]) still++;
   frozen.remove?.(); engine.unfreeze?.('test');
   // cost of a frame: draw plus compute, waiting for the GPU
-  engine.pause();
+  engine.haltLoop();
   const ms = [];
   for (let i = 0; i < 60; i++) { const t = performance.now(); engine.step(1 / 60, { describe: false }); await queue?.onSubmittedWorkDone(); ms.push(performance.now() - t); }   // measure
   ms.sort((x, y) => x - y);

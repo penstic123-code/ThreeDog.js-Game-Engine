@@ -15,13 +15,14 @@ Settings menu (settings() module)
 - `settings.preset(name: 'low' | 'medium' | 'high' | (string & {}))` — Graphics preset: 'low' / 'medium' / 'high'
 - `settings.define(key: string, def: T, apply?: ((value, e) => void) | { apply?, limits? })` — Game-defined setting: default value + apply function (saved automatically), or { apply, limits }. limits names the shared value(s) the row restricts on the settings layer, like the built-in shadows row: off holds it off (the scene, weather or a cutscene cannot turn it back on), on allows what the scene chose; a number row from 0 to 1 is a factor on a number value. Define it after the effect exists
 - `settings.addSection(id: string, section?: SettingsSection)` — Add a tab of your own, or a built-in / optional one by name: addSection('camera')
+- `settings.reset(key?: string)` — Put one setting (or all, with no key) back to its default: the engine's start value, or the default the game gave define(). Keys: resetBindings
 - `settings.resetBindings()` — Restore all keys to defaults
 - `settings.rebind(action: string, code: string)` — Change the first key of an action to code
 - `settings.actionList() → any[]` — Key list (for the UI)
 - `settings.save()` — Save to the browser
-- Also: `settings.removeSection(id: string)`, `settings.open()`, `settings.close()`, `settings.toggle(on?: boolean)`
+- Also: `settings.open()`, `settings.close()`, `settings.toggle(on?: boolean)`
 - Properties:
-  - `values: Record<string, any>` All current setting values
+  - `values: Record<string, any>` All current setting values, read only (set() changes one). pixelRatio is the renderer's real ratio
   - `presets: Record<string, QualityPreset>` Graphics presets
   - `sections: Map<string, any>` Tabs
   - `isOpen: boolean` Whether the menu is open

@@ -51,3 +51,17 @@ Nothing public was removed. A few things now behave differently:
 | `assets optimize` put the optimized pack anywhere in `assets.js` | it comes last, so `/optimized/x.glb` wins over an original of the same name; the next run moves an older game over |
 | `assets optimize --strict` or a lower `--budget` skipped cached models | cached models count like fresh ones, so a run that passed may now fail |
 | | `threedog check` has new rules: R52 (captured twice) and R53 (merge conflict markers in a tracked file); the dev warning `geometry-undisposed` asks for `geometry.dispose()` on a mesh gone for good |
+
+## Unreleased
+
+| Before | Now |
+|---|---|
+| `sky({ moonSize })`, `sky({ starScale })`, `sky({ gradientCurve })`, `sky({ orbitTilt })`, `sky({ orbitSway })` | throw `sky-option` naming where to write: `engine.uniforms.uMoonSize.value`, `uStarScale.value`, `uCurve.value`, `engine.sky.orbit.tilt`, `engine.sky.orbit.sway` (plain values after `engine.use(sky())`; defaults unchanged) |
+| two manifest entries naming each other as `fallback` waited on each other for good | the load fails once with `asset-fallback-cycle`, naming the chain |
+
+- `interaction.use` no longer answers `noKey`. With no key it runs when code asks, `ops.list({ available: true })` leaves it out, and `interaction-no-key` is a dev warning. Code that read `code === 'noKey'` reads `engine.input.isUnbound(action)`.
+- A class instance in a saved `world` record (`Vector3`, `Color`, `Map`) now throws `world-plain` in dev at `world.add` / `world.set`. Write `{ x, y, z }`, or add the record with `{ save: false }`. `position` stays free.
+- `engine.sky.sunDir` is now the same vector as `engine.uniforms.uSunDir`, and a direct write stays. Code that wrote it and relied on the next frame undoing it calls `engine.view.manual('sunDir', false)`.
+- `applyState` no longer rejects for `season` with no calendar or an `at` nothing knows: read `refused`. The `state-at` code is gone.
+- `engine.sky.environment()` called twice replaces the first instead of throwing. `sky({ time })` with a calendar warns instead of throwing.
+- A game's `check` no longer fails on file size, its own docs, a stale GAMEMAP, a module with no key, or startup creation. A CI step that relied on one of these reads the warnings.

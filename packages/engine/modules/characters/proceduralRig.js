@@ -62,7 +62,7 @@ export function capsule(color, engine) {
   const body = new THREE.Group(); body.position.y = 0.85;
   // new Character() also works without the characters module: then this capsule has no shared material to take
   const m = new THREE.Mesh(new THREE.CapsuleGeometry(0.3, 1.0, 4, 12).translate(0, -0.05, 0), capsuleMaterial(engine.characters?.material ?? capsuleDefault(), color));
-  engine.characters?._capsules.set(m, color);   // not the scene: a character is drawn only after addTo, and a swap must reach it before that too
+  engine.characters?._capsules.set(m, color);   // not the scene: a character is drawn only once its root is in the scene, and a swap must reach it before that too
   m.castShadow = true; body.add(m);
   const root = new THREE.Group(); root.add(body);
   return { root, body, capsule: m };

@@ -18,13 +18,14 @@ const dry = (x, z) => riverAt(x, z, preview.noise) === 0;
 ```
 Its ground types are `beach snow rock riverbank wetland savanna forest highland meadow`; the game colors them (`terrain({ colors, biomeColors })`),
 and `terrainStrings` names them for `describe()`. Other options:
-`heightScale mountains rivers riverWidth biomes noise island canyon` (types in the package's `index.d.ts`).
+`heightScale mountains rivers riverWidth river biomes noise island canyon` (types in the package's `index.d.ts`).
 
 ## 1. Your own generator
 ```js
 import { terrain } from 'threedog';
 terrain({
-  // meters at (x, z); n = { fbm(x, z, octaves), noise(x, z), hash(x, z, salt), seed, waterLevel, params }
+  // meters at (x, z); n = { fbm(x, z, octaves), noise(x, z), hash(x, z, salt), seed, waterLevel, params }; fbm, noise and hash all give 0 to 1, not -1 to 1
+  // (fbm gathers around 0.5 and seldom reaches either end: subtract 0.5 to center it, and sample the map before choosing a cut for a ground type)
   height: (x, z, n) => 4 + 30 * n.fbm(x * 0.004, z * 0.004) - 8 * Math.abs(Math.sin(x * 0.01)),
   // a ground type name (null = 'default'); its colors come from biomeColors[type]
   groundType: (x, z, h, slope) => slope > 0.8 ? 'rock' : h < 1 ? 'beach' : 'grass',
@@ -72,7 +73,7 @@ engine.ops.define('path.sand', { args: { at: 'position' },   // a sandy path; a 
 Read the ground with `engine.surface(x, z)` (also `slope`, `groundType`, `waterAt`) and put an object on it with `engine.snapToGround(obj)`. Don't
 raycast the terrain for this: the height function is exact and works before the chunk has a mesh.
 
-Crisp ground color borders, triangle cut, normals, bounds margin, height from a grid: `37-terrain-draw-hooks.md`.
+Crisp ground color borders, triangle cut, normals, bounds margin, height from a grid: `37-terrain-hooks.md`.
 
 ## 5. Where the ground ends: `shape`
 
@@ -89,7 +90,7 @@ replaces a picture keeps all of play. A picture listens to the data part's `view
 engine.use({ name: 'myGround', type: 'picture', provides: ['terrain-draw'], install(e, ctx) {
   const meshes = new Map();
   ctx.track(e.terrain.view({
-    add(c) { const m = buildMesh(c.data.pos, c.data.nor, c.data.col); m.position.set(c.cx * e.terrain.CHUNK, 0, c.cz * e.terrain.CHUNK); e.scene.add(m); meshes.set(c, m); },
+    add(c) { const m = buildMesh(c.data.pos, c.data.nor, c.data.col); m.position.set(c.cx * e.terrain.chunkSize, 0, c.cz * e.terrain.chunkSize); e.scene.add(m); meshes.set(c, m); },
     change(c) { refill(meshes.get(c), c.data); },   // terrain.edit rewrote the arrays (same vertex count)
     remove(c) { e.scene.remove(meshes.get(c)); meshes.delete(c); },
     show(c, visible) { meshes.get(c).visible = visible; },

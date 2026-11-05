@@ -18,10 +18,10 @@ export const specs = [
       check('再按 Esc 关闭菜单', await ev(() => __t.until(() => !engine.settings.isOpen && engine.input.enabled, 5000).then(() => true, () => false)));
 
       // 起跳：暂停实时循环后按空格，再用 step 推进 0.3 游戏秒（和帧率、真实时间无关）
-      await ev(() => engine.pause());
+      await ev(() => engine.haltLoop());
       await page.keyboard.press('Space');
       const rise = await ev(() => { const y0 = engine.player.position.y; engine.step(0.3, { render: false }); return engine.player.position.y - y0; });
-      await ev(() => engine._resume());
+      await ev(() => engine._unhalt());
       check('空格起跳', rise > 0.3, rise.toFixed(2));
 
       await page.keyboard.press('KeyI'); await frames(2);
@@ -61,13 +61,13 @@ export const specs = [
     name: '小城示例（关卡模块、无地形）',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
-      const g = await ev(() => ({ stage: engine.surface(0, -14), ramp: engine.surface(0, -7.2), street: engine.surface(10, 10), boxes: engine.collision.boxes.size }));
+      const g = await ev(() => { let boxes = 0; engine.collision.forEachStatic(k => { if (k === 'box') boxes++; }); return { stage: engine.surface(0, -14), ramp: engine.surface(0, -7.2), street: engine.surface(10, 10), boxes }; });
       check('台子高度 1.2 米', Math.abs(g.stage - 1.2) < 0.05, g.stage);
       check('坡道在台子和地面之间', g.ramp > 0.2 && g.ramp < 1.2, g.ramp);
       check('街道高度 0', Math.abs(g.street) < 0.05, g.street);
       check('楼的碰撞盒都建好了', g.boxes >= 40, g.boxes);
       await ev(() => engine.player.position.set(0, engine.surface(0, -14), -14));
-      await ev(() => { engine.pause(); engine.step(1.2, { render: false }); engine._resume(); });   // 推进 1.2 游戏秒：触发区更新、箱子落地
+      await ev(() => { engine.haltLoop(); engine.step(1.2, { render: false }); engine._unhalt(); });   // 推进 1.2 游戏秒：触发区更新、箱子落地
       check('走上广场触发区', await ev(() => engine.triggers.byTag('plaza')[0]?.inside));
       check('箱子落在地面上', await ev(() => engine.rigid.bodies.every(b => b.body.translation().y > 0.3)));
     },
@@ -153,12 +153,12 @@ export const specs = [
       const text = await ev(() => engine.describeText());
       check('describeText is English and at most 30 lines', !/[一-鿿]/.test(text.split('\n')[0]) && text.includes('Time:') && text.split('\n').length <= 30, text.split('\n').length + ' lines');
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const t0 = engine.time.now('real'), p0 = engine.player.position.clone();
         engine.input.autopilot = { x: 0, y: 1, speed: 4 };
         const d = engine.step(10);
         engine.input.autopilot = null;
-        return { dt: engine.time.now('real') - t0, moved: engine.player.position.distanceTo(p0), paused: engine.paused, ret: !!d.time };
+        return { dt: engine.time.now('real') - t0, moved: engine.player.position.distanceTo(p0), paused: engine.halted, ret: !!d.time };
       });
       check('pause + step(10)：游戏时间前进约 10 秒', r.paused && r.ret && Math.abs(r.dt - 10) < 0.05, r.dt);
       check('step 期间 autopilot 让玩家移动了', r.moved > 5, r.moved);
@@ -167,7 +167,7 @@ export const specs = [
       // paused: the engine's onFrame does not run, so count browser animation frames (the loop's own tick) instead of milliseconds
       const still = await ev(async () => { const t = engine.time.now('real'); await new Promise(r => { let k = 0; const f = () => ++k >= 10 ? r() : requestAnimationFrame(f); requestAnimationFrame(f); }); return engine.time.now('real') === t; });
       check('暂停时实时循环不推进', still);
-      check('resume 后恢复推进', await ev(async () => { engine._resume(); const t = engine.time.now('real'); await __t.until(() => engine.time.now('real') > t, 5000).catch(() => {}); return engine.time.now('real') > t && !engine.paused; }));
+      check('resume 后恢复推进', await ev(async () => { engine._unhalt(); const t = engine.time.now('real'); await __t.until(() => engine.time.now('real') > t, 5000).catch(() => {}); return engine.time.now('real') > t && !engine.halted; }));
     },
   },
   {
@@ -178,7 +178,7 @@ export const specs = [
         const t0 = engine.time.now('real'); await new Promise(r => setTimeout(r, 300));
         const idle = engine.time.now('real') === t0;
         const d = engine.step(2);
-        return { headless: engine.headless, paused: engine.paused, idle, dt: engine.time.now('real') - t0, ok: d.time.headless, loaded: d.perf.chunks.loaded };
+        return { headless: engine.headless, paused: engine.halted, idle, dt: engine.time.now('real') - t0, ok: d.time.headless, loaded: d.perf.chunks.loaded };
       });
       check('启动后处于暂停、不自己推进', r.headless && r.paused && r.idle);
       check('step 可用，时间前进', r.ok && Math.abs(r.dt - 2) < 0.05, r.dt);
@@ -192,11 +192,11 @@ export const specs = [
       const d = await ev(() => engine.describe());
       check('describe 不报错且没有地形/天气字段', !!d.player && !('weather' in d) && !d.perf.chunks && d.time.clock, Object.keys(d).join(','));
       check('附近能看到 NPC 店主', d.nearby.some(x => x.kind === 'npc' && x.name === '店主'), JSON.stringify(d.nearby));
-      const text = await ev(() => { engine.pause(); engine.step(1); return engine.describeText(); });
+      const text = await ev(() => { engine.haltLoop(); engine.step(1); return engine.describeText(); });
       check('describeText 正常', text.includes('Player:') && text.split('\n').length <= 30);
       const loc = await ev(() => {
         const I18n = engine.i18n.constructor, en = new I18n(engine, { locale: 'en' }), auto = new I18n(engine, { locale: 'auto' });
-        return { en: en.t('common.close'), enLocale: en.locale, zh: engine.i18n.t('common.close'), auto: auto.locale, def: engine.i18n.locale };
+        return { en: en._t('common.close'), enLocale: en.locale, zh: engine.t('common.close'), auto: auto.locale, def: engine.i18n.locale };
       });
       check("locale: 'en' gives English UI text; 'auto' follows the browser (zh-CN here)", loc.en === 'Close' && loc.enLocale === 'en' && loc.zh === '关闭' && loc.auto === 'zh-CN' && loc.def === 'zh-CN', JSON.stringify(loc));
     },
@@ -250,7 +250,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const out = {};
         let warns;
         try {
@@ -280,7 +280,7 @@ export const specs = [
             engine.input.bind('convAct', ['KeyY']); engine.input.bind('convAct', ['KeyU']);
             out.redefine = engine.input.keysOf('convAct').includes('KeyU') && !engine.input.keysOf('convAct').includes('KeyY');
           }));
-        } finally { engine._resume(); }
+        } finally { engine._unhalt(); }
         out.warns = warns;
         return out;
       });

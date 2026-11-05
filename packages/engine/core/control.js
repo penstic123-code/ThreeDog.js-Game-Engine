@@ -7,7 +7,8 @@
 // character in the same step; the last move() won and nobody could tell why the player slid. Now exactly one owner moves it per step.
 // Rules (one table, so a tool can predict them):
 //   - layers, lowest first: base (the character's own driver: the player's keys, an NPC's behaviour) < script (walkTo, a quest escort, an AI
-//     order) < cutscene (timeline) < net (a character another machine drives: held for good, nobody else may take it)
+//     order) < cutscene (timeline) < physics (a ragdoll: nothing can steer a limp body, a cutscene included) < net (a character another machine
+//     drives: held for good, nobody else may take it)
 //   - the highest layer is in charge; the ones below are paused, not cancelled: when it ends they carry on (a walk resumes after a cutscene)
 //   - one owner per layer: a second, different owner on the same layer throws control-conflict in dev naming both (release: the later wins, the
 //     earlier is dropped, warned once). The same owner taking again replaces its own hold.
@@ -23,7 +24,7 @@ import { callerAt } from './stackFrames.js';
 import { STEP } from './time.js';   // the fixed step: handle.move()'s dt when none is given
 
 /** Control layers, lowest first (see the header) */
-export const CONTROL_LAYERS = { base: 0, script: 1, cutscene: 2, net: 3 };
+const CONTROL_LAYERS = { base: 0, script: 1, cutscene: 2, physics: 3, net: 4 };
 const LAYER_NAMES = Object.keys(CONTROL_LAYERS);
 
 const idOf = who => (typeof who === 'string' ? who : who?.id);
@@ -42,7 +43,7 @@ export class Control {
    * charge (dt on the character's time channel): a direction moves it, null stands still (gravity and the idle pose go on), false skips the
    * move this step (you placed it yourself). Without step, move it with handle.move(x, z, run, dt), which does nothing while paused.
    * @param {any} who a Character, an NPC handle or a character id ('player', an NPC id)
-   * @param {{ owner: string, layer?: 'base' | 'script' | 'cutscene' | 'net', step?: (dt: number, ch: any) => ({ x: number, z: number, run?: boolean } | null | false | void) }} o
+   * @param {{ owner: string, layer?: 'base' | 'script' | 'cutscene' | 'physics' | 'net', step?: (dt: number, ch: any) => ({ x: number, z: number, run?: boolean } | null | false | void) }} o
    * @returns {{ owner: string, layer: string, id: string, readonly active: boolean, move(x: number, z: number, run?: boolean, dt?: number): boolean, remove(): void }}
    * @example const h = engine.control.take(player, { owner: 'tutorial', layer: 'script', step: () => ({ x: 0, z: 1 }) }); ... h.remove();
    */

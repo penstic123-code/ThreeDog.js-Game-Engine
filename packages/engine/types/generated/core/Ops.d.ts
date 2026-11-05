@@ -77,7 +77,7 @@ export class Ops {
     };
     /**
      * Run an op now (synchronously): checks args (dev), calls can, then run, and logs it. Returns { ok: true, value, revision } or { ok: false, code, facts, nextActions, revision } (revision = ops.revision, counts committed ops); can may also return { code, facts?, nextActions? }.
-     * Pass a fresh args object each call (it is kept in the history; in dev it is frozen). opts.source: 'player' | 'game' | 'bridge' | 'test' | 'replay' | 'net'
+     * Pass a fresh args object each call (it is kept in the history; in dev it is frozen). opts.source: 'player' | 'game' | 'bridge' | 'test' | 'replay' | 'net' | 'editor'
      * (default: 'game' inside a fixed step, 'player' between steps); opts.actor: who does it (world record id, default engine.actor, which is 'player' unless the game hands control elsewhere).
      * @param {string} name
      * @param {object} [args]

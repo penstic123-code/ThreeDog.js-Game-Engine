@@ -9,6 +9,46 @@
 // (make + register a queued chunk), _dispose(c) (release a chunk's content). Hooks passed here: show(c, visible), level(c, ring) (near-only
 // detail per ring), count(c, ring) (instances drawn, for stats).
 import * as THREE from 'three';
+import { xzOf } from './math.js';
+
+const COLLIDER_LAG = 30;   // fixed steps before a chunk's collision counts (30 = 0.5 s), times (1 + ring)
+
+/**
+ * Book the tick a queued chunk's collision takes effect (engine.commits): set from gameplay alone, so machine speed never changes it. Ring 1, which the
+ * loading screen waits for, counts the moment play starts. A table gives gen (bumped on a rebuild), so a ticket of a replaced chunk does nothing.
+ * @param {any} table @param {any} c @param {number} ring @param {{ apply: Function, fallback: Function }} steps
+ */
+export function bookCollision(table, c, ring, { apply, fallback }) {
+  c.ticket = table.engine.commits.request({
+    lag: !table.engine.ready && ring <= 1 ? 0 : COLLIDER_LAG * (1 + ring),
+    apply, fallback,
+    valid: () => table.chunks.get(c.key) === c && c.gen === table.gen,
+  });
+}
+
+/** Collision circles of solid chunks near (x, z): fn(cx, cz, r) @param {Map<string, any>} chunks @param {number} size chunk size */
+export function collidersNear(chunks, size, x, z, range, fn) {
+  const x0 = Math.floor((x - range) / size), x1 = Math.floor((x + range) / size), z0 = Math.floor((z - range) / size), z1 = Math.floor((z + range) / size);
+  for (let cz = z0; cz <= z1; cz++) for (let cx = x0; cx <= x1; cx++) {
+    const c = chunks.get(cx + ',' + cz);
+    if (!c?.solid) continue;
+    for (const n in c.colliders) {
+      const k = c.colliders[n];
+      for (let i = 0; i < k.length; i += 3) {
+        const dx = k[i] - x, dz = k[i + 1] - z, rr = range + k[i + 2];
+        if (dx * dx + dz * dz < rr * rr) fn(k[i], k[i + 1], k[i + 2]);
+      }
+    }
+  }
+}
+
+/** Does ok(chunk or undefined, cx, cz) hold for every chunk within `rings` rings of a position? @param {Map<string, any>} chunks @param {number} size chunk size */
+export function ringsReady(chunks, size, position, rings, ok) {
+  const [x, z] = xzOf(position), pcx = Math.floor(x / size), pcz = Math.floor(z / size);
+  for (let cz = pcz - rings; cz <= pcz + rings; cz++) for (let cx = pcx - rings; cx <= pcx + rings; cx++)
+    if (!ok(chunks.get(cx + ',' + cz), cx, cz)) return false;
+  return true;
+}
 
 export class ChunkStream {
   /** @param {any} table @param {{ show: Function, level: Function, count: Function, inArea?: Function }} hooks */

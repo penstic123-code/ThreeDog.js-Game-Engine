@@ -47,7 +47,7 @@ export const SLOTS = {
     meaning: 'replace how lights are summed (one patch per material may take it)' },
   lighting:       { stage: 'fragment', anchor: 'lights_fragment_end', at: 'after', node: { setup: 'setupLightingModel' },
     scope: 'reflectedLight.directDiffuse / directSpecular / indirectDiffuse (write), normal, diffuseColor, vViewPosition',
-    meaning: 'after lights are summed: cloud shadows, wrap, shadow tint, rim',
+    meaning: 'after lights are summed: wrap, shadow tint, rim',
     nodeMeaning: "hooks { start, light, direct, after }: light(light, ctx) returns a new color for one light before three lights the surface with it (what GLSL does by wrapping three's light info in lightsPars), direct(light, ctx) sees each light in three's loop and adds to its own sums, which join the summed light at the patch's place in the list, then its after() runs: the same order as WebGL" },
   output:         { stage: 'fragment', anchor: 'opaque_fragment', at: 'before', node: { setup: 'setupOutput' },
     scope: 'outgoingLight (vec3, write), diffuseColor.a',

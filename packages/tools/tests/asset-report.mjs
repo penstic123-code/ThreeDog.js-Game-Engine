@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
-const { reportGltf, reportText } = await import(pathToFileURL(join(ENGINE, 'core/assetReport.js')).href);
+const { reportGltf } = await import(pathToFileURL(join(ENGINE, 'core/assetReport.js')).href);
 
 export const name = 'assets report: lost normal maps, replaced materials, clips, color spaces';
 
@@ -26,7 +26,6 @@ export async function run({ check }) {
   check(`counts ${JSON.stringify(r.counts)}`, r.counts.normalMaps === 1 && r.counts.colliders === 1 && r.counts.clips === 1);
   check('good textures raise no color-space issue', !codes.includes('color-space'));
   check('an intact normal map (NoColorSpace is the empty string) is not called lost', !r.issues.some(i => i.code === 'normal-map-lost' && /"wood"/.test(i.msg)), JSON.stringify(r.issues.map(i => i.msg)));
-  check('text lists issues', reportText(r).includes('normal-map-lost'));
   const bad = new THREE.Group(); bad.add(mesh(new THREE.MeshStandardMaterial({ name: 'bad', map: tex(THREE.NoColorSpace), roughnessMap: tex(THREE.SRGBColorSpace) })));
   const b = reportGltf({ scene: bad, animations: [] }, { name: 'bad' }, undefined, { outputColorSpace: 'display-p3' });
   check('color map without srgb and data map with srgb are both flagged', b.issues.filter(i => i.code === 'color-space').length === 2);

@@ -21,7 +21,7 @@ File > Export > glTF 2.0, into `art/models/` of the game:
 | Transform > +Y Up | on | three.js is Y-up; the exporter converts from Blender's Z-up |
 | Mesh > Apply Modifiers | on | the game gets the shape you see |
 | Mesh > UVs, Normals, Vertex Colors | on if used | missing data cannot be added later |
-| Material > Images | Automatic (embedded in the .glb) | `threedog assets` recompresses them anyway |
+| Material > Images | Automatic (embedded in the .glb) | `threedog assets optimize` recompresses them anyway |
 | Animation > Actions / NLA tracks | on for animated models | each action becomes one clip; name it as the game will (`Idle`, `Walk`, `Slash`) |
 | Limit to > Visible Objects | off for levels | hidden `col_` boxes must be exported |
 
@@ -30,10 +30,10 @@ Do not join meshes or decimate a level: node names are its interface.
 ## 3. Check, then compress
 ```
 threedog assets check art/models/town.glb   # inspect only: spawns, col_ colliders, trigger_ zones, template / id nodes, material suspicions
-threedog assets                             # compress art/models/*.glb into public/optimized/ (add -w my-game for a game)
+threedog assets optimize                             # compress art/models/*.glb into public/optimized/ (add -w my-game for a game)
 ```
 `assets check` also lists materials, textures with the color space three gives them (by slot), normal maps, clips, `col_` colliders and template / id nodes.
-After loading, `engine.assets.report('hero')` (or `.reportText`; pass a copy from `model()` to check what the game shows) lists the same from the scene and
+After loading, `engine.assets.report('hero')` (pass a copy from `model()` to check what the game shows) lists the same from the scene and
 flags what the file has but the scene lost: `normal-map-lost`, `material-replaced` (your code took over), `clip-lost`, `clip-unmapped` (an animation
 state names a clip the file lacks), `node-lost`, and wrong color spaces. The engine never recomputes normals or drops a normal map on a GLB; only code
 that swaps materials as in section 5 does.
@@ -44,7 +44,7 @@ colliders, template / id nodes, spawn / trigger_ / npc_ / marker_ points; warnin
 | Step | What it does | When it matters |
 |---|---|---|
 | Meshopt | compresses geometry; the decoder ships with the engine | always on; smaller download, no visual change |
-| KTX2 | textures stay compressed on the GPU too, and the download shrinks | always on for a model with textures; needs the `ktx` tool (KTX-Software): without it that model fails, the command says what to install, and the game's `assets.js` stays as it was |
+| KTX2 | textures stay compressed on the GPU too, and the download shrinks | always on for a model with textures; encoded by the `ktx` tool when it is on PATH, else by the WebAssembly encoder of `ktx2-encoder`, which comes with the tools; if neither runs, that model fails, the command says why, and the game's `assets.js` stays as it was |
 
 It needs `@gltf-transform/cli` (`npm i -D @gltf-transform/cli`). Unchanged files are skipped; `--force` redoes everything.
 
@@ -90,7 +90,7 @@ This replaces the painted material, so the texture is gone unless yours sets `ma
 
 ## 6. Smallest copyable flow
 1. Blender: a cube named `well`, UV unwrapped, base color baked to a texture, export `art/models/well.glb` with the settings above.
-2. `threedog assets check art/models/well.glb` (no errors), then `threedog assets`.
+2. `threedog assets check art/models/well.glb` (no errors), then `threedog assets optimize`.
 3. Add `well: '/models/well.glb'` to `engine.assets.manifest({ models })`.
 4. `engine.add(await engine.assets.model('well'))`, then `threedog shot /your-page.html --describe-only` or open the page.
 
@@ -100,11 +100,11 @@ This replaces the painted material, so the texture is gone unless yours sets `ma
 | Model too dark, or textures washed out/white | color space: a color map used as data or a data map as color (`assets check` reports `looks like data` / `looks like color`) | color maps (base color, emissive) are sRGB; normal, AO, roughness are Non-Color in Blender; one image per use |
 | Texture shows one flat color | no UV set on that mesh (`texture-without-uv`) | unwrap in Blender, export again |
 | Emissive never glows | emissive texture with black emissive color (`emissive-hidden`) | set the emissive color to white |
-| Node names lost (`spawn`, `col_` not found) | meshes joined before export | keep objects separate; `threedog assets` never flattens or joins; run `assets check` to see what the level finds |
+| Node names lost (`spawn`, `col_` not found) | meshes joined before export | keep objects separate; `threedog assets optimize` never flattens or joins; run `assets check` to see what the level finds |
 | Custom properties missing (`template`, `id`) | "Custom Properties" off at export | tick it and export again |
 | Collision does nothing | `col_` object not exported, or no `collision()` module | export hidden objects; `engine.use(level(...), collision())`; test `engine.collision.walkable({ x, z })` |
 | Painted material replaced by a flat look | game code swapped it (section 5) | remove the swap, or give your material a `map` |
-| File too big | large textures or many materials | textures at 2048 or less, share atlases, `threedog assets`; sizes are in the `assets` output and `.threedog/optimize-report.json` |
+| File too big | large textures or many materials | textures at 2048 or less, share atlases, `threedog assets optimize`; sizes are in the `assets` output and `.threedog/optimize-report.json` |
 | Clip not found | action name differs from the manifest `animation` mapping | rename the action in Blender or change `clip:` |
 
 See also: `10-blender-level.md` (level names and markers), `43-shader-patches-surfaces.md` (your own material, shader patches),

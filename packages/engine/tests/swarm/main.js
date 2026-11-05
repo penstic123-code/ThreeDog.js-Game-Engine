@@ -16,7 +16,7 @@ const make = async opts => {
   const e = createEngine({ canvas: c, ...base, saveKey: `test-swarm-${++n}`, ...opts });
   e.use(swarm());
   await e.start();
-  e.pause();
+  e.haltLoop();
   return e;
 };
 const code = fn => { try { fn(); return 'no error'; } catch (err) { return err.code ?? String(err.message); } };
@@ -54,6 +54,13 @@ function lifeCases(e) {
     if (k % 2000 === 0) for (const [h, t] of live) good &&= big.data.tag[big.row(h)] === t && big.data.id[big.row(h)] === h;
   }
   out.churn = good && big.count === live.size;
+  // a handle kept in a field: handles grow by 2^20 per birth, so 16 births in they no longer fit a Float32, and a rounded one reads -1 like a dead target
+  const prey = e.swarm({ name: 'prey', capacity: 8 }), shots = e.swarm({ name: 'kept', capacity: 8, fields: ['target'] });
+  for (let k = 0; k < 40; k++) prey.free(prey.spawn());
+  prey.spawn(); prey.spawn();
+  const aimed = prey.spawn(), shot = shots.spawn({ target: aimed });
+  out.keptInField = [aimed > 2 ** 24, prey.row(shots.data.target[shots.row(shot)]) >= 0, shots.data.x instanceof Float32Array];
+  prey.dispose(); shots.dispose();
   s.dispose(); big.dispose();
   return out;
 }
@@ -65,7 +72,7 @@ async function capacityCases(e) {
     counts: e.counts().swarm, duplicate: code(() => e.swarm({ name: 'cap', capacity: 1 })), badField: code(() => e.swarm({ name: 'b', capacity: 1, fields: ['x'] })),
     half: code(() => e.swarm({ name: 'b', capacity: 1, geometry: box() })), badChannel: code(() => e.swarm({ name: 'b', capacity: 1, channel: 'nope' })) };
   s.dispose();
-  out.after = code(() => s.spawn());
+  out.after = s.spawn();
   out.again = code(() => e.swarm({ name: 'cap', capacity: 1 }).dispose());
   return out;
 }
@@ -207,6 +214,14 @@ async function draw(e, label) {
   e.step(1 / 60);
   out.latest = +m.instanceMatrix.array[12].toFixed(3);
   mover.remove();
+  // a game's own move counts as the step's movement, even from a hook ahead of everything the module registered (swarm() installed late)
+  const row = s.row(h), from = d.x[row], own = e.onFixed(() => { d.x[row] += 1; });
+  e._fixed.unshift(e._fixed.pop());
+  e.step(1 / 60, { render: false });
+  own.remove();
+  e.stepBlend = 0.25;
+  e._render(1 / 60);
+  out.lerpOwn = +(m.instanceMatrix.array[12] - from).toFixed(3);
   // turn and scale match three's own maths
   d.yaw[0] = 0.7; d.pitch[0] = -0.4; d.roll[0] = 1.1; d.scale[0] = 2;
   e.step(1 / 60);

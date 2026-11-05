@@ -7,9 +7,9 @@ export const specs = [
       await ev(() => __t.until(() => engine.nav.ready, 10000).catch(() => {}));
       const r = await ev(async () => {
         const Character = window.Character, T = engine.THREE;
-        engine.pause();
+        engine.haltLoop();
         const body = new T.Group(); body.add(new T.Mesh(new T.BoxGeometry(0.5, 1, 0.5), new T.MeshBasicMaterial()));
-        const guard = new Character(engine, { rig: { root: body } }).addTo();
+        const guard = new Character(engine, { rig: { root: body } }); engine.add(guard.root);
         guard.placeAt({ x: -4, z: -6 });
         const out = { ownRig: guard._rig.root === body && body.parent === guard.root };
         let minX = 99;

@@ -8,7 +8,7 @@ export const specs = [
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, P = engine.player, home = P.position.clone(), stages = [];
         const off = engine.events.on('template:stage', d => stages.push(`${d.id}:${d.name}`));
         let allow = false;
@@ -59,7 +59,7 @@ export const specs = [
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player.position;
         let calls = 0, dts = 0;
         engine.content.load({ templates: { tturret: { model: 'rock', state: { heat: 0 }, update: (rec, dt) => { calls++; dts += dt; rec.heat += dt; } } } });
@@ -78,7 +78,7 @@ export const specs = [
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player.position, err = f => { try { f(); return null; } catch (e) { return e.message; } };
         engine.ops.allow(() => engine.content.spawn('sapling', { x: p.x + 1, z: p.z }, { id: 'ts-1' }));
         engine.world.refresh(); await engine.world.whenReady; engine.step(0.1);

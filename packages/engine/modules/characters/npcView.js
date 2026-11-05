@@ -4,9 +4,9 @@ import { Character } from './Character.js';
 
 /** Build the model: reads position, motion and animation state from data; attaches an interaction when it has interact */
 export function buildNpcView(m, rec) {
-  const e = m.engine, rt = m._runtime.get(rec.id) || {};
-  const ch = new Character(e, { ...rec.look, speed: rec.speed, model: rt.model ?? rec.look?.model, clips: rt.clips, animation: rt.animation });
-  ch._modId = rec.id;   // engine.mod('move.speed', { id }) and time.local use the NPC's record id, the same id the game knows it by
+  const e = m.engine, { interactLabel, ...rt } = m._runtime.get(rec.id) || {};
+  // id: engine.mod('move.speed', { id }) and time.local use the NPC's record id, the same id the game knows it by
+  const ch = new Character(e, { ...rec.look, ...rt, speed: rec.speed, id: rec.id });
   ch.npcModel = true;   // the model of a world NPC: disposing it (the NPC went far) keeps the NPC's control slot (core/control.js)
   ch.placeAt(rec.position);
   ch.loadMotion(rec.motion); ch.state = ch._stateMark = rec.state;
@@ -14,7 +14,7 @@ export function buildNpcView(m, rec) {
   const io = rec.interact;
   if (io && e.interactions) use = e.interactions.add(ch.root, {
     id: rec.id,   // stable for the interaction.use op, whether the model is built sync or async
-    label: rt.interactLabel || io.label || (() => io.op === 'npc.talk' ? e.t('npc.talk', { name: rec.name }) : rec.name), radius: io.radius,
+    label: interactLabel || io.label || (() => io.op === 'npc.talk' ? e.t('npc.talk', { name: rec.name }) : rec.name), radius: io.radius,
     // the op's result is the use's result: { ok: false, code } from its can fails interaction.use with that code
     onUse: () => { const r = e.ops.run(io.op, { npc: rec.id, ...io.args }, { source: 'player' }); return r.ok ? r.value : r; },
   });

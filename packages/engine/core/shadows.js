@@ -13,7 +13,7 @@ import { codedError } from './errorHints.js';
 import { warnOnce } from './validate.js';
 import { readParams } from './params.js';
 import { defineOwned, dropOwned, ownedRow } from './owned.js';
-import { isWebGPU, onRendererSwap, setShadowUpdate, shadowsOn } from '../render/backend.js';
+import { isWebGPU, onRendererSwap, setShadowUpdate, shadowsOn, webgpuPart } from '../render/backend.js';
 import { CASCADE_DEFAULTS, CASCADE_SPLITS, createCascades, dropCascades, includeInCascades } from '../render/cascades.js';
 
 const WHERE = 'engine.shadows.cascades';
@@ -46,6 +46,7 @@ const BOX_PARAMS = {
 };
 const BUDGET = 'engine.shadows.budget';
 const MAP = 'engine.shadows.mapSize';
+const CACHE = 'engine.shadows.cache';
 const BUDGET_PARAMS = { every: { type: 'int', default: 1, min: 1, desc: 'redraw the shadow map every N frames; 1 = every frame' } };
 
 function readBox(o) {
@@ -84,6 +85,8 @@ function boxCenter(e, light) {
     }
     // under a budget: redraw early only when the center left a quarter of the box (teleport, fast travel); otherwise the budget's own rhythm
     if (!seen) { last.copy(at); seen = true; }
+    // a kept map is only good while the light stands still, so the box holds until the center left a quarter of it; moving things stay inside it meanwhile
+    if (s.shadowNode?.isCachedShadowNode) { if (last.distanceToSquared(at) > (s.camera.right / 4) ** 2) last.copy(at); else at.copy(last); key = now; return; }
     if (!s.autoUpdate && now !== key && last.distanceToSquared(at) > (s.camera.right / 4) ** 2) s.needsUpdate = true;
     if (s.needsUpdate) last.copy(at);
     key = now;
@@ -259,6 +262,29 @@ function ownCascades(e, light, first) {
   };
 }
 
+/**
+ * What the shadow pass draws, tested against what the game called static: a test on a mesh, or objects whose whole subtree is static. A batch hangs under the batching root, so it
+ * answers for its originals, the objects the game knows: static when all of them are (one moving copy keeps the whole batch redrawing: slower, never a wrong shadow).
+ * @param {any} e @param {any} v @returns {(object: any) => boolean}
+ */
+function staticTest(e, v) {
+  const roots = new Set(typeof v === 'function' ? [] : [].concat(v ?? []));
+  if (typeof v !== 'function' && (!roots.size || [...roots].some(o => !o?.isObject3D))) refuse(`${CACHE}(light, { static }): static is an Object3D, a list of them, or (mesh) => boolean; got ${v}. Example: engine.shadows.cache(sun, { static: mesh => mesh !== cars.mesh })`);
+  const test = typeof v === 'function' ? v : o => { for (; o; o = o.parent) if (roots.has(o)) return true; return false; };
+  return o => { const batch = e.batching?.byMesh.get(o); return batch ? batch.items.every(x => test(x.mesh)) : test(o); };
+}
+
+/** Kept shadows on one light. WebGLRenderer has no shadow node to reach, so there the light keeps drawing everything: same picture, no saving */
+function ownCache(e, light, first) {
+  const test = staticTest(e, first.static);
+  if (!isWebGPU(e.renderer)) {
+    warnOnce(`[threedog] ${CACHE}: works on WebGPURenderer only; on WebGLRenderer the light draws its full shadow every frame`);
+    return { set() {}, redraw() {}, remove() {} };
+  }
+  const node = webgpuPart('shadowCache', CACHE).create(light, test);
+  return { set: o => node.set(staticTest(e, o.static)), redraw: () => node.redraw(), remove: () => node.drop() };
+}
+
 function readOptions(o) {
   const v = readParams(WHERE, PARAMS, o);
   if (typeof v.split !== 'function' && !CASCADE_SPLITS.includes(v.split)) fail('split', v.split);
@@ -270,7 +296,7 @@ function readOptions(o) {
 /** @param {any} e @param {{ owned: boolean }} o owned: the engine made the renderer (a game's own renderer keeps its shadow settings) */
 export function defineShadows(e, { owned }) {
   let live = null, sky = null;
-  const boxes = new Map(), budgets = new Map();
+  const boxes = new Map(), budgets = new Map(), caches = new Map();
   if (owned) e.renderer.shadowMap.enabled = true;   // the placeholder sun casts, so things read as standing on the ground; the switch below turns it off
   // one point, because separate switches (an option, a method, the settings menu) each decided on their own and disagreed about what is on
   const point = e.stacks.define('shadows.enabled', { kind: 'value', base: shadowsOn(e), save: false, manual: "engine.mod('shadows.enabled', { owner, layer: 'system', set })",
@@ -309,6 +335,7 @@ export function defineShadows(e, { owned }) {
       if (light.parent !== e.scene) fail('scene');
       if (!light.castShadow) fail('cast');
       if (live) fail('twice');
+      if (caches.has(light)) refuse(`${WHERE}(light): this light keeps a cached shadow, which works on one plain map; call the cache handle's remove() first`);
       if (boxes.has(light) && light !== e.lights.sun) fail('boxed');
       const set = ownCascades(e, light, options);
       live = set;
@@ -355,6 +382,25 @@ export function defineShadows(e, { owned }) {
       if (budgets.has(light)) refuse(`${BUDGET}(light): this light has a budget already; change it with handle.set({ every }) or call handle.remove() first`);
       const h = ownBudget(e, light, options);
       return { set: o => h.set(o), redraw: () => h.redraw(), remove: hold(budgets, light, h) };
+    },
+    /**
+     * Keep the shadows of what does not move: static casters are drawn once into a second depth map, and each shadow frame copies it and draws only the rest. Off until
+     * called; everything not named static keeps redrawing, so forgetting one costs time, never a wrong shadow. A static object that moves, hides or leaves needs redraw();
+     * an InstancedMesh whose instances changed, or that left the scene (a batch too), redraws by itself.
+     * A moving light redraws everything, so a turning sun saves nothing. One plain map on WebGPURenderer; WebGLRenderer and the WebGL2 backend draw everything, with a warning.
+     * @example
+     * const kept = engine.shadows.cache(sun, { static: mesh => mesh !== cars.mesh });
+     * kept.redraw(); kept.set({ static: town }); kept.remove();
+     * @param {any} light a DirectionalLight without cascades
+     * @param {{ static: any }} options an Object3D (its whole subtree), a list of them, or (mesh) => boolean; a batch counts as static when all its originals do
+     * @returns {{ set(options: { static: any }): void, redraw(): void, remove(): void }}
+     */
+    cache(light, options) {
+      if (!light?.isDirectionalLight) refuse(`${CACHE}(light): needs a three.js DirectionalLight; got ${light?.type ?? light}`);
+      if (caches.has(light)) refuse(`${CACHE}(light): this light has a cache already; change it with handle.set({ static }) or call handle.remove() first`);
+      if (e._cascades?.light === light) refuse(`${CACHE}(light): this light has cascades, and the cache works on one plain map; call the cascades handle's remove() first`);
+      const h = ownCache(e, light, options ?? {});
+      return { set: o => h.set(o), redraw: () => h.redraw(), remove: hold(caches, light, h) };
     },
     /**
      * Change a light's shadow resolution at any time, with cascades every cascade's map: raise it for one shot, lower it from a settings menu. Before the first

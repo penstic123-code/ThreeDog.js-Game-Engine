@@ -169,7 +169,7 @@ if (crate) {
 }
 engine.batching.batches;                       // [{ mesh, cell, count, items }] for inspection
 engine.batching.stats;                         // { batches, instances, saved, note?, hint? } (also describe().perf.batching)
-engine.batching.enabled = false;               // global switch; createEngine({ batching: false }) never starts it, { minCount, cell } tunes it
+engine.batching.enabled = false;               // global switch; createEngine({ batching: false }) never starts it, { minCount, cell } tunes it (cell is 256 m by default: wider draws fewer objects, narrower culls finer)
 ```
 - Move / hide / remove a copy as usual (`world.move`, `obj.visible = false`, `engine.remove`): its instance follows next frame; unloading a cell frees
   its batch.
@@ -178,6 +178,23 @@ engine.batching.enabled = false;               // global switch; createEngine({ 
   whose parts you animate or whose materials you swap; if you forget, the copy is taken out of its batch automatically with a one-time dev warning.
 - Never batched: skinned, morphing or animated models, multi-material or transparent meshes, `ShaderMaterial`, meshes with children, and level
   geometry `hlod` registered (hlod owns far, batching owns near).
+
+### Render bundles: three's BundleGroup, for static meshes that cannot batch
+A WebGPU option with no engine API: `BundleGroup` is plain three.js, and the engine stays out of its way. Batch first. Batching removes objects; a bundle only removes the
+command recording of objects that stay, and three still refreshes each of them every pass. The case left for a bundle is many different static meshes that nothing can merge, and even there, measure.
+```js
+import { BundleGroup } from 'three/webgpu';
+const town = new BundleGroup();          // only meshes inside: lights go outside it
+town.add(...uniqueStaticMeshes);
+engine.scene.add(town);                  // or return it from a stream build; engine.remove(town) frees it
+town.visible = false;                    // works at once, shadow included, no recording
+someChild.visible = false; town.needsUpdate = true;   // anything inside: say so
+```
+- **It replays what it recorded.** A child's `visible`, an added or removed child and `castShadow` show only after `town.needsUpdate = true`, which records again. Recording costs a frame hitch when the bundle is big, so several small bundles beat one huge one if parts change.
+- **Nothing inside is culled.** three skips the frustum test in a bundle, so the whole group draws in every pass, on screen or not, in the shadow pass too. Size groups so `visible` can drop a whole one; `bundle.visible` is your only culling.
+- **One owner per mesh.** A mesh under a `BundleGroup` is the bundle's: `engine.batching` leaves it alone (`userData.batch = true` on the group warns once) and `hlod.add` skips it with a warning, since neither could hide it. Occlusion culling does not reach it either. `engine.stream` works as usual, a build may return a `BundleGroup`.
+- On a WebGL backend it is a plain group: correct, no gain. `describe().render.bundles` gives `{ groups, meshes, replayed }`; `engine.inspect.scene()` adds the reason `in-bundle`.
+- Measured on one streamed city (real GPU, busy machine): one bundle per block ran about ten times slower than batching and no faster than plain meshes; batches put into bundles gained nothing over batches alone. A bundle of 190 meshes still costs 190 refreshes per pass. So it may not pay in your scene: compare before you keep it.
 
 ## 2c. Art iteration loop: edit -> hot swap -> gallery -> compare
 Works for any model made in code (a hut, a weapon, a coral, a character body), in any art style; the tools only build and show, they add no picture.
@@ -211,7 +228,7 @@ the DESIGN.md "Asset sources" row, and every source ends up the same way, as a n
 |---|---|---|
 | Code (sections 2 and 2a: three.js geometry, `mergeColored`, three.js materials) | blockout, props, variations, anything tuned by `params` | a generator function in the manifest |
 | Blender -> glTF | sculpted or painted finish, rigs and clips | a `.glb` path; export settings, scale (1 unit = 1 m, Y-up, applied transforms), naming and which materials survive are in `recipes/46-blender-art-route.md` |
-| Free libraries (for example Kenney and Quaternius models, Poly Haven textures and HDRIs) | a lot of consistent content fast | the files in `public/` or an asset pack (section 3b), then `threedog assets` |
+| Free libraries (for example Kenney and Quaternius models, Poly Haven textures and HDRIs) | a lot of consistent content fast | the files in `public/` or an asset pack (section 3b), then `threedog assets optimize` |
 | Your own earlier games | an effect, material, model or texture you already made and liked | `threedog lib list` / `lib pull` (below), or `threedog art copy ../earlier-game name` |
 | AI-generated 3D / textures | one-off props, texture variations | export glTF / PNG, then the same checks as any file: `threedog assets check`, scale, origin, triangle count, UVs |
 
@@ -299,11 +316,11 @@ engine.assets.manifest({ name: 'ui-fonts', base: '/fonts/', fonts: { pixel: 'pix
 
 ## 4. Verify
 - `npm run check`: prop model names and place names are validated. After `npm run map`, GAMEMAP.md has a props table.
-- Loading: `engine.loading.list({ phase: 'failed' })` should be empty; related test `npm test -- 加载可观察`.
+- Loading: `engine.loading.list({ phase: 'failed' })` should be empty; related test `threedog test 加载可观察`.
 - `describe().content.props` is the number of prop entries; when the player is near, named objects appear in `nearby`
   (`npm run shot -- / --pos x,z --describe-only`).
 - Collision: `engine.collision.walkable({ x, z })` should be false at a prop's position.
-- Baking: `npm run bake` prints each item's size; related test `npm test -- 烘焙`. To look at the picture: `npm run shot -- / --pos x,z`.
+- Baking: `npm run bake` prints each item's size; related test `threedog test 烘焙`. To look at the picture: `npm run shot -- / --pos x,z`.
 
 ## 5. Deleting objects
 `engine.remove(obj)` deletes an object and frees its GPU memory; `engine.detach(obj)` only takes it off for a while (add it back with `engine.add`).

@@ -104,7 +104,7 @@ export const specs = [
         E.onFixed(() => { const t = performance.now(); while (performance.now() - t < cost) { /* 模拟一个重的固定步 */ } });
         const run = (ms, dt) => { cost = ms; E._acc = 0; const t0 = performance.now(), n = E._catchUp(dt); return { n, ms: Math.round(performance.now() - t0), left: E._acc }; };
         const light = run(0, 0.1), heavy = run(13, 0.1), hitch = run(13, 0.25);
-        cost = 13; const t0 = E.tick; E.step(0.1, { render: false, describe: false }); const stepped = E.tick - t0;
+        cost = 13; const t0 = E.time.tick; E.step(0.1, { render: false, describe: false }); const stepped = E.time.tick - t0;
         E.dispose();
         return { light, heavy, hitch, stepped };
       });

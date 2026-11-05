@@ -1,7 +1,7 @@
 # Ops: one entry point for what players and NPCs do (engine.ops)
 
 **In this recipe**: 1. Define and run · 2. Who calls it, and when · 3. Built-in ops · 4. Read the log · 5. The guard · 6. Testing ·
-7. Scenario tests · 8. Inspect and explain · 9. Randomness · 10. Property tests · 11. Structured failures, nextFixed, and who paused ·
+7. Scenario tests · 8. Inspect and explain · 9. Randomness · 10. Property tests · 11. Structured failures, nextFixed, and who halted the loop ·
 12. Failing in run, atomic ops, revision
 
 **What is an op**: one discrete thing an actor decides to do: buy, talk, attack, roll, fire, reload, craft, build, demolish. Write one with
@@ -70,6 +70,10 @@ returns `'halted'`.
 | `inventory.drop` | `{ item, n? }` (a pickup at the actor's feet, data kept) | `notEnough` `noWorld` `noPosition` |
 | `thing.set` | `{ id, position?, rotation?, scale?, visible? }` (core; a world record via `world.set` / `move`, an `engine.add` object saved as an override when it has an id; undoable, recipe 40) | `noThing` `engineOwned` `recordVisible` |
 | `thing.remove` | `{ id }` (core; undoable: an `engine.add` object is detached and kept, a record re-added) | `noThing` `engineOwned` |
+| `pickup.take` | `{ id }` (the item goes into `ctx.actor`'s container, or its give function runs) | `unknown` `respawning` `noPosition` `tooFar` and more; `ops.list()` has them all |
+| `npc.talk` | `{ npc, script?, channel? }` (`channel` `main` locks input, `bubble` shows lines over the NPC) | `noDialogue` `unknown` |
+| `grid.place` · `grid.remove` · `grid.move` | `{ grid, item, cell, rotation?, level?, fields?, id? }` · `{ id }` · `{ id, cell, rotation?, grid?, level? }` (recipe 29) | `noGrid` `unknown` `notPlaced` and more; `ops.list()` has them all |
+| `time.skip` | `{ seconds }` (core; timers, calendar events and far simulation catch up in order) | `notForward` |
 | `photo.take` | none (`r.value` is the shot; can = `photo.canTake()`, the key emits `photo:denied { reason }`) | `denied` or yours |
 
 ## 4. Read the log
@@ -116,7 +120,7 @@ Put `<workspace>/tests/scenarios/<name>.json` in the engine package or a game; `
     { "snapshot": "after-barter", "only": ["inventory"] }
   ] }
 ```
-- `state` is `engine.applyState` params; `"pos": "@id"` stands 1 m beside a world record. The page is paused first, so game time moves only in `step`
+- `state` is `engine.applyState` params; `"pos": "@id"` stands 1 m beside a world record. The loop is halted first, so game time moves only in `step`
   (seconds) and `press`.
 - `op` steps run with `source: 'test'` (`actor` optional); `expect` is `"ok"` (default) or the failure code. A failure prints the `engine.explain` sentence.
 - `expect` maps `describe()` paths to values (`nearby[0].name` works; numbers within 0.01; `null` = absent). `snapshot` compares with
@@ -145,10 +149,10 @@ scenario replays the same. `Math.random` breaks both.
 
 ## 10. Property tests: random op sequences
 The engine repository's `Properties` specs (fast-check, a devDependency) runs random sequences of ops / saves / newGame inside the page in one `ev()` and checks the state rules (item totals kept, a refused op changes nothing, save then load is identical, newGame leaves nothing behind, a failed `engine.use` batch changes nothing).
-A failure prints the shrunk minimal sequence and the seed. Replay: `FC_SEED=<seed> npm test -- "Properties: random op"`; more cases: `FC_RUNS=300` (default 25). Without fast-check installed the specs skip and say why.
+A failure prints the shrunk minimal sequence and the seed. Replay: `FC_SEED=<seed> threedog test "Properties: random op"`; more cases: `FC_RUNS=300` (default 25). Without fast-check installed the specs skip and say why.
 To check a new rule, add a step kind to `stepArb` and a check in `pageRun`; turn every found sequence into a fixed regression spec.
 
-## 11. Structured failures, nextFixed, and who paused
+## 11. Structured failures, nextFixed, and who halted the loop
 `can` may return a reason string (`'noMoney'`) or a structured failure. Every failed result from `run` / `can` / `undo` has `{ ok: false, code, facts, nextActions }`; a string failure becomes `code = that string`, `facts = {}`, `nextActions = []`, so read `.code` without checking the shape. `engine.inspect()`, `ops.list({ available: true })`, `engine.describe()` actions and `engine.explain({ op })` carry `facts` / `nextActions` too.
 ```js
 engine.ops.define('shop.buy', {
@@ -159,7 +163,7 @@ const r = engine.ops.run('shop.buy', {});   // r.ok === false, r.code === 'noMon
 ```
 `engine.nextFixed(fn)` runs `fn` at the start of the next fixed step and returns a Promise of its value, so a UI click or a promise callback can safely write gameplay state: `await engine.nextFixed(() => engine.ops.run('door.open', { id: 'gate' }))`. It is built on `engine.commits` and waits while frozen or loading.
 
-Tests that pause name themselves (default `'game'`) and end their own pause with the handle: `const p = engine.pause('my-test'); ... p.remove()`. The loop stays paused until every owner has removed theirs, so one helper cannot unpause another's pause
+Tests that halt the loop name themselves (default `'game'`) and end their own halt with the handle: `const h = engine.haltLoop('my-test'); ... h.remove()`. The loop stays halted until every owner has removed theirs, so one helper cannot end another's halt
 
 ## 12. Failing in run, atomic ops, revision
 `run` can fail like `can`: return or throw `{ ok: false, code, facts, nextActions }` (a value that merely has a `code` field is not a failure; `ok: false` is required). `facts` is an object (`{ need: 5 }`) or a list of `{ id, field, actual, expected? }` naming the record and field that were wrong. The engine never invents `nextActions`; only the op definition declares them. Every result carries `revision` (`engine.ops.revision`), a counter bumped once per committed op: "did anything change since I looked" is one compare.

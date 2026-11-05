@@ -45,7 +45,7 @@ export function advance(e, W, rec, seconds) {
   if (!cal) walk(stopIndex(s, 0), seconds);
   else {
     // channel seconds for a full day (infinite when the calendar is stopped: far NPCs do not walk)
-    const k = e.time ? e.time.scale(npcChannel(rec), rec.id) : 1, perDay = cal.dayLength * k / e.clock.speed, now = cal.timeOfDay;
+    const k = e.time.scale(npcChannel(rec), rec.id), perDay = cal.dayLength * k / e.clock.speed, now = cal.timeOfDay;
     let left = Math.min(1, seconds / perDay);   // more than one day counts as one day: every stop is visited once, more would only repeat
     let t = ((now - left) % 1 + 1) % 1;
     for (let guard = 0; left > 1e-9 && guard <= s.length + 1; guard++) {
@@ -79,7 +79,7 @@ export function settle(e, W, rec, x, z, moving) {
   Object.assign(m, { vx: 0, vz: 0, vy: 0, amount: 0, facing, grounded: true, swimming: false, jump: { coyote: 0, used: 0 } });
   noteState(e, rec, moving ? 'walk' : 'idle');
   // NPC of another level: this level's ground height is meaningless for it, keep its y
-  const here = rec.zone == null || W.zone == null || rec.zone === W.zone;
+  const here = W.inZone(rec);
   // the same rule the model uses (support.js standAt), from the height it is at: without it an NPC on a deck or an upper floor dropped to the ground in the data
   const y = here ? standAt(e, x, z, p.y, rec.look?.stepHeight ?? e.movement.stepHeight).y : p.y;
   W.move(rec.id, { x, y: y === -Infinity ? p.y : y, z });
@@ -99,7 +99,7 @@ export function nearStep(e, W, rec, ch, dt) {
  * With a model, take one step toward goal ({ x, z }, null = stand): pathfind, move the model via the character's mover, then copy position and motion state
  * back to data; shared by every behaviour's near.
  * Standing when in conversation (rec.busy), arrived (distance < arriveDistance) or no goal.
- * Pathfinding goes through the single entry engine.characters.findPath; a goal too far (>120 m) first walks straight 100 m, then pathfinds exactly, to avoid
+ * Pathfinding goes through engine.characters.findPathAsync; a goal too far (>120 m) first walks straight 100 m, then pathfinds exactly, to avoid
  * one huge search.
  */
 export function goTo(e, W, rec, ch, goal, dt) {
@@ -110,7 +110,7 @@ export function goTo(e, W, rec, ch, goal, dt) {
   else {
     nav.repath -= dt;
     // goal changed while waiting, or the answer never came (engine.commits.invalidate dropped it: a partial saves.apply, a level change): ask again
-    if (ch._pathReq && (ch._pathReq.goal !== goal || e.tick - ch._pathReq.at > PATH_WAIT)) { ch._pathReq.remove(); ch._pathReq = null; }
+    if (ch._pathReq && (ch._pathReq.goal !== goal || e.time.tick - ch._pathReq.at > PATH_WAIT)) { ch._pathReq.remove(); ch._pathReq = null; }
     if (!nav.path && nav.repath <= 0 && !ch._pathReq) {
       const far = dGoal > 120, tx = far ? p.x + (goal.x - p.x) / dGoal * 100 : goal.x, tz = far ? p.z + (goal.z - p.z) / dGoal * 100 : goal.z;
       // async: many NPCs repathing in one step cost the main thread almost nothing; the answer lands a few steps later (the NPC waits in place)
@@ -118,7 +118,7 @@ export function goTo(e, W, rec, ch, goal, dt) {
         if (ch._pathReq !== req) return;
         ch._pathReq = null; nav.path = path || [{ x: tx, z: tz }];
       }, { step: rec.pathStep });
-      req.goal = goal; req.at = e.tick;
+      req.goal = goal; req.at = e.time.tick;
       nav.repath = rec.repath;
     }
     if (nav.path?.length) {
@@ -141,7 +141,7 @@ export function goTo(e, W, rec, ch, goal, dt) {
 
 // Crowd avoidance (nav({ crowd: true })): Recast agents steer around other NPCs (smarter than the simple push in npcAvoid.js); the NPC reads the agent velocity
 // and walks itself.
-// The agent belongs to the model (stored on the character) and is deleted with it (dispose in NPC.js); the agent itself does not guarantee identical results
+// The agent belongs to the model (stored on the character) and is deleted with it (dispose in npcView.js); the agent itself does not guarantee identical results
 // after load.
 function crowdMove(e, ch, goal, dt) {
   const nav = e.nav, crowd = nav.crowd, p = ch.root.position;

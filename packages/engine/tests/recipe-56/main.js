@@ -23,7 +23,7 @@ const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor;
 
 const host = window.engine = TD.createEngine({ canvas: document.getElementById('host'), ...base, saveKey: 'test-recipe-56', renderer: 'webgpu' });
 await host.start();
-host.pause();
+host.haltLoop();
 
 /** Run one block (its import lines already rewritten); returns { ok, error, logged, backends } */
 window.runBlock = async code => {
@@ -41,7 +41,7 @@ window.runBlock = async code => {
     const backends = [];
     for (const e of made) {
       if (!e.ready) await e.start();
-      e.pause();
+      e.haltLoop();
       for (let i = 0; i < 3; i++) e.step(1 / 60);
       if (e.error) throw e.error;
       backends.push(e.describe().renderer.backend);

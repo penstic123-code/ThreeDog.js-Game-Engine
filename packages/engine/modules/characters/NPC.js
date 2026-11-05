@@ -28,8 +28,9 @@
 // npcs.add({ channel: 'enemies' }): its time channel (default 'world'); near and far both follow it, so bullet time slows it anywhere.
 // state (animation state), busy (in dialogue), nav { stop (current stop index), path (remaining waypoints), repath (re-path countdown) },
 // motion (motion state from Character.saveMotion)
-// model given as an asset name ('villager') is plain and goes into look (saved); a model object, animation, clips and a function-form interact label
-// are not plain values and stay in memory only (by id); game code supplies them again via add after loading.
+// model given as an asset name ('villager', or ['villager', ...args]) is plain and goes into look (saved); a model object, animation, clips, a function-form interact label and
+// any other option that is not a plain value (states: fn, water: fn, fall: { belowY: fn }, a Vector3 faceTarget) stay in memory only (by id);
+// game code supplies them again via add after loading.
 import * as THREE from 'three';
 import { CHARACTER_KEYS } from './Character.js';
 import { buildNpcView, unbuildNpcView, defineTalk } from './npcView.js';
@@ -42,6 +43,7 @@ import { placeAtHeight } from './movers/support.js';
 import { stopIndex, timeOfDay, npcChannel } from './npcSim.js';
 import { Behaviors } from './behaviors.js';
 import { codedError } from '../../core/errorHints.js';
+import { isModelName } from '../../core/util.js';
 
 const STRINGS = {
   noInteract: 'NPC "{name}" has interact set, but the interactions() module is not installed: nothing can use it',
@@ -57,7 +59,7 @@ const TIER_PARAMS = {
   fullRadius: { type: 'number', min: 0, desc: 'NPCs within this many meters of the focus walk every fixed step' },
   nearEvery: { type: 'number', min: 0, desc: 'seconds between turns of the near NPCs farther out (they get the accumulated dt)' },
 };
-// Params that cannot go into saves: kept in memory only, used when building the model
+// Params that stay out of saves even when plain: kept in memory only, used when building the model
 const RUNTIME_KEYS = ['model', 'animation', 'clips'];
 const NPC_KEYS = [...CHARACTER_KEYS, 'id', 'initial', 'zone', 'name', 'schedule', 'interact', 'pathStep', 'repath', 'arriveDistance',
   'position', 'behavior', 'mind'];
@@ -127,7 +129,7 @@ export class NPCManager {
   constructor(engine, track) {
     this.engine = engine;
     /** @internal */ this._handles = new Map();   // id -> NPC handle (just a cache, can be rebuilt any time)
-    /** @internal */ this._runtime = new Map();   // id -> non-saveable params (model, animation, clips, function interact label)
+    /** @internal */ this._runtime = new Map();   // id -> non-saveable params (model, animation, clips, any non-plain option, function interact label)
     /** @internal */ this._views = new WeakMap(); // model root -> { ch, use }
     /** @internal */ this._ready = false;
     /** Near NPCs avoid each other (on by default): avoid.set(false) turns it off, see npcAvoid.js */
@@ -179,7 +181,7 @@ export class NPCManager {
    */
   _drive(rec, fn) {
     const C = this.engine.control;
-    if (!C.has(rec.id, 'npcs')) { if (C.of(rec.id)?.layer === 'net') return; C.take(rec.id, { owner: 'npcs', layer: 'base' }); }
+    if (!C.has(rec.id, 'npcs')) { const top = C.of(rec.id)?.layer; if (top === 'net' || top === 'base') return; C.take(rec.id, { owner: 'npcs', layer: 'base' }); }
     C.runAs(rec.id, 'npcs', fn);
   }
   /** @internal (re)register NPC simulation with world: world.simulate replaces the earlier registration of the same kind */
@@ -233,11 +235,14 @@ export class NPCManager {
       position, zone = null, speed = 2.6, initial = false, behavior = 'schedule', mind = {}, ...rest } = opts;
     if (io !== null && !(io && typeof io === 'object' && typeof io.op === 'string')) throw codedError('npc-option', fmt(STRINGS.badInteract, { got: JSON.stringify(io) }), TypeError);
     if (io) readParams('npcs.add() interact', keysSchema(['label', 'op', 'args', 'radius']), io);
-    const id = given ?? name, look = {}, runtime = {};
+    const id = given ?? name, look = {}, runtime = { ...this._runtime.get(id) };   // a re-add keeps what it does not pass, as the record does
     if (DEV && given == null) { if (this._byName.has(id)) throw codedError('world-id', fmt(STRINGS.sameName, { name })); this._byName.add(id); }
-    // an asset name is data (saved); a model object, animation and clips stay in memory
-    for (const [k, v] of Object.entries(rest)) (RUNTIME_KEYS.includes(k) && !(k === 'model' && typeof v === 'string') ? runtime : look)[k] = v;
-    if (typeof io?.label === 'function') runtime.interactLabel = io.label;
+    // an asset name is data (saved); a model object, animation, clips and whatever is not plain stay in memory
+    for (const [k, v] of Object.entries(rest)) {
+      if ((RUNTIME_KEYS.includes(k) && !(k === 'model' && isModelName(v))) || !W.isPlain(v)) runtime[k] = v;
+      else { look[k] = v; delete runtime[k]; }
+    }
+    if (io) { if (typeof io.label === 'function') runtime.interactLabel = io.label; else delete runtime.interactLabel; }
     this._b.check(behavior);
     this._runtime.set(id, runtime);
     const hpd = e.calendar?.hoursPerDay ?? 24;

@@ -36,7 +36,7 @@ const drawStats = r => { const s = stats(r); return { drawCalls: s.drawCalls, tr
 const NEAR_RADIUS = 30, NEAR_MAX = 15;
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];           // north = -Z, east = +X
 const RELATIVE = ['front', 'front-right', 'right', 'back-right', 'back', 'back-left', 'left', 'front-left'];   // relative to the camera heading
-const STANDARD = new Set(['ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render', 'picture', 'owned', 'shared', 'control']);
+const STANDARD = new Set(['vars', 'ready', 'error', 'disabledModules', 'moduleStates', 'loading', 'audio', 'time', 'player', 'camera', 'nearbyRadius', 'nearby', 'actions', 'ui', 'cutscene', 'modules', 'perf', 'scene', 'render', 'picture', 'owned', 'shared', 'control']);
 const ACTIONS_MAX = 8;   // what the player can do now, with why not: saves the AI a guess for a few dozen characters   // the core's own fields
 const sector = a => Math.round(((a % (Math.PI * 2)) + Math.PI * 2) / (Math.PI / 4)) % 8;
 
@@ -97,7 +97,7 @@ function pendingModules(e) {
 
 // Engine tables no module hook writes into (hooks add to time / player / camera / ui / perf / cutscene / nearby): a describe({ only }) that asks
 // for nothing else skips the hooks, describe.add and the action list
-const TABLES = new Set(['ready', 'error', 'disabledModules', 'loading', 'holds', 'input', 'control', 'shared', 'modules', 'slots', 'scene', 'threePatches', 'owned', 'render', 'picture', 'renderer']);
+const TABLES = new Set(['ready', 'error', 'disabledModules', 'loading', 'audio', 'holds', 'input', 'control', 'shared', 'modules', 'slots', 'scene', 'threePatches', 'owned', 'render', 'picture', 'renderer']);
 const NONE = Symbol('none');   // a conditional section that is absent this time
 
 /**
@@ -116,13 +116,15 @@ function describe(e, { radius = NEAR_RADIUS, center: at, only } = {}, extras) {
     disabledModules: () => [...e.disabledModules],           // picture / ui modules disabled after an error
     moduleStates: () => pendingModules(e) ?? NONE,           // while a module is initializing or failed
     loading: () => e.loading.view(),                         // what is pending / failed and whether it blocks the start (Loading.js)
-    time: () => ({ tick: e.tick, real: r1(e.time.now('real')), ambient: r1(e.time.now('ambient')), calendar: r1(e.clock.now), paused: e.paused, frozen: e.frozen, ...(e.frozen ? { frozenBy: e.stacks.get('freeze').names() } : {}), headless: e.headless, run: e.runState,
+    time: () => ({ tick: e.time.tick, real: r1(e.time.now('real')), ambient: r1(e.time.now('ambient')), calendar: r1(e.clock.now), halted: e.halted, frozen: e.frozen, ...(e.frozen ? { frozenBy: e.stacks.get('freeze').names() } : {}), headless: e.headless, run: e.runState,
       channels: e.time.describe(), rate: e.clock.rate }),
-    holds: () => describeHolds(e),                        // who holds pause / freeze / camera / input (holds.js)
+    audio: () => { const i = e.audio?.info; return i && (Object.values(i.ducks).some(v => v !== 1) || Object.keys(i.voices).length) ? { ducks: i.ducks, voices: i.voices, state: i.state } : NONE; },   // only while a duck or a voice is active; ducks = target level per bus (Audio.info)
+    holds: () => describeHolds(e),                        // who holds halt / freeze / camera / input (holds.js)
     input: () => e.input.describe(),                      // context stack, declared actions nobody bound, the player's rebindings (Input.js)
     control: () => e.control.describe(),                  // who decides where each held character goes: { id: { owner, layer, waiting } } (control.js)
     shared: () => e.stacks.describe(),                    // every shared value / slot with entries: value, writer, how it combined, who else wants it (stacks.js)
     wraps: () => { const w = e._wraps?.describe(); return w && Object.keys(w).length ? w : NONE; },   // engine.wrap: { 'inventory.add': [owners, outermost first] }
+    vars: () => ({ flags: { ...e.vars.flags }, counters: { ...e.vars.counters } }),   // story state: without it a snapshot said "same" after a flag was set
     player: () => p ? {
       x: r1(p.x), y: r1(p.y), z: r1(p.z),
       ground: e.groundType(p.x, p.z),
@@ -135,7 +137,7 @@ function describe(e, { radius = NEAR_RADIUS, center: at, only } = {}, extras) {
       focus: { x: r1(e.focus.x), z: r1(e.focus.z) }, override: e.cameraOverride?.owner ?? null }),
     nearbyRadius: () => radius,
     nearby: () => [],
-    ui: () => ({ windows: [...e.openWindows], inputLocked: !e.input.enabled, dialogue: null, parts: e.ui.describe() }),   // windows include full-screen UI parts (title); parts: default / custom / off
+    ui: () => ({ windows: [...e._openWindows], inputLocked: !e.input.enabled, dialogue: null, parts: e.ui.describe() }),   // windows include full-screen UI parts (title); parts: default / custom / off
     cutscene: () => null,
     modules: () => [...e.modules.values()].map(moduleRow),   // { name, type, provides?, requires? } in install order (moduleTypes.js)
     slots: () => describeSlots(e),                           // what is plugged in where, from which file, what it affects (plugins.js)
@@ -146,8 +148,8 @@ function describe(e, { radius = NEAR_RADIUS, center: at, only } = {}, extras) {
     picture: () => describePicture(e),                       // tone, fog, environment, background, lights, shadows as three.js holds them now (describeRender.js)
     renderer: () => describeBackend(e),                      // asked for, drawing, why not WebGPU and what that backend can run (describeRender.js)
     perf: () => ({
-      fps: e.paused ? null : Math.round(e.fps), cpuMs: e.paused ? null : r1(e.cpuMs),
-      cpu: e.paused ? null : Object.fromEntries(Object.entries(e.cpuPhases).map(([k, v]) => [k, r1(v)])),
+      fps: e.halted ? null : Math.round(e.fps), cpuMs: e.halted ? null : r1(e._cpuMs),
+      cpu: e.halted ? null : Object.fromEntries(Object.entries(e._cpuPhases).map(([k, v]) => [k, r1(v)])),
       apply: e.budget.cost.report(),
       ...drawStats(e.renderer), pixelRatio: e.renderer.getPixelRatio(),
       budget: e.budget.report(), startup: e.startup, stream: e.stream.stats, batching: e.batching.stats, jobs: e.jobs.pending, commits: { pending: e.commits.pending, ...e.commits.stats },

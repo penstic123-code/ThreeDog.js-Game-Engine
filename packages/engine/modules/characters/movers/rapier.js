@@ -3,6 +3,7 @@
 // Native objects: mover.controller (KinematicCharacterController), mover.body, mover.collider.
 // The player uses rigid.playerBody / playerCollider (rigid syncs it to the player position each step); each NPC builds its own kinematic capsule.
 import { steer, water, float, tryJump, tickJump, leaveGround, land, finish, stat, inherited } from './common.js';
+import { climbLimit } from './common.js';
 import { beginMove, endMove } from './support.js';
 
 /** Create the 'rapier' mover (c is the character, fallback is the simple mover used when not ready) */
@@ -11,7 +12,7 @@ export function rapierMover(c, fallback) {
     name: 'rapier', controller: null, body: null, collider: null,
     move(dirX, dirZ, run, dt) {
       const e = c.engine, r = e.rigid, p = c.root.position;
-      if (!r?.ready || !r.groundReady(p)) return fallback.move(dirX, dirZ, run, dt);
+      if (!r?.ready || !r.readyAt(p)) return fallback.move(dirX, dirZ, run, dt);
       const fresh = !m.controller || m.gen !== r.gen;   // rigid rebuilt its world (newGame / load, RigidBodies._fresh): the old controller is gone with it
       if (fresh) setup(e, r);
       const col = m.collider;
@@ -30,7 +31,7 @@ export function rapierMover(c, fallback) {
         else { c.vy += stat(c, 'gravity') * dt; dy = c.vy * dt; }
       }
       const wasGrounded = c.grounded;
-      m.controller.computeColliderMovement(col, { x: (c.velocity.x + (inh?.x ?? 0)) * dt, y: dy, z: (c.velocity.y + (inh?.y ?? 0)) * dt }, r.R.QueryFilterFlags.EXCLUDE_DYNAMIC | r.R.QueryFilterFlags.EXCLUDE_SENSORS);
+      m.controller.computeColliderMovement(col, { x: (c.velocity.x + (inh?.x ?? 0)) * dt, y: dy, z: (c.velocity.y + (inh?.y ?? 0)) * dt }, r.rapier.QueryFilterFlags.EXCLUDE_DYNAMIC | r.rapier.QueryFilterFlags.EXCLUDE_SENSORS);
       const mv = m.controller.computedMovement();
       p.x += mv.x; p.y += mv.y; p.z += mv.z;
       // hit a wall (not stepping up): velocity becomes the wall-sliding velocity, so standing at a wall does not keep walking
@@ -60,7 +61,7 @@ export function rapierMover(c, fallback) {
   };
 
   function setup(e, r) {
-    const R = r.R, w = r.world, p = c.root.position;
+    const R = r.rapier, w = r.world, p = c.root.position;
     m.gen = r.gen;
     if (c === e.player) { m.body = r.playerBody; m.collider = r.playerCollider; }
     else {
@@ -70,7 +71,7 @@ export function rapierMover(c, fallback) {
     }
     const k = m.controller = w.createCharacterController(0.02);
     k.enableAutostep(c.stepHeight, 0.15, false);
-    k.setMaxSlopeClimbAngle(Math.atan(e.collision?.maxClimb ?? e.movement.slopeRatio));
+    k.setMaxSlopeClimbAngle(Math.atan(climbLimit(e)));
     k.enableSnapToGround(c.stepHeight);
   }
   return m;

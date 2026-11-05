@@ -17,7 +17,8 @@ import { buildModel, settle, fitKey, unbuildModel } from './models.js';
 import { placeTemplate } from './templates.js';
 import { srcOf } from './ids.js';
 import { placeY } from '../../core/ground.js';
-import { list, PLACEMENT_FIELDS, collideProblem } from './rules.js';
+import { PLACEMENT_FIELDS, collideProblem } from './rules.js';
+import { list } from '../../core/util.js';
 import { DEV, fmt, closest } from '../../core/validate.js';
 import { codedError } from '../../core/errorHints.js';
 
@@ -42,7 +43,7 @@ export function addProps(e, api, props, st, zoneOf, ids) {
     if (p.id != null) ids.claim(p.id, `props[${i}] (model ${JSON.stringify(p.model)})`);
     // compute y from the ground now (same as when the model is built): unmoved props equal the content and stay out of the save
     const def = { id, kind: 'prop', position: { x, y: y ?? placeY(e, `props[${i}] (model ${JSON.stringify(p.model)})`, x, z), z }, model: p.model };
-    for (const k of ['scale', 'collide', 'occluder', 'static', 'batch', 'source']) if (p[k] !== undefined) def[k] = p[k];
+    for (const k of ['scale', 'collide', 'occluder', 'static', 'batch', 'lod', 'source']) if (p[k] !== undefined) def[k] = p[k];
     const rot = api._facingOf(p);
     if (rot !== undefined) def.rot = rot;
     if (p.y) def.offsetY = p.y;

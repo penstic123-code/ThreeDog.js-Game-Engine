@@ -14,7 +14,7 @@ const BUILTIN_LIMITS = { shadows: ['shadows.enabled'], bloom: ['post.bloom.enabl
  * @param {any} e @param {string} name the shared point ('shadows.enabled') @param {boolean | number} val
  */
 function limit(e, name, val) {
-  if (!e.stacks.has(name)) return;   // a style without this effect has nothing to switch
+  if (!e.stacks.has(name)) return;   // a game without this effect has nothing to switch
   const p = e.stacks.get(name);
   if (val === true || val === 1) p.release('settings');
   else p.take({ owner: 'settings', layer: 'settings', ...(p.kind === 'number' ? { mul: val === false ? 0 : val } : { set: val }) });
@@ -42,7 +42,7 @@ export function applySetting(s, key, val) {
     const limits = BUILTIN_LIMITS[key] ?? s.custom.get(key)?.limits;
     if (limits) for (const n of limits) limit(e, n, typeof val === 'number' ? val : !!val);
     switch (key) {
-      case 'pixelRatio': if (e.adaptive) e.adaptive.max = val; if (Math.abs(e.renderer.getPixelRatio() - val) > 0.001) e.setPixelRatio(val); break;
+      case 'pixelRatio': e.setPixelRatio(val); break;
       case 'antialias': e.post.setAntialias(val); break;
       case 'adaptive': if (e.adaptive) { e.adaptive.on = val; if (!val && e.adaptive.max) e.setPixelRatio(e.adaptive.max); } break;
       case 'viewChunks': { const H = s.chunkHost(); if (H?.setViewChunks && H.viewChunks !== val) H.setViewChunks(val); break; }

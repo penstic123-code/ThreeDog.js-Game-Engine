@@ -1,4 +1,4 @@
-// R2 unused exports: a name exported in packages/engine/ that no file in the project (engine demo styles tests tools) imports,
+// R2 unused exports: a name exported in packages/engine/ that no file in the project (engine, examples, tests, tools) imports,
 // and that packages/engine/index.js does not export (so it is not public API) → warning. A stray export makes the AI think it is usable API.
 // Criteria: collect each file's import { a as b } from 'path' / export { a } from / export * from via the syntax tree, resolve the path to a file, and record which names of whom are used.
 //   import * as ns and dynamic import(): any name in the target file that appears as a same-named word in the importer counts as used (conservative, no false positives).

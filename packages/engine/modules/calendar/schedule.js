@@ -4,6 +4,9 @@
 // rewinding time (applyState to an earlier time, lowering calendar.timeOfDay) and loading a save only reset the baseline, no replay. To hold a state during a time range use between.
 import { parseClock, inFrac } from '../../core/dayTime.js';
 import { reportError } from '../../core/errors.js';
+import { readParams, keysSchema } from '../../core/params.js';
+
+const AT_KEYS = ['days', 'catchUp'], BETWEEN_KEYS = ['on', 'off'];
 
 // clock-time conversions needed every step are cached on the registered entry (recomputed only when the clock time or hours per day change)
 function frac(o, key, hoursPerDay) {
@@ -20,13 +23,15 @@ export class Schedule {
   }
   get size() { return this.points.length + this.ranges.length; }
   dispose() { this.points = []; this.ranges = []; }
-  at(clock, fn, { days = null, catchUp = 'once' } = {}) {
+  at(clock, fn, opts) {
+    const { days = null, catchUp = 'once' } = readParams('calendar.at()', keysSchema(AT_KEYS), opts);
     parseClock(clock);   // a wrong clock time throws here, at the call, not later inside every step
     const p = { clock, fn, days, catchUp };
     this.points.push(p);
     return { remove: () => { this.points = this.points.filter(x => x !== p); } };
   }
-  between(from, to, { on, off } = {}) {
+  between(from, to, opts) {
+    const { on, off } = readParams('calendar.between()', keysSchema(BETWEEN_KEYS), opts);
     parseClock(from); parseClock(to);   // as at(): a wrong clock time throws at the call
     const r = { from, to, on, off, inside: null };
     this.ranges.push(r);
@@ -58,7 +63,7 @@ export class Schedule {
   }
   /** After loading a save the next step only resets the baseline, no replay */
   rebase() { this.last = null; }
-  /** Called every fixed step after the calendar advances time */
+  /** Called right after the calendar channel moves (a step or a skip segment) */
   tick() {
     const cal = this.cal;
     if (this.ranges.length) this.syncRanges();

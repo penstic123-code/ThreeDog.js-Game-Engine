@@ -8,7 +8,6 @@
 // Radius and step height default to engine.movement (the single source of "can walk through" parameters); passing radius / stepHeight overrides it for this character only.
 // How to walk is decided by the mover (movers/: 'simple' default, 'rapier' character controller); feel parameters are identical for both.
 // The procedural body (capsule, rig read from a model asset, limb swing) is in proceduralRig.js; loading a body by asset name in assetModel.js.
-import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
 import { xzOf, yOf } from '../../core/math.js';
 import { warnOnce, warnMissing, DEV } from '../../core/validate.js';
@@ -23,7 +22,10 @@ import { NO_CHARACTER, capsule, useRig, animateRig, rigFromObject, tintParts } f
 import { walkTo } from './walkTo.js';
 import { useModel } from './useModel.js';
 import { codedError, coded } from '../../core/errorHints.js';
+import { isModelName } from '../../core/util.js';
 
+// A record whose jump / safe is the wrong kind of thing (a damaged or hand-edited save) is repaired so the game keeps running, but said out loud once: bad data is reported, not quietly fixed
+function badField(v, name, want) { if (v != null) warnOnce(`[threedog] character motion: the world record's '${name}' is ${JSON.stringify(v)} but should be ${want}; it was replaced with a fresh one. Check the save or the code that writes the record`); return undefined; }
 const STRINGS = { noClip: 'character has no skeletal animation; playAction(\'{name}\') skipped (the model needs this action)' };
 const MOVERS = { simple: simpleMover, rapier: rapierMover, manual: manualMover };
 
@@ -35,7 +37,7 @@ const FACE_MODES = ['move', 'camera', 'target', 'manual'];
 export class Character {
   /**
    * @param engine
-   * @param o  model: the body, one path for all: a model asset name (a procedural builder from an asset pack, or a GLB name), or what
+   * @param o  model: the body, one path for all: a model asset name (a procedural builder from an asset pack, or a GLB name), [name, ...args] for a generator, or what
    *                  engine.assets.model() returned; without model and rig a gray capsule (warned once). rig: a ready body (proceduralRig.js format)
    *           colors: { body, skin, legs, hair } per-character part colors (meshes marked userData.part; a capsule takes colors.body)
    *           speed walk speed, runSpeed run speed (m/s), radius collision radius
@@ -87,12 +89,11 @@ export class Character {
     // toward the input, vy falls with gravity). Nobody owns them and nothing auto-yields: a knockback that should last is push(), a jump pad is
     // launch(), full control is mover 'manual'.
     this.vy = 0; this.grounded = true; this._push = 0;
-    this.onStep = null; this.onLand = null;
     this.root = new THREE.Group();
     this.velocity = new THREE.Vector2();
     this.facing = 0; this.phase = 0; this.moveAmount = 0;
     this.swimming = false;
-    /** Action state the animation plays: 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'drive', or what the states option returned. Read it freely;
+    /** Action state the animation plays: 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'drive' | 'ragdoll', or what the states option returned. Read it freely;
      *  the engine mover recomputes it every step, so a direct write warns once (states option for own states, character.playAction(name) for one-shot
      *  actions, mover 'manual' to own it). _stateMark: the engine's last write @type {string} */
     this.state = this._stateMark = 'idle';
@@ -110,7 +111,7 @@ export class Character {
     this.mover = mover;
     this._colors = colors;
     // one path for every body: an object, a procedural builder built now (joints exist at once), or a file asset loaded behind a capsule
-    const now = typeof model === 'string' ? buildNow(engine, model) : model;
+    const now = isModelName(model) ? buildNow(engine, model) : model;
     if (now) { this._useModel(now, clips, animation); return; }
     if (!rig && !model) warnOnce(NO_CHARACTER);
     useRig(this, rig || capsule(colors.body, engine));
@@ -193,9 +194,8 @@ export class Character {
   /** Settles (never rejects) once a model named by asset is swapped in or failed; already settled otherwise */
   get whenReady() { return this._whenReady ?? Promise.resolve(); }
   get position() { return this.root.position; }
-  /** The character's three.js root object (= root): add children, set visible, scale on it */
-  get object() { return this.root; }
-  addTo(scene = this.engine.scene) { scene.add(engineOwned('characters', this.root)); return this; }
+  // Why write-only accessors: these were plain slots until 0.8. A game still assigning one got no error and no sound, because the plain write just
+  // made a property nothing reads. The write stays harmless (no throw), only the silence goes. No getter: the old names still read as undefined.
   /**
    * Place at a position (Vector3 / Object3D / [x, y, z] / { x, z }). With a y it stands on what a character at that height stands on: the floor there, or a
    * registered support within step height above it, so a place under a deck stays under it. With { x, z } it stands on the highest support there, else the ground.
@@ -208,7 +208,6 @@ export class Character {
     if (!at.on) (this.safeGround ??= new THREE.Vector3()).copy(this.root.position);
     this._store(); return this;
   }
-  /** Write position and motion state back to the world record (only if recordId is set; saveMotion writes into the record without allocating) @internal */
   /** How it walks now: the mover object ({ name, move, controller? }). Assign a name to switch at any time: c.mover = 'manual' ... c.mover = 'simple' */
   get mover() { return this._mover; }
   set mover(name) {
@@ -228,6 +227,7 @@ export class Character {
     // a held character moves only through its holder (core/control.js): a second driver calling move() in the same step is the bug where keys,
     // a walk and a cutscene all pushed the player and the last one won
     if (DEV) this.engine.control?.checkMove(this);
+    if (this._limp) return;   // a ragdoll (rigid/ragdoll.js) has the body: release builds skip the check above, so nothing may move it here either
     if (this.vehicle) {
       const v = this.vehicle;
       this.root.position.copy(v.seatPosition(this.seat));
@@ -246,7 +246,7 @@ export class Character {
    * follows vehicle.object. No-op when every seat is taken
    */
   enter(vehicle) {
-    if (this.vehicle) return;
+    if (this.vehicle || this._limp) return;
     const e = this.engine, ride = vehicle.passengers ??= [];
     let seat = 0;
     if (vehicle.driver) {
@@ -299,8 +299,8 @@ export class Character {
     out.vx = this.velocity.x; out.vz = this.velocity.y; out.vy = this.vy; out.facing = this.facing; out.amount = this.moveAmount;
     out.grounded = this.grounded; out.swimming = this.swimming;
     // motion format 2 (world part version 4): jump state nested, safe spot and the support's id; written in place so a per-step store allocates nothing
-    const j = jumpOf(this), jo = out.jump ??= {}; jo.coyote = j.coyote; jo.used = j.used;
-    const g = this.safeGround; if (g) { const a = out.safe ??= [0, 0, 0]; a[0] = g.x; a[1] = g.y; a[2] = g.z; } else out.safe = null;
+    const j = jumpOf(this), jo = (out.jump !== null && typeof out.jump === 'object') ? out.jump : (out.jump = badField(out.jump, 'jump', 'an object { coyote, used }') ?? {}); jo.coyote = j.coyote; jo.used = j.used;
+    const g = this.safeGround; if (g) { const a = Array.isArray(out.safe) ? out.safe : (out.safe = badField(out.safe, 'safe', 'an array [x, y, z]') ?? [0, 0, 0]); a[0] = g.x; a[1] = g.y; a[2] = g.z; } else out.safe = null;
     out.support = stateOf(this).on?.id ?? null;
     return out;
   }
@@ -310,7 +310,7 @@ export class Character {
     this.velocity.set(m.vx ?? 0, m.vz ?? 0); this.vy = m.vy ?? 0; this.facing = m.facing ?? 0; this.root.rotation.y = this.facing;
     this.moveAmount = m.amount ?? 0; this.grounded = m.grounded ?? true; this.swimming = !!m.swimming;
     const j = jumpOf(this); j.coyote = m.jump?.coyote ?? 0; j.used = m.jump?.used ?? 0; j.buffer = 0;
-    this.safeGround = m.safe ? new THREE.Vector3(m.safe[0], m.safe[1], m.safe[2]) : this.safeGround;
+    this.safeGround = (Array.isArray(m.safe) && m.safe.length === 3 && m.safe.every(Number.isFinite)) ? new THREE.Vector3(m.safe[0], m.safe[1], m.safe[2]) : this.safeGround;
     // ride the saved support again (found by id) from its current matrix; no support id = rides nothing
     detach(this);
     const en = m.support != null ? registry(this.engine).list.get(m.support) : null;
@@ -346,15 +346,16 @@ export class Character {
    * or adjust bones on top of the pose. Returns a handle; h.remove() stops it. Presentation only: never read it for gameplay timing.
    * @param {(character: Character, dt: number) => void} fn
    * @returns {{ remove(): void }}
-   * @example const h = player.onPose(() => sword.position.copy(player.object.getObjectByName('Hand_R').getWorldPosition(v)));
+   * @example const h = player.onPose(() => sword.position.copy(player.root.getObjectByName('Hand_R').getWorldPosition(v)));
    */
   onPose(fn) { (this._poseFns ??= new Set()).add(fn); return { remove: () => this._poseFns.delete(fn) }; }
   /** @internal */
   _firePose(dt) { if (this._poseFns?.size) for (const f of [...this._poseFns]) { try { f(this, dt); } catch (err) { reportError(this.engine, err, 'character.onPose callback'); } } }
   /** @internal Call every frame: play animation, at the speed of the character's time channel (bullet time on 'enemies' slows their walk cycle too) */
   animate(dt) {
-    if (this.engine.time) dt *= this.engine.time.scale(this.channel, this.modId);
-    this._animate(dt); if (!this.anim) this._firePose(dt);
+    dt *= this.engine.still ? 0 : this.engine.time.scale(this.channel, this.modId);
+    if (!this._limp) this._animate(dt);
+    if (!this.anim) this._firePose(dt);
   }
   /** @internal */
   _animate(dt) {
@@ -362,7 +363,8 @@ export class Character {
     this.phase += dt * (2.2 + sp * 1.25);
     const s = Math.sin(this.phase);
     // footstep event: fires once per foot landing (swing direction flips); model and procedural animation share this rhythm
-    if (this.onStep && this.grounded && sp > 0.4 && Math.sign(s) !== Math.sign(this._lastS ?? s)) this.onStep(this.groundType());
+    // the payload stays { character }: a crowd of NPCs steps all the time, and only a listener that wants the ground should pay for reading it
+    if (this.grounded && sp > 0.4 && Math.sign(s) !== Math.sign(this._lastS ?? s)) this.engine.events.emit('character:step', { character: this });
     this._lastS = s;
     if (this.anim) {
       const a = this.anim;

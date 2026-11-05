@@ -11,7 +11,7 @@ export const specs = [
       const rigs = [{ camera: 'follow' }, { camera: 'firstPerson' }, { camera: 'rts' }, { camera: 'fixed' }, { camera: rtsCamera({ height: 60 }) }].map(o => rigOf(o).length);
       let bad = ''; try { openWorld({ camera: 'sky' }); } catch (err) { bad = err.message; }
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         // check the camera kind in the page via describe().camera.type; switch back to the original after setCamera
         const type0 = engine.describe().camera.type, cams = {};
         for (const k of ['follow', 'firstPerson', 'rts', 'fixed']) { engine.setCamera(k); cams[k] = engine.describe().camera.type; }
@@ -44,7 +44,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE, GROW = 120, growth = rec => Math.min(1, (engine.clock.now - rec.plantedAt) / GROW);
         let disposed = 0;
         engine.world.present('e-crop', {

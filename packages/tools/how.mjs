@@ -31,16 +31,18 @@ for (const g of SYNONYMS) for (const w of g) GROUP.set(w.toLowerCase(), g.map(x 
 
 /** One typed word as a "concept": the word, its plural-stripped stem, and its synonym group (a synonym hit counts a little less than the typed word) */
 function concept(w) {
-  const own = new Set([w]);
+  const own = new Set([w]), deriv = new Set();
   if (w.length > 4 && w.endsWith('es')) own.add(w.slice(0, -2));
   if (w.length > 3 && w.endsWith('s')) own.add(w.slice(0, -1));
+  // pixelation / pixelate -> pixel, arrangement -> arrange: the task word is a form of the docs' word (a stem of 4+ letters keeps "water" from becoming "w")
+  for (const suf of ['ation', 'ate', 'ment']) if (w.length > suf.length + 3 && w.endsWith(suf)) { const s = w.slice(0, -suf.length); deriv.add(s); if (suf === 'ment') deriv.add(s + 'e'); }
   for (const suf of ['ing', 'ed']) if (w.length > suf.length + 2 && w.endsWith(suf)) {   // jumping -> jump, running -> runn -> run
     const s = w.slice(0, -suf.length); own.add(s); if (/([b-df-hj-np-tv-z])\1$/.test(s)) own.add(s.slice(0, -1));
   }
   const syn = new Set();
   for (const x of own) for (const s of GROUP.get(x) ?? []) if (!own.has(s)) syn.add(s);
   // weights: a typed word 1, its stem without the plural 0.9 (a line with "seasons" as typed ranks above one that only says season), a synonym 0.8
-  return { word: w, alts: [...[...own].map(a => ({ a, k: a === w ? 1 : 0.9 })), ...[...syn].map(a => ({ a, k: 0.8 }))] };
+  return { word: w, alts: [...[...own].map(a => ({ a, k: a === w ? 1 : 0.9 })), ...[...deriv].filter(a => !own.has(a)).map(a => ({ a, k: 0.7 })), ...[...syn].map(a => ({ a, k: 0.8 }))] };
 }
 
 /** { main: the distinct tokens typed, stop words dropped; concepts: each with its stem and synonyms } */
@@ -90,6 +92,8 @@ const score = (text, qt) => qt.concepts.reduce((s, c, i) => s + conceptHit(text,
 const clip = (s, n = 110) => { s = s.replace(/`/g, '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
 const isRule = l => /^\|[\s|:-]+\|?$/.test(l);
+/** A sentence of a table cell that ends by pointing at a recipe */
+const POINTER = /[^.|]*\(recipes? \d+[^)]*\)\.?/g;
 /**
  * Table rows and numbered conventions of a doc (header rows and rules skipped). Only a table whose first header names plain three.js
  * ("You write (plain three.js)", "three.js idiom") gives plain three.js entries; the other tables and the numbered conventions name engine
@@ -109,7 +113,9 @@ function plainRows(file, where, out) {
     if (c.length < 2) return;
     // in the adoption table only the first column names the task; the other two describe what the engine then does (save, light, post, scene...)
     // and would make every row a tie-winning "plain three.js" hit for words that belong to an engine route
-    out.push({ src: plainTable ? 'plain' : 'three', plain: plainTable, title: c[0], use: c.slice(1).filter(x => x && x !== '-').join(' · '), where, text: adopt ? c[0] : c.join(' ') });
+    // a sentence that sends the reader to a recipe ("On WebGPU ... write a node material (recipe 56)") is printed but does not rank: it names the other route's words, and with
+    // the plain-first rank this row would answer "webgpu" and "node material" itself, and in a TSL game it would no longer count as the GLSL row it is
+    out.push({ src: plainTable ? 'plain' : 'three', plain: plainTable, title: c[0], use: c.slice(1).filter(x => x && x !== '-').join(' · '), where, text: adopt ? c[0] : c.join(' ').replace(POINTER, ' ') });
   });
   // numbered conventions ("3. **Per-frame logic** ..."): one entry each
   for (const line of lines) {
@@ -177,50 +183,132 @@ export function docEntries(docsDir) {
         at: `recipes/${f}${m[1] === '#' ? '' : '#' + slug(m[2])}`, para: paragraph(lines, i + 1), body: sectionText(lines, i + 1) });
     });
   }
+  // api/*.md: one entry per documented name (the "- `music.stinger(...)` — what it does" lines). Why: these pages are the only place that names helpers like
+  // ease, checkOptions or music.stinger; AI.md and the recipe headings cover tasks, not every function, so a task word had no way to reach them
+  const adir = join(docsDir, 'api');
+  if (existsSync(adir)) for (const f of readdirSync(adir).filter(x => x.endsWith('.md')).sort()) {
+    readFileSync(join(adir, f), 'utf8').split('\n').forEach((l) => {
+      const m = /^- `([^`]+)`\s*(?:—|-)\s*(.*)/.exec(l);
+      if (m) out.push({ src: 'api', title: m[1], use: m[2], where: `api/${f}`, text: m[1].replace(/\(.*$/, '') + ' ' + m[2], at: `api/${f}`, para: '' });
+    });
+  }
   plainRows(join(docsDir, 'THREE.md'), 'THREE.md', out);
   plainRows(join(docsDir, 'recipes', '54-three-idioms.md'), 'recipes/54-three-idioms.md', out);
   return out;
 }
 
+/** Every prose line of every docs file ([{ file, n, text, code }]): the full-text floor under the ranked entries. Why: the entries cover tasks and names; a word that sits only in a
+ *  recipe's body must still be found, and "the docs never use it" may only be said after looking here. Cached per folder (a docs folder does not change during a run). */
+const linesCache = new Map();
+export function docLines(docsDir) {
+  let out = linesCache.get(docsDir);
+  if (out) return out;
+  out = [];
+  const walk = (rel) => {
+    const abs = rel ? join(docsDir, rel) : docsDir;
+    if (!existsSync(abs)) return;
+    for (const d of readdirSync(abs, { withFileTypes: true })) {
+      const r = rel ? rel + '/' + d.name : d.name;
+      if (d.isDirectory()) walk(r);
+      else if (d.name.endsWith('.md')) {
+        let fence = false;
+        readFileSync(join(docsDir, r), 'utf8').split('\n').forEach((text, i) => {
+          if (text.startsWith('```')) { fence = !fence; return; }
+          if (text.trim() && !isRule(text)) out.push({ file: r, n: i + 1, text, code: fence });
+        });
+      }
+    }
+  };
+  walk('');
+  linesCache.set(docsDir, out);
+  return out;
+}
+
+/** Which renderer the game at `dir` writes shaders for: 'webgpu' (TSL), 'webgl' (GLSL) or null when unknown. Read from main.js: that is where the game says `renderer: 'webgpu'`. */
+export function gameRenderer(dir) {
+  for (const f of ['main.js', 'src/main.js']) {
+    const p = join(dir, f);
+    if (!existsSync(p)) continue;
+    const t = readFileSync(p, 'utf8');
+    return /renderer:\s*['"]webgpu['"]|threedog\/tsl/.test(t) ? 'webgpu' : 'webgl';
+  }
+  return null;
+}
+/** An entry written for the other renderer than the game's (GLSL text in a TSL game, TSL text in a GLSL game): ranked lower, never hidden */
+function otherRenderer(text, renderer) {
+  if (!renderer) return false;
+  const glsl = /glsl|ShaderMaterial|onBeforeCompile/i.test(text), tsl = /\btsl\b|node material|webgpu/i.test(text);
+  return renderer === 'webgpu' ? glsl && !tsl : tsl && !glsl;
+}
+
 /** The best `max` hits for a query: [{ score, line }] (ties keep document order, so the output is stable) */
-export function search(docsDir, q, max = 5) {
+export function search(docsDir, q, max = 5, opts = {}) {
   const qt = queryTokens(q), hits = [], all = docEntries(docsDir), sections = all.filter(e => e.src === 'recipe');
   // a word weighs by its rarity (simple IDF): words found everywhere, like game or player in a long query, count for almost nothing; rare ones like fps or sidescroller decide the order.
   // why not a plain count: the old version weighed every word the same, so game / find in "game is slow, find why fps drops" ranked action games and new-game above the performance recipe
-  const N = all.length;
+  const base = all.filter(e => e.src !== 'api'), N = base.length;   // rarity is counted on the rows, not on the thousands of text lines below (they would make every word look rare)
+  // full-text floor: every prose line of every docs file is a last-rank candidate ("docs text · file:line"). Why: rows cover tasks and api names; a word that sits only in a
+  // recipe body or a COMMANDS.md table row (capture, arrangement, pixelation) must still be found, and a line that holds the rare typed word beats a row that only holds a stem
+  const lines = docLines(docsDir), floor = lines.filter(l => !l.code && !/^- `/.test(l.text) && l.text.length > 24 && !/^#{1,2} /.test(l.text)).map(l => ({ src: 'line', title: l.file, where: l.file + ':' + l.n, text: l.text, use: '' }));
   // rarity counts the typed word (and its stem) only, not its synonyms: a group joins slow, fps and perf, and counting the whole group would make a rare word like fps "common"
   const own = c => ({ alts: c.alts.filter(x => x.k > 0.8) });
   // a typed word the docs never use but whose synonym they do (rainy, rain) falls back to the group: alone it would count as the rarest word there is and be reported as unknown
-  const entriesWith = c => all.reduce((n, e) => n + (conceptHit(e.text, c) > 0 ? 1 : 0), 0);
+  const entriesWith = c => base.reduce((n, e) => n + (conceptHit(e.text, c) > 0 ? 1 : 0), 0);
   qt.w = qt.concepts.map(c => Math.log(1 + N / (1 + (entriesWith(own(c)) || entriesWith(c)))));
   const total = qt.w.reduce((a, b) => a + b, 0) || 1;
-  all.forEach((e, order) => {
-    const s = score(e.text, qt) * (e.src === 'AI.md' || e.src === 'entry' ? 1.2 : 1) + (e.head ? score(e.head, qt) * 0.5 : 0);
+  const lineHits = [];
+  all.concat(floor).forEach((e, order) => {
+    // the other renderer's text (GLSL in a TSL game) counts at 0.5: still listed when it is the only answer, but not first
+    const wrong = otherRenderer(e.text + ' ' + (e.snip ?? ''), opts.renderer) ? 0.5 : 1;
+    const s = score(e.text, qt) * (e.src === 'AI.md' || e.src === 'entry' ? 1.2 : 1) * wrong + (e.head ? score(e.head, qt) * 0.5 : 0);
     // cov: how much of the query's weight this entry covers by itself (its recipe's top title does not count, it only orders within s); compared in steps of 0.05, and only within one step (mostly: the same words matched)
     // does the old rule apply, "plain three.js first, then the recommended entry". Why the top title does not count: "bullet time on enemies" would beat the engine.mod line because the action recipe's title has enemy
-    if (s > 0) hits.push({ s, cov: score(e.text, qt) / total, order, e });
+    if (s > 0) (e.src === 'line' || e.src === 'api' ? lineHits : hits).push({ s, cov: score(e.text, qt) / total * wrong, order, e });
   });
-  const entry = e => e.src === 'AI.md' || e.src === 'entry' ? 1 : 0, band = h => Math.round(h.cov * 20);
+  // a text line joins the ranking only when it clearly covers more of the query than the best row (the rare typed word is in the line and the rows only hold its stem);
+  // otherwise the rows keep their order, and lines only fill an empty or weak list below. Why: a long prose line holds many words and would outrank the one recommended entry
+  const bestRow = Math.max(0, ...hits.map(h => h.cov));
+  // and only for a typed word that none of the top rows holds as itself (a stem or synonym does not count) and that the line holds as typed: that is the case the floor is for.
+  // A variant in the line is not enough: "the resolution climbs back" is no answer to "climb", and a row with the synonym (ladder) is
+  const topRows = [...hits].sort((a, b) => b.cov - a.cov).slice(0, 5), missing = qt.concepts.map(c => !topRows.some(h => conceptHit(h.e.text, c) >= 0.9));
+  for (const h of lineHits) if (h.cov >= Math.max(0.5, bestRow + (h.e.src === 'api' ? 0.1 : 0.3)) && qt.concepts.reduce((a, c, i) => a + (missing[i] && conceptHit(h.e.text, c) === 1 ? qt.w[i] : 0), 0) / total >= 0.6) hits.push(h);   // the missing word(s) carry 60% of the query's weight
+  const entry = e => e.src === 'AI.md' || e.src === 'entry' ? 1 : e.src === 'api' ? -1 : e.src === 'line' ? -2 : 0, band = h => Math.round(h.cov * 20);
   hits.sort((a, b) => band(b) - band(a) || (b.e.plain ? 1 : 0) - (a.e.plain ? 1 : 0) || entry(b.e) - entry(a.e) || b.s - a.s || a.order - b.order);
   // at most 3 plain three.js hits, so the engine route for the same task (coordination: time, weather, saves...) stays in the list
   const seen = new Set(), out = [], plainMax = Math.max(1, max - 2);
   let plain = 0;
   for (const { s, e } of hits) {
     const open = e.src === 'AI.md' ? openSection(sections, e.where, qt) : e.src === 'recipe' ? e : null;
+    if (e.src === 'line') { const lk = 'line' + e.title; if (seen.has(lk + 2)) continue; seen.add(seen.has(lk) ? lk + 2 : lk); }   // two text lines per file: five lines of one recipe are not five answers
     if (seen.has(e.where + e.title) || (e.plain && plain >= plainMax)) continue;
     seen.add(e.where + e.title); if (e.plain) plain++;
     out.push({ score: Math.round(s * 10) / 10, line: e.src === 'AI.md' ? `AI.md · ${e.title} → ${clip(e.use, 90)} → ${e.where || 'AI.md'}`
       : e.src === 'entry' ? `CONVENTIONS.md "One task, which entry" · ${e.title} → ${clip(e.use, 260)}`
       : e.plain ? `plain three.js · ${clip(e.title, 60)} → ${clip(e.use, 100)} → ${e.where}`
+      : e.src === 'line' ? `docs text · ${e.where} — ${clip(e.text, 150)}`
+      : e.src === 'api' ? `${e.where} · ${clip(e.title, 70)} — ${clip(e.use, 110)}`
       : e.src === 'three' ? `engine + three.js · ${clip(e.title, 60)} → ${clip(e.use, 100)} → ${e.where}` : `${e.where} · ${clip(e.name, 60)} — ${clip(e.snip)}`,
-      at: open?.at ?? e.where.replace(/ (§\d+\w*|".*")$/, ''), para: open?.para ?? '' });
+      at: e.src === 'line' ? e.where : open?.at ?? e.where.replace(/ (§\d+\w*|".*")$/, ''),
+      // the row may serve both renderers while the paragraph printed under it shows one: a GLSL sample under a row in a WebGPU game reads as the answer
+      para: otherRenderer(open?.para ?? '', opts.renderer) ? '' : open?.para ?? '' });
     if (out.length >= max) break;
   }
   // say so when the match is weak: when the listed hits together cover less than a third of the query's weight (a long query has ten words, covering half is hard, and a half threshold calls right answers 'not found'), mark it weak; the CLI then says no good match before listing the closest, so an AI does not take a filler result as the answer
   // the verdict reads the whole list, not the first line: a query's words often sit in different rows, and judged on one row alone a small rewording of that row turned a right answer into "no match"
   const listed = hits.slice(0, max), cover = qt.concepts.reduce((s, c, i) => s + Math.max(0, ...listed.map(h => conceptHit(h.e.text, c))) * qt.w[i], 0) / total;
   out.weak = out.length > 0 && cover < Math.min(1 / 3, 2 / qt.concepts.length); // long queries: two words' weight is already a lead
-  out.unknown = qt.concepts.filter((c, i) => qt.w[i] >= Math.log(1 + N) - 1e-9).map(c => c.word); // words that appear nowhere in the docs
+  // "unused" only after looking at every line of every docs file (not only the indexed rows)
+  const used = qt.concepts.map(c => lines.some(l => conceptHit(l.text, c) > 0));
+  out.unknown = qt.concepts.filter((c, i) => !used[i]).map(c => c.word);
+  if (!out.length || out.weak) {   // the floor: the best text lines (two per file) after what the rows gave
+    const seenFile = new Map(out.map(h => [h.at.replace(/[#:].*$/, ''), 1]));
+    for (const h of lineHits.filter(h => h.cov >= 0.5).sort((a, b) => b.cov - a.cov || a.order - b.order)) {
+      if (out.length >= max) break;
+      if ((seenFile.get(h.e.title) ?? 0) >= 1) continue;
+      seenFile.set(h.e.title, 1);
+      out.push({ score: Math.round(h.s * 10) / 10, line: `docs text · ${h.e.where} — ${clip(h.e.text, 150)}`, at: h.e.where, para: '' });
+    }
+  }
   out.closestRow = hits.find(h => h.e.src === 'AI.md')?.e.title ?? '';
   return out;
 }
@@ -278,7 +366,7 @@ export async function main(argv) {
   try { ({ dir, rest } = command(argv, { positional: true })); } catch (e) { console.log('✗ ' + e.message); return 1; }
   const q = rest.join(' ').trim();
   if (!q) { console.log('Usage: threedog how "<effect or task>"   (e.g. how "rain", how "save game")'); return 1; }
-  const res = search(join(ENGINE, 'docs'), q);
+  const res = search(join(ENGINE, 'docs'), q, 5, { renderer: gameRenderer(dir) });
   // live catalog (modules / ops whose name matches a typed word) when a dev page is running; any failure just means "no page", docs answer alone
   let live = [];
   // only when a page is already attached: execute() would otherwise make the dev server open a headless Chromium just to answer a docs search

@@ -41,8 +41,8 @@ export class Container {
   count(x) { let n = 0; for (const e of this._entries) if (e.key === x || e.id === x) n += e.count; return n; }
   /** At least n (default 1) of an item or key? @param {string} x @param {number} [n] @returns {boolean} */
   has(x, n = 1) { return this.count(x) >= n; }
-  /** One entry by key: { key, id, count, data, def }, or null. @param {string} key */
-  get(key) { const e = this._find(key); return e ? this._view(e) : null; }
+  /** One entry by key: { key, id, count, data, def }, or undefined. @param {string} key */
+  get(key) { const e = this._find(key); return e ? this._view(e) : undefined; }
   /** Every entry: [{ key, id, count, data, def }] (data is undefined for plain items; for custom UI). */
   list() { return this._entries.map(e => this._view(e)); }
   /** Slots used (an entry of 150 arrows with stack 99 uses 2). */
@@ -66,21 +66,22 @@ export class Container {
 
   /**
    * Add n (default 1) of an item, optionally with data for these pieces. Partial fit places what fits.
-   * Returns the key of the entry they went into ('arrow', or 'sword#3' for an item with data), false if none fit. silent suppresses the toast (only the container of
-   * engine.actor, the local user's bag, toasts).
+   * Returns { ok: true, key, added }: key is the entry they went into ('arrow', or 'sword#3' for an item with data), added how many fit. None fit: { ok: false, code: 'full', facts: { id, n } }.
+   * silent suppresses the toast (only the container of engine.actor, the local user's bag, toasts).
    * @example engine.inventory.container('chest-1').add('bandage', 2)
-   * @example const key = engine.inventory.add('sword', 1, { data: { durability: 80, level: 3 } });   // 'sword#7'
+   * @example const r = engine.inventory.add('sword', 1, { data: { durability: 80, level: 3 } }); if (r.ok) equip(r.key);   // r.key: 'sword#7'
    * @param {string} id
    * @param {number} [n]
    * @param {{ data?: Record<string, any>, silent?: boolean }} [opts]
-   * @returns {string | false}
+   * @returns {{ ok: boolean, key?: string, added?: number, code?: string, facts?: object, nextActions?: any[] }}
    */
   add(id, n = 1, opts = {}) {
     DEV && this.inv.engine.ops.guard(this._local ? 'inventory.add' : 'container.add');
     readParams(`add('${id}')`, keysSchema(['data', 'silent']), opts);
     if (isKey(id)) throw codedError('container', fmt(STRINGS.keyToAdd, { key: id }));
     this.inv._known(id);
-    return this._put(id, n, copyData('add', id, opts?.data), null, !!opts?.silent);
+    const before = this.count(id), key = this._put(id, n, copyData('add', id, opts?.data), null, !!opts?.silent);
+    return key === false ? failure({ code: 'full', facts: { id, n } }) : { ok: true, key, added: this.count(id) - before };
   }
 
   /**

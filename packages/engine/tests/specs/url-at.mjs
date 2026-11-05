@@ -21,11 +21,11 @@ export const specs = [
     },
   },
   {
-    name: '[guard] URL at: without a module that knows places, at stops with a coded error instead of quietly staying at the spawn',
+    name: '[guard] URL at: without a module that knows places, at is refused and says why, instead of quietly staying at the spawn',
     url: '/tests/ui/index.html?mode=default',
     async run({ check, ev }) {
-      const code = await ev(() => engine.applyState({ at: 'pier' }).then(() => 'no error', e => e.code));
-      check('state-at', code === 'state-at', String(code));
+      const r = await ev(() => engine.applyState({ at: 'pier' }));
+      check('at is refused with the reason', r.ok === false && r.refused.some(x => x.key === 'at' && /no installed module/.test(x.reason)), JSON.stringify(r));
     },
   },
 ];

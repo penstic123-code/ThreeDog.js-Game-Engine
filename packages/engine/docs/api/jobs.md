@@ -4,7 +4,7 @@
 - `jobs.run(opts?: { deterministic?: boolean })` — Run the queue (the engine calls this each frame): by millisecond budget by default; deterministic: true ignores real time and drains it (used by step)
 - Properties:
   - `budgetMs: number` Milliseconds allowed per frame, default 3
-  - `loadingMs: number` Milliseconds allowed per frame while the loading screen is up, default 12
-  - `maxSteps: number` Max steps per deterministic run (stops jobs that keep adding jobs from hanging), default 100000
-  - `slowStepMs: number` A step slower than this many ms warns in dev (default 8)
+  - `loadingMs: number` (experimental) Milliseconds allowed per frame while the loading screen is up, default 12
+  - `maxSteps: number` (experimental) Max steps per deterministic run (stops jobs that keep adding jobs from hanging), default 100000
+  - `slowStepMs: number` (experimental) A step slower than this many ms warns in dev (default 8)
   - `pending: number` Number of jobs not yet finished

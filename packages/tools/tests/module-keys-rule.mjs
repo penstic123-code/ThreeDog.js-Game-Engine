@@ -1,4 +1,4 @@
-// Rule R51 on fixture texts: a module that needs a key and has none is an error; any bind, a rebind, [] and an unreadable binding are not.
+// Rule R51 on fixture texts: a module that needs a key and has none is a warning; any bind, a rebind, [] and an unreadable binding are not.
 import { scanGame, findings } from '../rules/R51-module-keys.mjs';
 import { ts } from '../rules/_lib.mjs';
 
@@ -13,9 +13,10 @@ const use = 'engine.use(interactions({ pick: "nearest" }));\n';
 
 export function run({ check }) {
   const none = scan(head + "const engine = createEngine({ bindings: presets.bindings.walk });\n" + use);
-  check('no key: an error that names the action and the preset', none.length === 1 && none[0].msg.includes("'interact'") && none[0].fix.includes('presets.bindings.interact'), JSON.stringify(none));
+  check('no key: a warning, never an error, that names the action and the preset', none.length === 1 && none[0].level === 'warn' && none[0].msg.includes("'interact'") && none[0].fix.includes('presets.bindings.interact'), JSON.stringify(none));
   check('the preset binds it', !scan(head + "createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact } });\n" + use).length);
   check('another key is fine', !scan(head + "createEngine({ bindings: { interact: ['KeyF'] } });\n" + use).length);
+  check('[guard] the fix names [] as the way to say no key on purpose', none[0].fix.includes("engine.input.bind('interact', [])"), none[0].fix);
   check('[] is no key on purpose', !scan(head + "createEngine({ bindings: { interact: [] } });\n" + use).length);
   check('input.bind in another file counts', !scan(head + use, "engine.input.bind('interact', 'KeyF');\n").length);
   check('a bindings variable may cover it: quiet', !scan(head + "createEngine({ bindings: myKeys });\n" + use).length);

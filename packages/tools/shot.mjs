@@ -32,7 +32,7 @@
 //   --describe-only  print describeText() only, no screenshot
 //   --out file.png  a bare name: .threedog/shots/file.png instead of the generated name; a path with a directory (./x.png, out/x.png, absolute)
 //                   is written as given, relative to the current directory. The output line says where it wrote
-//   --keep         do not overwrite: add a timestamp to the file name, so shots of several runs sit side by side
+//   --keep         do not overwrite: add a timestamp to the generated file name, so shots of several runs sit side by side (with --out the name is used as given)
 //   (every shot)   prints the picture numbers (luminance, contrast, saturation, clipped / near-black share, shadow area) and hints: contradictions
 //                  (settings say X, pixels show not-X: shadows on but none visible, a light that lights nothing), facts (glare, clipped / near-black
 //                  areas, a night not dark from lighting, key / fill) and, only against what the game declared, intent (DESIGN.md "Picture intent"
@@ -50,10 +50,11 @@ import { launchBrowser, newGamePage, buildAndPreview } from './browser.mjs';
 import { mkdirSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { cli, rel } from './paths.mjs';
-import { waitEngine, waitLoaded, sceneCounts } from './wait-engine.mjs';
+import { waitEngine, waitLoaded, sceneCounts, refuseState } from './wait-engine.mjs';
 import { shotName, shotFile, viewSize, wrongServer } from './lib/shot-name.mjs';
 import { formatPicture, pagePicture, imagePicture, NO_PAGE } from './picture/check.mjs';
-import { PICTURE, BACKEND, TITLE_COVERS } from './threedog/pageFns.mjs';
+import { PICTURE, TITLE_COVERS } from './threedog/pageFns.mjs';
+import { drawnBy, headlessUrl } from './lib/page-url.mjs';
 
 const t0 = Date.now();
 
@@ -106,13 +107,14 @@ const page = await newGamePage(browser, { errors, viewport: { width: W, height: 
 
 try {
   // Time, weather, position, skipping cutscenes and advancing are all left to the engine's URL parameters (engine.applyState, see packages/engine/core/UrlState.js)
-  const q = new URLSearchParams({ 'threedog-headless': '', 'threedog-tier': tier });
+  const q = new URLSearchParams({ 'threedog-tier': tier });
   for (const k of ['time', 'weather', 'pos', 'at', 'view']) if (opt[k]) q.set(k, opt[k]);
   q.set('wait', String(wait));
   q.set('cutscene', opt['keep-cutscene'] ? 'keep' : 'skip');
   if (opt.play) q.set('play', '');
-  await page.goto(base + url + (url.includes('?') ? '&' : '?') + q.toString().replace('threedog-headless=', 'threedog-headless'));
+  await page.goto(base + headlessUrl(url, q));
   await waitEngine(page, { timeout: 60000, errors });
+  await refuseState(page, ['time', 'weather', 'pos', 'at', 'view']);
   const ev = (fn, arg) => page.evaluate(fn, arg);
   // A picture taken while terrain / models are still arriving shows a half-built world that looks like an art bug, so finish loading first.
   // Headless only advances on step, so step (no render) until engine.loading says nothing is pending; past the limit fail with what it is still waiting for
@@ -125,14 +127,14 @@ try {
   await ev(() => engine.ui.settled());   // the loading screen fades out on a wall-clock timer after ready; do not capture it mid-fade
   const text = await ev(() => { engine.step(1 / 30, { render: true }); return engine.describeText(); });
   if (!opt['describe-only']) {
-    // --keep: a timestamp in the name, so a new shot never replaces an earlier one (to compare before / after a change)
-    const stamp = opt.keep ? '_' + new Date().toISOString().replace(/\D/g, '').slice(4, 14) + String(Date.now() % 1000).padStart(3, '0') : '';
+    // --keep: a timestamp in a generated name (an explicit --out is the name the caller chose and wants to find again, so it is used as given), so a new shot never replaces an earlier one (to compare before / after a change)
+    const stamp = opt.keep && (!opt.out || opt.out === true) ? '_' + new Date().toISOString().replace(/\D/g, '').slice(4, 14) + String(Date.now() % 1000).padStart(3, '0') : '';
     // --out: a bare name goes into .threedog/shots/ too, a path with a directory is kept as given (lib/shot-name.mjs)
     const file = shotFile(dir, opt.out === true ? undefined : opt.out, shotName(url, opt, wait), stamp);
     mkdirSync(dirname(file), { recursive: true });
     const pictured = await sceneCounts(page);
     await page.screenshot({ path: file });
-    const backend = await page.evaluate(`(${BACKEND})(engine)`);
+    const backend = drawnBy(await ev(() => engine.describe().renderer));
     Object.assign(result, { file, size: [W, H], renderer: browser.render.kind, backend, tier });
     say(`Screenshot: ${rel(file)} (${W}×${H}, ${browser.render.kind} rendering, ${tier} tier, drawn by ${backend})`);
     // the picture numbers below would measure the start screen, not the game's picture

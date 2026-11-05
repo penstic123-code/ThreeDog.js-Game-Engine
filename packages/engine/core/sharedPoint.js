@@ -1,4 +1,4 @@
-// Shared points: the ONE way several owners change a shared thing (time channels, the calendar rate, pause / freeze / camera holders, move speed,
+// Shared points: the ONE way several owners change a shared thing (time channels, the calendar rate, halt / freeze / camera holders, move speed,
 // input gates, shadows.enabled, sky.tint, post values, a game's own). One entry, one line:
 //   const h = engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 });   // bullet time; h.remove() ends it early
 //   ctx.mod('time.world', { mul: 0.8, layer: 'effect' });                                // inside a module: owned by it, removed with it
@@ -17,7 +17,7 @@
 //   - the settings layer only restricts: clamp { max } or mul 0..1 on a number, set false on a value point; it can never raise a number or
 //     switch something on (one exception a point opts into with settingsSet: key bindings, where the player's rebinding is a replacement).
 //     It sits above system: a cutscene or menu cannot turn back on what the player turned off; only debug overrides the player
-//   - kinds: 'number' (default) | 'value' (any data: a color, a string, a boolean; set only) | 'any' (true while anyone holds it: pause, gates)
+//   - kinds: 'number' (default) | 'value' (any data: a color, a string, a boolean; set only) | 'any' (true while anyone holds it: freeze, gates)
 //     | 'top' (the latest holder is in charge: the camera) | 'one' (an exclusive slot: a second holder is shared-taken; module `provides`)
 // Plain JS stays first-class: a game's own fields and onFixed logic never need this; it is for things several owners write.
 // The registry (engine.stacks: define / get / mod, save, timers, describe().shared) is core/stacks.js.
@@ -53,7 +53,7 @@ function numCheck(op, v, call) {
 }
 
 /**
- * pause('x') and pause({ owner: 'x' }) both work everywhere an owner is named
+ * freeze('x') and freeze({ owner: 'x' }) both work everywhere an owner is named
  * @param {string | { owner?: string } | undefined} a @param {any} [b] @returns {{ owner: string, opts: any }}
  */
 export function ownerArgs(a, b, fallback = 'game') {
@@ -184,7 +184,7 @@ export class Stack {
   }
   /** @internal */
   _changed(id) { this._ver++; this.all._version++; this.onChange?.(id ?? null); }
-  /** @internal End owner's entry by name (engine holds: the pause handle); games end theirs with the handle's remove(). false when it held none @param {string} owner @param {{ id?: string }} [o] */
+  /** @internal End owner's entry by name (engine holds: the halt handle); games end theirs with the handle's remove(). false when it held none @param {string} owner @param {{ id?: string }} [o] */
   release(owner, { id } = {}) { return this._drop(owner, id); }
   /** Drop every entry for record id (world.remove does it, so no orphan entries) @param {string} id */
   dropId(id) { this._memo.delete(id); const m = this._by.get(id); if (!m) return; this._by.delete(id); this._changed(id); }
@@ -242,7 +242,7 @@ export class Stack {
     }
     return v;
   }
-  /** Each holder's value in take order: [{ owner, value }] (the data an 'any' holder gave, e.g. a pause's kind) @param {string} [id] */
+  /** Each holder's value in take order: [{ owner, value }] (the data an 'any' holder gave, e.g. a freeze's kind) @param {string} [id] */
   entries(id) { return [...(this._map(id)?.values() ?? [])].map(e => ({ owner: e.owner, value: e.value })); }
   /** The latest holder's entry ({ owner, value }) or null: the camera in charge, the slot's holder @param {string} [id] */
   top(id) { let t = null; const m = this._map(id); if (m) for (const e of m.values()) t = e; return t; }

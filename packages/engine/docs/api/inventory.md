@@ -16,8 +16,8 @@ Inventory (inventory() module)
 - `inventory.count(x: string) → number` — How many of an item, or of one entry key
 - `inventory.has(x: string, n?: number) → boolean` — Whether there are at least n (default 1)
 - `inventory.list() → ItemEntry[]` — Player inventory entries (for custom UI)
-- `inventory.get(key: string) → ItemEntry | null` — One player inventory entry by key, or null
-- `inventory.add(id: string, n?: number, opts?: { data?, silent? }) → string | false` — Add n to the player inventory (default 1), opts { data, silent }; returns the entry key, false if it does not fit
+- `inventory.get(key: string) → ItemEntry | undefined` — One player inventory entry by key, or undefined
+- `inventory.add(id: string, n?: number, opts?: { data?, silent? }) → ItemAddResult` — Add n to the player inventory (default 1), opts { data, silent }; returns { ok: true, key, added }, or { ok: false, code: 'full' } when none fit
 - `inventory.remove(x: string, n?: number) → boolean` — Remove n (default 1) of an item or entry key, returns false if there are not enough
 - `inventory.trade(take: string, give: string, opts?: { takeN?, giveN?, data?, silent? }) → { ok, code?, facts?, nextActions?, took?, gave?, … }` — Atomic trade: take A (id or entry key) and give B in one all-or-nothing step; failure code 'notEnough' / 'full'. Ops: inventory.trade, engine.ops.undo reverses it
 - `inventory.setData(key: string, data: Record<string, any> | null, n?: number) → string` — Replace a player inventory entry's data for n pieces (default all); returns the key now holding them

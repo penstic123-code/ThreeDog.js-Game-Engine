@@ -38,6 +38,7 @@
 - `character:launch` [{ character: Character; speed: number; owner: string }] 
 - `character:fall` [{ character: Character; safe: Vector3 | null; preventDefault(): void… 
 - `character:model` [{ character: Character; model: Object3D }] A character's model named by asset finished loading and replaced the placeholder body (same root; anim is now set)
+- `character:step` [{ character: Character }] A foot of a walking character came down; character.groundType() is what it stepped on
 - `character:land` [{ character: Character; impact: number }] A character landed; impact is the landing speed (m/s), the larger the harder the fall
 - `character:water` [{ character: Character; in: boolean; mode: string; depth: number }] A character went into or out of deep water (water option): in true on entering, mode what the water option did there ('swim' / 'block' / 'wade', or what the function returned)
 - `dialogue:start` [speaker: string] Dialogue started; the argument is the dialogue script name
@@ -70,7 +71,7 @@
 - `vegetation:remove` [VegetationRemoveEvent] A vegetation instance was chopped / removed
 - `vegetation:restore` [VegetationRemoveEvent] A vegetation instance was restored
 - `music:change` [MusicChangeEvent] Background music changed track (null means silence)
-- `music:stinger` [{ name: string }] A stinger was played
+- `music:stinger` [{ name: string; played: boolean }] A stinger was played
 - `state:applied` [StateParams] Scenario parameters were applied (URL parameters or engine.applyState)
 - `state:placed` [{ x: number; z: number }] A scenario (at, pos) moved the player: a camera or view that eases jumps there
 - `anim:end` [{ root: Object3D; state: string }] A one-shot action of the animation state machine finished

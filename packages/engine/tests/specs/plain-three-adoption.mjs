@@ -13,7 +13,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const { THREE, ShaderPass, CopyShader } = window.threedogTest, out = {}, err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         // 1. scene.add of a plain mesh with its own material is registered like engine.add (thing, describe, thing.set)
         const before = engine.describe().scene.game;

@@ -5,7 +5,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE;
         // level built in code: ground + a bridge deck 3 m above it (only names containing ground / road are treated as walkable by level)
         engine.assets.manifest({ models: { 's1-bridge': () => {

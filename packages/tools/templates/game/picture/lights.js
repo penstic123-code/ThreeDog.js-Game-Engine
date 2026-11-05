@@ -17,6 +17,7 @@ export function createLights(engine) {
 
   return {
     sun, ambient,
+    // Rewrites sun.intensity, ambient.intensity and sun.position every frame: to change them, change this function; a write elsewhere lasts one frame.
     /** @param {any} signals engine.uniforms */
     update(signals) {
       const day = signals.uDaylight.value;

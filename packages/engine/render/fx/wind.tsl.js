@@ -2,7 +2,7 @@
 // TSL wind: wind(position, origin, amplitude) -> vec3, line for line GLSL threedogWind (render/effects.js threedog_wind).
 // Same parameters as GLSL: position = the object-space vertex before the instance transform (positionGeometry in TSL, not positionLocal: positionNode
 // runs after the instance transform), origin = the object's world origin (objectOrigin()), amplitude in metres per metre of height; returns an object-space offset
-// (with rotated / scaled instances, pass it through instanceOffset() before adding to positionLocal, since GLSL adds it before the instance transform).
+// (with rotated / scaled instances, pass it through instanceOffset() (threedog/tsl) before adding to positionLocal, since GLSL adds it before the instance transform).
 // Uniforms are not parameters: the GLSL version reads the global uTime / uWind / uWindFreq; here the engine is found at build time from the compiling renderer.
 import { Fn, vec3, sin, max } from 'three/tsl';
 import { engineNodes } from './uniforms.tsl.js';

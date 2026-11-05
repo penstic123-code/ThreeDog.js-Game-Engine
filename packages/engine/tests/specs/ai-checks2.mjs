@@ -5,7 +5,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const good = await engine.checkSave();
         let n = 0;
         engine.saves.register('badpart', { save: () => ({ n: ++n }), load: () => {} });   // load 不还原：每次 save 数字都变
@@ -21,7 +21,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const raw = await engine.checkSkip(30);                              // 跳过不跑近处模拟：玩家/NPC 位置、world.step 必然不同，应被报告
         const ign = await engine.checkSkip(30, { ignore: ['parts.world', 'parts.rigid', 'parts.random'] });   // 刚体也是近处模拟：跳过时不动
         engine.freeze('t-refuse'); const ref = await engine.checkSkip(30); engine.stacks.get('freeze').release('t-refuse');
@@ -60,7 +60,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const p = engine.player;
         let n = 0, who = null;
         const h = p.onPose((c, dt) => { n++; who = c === p && dt > 0; });
@@ -71,6 +71,25 @@ export const specs = [
       });
       check('step 期间被回调', r.during > 0 && r.who === true, JSON.stringify(r));
       check('remove 后不再回调', r.after === r.during, JSON.stringify(r));
+    },
+  },
+  {
+    // 为什么：原来 player.onStep 是单格属性，第二个系统赋值就把引擎自己的脚步声顶掉，还不报错。事件没有这个问题。
+    name: 'AICHECK2 character:step fires for each listener while walking, the slot properties are gone',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        engine.timeline.skip(); engine.haltLoop();
+        const p = engine.player;
+        let a = 0, b = 0, who = true;
+        const h1 = engine.events.on('character:step', e => { if (e.character === p) a++; else who = false; }), h2 = engine.events.on('character:step', () => b++);
+        p.moveAmount = 1; p.grounded = true;
+        for (let i = 0; i < 120; i++) { p.moveAmount = 1; p.grounded = true; p._animate(1 / 60); }
+        h1.remove(); h2.remove();
+        return { a, b, who, slot: [typeof p.onStep, typeof p.onLand].join() };
+      });
+      check('both listeners heard the steps', r.a > 0 && r.b === r.a && r.who, JSON.stringify(r));
+      check('no onStep or onLand property', r.slot === 'undefined,undefined', r.slot);
     },
   },
 ];

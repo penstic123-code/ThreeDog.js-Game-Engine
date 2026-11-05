@@ -3,10 +3,12 @@
 //   createEngine({ pauseOnBlur: false })     // keep playing while the window is in the background (default: gameplay waits)
 //   engine.page.pauseOnBlur = false;         // same, at runtime (e.g. a settings toggle)
 //   engine.events.on('page:blur', () => engine.flow?.go('paused'));   // show the pause menu as well, if the game wants one
-// While the page is away (window lost focus or tab hidden) with pauseOnBlur, the real-time loop runs no fixed steps: movement, timers, the game clock and
-// background results all wait, rendering and UI go on. Coming back resumes from where it stopped, with no catch-up burst (the loop drops the time spent away).
-// engine.step() is explicit (tests, the dev bridge) and still advances while away. Held keys are released by Input when it hears page:blur.
-// WebGL context lost (driver reset, GPU memory pressure): gameplay waits and the player sees a message; three.js restores the context itself and play resumes.
+// While the page is away (window lost focus or tab hidden) with pauseOnBlur, gameplay is frozen by owner 'page': an ordinary freeze, so everything that obeys a freeze
+// (fixed steps, timers, cutscenes, engine.frozen, runState, describe) agrees with no code of its own here. It is a full still ({ ambient: true }): limbs walking on
+// the spot over a stopped world look broken. Rendering and UI go on. Coming back resumes from where it stopped, with no catch-up burst (the loop drops the time spent
+// away). A halted engine (tests, the dev bridge) has no real-time loop to hold, so there is no page freeze, and step() drives a page in a background window.
+// Held keys are released by Input when it hears page:blur.
+// WebGL context lost (driver reset, GPU memory pressure): the same freeze, and the player sees a message; three.js restores the context itself and play resumes.
 // WebGPU device lost: the same, except that a lost device does not come back, so the message asks for a reload.
 import { coded } from './errorHints.js';
 import { toast } from '../ui/UI.js';
@@ -29,8 +31,8 @@ export class Page {
   /** @internal */
   constructor(engine, { pauseOnBlur = true } = {}) {
     /** @internal */ this.engine = engine;
-    /** Wait (no fixed steps) while the page is away; default true. Settable at runtime @type {boolean} */
-    this.pauseOnBlur = pauseOnBlur;
+    /** @internal public: pauseOnBlur */ this._pauseOnBlur = pauseOnBlur;
+    /** @internal the 'page' freeze while it is up */ this._hold = null;
     /** The window has keyboard focus @type {boolean} */
     this.focused = true;   // a page that starts unfocused (opened behind devtools, driven by the dev bridge) still plays until the window is left once
     /** The tab is visible @type {boolean} */
@@ -64,7 +66,7 @@ export class Page {
       this._lost(DEV.lost, 'page.gpuLost');
     }, { signal });
     canvas.addEventListener('webglcontextrestored', () => {
-      this.contextLost = false; this._resync = true;
+      this.contextLost = false; this._resync = true; this._sync();
       toast(engine, engine.t('page.gpuBack'));
       engine.events.emit('page:contextrestored');
     }, { signal });
@@ -73,10 +75,22 @@ export class Page {
     if (isWebGPU(r) && patchOn('device-lost-hook')) r.onDeviceLost = info => { threeLost.call(r, info); if (info?.api !== 'WebGL') this._lost(DEV.gone, 'page.gpuGone'); };
   }
 
-  /** @internal the graphics went away: gameplay waits (held), the developer and the player are told, page:contextlost goes out. Once per loss */
+  /** Freeze gameplay while the page is away; default true. Settable at runtime @type {boolean} */
+  get pauseOnBlur() { return this._pauseOnBlur; }
+  set pauseOnBlur(v) { this._pauseOnBlur = v; this._sync(); }
+
+  /** @internal take or drop the 'page' freeze to match the page. Called on every change it depends on, so nothing asks each frame */
+  _sync() {
+    const want = !this.engine.halted && ((this._pauseOnBlur && this.away) || this.contextLost);
+    if (want === !!this._hold) return;
+    if (want) this._hold = this.engine.freeze('page', { ambient: true });
+    else { this._hold.remove(); this._hold = null; }
+  }
+
+  /** @internal the graphics went away: gameplay freezes, the developer and the player are told, page:contextlost goes out. Once per loss */
   _lost(dev, message) {
     if (this.contextLost) return;
-    this.contextLost = true;
+    this.contextLost = true; this._sync();
     warnOnce(coded('webgl-lost', dev));
     toast(this.engine, this.engine.t(message), { kind: 'error', ms: 8000 });
     this.engine.events.emit('page:contextlost');
@@ -84,8 +98,6 @@ export class Page {
 
   /** The page is away: the window lost focus or the tab is hidden @type {boolean} */
   get away() { return !this.focused || !this.visible; }
-  /** The real-time loop holds gameplay now (away with pauseOnBlur, or the WebGL context / WebGPU device is lost) @type {boolean} */
-  get held() { return (this.pauseOnBlur && this.away) || this.contextLost; }
 
   /** @internal For the real-time loop: true once after the page came back (drop the time accumulated while away), then false @returns {boolean} */
   consumeResync() { const r = this._resync; this._resync = false; return r; }
@@ -95,7 +107,8 @@ export class Page {
     const was = this.away;
     this[key] = v;
     if (was === this.away) return;
-    if (!this.away) this._resync = true;   // the time spent away must not be replayed as a burst of fixed steps
+    if (!this.away) this._resync = true;   // a hidden tab gets no frames, so its time arrives as one long dt: that must not become a burst of fixed steps
+    this._sync();
     this.engine.events.emit(this.away ? 'page:blur' : 'page:focus', { focused: this.focused, visible: this.visible });
   }
 
@@ -108,5 +121,5 @@ export class Page {
   releaseLock() { document.exitPointerLock?.(); }
 
   /** @internal for describe */
-  describe() { return { away: this.away, held: this.held, pointerLocked: this.pointerLocked, contextLost: this.contextLost }; }
+  describe() { return { away: this.away, pointerLocked: this.pointerLocked, contextLost: this.contextLost }; }
 }

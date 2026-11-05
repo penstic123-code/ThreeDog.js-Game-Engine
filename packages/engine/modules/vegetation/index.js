@@ -5,17 +5,18 @@
 import { readParams, keysSchema } from '../../core/params.js';
 import { Vegetation } from './Vegetation.js';
 import { VegetationDraw } from './draw.js';
+import { GROUND_DEFAULTS } from './groundChunks.js';
 import { codedError } from '../../core/errorHints.js';
 
 const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
-const VEG_PARAMS = keysSchema(OPTS, { chunkSize: 32, viewChunks: 3, density: 1, seed: 1 });   // defaults of the own-chunks mode (without terrain)
+const VEG_PARAMS = keysSchema(OPTS, GROUND_DEFAULTS);   // defaults of the own-chunks mode (without terrain)
 /**
  * Vegetation module. Provides engine.vegetation.define(name, {...}) once installed.
  * With terrain() installed first it grows on the terrain chunks and takes no options (density and view distance are terrain options).
  * Without terrain it grows on its own chunks over whatever provides the ground: a level model (engine.level), a code-built ground
  * (engine.setGround), or the flat default. Rules read engine.surface / slope / groundType, so a level's named surfaces are picked with
  * rule.biomes (a level's ground type is the mesh's groundType property or its material name).
- * Where a species grows is one add() call with up to three parts: rule (random scatter), positions (the game's own spots, instead of the
+ * Where a species grows is one define() call with up to three parts: rule (random scatter), positions (the game's own spots, instead of the
  * scatter) and densityMap (thins either by a function or a gray image). A game that wants full control still builds its own InstancedMesh.
  * @param {{ chunkSize?: number, viewChunks?: number, density?: number, area?: { min: number[], max: number[] }, seed?: number }} [opts]
  *   only without terrain: chunkSize meters (default 32), viewChunks rings drawn around each stream source (default 3), density multiplier (default 1),
@@ -31,13 +32,14 @@ export function vegetation(opts = {}) {
   readParams('vegetation', VEG_PARAMS, opts);
   let v = null, own = null, cols = null, ready = null, drawPart = null;
   const data = { name: 'vegetation', type: 'world', provides: ['vegetation'], label: 'Vegetation', params: VEG_PARAMS, options: opts, stage: 'ground', after: ['terrain', 'level'], optional: ['terrain', 'level'],
-    install(e) {
+    install(e, ctx) {
       e.i18n.add({ 'zh-CN': { 'module.vegetation': '植被' }, en: { 'module.vegetation': 'vegetation' } });
       v = new Vegetation(e, opts);
+      ctx.track(e.events.on('settings:shadows', () => v.host.refreshLevels()));   // whichever chunks it grows on: each level pass rereads the shadow switch
       if (v.host !== e.terrain) {
         own = v.host;
         cols = e.addGroundColliders((x, z, range, fn) => own.forEachCollider(x, z, range, fn));   // collision and path planning see the trees
-        ready = e.stream.readyCheck('vegetation', s => own.isReadyAround(s));
+        ready = e.stream.addReadyCheck('vegetation', s => own.readyAt(s));
       }
       return v;
     },

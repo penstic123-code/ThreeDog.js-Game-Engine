@@ -52,7 +52,7 @@ engine.setCamera('follow', { distance: 8, pitch: 0.3 });
 ```js
 engine.use(followCamera({ distance: 3, shoulder: 0.7, pitch: 0.15, pointerLock: true }));   // shooter / action-adventure view
 engine.cameraRig.shoulder = -0.7;       // switch shoulders at any time (plain property)
-engine.cameraRig.frame(enemy.object);   // lock-on: turn to "behind the player, looking at the enemy"; frame(null) lets go
+engine.cameraRig.frame(enemy.root);   // lock-on: turn to "behind the player, looking at the enemy"; frame(null) lets go
 ```
 - **`shoulder`**: meters the aim point (and so the camera) moves to the right along `right()`; negative = left, 0 = centered (default).
 - **`pointerLock`** (default false): a click on the canvas locks the mouse, so moving it turns the view with no dragging; Esc releases, and `engine.page.releaseLock()` releases from code without opening the pause menu. Not on phones. If the browser refuses the lock the camera falls back to dragging; `describe().camera.pointerLock` is a state machine: `state` is `off` / `unsupported` / `waiting-click` / `requesting` / `locked` / `refused`, plus `covered` (what sits on the canvas centre and eats the click), `cameraOverride` (a takeover blocks locking) and `lastFailure { reason, agoSec }`; the text line shows the same.

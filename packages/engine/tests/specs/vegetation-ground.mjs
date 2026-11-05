@@ -9,6 +9,28 @@ import { fileURLToPath } from 'node:url';
 
 export const specs = [
   {
+    name: 'vegetation define order: species defined before content.load survive it and start',
+    url: '/tests/terrain-edit/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { createEngine, openWorld, content, THREE } = threedogTerrain;
+        const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'veg-order' });
+        E.use(openWorld({ seed: 4, camera: 'follow', terrain: { height: () => 2 } }), content());
+        E.vegetation.define('before', { geometry: new THREE.BoxGeometry(1, 1, 1), rule: { perChunk: 5 } });
+        const names = () => E.vegetation.list().map(s => s.name).join();
+        const out = { defined: names() };
+        E.content.load({ items: {} }, { places: {} });
+        out.loaded = names();
+        E.vegetation.define('after', { geometry: new THREE.BoxGeometry(1, 1, 1), rule: { perChunk: 5 } });
+        await E.start();
+        out.started = names();
+        E.dispose();
+        return out;
+      });
+      check('defined before content.load: still listed after it and after start, beside one defined later', r.defined === 'before' && r.loaded === 'before' && r.started === 'before,after', JSON.stringify(r));
+    },
+  },
+  {
     name: 'vegetation ground: grows on a level model by ground type (no terrain), instanced per chunk, collision / felling / streaming / setGround follow',
     url: '/tests/terrain-edit/',
     async run({ check, ev }) {
@@ -22,13 +44,13 @@ export const specs = [
         E.use(level({ scene: root }), vegetation({ chunkSize: 16, viewChunks: 3, area: { min: [-40, -20], max: [40, 20] } }), collision());
         E.vegetation.define('bush', { geometry: new THREE.ConeGeometry(0.5, 1, 5), rule: { perChunk: 80, maxSlope: 1, sink: 0, biomes: { lawn: 1 }, collider: 0.4 } });
         await E.start();
-        const settle = async (x, z) => { E.focus.set(x, 0, z); for (let i = 0; i < 300 && E.stream.sources().length && !E.vegetation.host.isReadyAround({ x, z }); i++) { E.step(1 / 60); await wait(); } E.step(2.2); };   // 2.2 s: the outer ring's collision is due by then (commits lag by ring)
+        const settle = async (x, z) => { E.focus.set(x, 0, z); for (let i = 0; i < 300 && E.stream.sources().length && !E.vegetation.host.readyAt({ x, z }); i++) { E.step(1 / 60); await wait(); } E.step(2.2); };   // 2.2 s: the outer ring's collision is due by then (commits lag by ring)
         await settle(0, 0);
         const H = E.vegetation.host, all = [];
         let meshes = 0, perChunkMeshes = true;
         for (const c of H.chunks.values()) {
           const ims = Object.values(E.vegetationDraw.meshes.get(c)?.ims ?? {}); meshes += ims.length; if (ims.length > 1) perChunkMeshes = false;
-          for (const im of ims) { const a = im.instanceMatrix.array; for (let i = 0; i < im.count; i++) all.push([c.cx * H.CHUNK + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.CHUNK + a[i * 16 + 14]]); }
+          for (const im of ims) { const a = im.instanceMatrix.array; for (let i = 0; i < im.count; i++) all.push([c.cx * H.chunkSize + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.chunkSize + a[i * 16 + 14]]); }
         }
         // ground types are read per level grid point (0.5 m): at the lawn / stone seam a plant may sit up to half a cell over the line
         const out = { terrain: !!E.terrain, n: all.length, meshes, perChunkMeshes, instanced: [...H.chunks.values()].every(c => Object.values(E.vegetationDraw.meshes.get(c)?.ims ?? {}).every(im => im.isInstancedMesh)),
@@ -90,11 +112,17 @@ export const specs = [
         const H = E.vegetation.host, out = { terrain: !!E.terrain, v0: E.settings.get('viewChunks'), d0: E.settings.get('density') };
         E.settings.set('density', 0.5); E.settings.set('viewChunks', 4);
         out.host = { density: H.density, view: H.viewChunks };
+        // the shadows switch reaches plants on this ground, near-only ones too
+        E.vegetation.define('tuft', { geometry: new THREE.BoxGeometry(0.2, 0.2, 0.2), nearOnly: true, castShadow: true, shadowRing: 9, rule: { perChunk: 6 } });
+        const meshes = () => [...H.chunks.values()].map(c => E.vegetationDraw.mesh(c, 'tuft')).filter(Boolean);
+        const flip = on => { E.renderer.shadowMap.enabled = on; E.events.emit('settings:shadows', on); E.step(0.1, { render: false }); return meshes().map(m => m.castShadow); };
+        out.shadowOn = flip(true); out.shadowOff = flip(false);
         E.dispose();
         return out;
       });
       check('settings read the vegetation chunks without terrain', !r.terrain && r.v0 === 2 && r.d0 === 1, JSON.stringify(r));
       check('density and view distance reach the vegetation chunks', r.host.density === 0.5 && r.host.view === 4, JSON.stringify(r));
+      check('[guard] the shadows switch reaches near-only plants without terrain', r.shadowOn.length > 0 && r.shadowOn.every(Boolean) && r.shadowOff.length === r.shadowOn.length && !r.shadowOff.some(Boolean), JSON.stringify([r.shadowOn, r.shadowOff]));
     },
   },
   {
@@ -110,7 +138,7 @@ export const specs = [
         E.use(level({ scene: root }), vegetation({ chunkSize: 16, viewChunks: 2 }), collision(), rigid());
         E.vegetation.define('bush', { geometry: new THREE.ConeGeometry(0.5, 1, 5), rule: { perChunk: 30, maxSlope: 1, sink: 0, collider: 0.4 } });
         await E.start();
-        for (let i = 0; i < 300 && !E.vegetation.host.isReadyAround({ x: 0, z: 0 }); i++) { E.step(1 / 60); await wait(); }
+        for (let i = 0; i < 300 && !E.vegetation.host.readyAt({ x: 0, z: 0 }); i++) { E.step(1 / 60); await wait(); }
         E.step(2.2);
         const out = { circles: 0, colliders: E.rigid.groundTrees.size };
         E.ground.forEachCollider(0, 0, 20, () => out.circles++);
@@ -166,7 +194,7 @@ export const specs = [
         const { createEngine, vegetation, terrain, THREE } = threedogTerrain;
         const wait = () => new Promise(res => setTimeout(res, 5));
         const all = (E, name) => { const H = E.vegetation.host, out = []; for (const c of H.chunks.values()) { const im = E.vegetationDraw.mesh(c, name); if (!im) continue; const a = im.instanceMatrix.array;
-          for (let i = 0; i < im.count; i++) out.push([c.cx * H.CHUNK + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.CHUNK + a[i * 16 + 14], im.userData.plants.ids[i], a[i * 16]]); } return out; };
+          for (let i = 0; i < im.count; i++) out.push([c.cx * H.chunkSize + a[i * 16 + 12], a[i * 16 + 13], c.cz * H.chunkSize + a[i * 16 + 14], im.userData.plants.ids[i], a[i * 16]]); } return out; };
         const settle = async (E, ok) => { for (let i = 0; i < 400 && !ok(); i++) { E.step(1 / 60); await wait(); } E.step(0.5); };
         const out = {};
         // own chunks over a code-built ground at y = 1
@@ -179,7 +207,7 @@ export const specs = [
         E.vegetation.define('img', { geometry: geo, rule: { perChunk: 200 }, densityMap: { data: [1, 0, 1, 0], width: 2, height: 2, size: [64, 64] } });
         E.vegetation.define('plain', { geometry: geo, rule: { perChunk: 200 } });
         await E.start();
-        await settle(E, () => E.vegetation.host.isReadyAround({ x: 0, z: 0 }, { rings: 2 }));
+        await settle(E, () => E.vegetation.host.readyAt({ x: 0, z: 0 }, { rings: 2 }));
         const post = all(E, 'post').sort((a, b) => a[3] - b[3]);
         out.post = post.map(p => [Math.round(p[0] * 100) / 100, Math.round(p[2] * 100) / 100, p[1], p[3]]);
         out.postScale = post.find(p => p[3] === 1)?.[4];
@@ -228,7 +256,7 @@ export const specs = [
         E.use(vegetation({ chunkSize: 16, viewChunks: 2 }));
         E.vegetation.define('bush', { geometry: new THREE.ConeGeometry(0.5, 1, 5), rule: { perChunk: 30, maxSlope: 1, sink: 0, collider: 0.4 } });
         await E.start();
-        E.pause();
+        E.haltLoop();
         for (let i = 0; i < 20; i++) E.step(1 / 60);
         const H = E.vegetation.host, before = new Map([...H.chunks].map(([k, c]) => [k, { c, bush: c.plants.bush }]));
         const centers0 = H._stream.centers[0];

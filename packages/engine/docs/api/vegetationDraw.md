@@ -1,6 +1,6 @@
 # engine.vegetationDraw — vegetationDraw()
 
-Draws the plants (vegetation()'s drawing module, slot 'vegetation-draw'; undefined when a game replaced it)
+(experimental) Draws the plants (vegetation()'s drawing module, slot 'vegetation-draw'; undefined when a game replaced it)
 
 
 ## Methods and properties

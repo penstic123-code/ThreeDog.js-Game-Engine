@@ -1,11 +1,12 @@
 // calendar() hooks, saves, scenario time.
-// The calendar() module definition: install, per-step time, engine.skip, saves, scenario time / season, describe. engine.calendar API: Calendar.js.
+// The calendar() module definition: install, the clock channel's moves, engine.skip, saves, scenario time / season, describe. engine.calendar API: Calendar.js.
 // Stage 'environment' before sky: the sky reads the calendar each frame to draw, so the time it draws is this step's.
 import { Calendar } from './Calendar.js';
 import { timeCondition } from './seasons.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { parseClock } from '../../core/dayTime.js';
-import { codedError } from '../../core/errorHints.js';
+import { codedError, coded } from '../../core/errorHints.js';
+import { warnOnce } from '../../core/validate.js';
 import { saveValues } from '../../core/saveValues.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { CalendarOptions } from '../../types/world' */
@@ -28,7 +29,7 @@ export function calendar(opts = {}) {
     name: 'calendar', type: 'world', provides: ['calendar'], label: 'Calendar', params: CALENDAR_PARAMS, options: opts, stage: 'environment', before: ['sky'],
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.calendar': '日历' }, en: { 'module.calendar': 'calendar' } });
       // sky({ time }) is the fixed time drawn without a calendar: installed before this one it would now sit unused, so say so (sky checks the other order)
-      if (e.modules.get('sky')?.options?.time != null) throw codedError('calendar-option', STRINGS.skyTime);
+      if (e.modules.get('sky')?.options?.time != null) warnOnce(coded('calendar-option', STRINGS.skyTime), 'sky-time-calendar');
       c = new Calendar(e, opts);
       // audio rule condition { time: 'day' | 'night' | ['18:00', '06:00'] } and measure { daylight: { gt: 0.15 } } for music / ambience rule lists:
       // from the clock, so an indoor game without a sky still switches its night music
@@ -65,6 +66,7 @@ export function calendar(opts = {}) {
     dispose() { c._sched.dispose(); },
     // scenario param time: 'HH:MM' or 0-1 (text in the URL)
     // scenario param season: the first day of that season (outside the last-20% blend into the next one), time of day kept
+    stateKeys: ['time', 'season'],
     applyState(e, { time, season }) {
       if (time != null) c.timeOfDay = parseClock(time, c.hoursPerDay) % 1;
       if (season != null) {

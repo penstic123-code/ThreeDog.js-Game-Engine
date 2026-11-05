@@ -28,10 +28,10 @@ Native Recast objects: `engine.nav.navMesh / query / tileCache / crowd` (crowd n
 
 ## 3. Verify
 - `describe().nav`: `{ ready: true, version, obstacles: number of obstacles }`; in `describeText()` it is the "nav: {...}" line.
-- In a test: after `engine.pause()` call `findPath` and look at the waypoints (going around a wall they pass through the gap); after `addBox`,
+- In a test: after `engine.haltLoop()` call `findPath` and look at the waypoints (going around a wall they pass through the gap); after `addBox`,
   `engine.step(0.1)` and query again: the path should switch sides.
 - Did the NPC arrive: after `engine.step(30)`, check `engine.npcs.get('信使').position`.
-- To see the mesh: `nav({ debug: true })` + `npm run shot -- /your-page.html`. Related test: `npm test -- 导航网格` (test page in the engine repository:
+- To see the mesh: `nav({ debug: true })` + `npm run shot -- /your-page.html`. Related test: `threedog test 导航网格` (test page in the engine repository:
   `packages/engine/tests/nav/`).
 
 ## 4. Many paths at once: findPathAsync
@@ -49,7 +49,7 @@ engine.characters.pathsPerStep = 64;           // requests sent per fixed step (
   if either changes while a batch is in flight, that batch is recomputed on the main thread on the new state.
 - With A*, ground shape (water, slope) is sampled on a 1 m raster cached 5 s (colliders and terrain trees are tested exactly), and the search stays inside
   the start-goal box plus a margin, so an async path can differ slightly from `findPath`'s.
-- A save taken while a request is in flight does not keep it: the NPC asks again after loading. Tests: `npm test -- "paths:"`.
+- A save taken while a request is in flight does not keep it: the NPC asks again after loading. Tests: `threedog test "paths:"`.
 
 ## 5. One source for "can walk there"
 `createEngine({ movement: { radius, height, maxSlope, stepHeight } })` sets it once; read it as `engine.movement`. Collision, the Rapier capsule, the

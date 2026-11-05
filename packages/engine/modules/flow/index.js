@@ -5,12 +5,13 @@
 //   engine.flow.go('paused');  engine.flow.state      // 'paused'
 //   await engine.flow.transition(async () => engine.level.load('/models/town2.glb'));   // lock input, fade out, load level, wait for ready, fade in
 // Pause has one entry point: flow's 'paused' (internally engine.freeze('flow'); rendering continues); settings({ freezeWorld: true }) switches to it when the menu opens.
-// Don't use engine.pause() (it stops rendering too; tests only). While frozen: fixed step, module fixed hooks, game clock, quest checks, timeline wait/tween all stop.
+// engine.haltLoop() is another thing: it stops rendering too, for tests only. While frozen: fixed step, module fixed hooks, game clock, quest checks, timeline wait/tween all stop.
 // engine.session.newGame / load / quit move flow too: back to the start state when a playthrough ends, then 'playing' when the next starts.
 // Esc is not handled here: back goes through the UI focus stack (ui/Focus.js), and opens the settings menu when the stack is empty. Events: flow:change { from, to }, flow:transition { phase: 'start' | 'end' }.
 import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { fadeScreen } from '../../ui/UI.js';
+import { unsettled } from '../../core/headlessLoad.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Flow, FlowOptions } from '../../types/gameplay' */
 
@@ -32,9 +33,9 @@ export function flow(opts = {}) {
     if (def.freeze) { if (on) frozen ??= e.freeze('flow'); else { frozen?.remove(); frozen = null; } }
     if (def.lockInput) { if (on) held ??= e.input.push('flow'); else { held?.remove(); held = null; } }
   };
-  // wait until all modules are isReady() (checked per engine frame, so step() advances it too)
-  const allReady = () => [...e.modules.values()].every(m => !m.isReady || m.isReady(e));
-  const waitReady = () => allReady() ? Promise.resolve() : new Promise(res => { const h = e.onFrame(() => { if (allReady()) { h.remove(); res(); } }); });
+  // wait until the modules and the required nearby builds are ready (checked per engine frame, so step() advances it too)
+  const settled = () => !unsettled(e).length;
+  const waitReady = () => settled() ? Promise.resolve() : new Promise(res => { const h = e.onFrame(() => { if (settled()) { h.remove(); res(); } }); });
 
   const api = {
     /** Current state name */
@@ -101,6 +102,7 @@ export function flow(opts = {}) {
       return api;
     },
     // ?play / applyState({ play }): leave the start state (a title) the way its Start button does; session:start then goes to 'playing'
+    stateKeys: ['play'],
     applyState(e, { play }) { if (play != null && opts.start && opts.start !== 'playing' && api.state === opts.start) return e.session.newGame(); },
     describe() { return { state: api.state, transitioning: api.transitioning }; },
   };

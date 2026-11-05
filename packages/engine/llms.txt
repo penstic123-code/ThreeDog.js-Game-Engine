@@ -11,7 +11,7 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 
 ## Recipes
 
-- [01-new-game](docs/recipes/01-new-game.md): Starting a new game (a workspace under games/)
+- [01-new-game](docs/recipes/01-new-game.md): Starting a new game
 - [02-npc](docs/recipes/02-npc.md): Adding an NPC (schedule + dialogue)
 - [03-items-pickups](docs/recipes/03-items-pickups.md): Adding items and pickups
 - [04-quests](docs/recipes/04-quests.md): Adding quests (with HUD objective markers)
@@ -50,7 +50,7 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [42-terrain-shape](docs/recipes/42-terrain-shape.md): Terrain outline: islands, floating rocks, a world that ends
 - [43-shader-patches-surfaces](docs/recipes/43-shader-patches-surfaces.md): Writing shader patches and surfaces
 - [44-water-weather-hooks](docs/recipes/44-water-weather-hooks.md): Water and rain/snow: depth color, foam, reflections, particles, lightning
-- [45-cascaded-shadows](docs/recipes/45-cascaded-shadows.md): Shadows: cascades, box, budget, the switch
+- [45-cascaded-shadows](docs/recipes/45-cascaded-shadows.md): Shadows: cascades, box, budget, cache, the switch
 - [46-blender-art-route](docs/recipes/46-blender-art-route.md): Blender to game (GLB) route
 - [47-island-snow-backdrop](docs/recipes/47-island-snow-backdrop.md): Snow cover, flat backdrop, rounded terrain rim
 - [49-game-module-contract](docs/recipes/49-game-module-contract.md): Writing a game system module (a smelter, a recharging turret, growing crops) that plugs into the engine's contracts

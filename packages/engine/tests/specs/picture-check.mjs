@@ -9,7 +9,7 @@ export const specs = [
   {
     // [guard] weather as signals: picture code reads rain / snow / cloud from engine.uniforms (a shader can share the same object); they come from
     // the weather state every frame, so a game that draws its own rain still gets them
-    name: '[guard] weather signals: engine.uniforms uRain / uSnow / uCloud follow the weather state',
+    name: '[guard] weather signals: engine.uniforms uRain / uSnow / uWeatherCloud follow the weather state',
     url: PAGE,
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -17,7 +17,7 @@ export const specs = [
         const E = mk(T.createEngine, 'weather-signals');
         E.use(T.sky(), T.weather({ types: { clear: {}, rain: { rain: 1, cloud: 0.8 }, snow: { snow: 0.7 } } }));
         await E.start();
-        const U = E.uniforms, read = () => ({ rain: U.uRain.value, snow: U.uSnow.value, cloud: U.uCloud.value });
+        const U = E.uniforms, read = () => ({ rain: U.uRain.value, snow: U.uSnow.value, cloud: U.uWeatherCloud.value });
         E.weather.set('rain', { seconds: 0 }); E.step(1 / 30);
         const rain = read();
         E.weather.set('snow', { seconds: 0 }); E.step(1 / 30);
@@ -25,7 +25,7 @@ export const specs = [
         E.dispose();
         return { rain, snow };
       });
-      check('rain: uRain 1, uCloud 0.8; snow: uSnow 0.7, uRain 0', r.rain.rain === 1 && Math.abs(r.rain.cloud - 0.8) < 1e-6 && Math.abs(r.snow.snow - 0.7) < 1e-6 && r.snow.rain === 0,
+      check('rain: uRain 1, uWeatherCloud 0.8; snow: uSnow 0.7, uRain 0', r.rain.rain === 1 && Math.abs(r.rain.cloud - 0.8) < 1e-6 && Math.abs(r.snow.snow - 0.7) < 1e-6 && r.snow.rain === 0,
         JSON.stringify(r));
     },
   },

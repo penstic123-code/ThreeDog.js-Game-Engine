@@ -14,7 +14,7 @@
 Export glTF/GLB (tick "Custom Properties") into `art/models/` (create it if missing).
 
 ## 2. Compression
-`npm run assets` compresses to `public/optimized/<same name>.glb` (Meshopt geometry + KTX2 textures; needs the `ktx` command for textures) and points `assets.js` at the results (`/optimized/<name>.glb`). Object names and
+`npm run assets -- optimize` compresses to `public/optimized/<same name>.glb` (Meshopt geometry + KTX2 textures; textures are encoded by `ktx` on PATH or by the npm package `ktx2-encoder`, one `npm i -D` away) and points `assets.js` at the results (`/optimized/<name>.glb`). Object names and
 hierarchy are kept; faces are not reduced. Only changed files are processed; `-- --force` redoes everything.
 
 ## 3. Putting it in the game (main.js)
@@ -71,9 +71,9 @@ are refused. The id of a listed plant is its index in the list. After what a den
 A game that wants every instance under its own code still builds a plain `THREE.InstancedMesh` and adds it to the scene.
 
 ## 5. Verify
-- `npm run assets` prints each file's size before and after compression (`-- --dry` only estimates); a browser 404 appears in `.threedog/errors.log` (asset load failure).
+- `npm run assets -- optimize` prints each file's size before and after compression (`-- --dry` only estimates); a browser 404 appears in `.threedog/errors.log` (asset load failure).
 - `describe()`: `ready` is true and `loading` is empty; the player's coordinates are at the spawn point; `nearby` contains trigger zones
   (`kind: 'trigger'`) and NPCs.
   Text version: `npm run shot -- /your-page.html --describe-only`.
 - Collision: `engine.collision.walkable({ x, z })` is false inside a col_ box; ground: `engine.surface(x, z)` equals the step / floor height.
-- Related tests: `npm test -- 关卡`, `npm test -- "compressed assets"`, `npm test -- HLOD`, `npm test -- "vegetation ground"`.
+- Related tests: `threedog test 关卡`, `threedog test "compressed assets"`, `threedog test HLOD`, `threedog test "vegetation ground"`.

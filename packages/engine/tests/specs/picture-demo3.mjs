@@ -103,7 +103,7 @@ export const specs = [
           let lit = 0;
           for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) { gl.readPixels(Math.floor((x + 0.5) * w / 16), Math.floor((y + 0.5) * h / 16), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); if (px[0] + px[1] + px[2] > 0) lit++; }
           engine._afterTick = prev; Object.assign(a, keep); engine.setPixelRatio(a.max);
-          res({ paused: engine.paused, pr0, pr, frames, lit, size: [w, h], bufferMatches: w === R.domElement.width });
+          res({ paused: engine.halted, pr0, pr, frames, lit, size: [w, h], bufferMatches: w === R.domElement.width });
         };
       }));
       const all = JSON.stringify(r);
@@ -117,7 +117,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         const { vignette } = threedogTest.postEffects;
-        engine.pause();
+        engine.haltLoop();
         const fx = engine.post.add(vignette({ enabled: true, strength: 0.25 }));
         const x0 = engine.renderer.toneMappingExposure; engine.renderer.toneMappingExposure = 1.125;
         engine.step(1 / 30);

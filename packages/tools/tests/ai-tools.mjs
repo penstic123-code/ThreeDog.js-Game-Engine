@@ -2,8 +2,8 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ERROR_HINTS, hintFor, withHint } from 'threedog/error-hints';
-import { pickGameplay, diffDescribe, saveSnapshot, compareSnapshot } from '../describe-snapshot.mjs';
+import { ERROR_HINTS, hintFor } from 'threedog/error-hints';
+import { pickGameplay, diffDescribe, saveSnapshot, compareSnapshot, changeLine } from '../describe-snapshot.mjs';
 import { DOCS_REL, ROOT } from '../paths.mjs';
 
 export const name = 'AI tools: error hint table and describe snapshots (node)';
@@ -60,8 +60,6 @@ export async function run({ check }) {
   check('every pattern class has a sample in this test', ids.every(id => id in SAMPLES), ids.filter(id => !(id in SAMPLES)).join(', '));
   const docs = ERROR_HINTS.flatMap(h => h.docs.map(d => [h.id, d])).filter(([, d]) => !existsSync(join(ROOT, DOCS_REL, d)));
   check('every doc page a hint points at exists (relative to the package docs)', docs.length === 0, docs.map(x => x.join(': ')).join('; '));
-  check('withHint: appends the cause and the pages, and is idempotent; unknown messages stay unchanged',
-    /\n {2}Possible cause: .*\n {2}Read: recipes\/18-world\.md/.test(withHint(SAMPLES['world-plain'])) && withHint(withHint(SAMPLES['world-plain'])) === withHint(SAMPLES['world-plain']) && withHint('something else') === 'something else');
 
   const d = { perf: { fps: 60 }, time: { real: 12.3, clock: '12:00' }, player: { x: 10, y: 1, z: 5, state: 'idle' }, nearby: [{ name: 'Hen', dist: 3 }, { name: 'Pig', dist: 8 }], quests: { active: [{ id: 'q1', step: 'talk' }] } };
   const p = pickGameplay(d);
@@ -83,5 +81,13 @@ export async function run({ check }) {
     saveSnapshot(dir, 'x', d, { only: ['player'] });
     check('compare: same state passes, a changed one gives text with the update command',
       compareSnapshot(dir, 'x', d, { only: ['player'] }).ok && /player\.x: 10 -> 14[\s\S]*snap-describe save x/.test(compareSnapshot(dir, 'x', cur, { only: ['player'] }).text));
+    // [guard] an --only path that exists nowhere compares nothing, and nothing always "matches"
+    const none = compareSnapshot(dir, 'x', d, { only: ['nosuch'] });
+    check('compare: an only path on neither side fails, it does not pass on nothing', !none.ok && /nothing to compare at nosuch/.test(none.text), none.text);
+    check('compare: a pass says how many values it compared', compareSnapshot(dir, 'x', d, { only: ['player'] }).values > 0);
+    check('diff: a story counter has no tolerance', diffDescribe({ vars: { counters: { a: 1 } } }, { vars: { counters: { a: 1.25 } } }).length === 1);
+    check('frame counters are not gameplay', !('writers' in (pickGameplay({ picture: { writers: { a: 1 }, fog: 1 } }).picture ?? {})));
+    check('changeLine: names the change and leaves out what moves by itself', /vars\.flags\.a: added true/.test(changeLine({ vars: { flags: {} }, time: { clock: 1 } }, { vars: { flags: { a: true } }, time: { clock: 2 } })));
+    check('changeLine: says when nothing changed', /nothing/.test(changeLine({ time: { clock: 1 } }, { time: { clock: 2 } })));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

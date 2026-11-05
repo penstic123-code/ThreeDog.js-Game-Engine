@@ -6,13 +6,13 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const D = engine.dialogue;
         engine.content.load({ dialogues: { fixv: { nodes: { start: { text: [{ if: { flag: 'never-set-flag' }, text: 'only if' }], next: 'end' }, end: { text: 'bye' } } } } });
         let err = null;
         const { warns } = await __t.warns(() => { try { D.start('fixv'); engine.step(0.5, { render: false }); } catch (e) { err = e.message; } });
         const out = { err, warns, active: !!D.active, full: D.full };
-        D.end(); engine._resume();
+        D.end(); engine._unhalt();
         return out;
       });
       check('no error, the dialogue is open with an empty line', r.err === null && r.active && r.full === '', JSON.stringify(r));
@@ -149,7 +149,7 @@ export const specs = [
       await page.waitForFunction(() => window.engine?.ready, null, { timeout: 60000 });
       const r = await ev(async () => {
         const THREE = engine.THREE, I = engine.interactions, A = fn => engine.ops.allow(fn), h = engine.actorPosition().clone();
-        engine.pause();
+        engine.haltLoop();
         I.pickMode = 'nearest';
         engine.inventory.define('ix-berry', { name: 'berry' });
         const at = (i, k, r0, r1) => { const a = i * k, r = r0 + (i * 7919 % 97) / 97 * (r1 - r0); return { x: h.x + Math.cos(a) * r, z: h.z + Math.sin(a) * r }; };

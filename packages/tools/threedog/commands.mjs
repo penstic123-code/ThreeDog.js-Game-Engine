@@ -11,18 +11,23 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, dirname, extname, isAbsolute, resolve } from 'node:path';
 import { ev, evAttached, KEY, TITLE_COVERS } from './pageFns.mjs';
 import { readRuntime, trailer } from './runtime.mjs';
-import { saveSnapshot, compareSnapshot } from '../describe-snapshot.mjs';
+import { saveSnapshot, compareSnapshot, changeLine } from '../describe-snapshot.mjs';
 import { hintFor } from 'threedog/error-hints';
-import { errorsCommand } from './errorlog.mjs';
+import { errorsCommand, markReload } from './errorlog.mjs';
 import { catalogCommand } from './catalog.mjs';
 import { isStepsScript, stepsReport } from './steps.mjs';
+import { parseOptions, intOption } from '../lib/cli-args.mjs';
+import { drawnBy } from '../lib/page-url.mjs';
 const num = (s, name) => {
   const n = parseFloat(s);
   if (!(n > 0)) throw new Error(`${name} must be a positive number, e.g. threedog ${name === 'seconds' ? 'step 2' : '…'}`);
   return n;
 };
-const lines = (s, n = 3) => String(s).split('\n').slice(0, n).join('\n');
+/** The first n lines; dropped lines are said, an answer that just stops reads as the whole answer */
+const lines = (s, n = 3) => { const l = String(s).split('\n'); return l.length <= n ? l.join('\n') : [...l.slice(0, n), `… ${l.length - n} more line${l.length - n > 1 ? 's' : ''}`].join('\n'); };
 const MAX = 500;   // default output cap (characters); add --max N for more
+/** The one way output is shortened: JSON cut mid-word looked complete but broken, so every cut names its size and the way to the rest */
+const cut = (s, max) => { const t = String(s); return t.length <= max ? t : `${t.slice(0, max)}\n… cut at ${max} of ${t.length} characters (--max ${t.length} shows it all)`; };
 const SCENE_ROWS = 6;   // objects threedog scene lists by default (counts and the reasons line still cover all)
 
 /** key=value arguments of op / explain op / skip / state → [[key, value]]; a word without = is an error, not a silent { "": value } */
@@ -45,56 +50,38 @@ export function snapPath(dir, arg) {
   return { file: join(dir, '.threedog/shots', name), shown: `.threedog/shots/${name}` };
 }
 
-/** Strip options such as --max N / --full, returning { rest, opt } */
-function options(args) {
-  const rest = [], opt = {};
-  // a flag that takes a value but is last: say so, instead of a TypeError on undefined
-  const val = (i) => { if (i + 1 >= args.length) throw new Error(`${args[i]} needs a value, e.g. ${args[i]} ${args[i] === '--max' ? '800' : 'a,b'}`); return args[i + 1]; };
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '--max') opt.max = +args[++i]; else if (args[i] === '--full') opt.full = true; else if (args[i] === '--all') opt.all = true;
-    else if (args[i] === '--limit') opt.limit = args[++i]; else if (args[i] === '--hidden') opt.hidden = true;
-    else if (args[i] === '--find') opt.find = args[++i]; else if (args[i] === '--width') opt.width = +args[++i];
-    else if (args[i] === '--only') opt.only = val(i++).split(',').filter(Boolean);
-    else if (args[i] === '--ignore') opt.ignore = val(i++).split(',').filter(Boolean);
-    else if (args[i] === '--tolerance') opt.tolerance = +args[++i];
-    else if (args[i] === '--file') opt.file = args[++i]; else if (args[i] === '--verbose') opt.verbose = true;
-    else if (args[i] === '--since') opt.since = args[++i];
-    else if (args[i] === '--wait') opt.wait = +val(i++);
-    else if (args[i] === '--for') opt.for = args[++i]; else rest.push(args[i]);
-  }
+/** The options each command reads (lib/cli-args.mjs parseOptions spec); a command not listed takes none, so a typo fails instead of doing nothing */
+const SCRIPT = { flags: ['verbose'], values: ['max', 'file', 'wait'], passthrough: true };   // passthrough: an expression may start with a dash (js "-x")
+const OPTIONS = {
+  describe: { flags: ['full', 'all'], values: ['max'] },
+  press: { values: ['for'] },
+  eval: SCRIPT, js: SCRIPT,
+  snap: { flags: ['play', 'no-picture', 'help'], values: ['width'], short: { h: 'help' } },
+  'snap-describe': { values: ['only', 'ignore', 'tolerance'] },
+  errors: { values: ['since'] },
+  catalog: { flags: ['full'], values: ['max', 'find'] },
+  inspect: { values: ['max'] },
+  scene: { flags: ['hidden', 'full'], values: ['limit'] },
+  thing: { values: ['max'] },
+  explain: { flags: ['full'], values: ['max'] },
+};
+/** One command's arguments → { rest, opt }, the numbers and lists already converted */
+function options(cmd, args) {
+  const { rest, opt } = parseOptions(args, { positional: true, ...OPTIONS[cmd] });
+  for (const k of ['max', 'width']) if (k in opt) opt[k] = intOption(opt, k);
+  for (const k of ['wait', 'tolerance']) if (k in opt) opt[k] = +opt[k];
+  for (const k of ['only', 'ignore']) if (k in opt) opt[k] = opt[k].split(',').filter(Boolean);
   return { rest, opt };
 }
 
-const WAIT_S = 120;   // js: seconds a script may wait on a page that looks stopped before the command gives up (--wait)
+const WAIT_S = 120;   // eval: seconds a script may wait on a page that looks stopped before the command gives up (--wait)
 
-export const COMMANDS = {
-  describe: 'compact scenario description (--full for the describeText summary, --all for everything, describe player.x for one item, --max characters)',
-  step: 'advance N game seconds: step 2',
-  skip: 'jump the clock like sleeping: skip to=06:00 / skip seconds=600 (engine.skip; optional fade= save=)',
-  press: 'press a key or action: press interact / press KeyE / press e (held 0.1 s, then renders 1/60 s; --for 0.02 shortens the hold)',
-  hold: 'hold for N seconds: hold moveForward 1.5',
-  state: 'change the scenario: state time=18:30 weather=rain pos=40,-20',
-  eval: 'evaluate an expression in the page (engine is available, await works; multi-line statements need their own return): eval ' +
-    '"engine.calendar.timeOfDay"; long scripts: eval --file path (a script that calls assert(cond, msg) / expect(v).toBe(x) is run as checks: short pass/fail report, exit 1 on failure, --verbose for passes; --wait <seconds>, default 120: how long a script may wait on a page that looks stopped)',
-  js: 'alias of eval (the command has no eval in it, so the Bash sandbox does not block it): js "engine.calendar.timeOfDay" / js --file path',
-  'snap-describe': 'describe snapshot instead of a screenshot: snap-describe save|diff name [--only a,b] [--ignore x.y] [--tolerance 0.5]',
-  snap: 'save a screenshot to .threedog/shots/name.png and run the picture check on the page, as threedog shot does (snap name, or snap path/to/file.png used as given; --play first leaves the title as shot --play; --width N scales the returned image down, the saved file stays full size; --no-picture skips the check)',
-  errors: 'page errors with id, time, tick, source and count: errors = new since the last read; errors latest [N] = the last N, repeatable; errors --since E5 = after id 5 (known classes come with the cause and the doc page)',
-  reload: 'reload the page',
-  resume: 'resume real-time running (the page is paused after step / press)',
-  ops: 'what the player can do now (each op offer checked with can): ✓ shop.buy shop=bakery item=bread · ✗ … (reason)',
-  op: 'run an op as source bridge (no time passes): op shop.buy shop=bakery item=bread n=2 (values converted by the op args shape)',
-  inspect: 'what is around the player (or inspect npc_3 / inspect 10,-4) and which ops it can do now, with reasons; inspect materials = every material: textures, size, color space (wrong ones first), VRAM estimate, engine/game, patches, shared-by; inspect perf = draw calls, triangles, programs, texture MB, JS ms, compile stalls, each against a budget with the next call',
-  scene: 'the mesh exists but is not drawn: counts, one line of reasons over every Mesh / Points / Line / Sprite, then the first 6 undrawn ones (surprising before plain view culling) with WHY (visible=false up the parents, layers, material flags, scale 0 / NaN, empty geometry, behind camera, beyond far, outside the view, fog...): scene [--hidden (only undrawn)] [--limit N | --full (40)] [--json]',
-  pick: 'what is at screen pixel x,y (from the canvas top-left): pick 480,270 -> record id, kind, template, where it is defined (content file:line), fields',
-  thing: 'everything about one id as JSON: thing player-chest (definition file:line, template, model, materials, state, collision rules, related ops, save status, how to change it)',
-  explain: 'why: explain op shop.buy shop=bakery item=bread (can it run; --full adds its last attempt) / explain quest first-light (where it is stuck) / explain picture fog.far (which line last changed it)',
-  scenario: 'run one scenario test (tests/scenarios/<name>.json) on this page: scenario barter (prints failed checks; the scenario leaves the page paused)',
-  catalog: 'what the game can do, from its registrations: catalog = a line per module with ops or problems, the rest named on one line (--full: a line each); catalog shop = one module ' +
-    '(dependencies, params + defaults, ops with args and failure codes, saved parts, time hooks, problems, doc / recipe / source files); catalog shop.buy ' +
-    '= one op; catalog --find throw; --json for the raw data',
-  loading: 'what loading waits for / what failed / does it block the start (answers while start() is stuck); loading hero: one task with its manifest and path',
-};
+/** catalog --find covers the library too: an entry pulled later is something the game can do. An unreadable library is said, never a silent "no hits" */
+async function libraryHits(words) {
+  if (!words) return null;
+  const { listEntries, libraryDir } = await import('../lib.mjs');
+  try { return listEntries(libraryDir(), [words]); } catch (e) { return { error: String(e?.message ?? e) }; }
+}
 
 /** Why a screenshot failed: the browser's "Timeout 30000ms" says nothing, so ask the page what it is doing. No answer in time means its main thread is stuck */
 async function snapFailed(driver, err) {
@@ -105,7 +92,7 @@ async function snapFailed(driver, err) {
 /** loading command text: line 1 status, line 2 the failures, line 3 the hint for the first failure */
 function loadingText({ view: v, ready }) {
   const c = v.counts, head = v.done
-    ? `${v.ok ? '✓' : '✗'} Loading finished${ready ? '' : ' (start() not finished)'}, ${c.done}/${c.total} ok${c.failed ? `, ${c.failed} failed` : ''}`
+    ? `${v.ok ? '✓' : '✗'} Loading finished${ready ? '' : ' (start() not finished)'}, ${c.done - v.warnings.length}/${c.total} ok${v.warnings.length ? `, ${v.warnings.length} partial (missing files)` : ''}${c.failed ? `, ${c.failed} failed` : ''}`
     : `… ${v.blocked ? 'BLOCKED, ' : ''}waiting: ${v.waiting} (${c.pending} pending, ${c.done}/${c.total} done)`;
   const fail = v.failed.map(f => `${f.critical ? '✗ critical' : '! fell back'} ${f.kind} "${f.name}" ${f.error.url ?? ''} ${f.error.message}`
     + (f.fallback ? ` -> ${f.fallback}` : ''));
@@ -118,15 +105,16 @@ function loadingText({ view: v, ready }) {
 
 /** Run one command. On failure throws an Error (message is English, for the AI to read) */
 export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) {
-  const { rest, opt } = options(args), max = opt.max || MAX;
+  const { rest, opt } = options(cmd, args), max = opt.max || MAX;
   switch (cmd) {
     case 'describe': {
-      const text = await ev(driver, 'describe', { full: opt.full, all: opt.all, path: rest[0], max });
-      return { ok: true, text: opt.full || opt.all || rest[0] ? text : lines(text) };
+      const text = await ev(driver, 'describe', { full: opt.full, all: opt.all, path: rest[0] });
+      return { ok: true, text: opt.full || opt.all ? text : rest[0] ? cut(text, max) : lines(text) };
     }
     case 'step': {
-      const seconds = num(rest[0] ?? 1, 'seconds');
-      return { ok: true, text: `✓ Stepped ${seconds} s · ` + lines(await ev(driver, 'step', { seconds }), 3) };
+      const seconds = num(rest[0] ?? 1, 'seconds'), r = await ev(driver, 'step', { seconds });
+      // the verdict is the seconds that passed, not the seconds asked for
+      return r.short ? { ok: false, text: `✗ Stepped ${r.moved} of ${seconds} s: ${r.why} · ` + lines(r.text, 3) } : { ok: true, text: `✓ Stepped ${seconds} s · ` + lines(r.text, 3) };
     }
     case 'skip': {
       // same key=value shape as op: skip to=06:00 | skip seconds=600 (fade= and save= pass through to engine.skip)
@@ -141,7 +129,11 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     case 'press': case 'hold': {
       if (!rest[0]) throw new Error(`Usage: threedog ${cmd} action-or-key${cmd === 'hold' ? ' seconds' : ''}, e.g. threedog ${cmd} interact`);
       const seconds = cmd === 'hold' ? num(rest[1] ?? 1, 'seconds') : opt.for !== undefined ? num(opt.for, '--for seconds') : 0.1;
-      return { ok: true, text: '✓ ' + lines(await ev(driver, 'press', { key: rest[0], seconds, valid: KEY.source }), 3) };
+      const before = await ev(driver, 'raw', {}), r = await ev(driver, 'press', { key: rest[0], seconds, valid: KEY.source });
+      r.text = lines(r.text, 3) + '\n' + changeLine(before, await ev(driver, 'raw', {}));
+      // a press on a frozen page is normal (a title's Start, a dialogue choice): it fails only when the engine stopped on an error, or a hold never ran
+      const held = cmd === 'hold' && r.short;
+      return r.stopped || held ? { ok: false, text: `✗ ${held ? `Only ${r.moved} of ${seconds} s passed: ${r.why} · ` : ''}` + r.text } : { ok: true, text: '✓ ' + r.text };
     }
     case 'state': {
       const stray = rest.find(kv => !kv.includes('='));
@@ -151,7 +143,10 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       if (params.pos !== undefined && !/^-?[\d.]+,-?[\d.]+$/.test(params.pos)) throw new Error(`pos must be two numbers x,z (got "${params.pos}"). `
         + 'In PowerShell quote the comma: threedog state "pos=1,-8"');
       if (!Object.keys(params).length) throw new Error('Usage: threedog state time=18:30 weather=rain pos=40,-20 (also wait= cutscene=skip state=name fresh=1)');
-      return { ok: true, text: '✓ Set · ' + lines(await ev(driver, 'state', { params }), 3) };
+      const r = await ev(driver, 'state', { params });
+      if (!r.refused.length) return { ok: true, text: '✓ Set · ' + lines(r.text, 3) };
+      const took = Object.keys(params).filter(k => !r.refused.some(x => x.key === k));
+      return { ok: false, text: `✗ Not applied: ${r.refused.map(x => `${x.key}=${x.value} (${x.reason})`).join('; ')}${took.length ? `. Applied: ${took.join(', ')}` : ''}\n` + lines(r.text, 2) };
     }
     case 'eval': case 'js': {
       // --file: keep the script in a file, avoiding PowerShell / Bash quoting and multi-line problems
@@ -163,19 +158,18 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       if (!(wait > 0)) throw new Error('--wait takes seconds above 0, e.g. js --wait 300 "await longJob()"');
       if (isStepsScript(expr)) return stepsReport(await ev(driver, 'steps', { src: expr, wait }), opt.verbose);
       // no checks: prints the return value as before (same globals; log lines come first)
-      const r = await ev(driver, 'steps', { src: expr, plain: true, max, wait });
-      return { ok: true, text: [...r.logs.map(l => '· ' + l), '✓ ' + r.text].join('\n') };
+      const r = await ev(driver, 'steps', { src: expr, plain: true, wait }), logs = r.logs.map(l => '· ' + l);
+      // a script that threw keeps its log lines: they are what says how far it got
+      if (r.threw) return { ok: false, kind: 'command-error', text: [...logs, '✗ ' + r.threw].join('\n') };
+      return { ok: true, text: [...logs, '✓ ' + cut(r.text, max)].join('\n') };
     }
     case 'snap': {
       const usage = 'Usage: threedog snap [name | path] [--play] [--width N] [--no-picture]. A bare name saves .threedog/shots/<name>.png; a path (absolute, or with a folder) '
         + 'is used as given; .png is added only when it has no extension. --width N scales the returned image, the file stays full size. '
         + 'The picture check (as in threedog shot) runs on the page after the picture; --no-picture skips it. '
         + '--play first leaves the title screen the way its Start does, as in threedog shot --play';
-      if (args.includes('--help') || args.includes('-h')) return { ok: true, text: usage };
-      const noPicture = rest.includes('--no-picture'); if (noPicture) rest.splice(rest.indexOf('--no-picture'), 1);
-      const play = rest.includes('--play'); if (play) rest.splice(rest.indexOf('--play'), 1);
-      const flag = rest.find(x => x.startsWith('-'));
-      if (flag) throw new Error(`Unknown snap option "${flag}". Valid: --play, --width N, --no-picture (and --help). ` + usage);
+      if (opt.help) return { ok: true, text: usage };
+      const noPicture = opt['no-picture'], play = opt.play;
       if (rest.length > 1) throw new Error(`snap takes one name or path (got ${rest.length}: ${rest.join(' ')}). ` + usage);
       const out = snapPath(dir, rest[0]);
       if (play) await ev(driver, 'play', {});
@@ -187,7 +181,7 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       const brief = await ev(driver, 'picture', {});
       // --width N: the file keeps the full size (picture compare reads it); the picture returned to the caller (MCP image) is scaled down to N px wide
       let image = png;
-      if (opt.width && opt.width > 0) {
+      if (opt.width) {
         const b64 = await driver.evaluate(`async ([src, w]) => { const i = new Image(); i.src = 'data:image/png;base64,' + src; await i.decode();
           if (i.naturalWidth <= w) return null; const c = document.createElement('canvas'); c.width = w; c.height = Math.max(1, Math.round(i.naturalHeight * w / i.naturalWidth));
           const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(i, 0, 0, c.width, c.height); return c.toDataURL('image/png').split(',')[1]; }`,
@@ -203,7 +197,7 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
         picture = '\n' + (lk.error ? `Picture: skipped (${lk.error})` : formatPicture(lk.numbers, lk.probe, lk.hints).join('\n'));
       }
       const covered = !play && await ev(driver, 'title', {}) ? '\n  ' + TITLE_COVERS : '';
-      return { ok: true, image, text: `✓ Screenshot ${out.shown} (${(png.length / 1024).toFixed(0)} KB, drawn by ${await ev(driver, 'backend', {})})${image !== png ? `, image shown ${opt.width} px wide` : ''}${covered}\n` + brief + picture };
+      return { ok: true, image, text: `✓ Screenshot ${out.shown} (${(png.length / 1024).toFixed(0)} KB, drawn by ${drawnBy(await ev(driver, 'backend', {}))})${image !== png ? `, image shown ${opt.width} px wide` : ''}${covered}\n` + brief + picture };
     }
     case 'snap-describe': {
       const [mode, name] = rest, snapDir = join(dir, 'tests', 'snapshots');
@@ -212,27 +206,28 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       const d = await ev(driver, 'raw', {}), o = { only: opt.only, ignore: opt.ignore, tolerance: opt.tolerance };
       if (mode === 'save') { saveSnapshot(snapDir, name, d, o); return { ok: true, text: `✓ Baseline saved: tests/snapshots/${name}.describe.json` }; }
       const r = compareSnapshot(snapDir, name, d, o);
-      return { ok: r.ok, text: r.ok ? `✓ describe "${name}" matches the baseline` : '✗ ' + r.text };
+      return { ok: r.ok, text: r.ok ? `✓ describe "${name}" matches the baseline (${r.values} values compared)` : '✗ ' + r.text };
     }
     case 'errors': return errorsCommand(dir, rest, opt);
     case 'reload':
+      markReload(dir);
       if (driver.reload) await driver.reload(); else await driver.evaluate('() => { setTimeout(() => location.reload(), 0); return 1; }');
       return { ok: true, text: '✓ Page reloaded' };
     case 'resume':
       return { ok: true, text: '✓ ' + await ev(driver, 'resume', {}) };
-    case 'catalog': return catalogCommand(await ev(driver, 'catalog', { id: rest[0], find: opt.find }), rest[0], opt, dir);
+    case 'catalog': return catalogCommand(await ev(driver, 'catalog', { id: rest[0], find: opt.find }), rest[0], opt, dir, await libraryHits(opt.find));
     case 'ops':
       return { ok: true, text: lines(await ev(driver, 'ops', {}), 3) };
     case 'op': {
       if (!rest[0]) throw new Error('Usage: threedog op name key=value …, e.g. threedog op shop.buy shop=bakery item=bread (threedog ops lists what is ' +
         'possible)');
-      const r = await ev(driver, 'op', { name: rest[0], pairs: opPairs(rest.slice(1)) });
-      return { ok: r.ok, text: lines(r.text, 3) };
+      const before = await ev(driver, 'raw', {}), r = await ev(driver, 'op', { name: rest[0], pairs: opPairs(rest.slice(1)) });
+      return { ok: r.ok, text: lines(r.text, 3) + (r.ok ? '\n' + changeLine(before, await ev(driver, 'raw', {})) : '') };
     }
     case 'inspect': {
       const at = rest[0] && /^-?[\d.]+,-?[\d.]+$/.test(rest[0]) ? rest[0].split(',').map(Number) : rest[0];
       const text = await ev(driver, 'inspect', { at });
-      return { ok: !/^✗/m.test(text), text: at === 'materials' || at === 'perf' ? String(text).slice(0, opt.max || 2000) : lines(text, 3) };
+      return { ok: !/^✗/m.test(text), text: at === 'materials' || at === 'perf' ? cut(text, opt.max || 2000) : lines(text, 3) };
     }
     case 'scene': {
       const limit = opt.limit ? Number(opt.limit) : undefined;
@@ -253,23 +248,21 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
     case 'thing': {
       if (!rest[0]) throw new Error('Usage: threedog thing <id>, e.g. threedog thing chest-home (ids: threedog scene, pick x,y)');
       const r = await ev(driver, 'thing', { id: rest[0] });
-      return { ok: r.ok, text: r.text.slice(0, max), data: r.data };
+      return { ok: r.ok, text: cut(r.text, max), data: r.data };
     }
     case 'explain': {
       if (!rest[1]) throw new Error('Usage: threedog explain op shop.buy key=value … / threedog explain quest first-light / threedog explain picture fog.far');
       const r = rest[0] === 'op' ? await ev(driver, 'op', { name: rest[1], explain: true, pairs: opPairs(rest.slice(2)) })
         : await ev(driver, 'explain', { key: rest[0], value: rest[1] });
       // --full adds the detail (last attempt, events around it)
-      return { ok: r.ok, text: (r.ok ? '✓ ' : '✗ ') + lines(r.text, 3) + (opt.full && r.detail ? '\n' + String(r.detail).slice(0, max) : '') };
+      return { ok: r.ok, text: (r.ok ? '✓ ' : '✗ ') + lines(r.text, 3) + (opt.full && r.detail ? '\n' + cut(r.detail, max) : '') };
     }
     case 'loading': {
       if (!rest[0]) return loadingText(await evAttached(driver, 'loading', {}));
       const { task } = await evAttached(driver, 'loading', { name: rest[0] });
       if (!task) throw new Error(`No loading task named "${rest[0]}"; `
         + 'threedog loading lists pending and failed ones (manifest asset names, module names, track() names)');
-      return { ok: task.phase !== 'failed', text: JSON.stringify(task, null, 1).slice(0, max) };
+      return { ok: task.phase !== 'failed', text: cut(JSON.stringify(task, null, 1), max) };
     }
-    default:
-      throw new Error(`No command "${cmd}". Available: ${Object.keys(COMMANDS).join(', ')}`);
   }
 }

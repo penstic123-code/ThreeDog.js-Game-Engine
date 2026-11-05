@@ -12,6 +12,7 @@ import { codedError } from './errorHints.js';
 import { findThing, hintThing } from './thingOps.js';
 import { atomicNote } from './opsAtomic.js';
 import { NO_WRITERS } from './describeRender.js';
+import { r1 } from './math.js';
 
 const OPS_MAX = 8;
 
@@ -35,7 +36,7 @@ export function inspect(e, at, { radius = 10 } = {}) {
   const ops = e.ops.list({ available: true, actor }).sort((a, b) => b.ok - a.ok).slice(0, OPS_MAX)
     .map(o => ({ op: o.name, args: o.args, ok: o.ok, ...(o.ok ? {} : { code: o.code, why: note(e, o.name, o.code) ?? null, facts: o.facts, nextActions: o.nextActions }) }));
   const thing = typeof at === 'string' && at !== 'player' ? findThing(e, at) : null;
-  return { actor, at: { x: Math.round(p.x * 10) / 10, z: Math.round(p.z * 10) / 10 }, near, ops, ...(thing && { thing }) };
+  return { actor, at: { x: r1(p.x), z: r1(p.z) }, near, ops, ...(thing && { thing }) };
 }
 
 /**

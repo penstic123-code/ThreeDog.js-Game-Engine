@@ -7,7 +7,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const out = {};
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         out.gone = !('look' in engine);
@@ -15,12 +15,12 @@ export const specs = [
         const before = engine.scene.fog, own = new before.constructor(0x123456, 5, 50); engine.scene.fog = own; engine.step(0.05);
         out.fogOwn = [engine.scene.fog === own, own.far === 50 && own.color.getHex() === 0x123456];
         engine.scene.fog = before;
-        out.oneForm = err(() => engine.sky.replace(false));   // sky: replace(null)
+        out.none = err(() => engine.sky.replace(false)); out.domeOff = engine.sky.dome.visible; engine.step(0.05); out.domeOff ||= engine.sky.dome.visible; engine.sky.replace(null); out.domeBack = engine.sky.dome.visible;
         return out;
       });
       check('fog: scene.fog = a THREE.Fog of yours sticks', r.fogOwn[0] && r.fogOwn[1], JSON.stringify(r.fogOwn));
       check('look.fog is gone', r.gone);
-      check('sky.replace(false) throws naming replace(null)', r.oneForm.includes('replace(null)'), r.oneForm);
+      check('[guard] sky.replace(false) means no drawn sky, replace(null) gives the dome back', !r.none && !r.domeOff && r.domeBack, JSON.stringify(r));
     },
   },
   {
@@ -30,7 +30,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const { THREE } = threedogTest, sky = engine.sky, out = {}, step = () => engine.step(0.05);
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const hex = c => c.getHex();

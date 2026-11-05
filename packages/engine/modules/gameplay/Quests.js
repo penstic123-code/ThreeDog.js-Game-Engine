@@ -18,9 +18,10 @@
 // The log window is the UI part 'questLog' (questLog.js): replace it or turn it off with engine.ui.set('questLog', ...) (recipes/26-ui-parts.md).
 import { toast, toggleOnKey } from '../../ui/UI.js';
 import { questLogWindow } from './questLog.js';
-import { warnMissing, DEV } from '../../core/validate.js';
+import { warnMissing, warnOnce, DEV } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';
+import { reportError } from '../../core/errors.js';
 import { toSaved, fromSaved, migrateV1, stepId } from './questSave.js';
 
 const STRINGS = {
@@ -110,7 +111,10 @@ export class Quests {
   }
   start(id) {
     if (!this.defs.has(id)) { warnMissing('quest', id, [...this.defs.keys()]); return; }
-    if (this._progress[id] && !this._progress[id].failed) return;   // a failed quest may be taken again (a daily order, a retry)
+    if (this._progress[id] && !this._progress[id].failed) {   // a failed quest may be taken again (a daily order, a retry); an active one is a harmless repeat
+      if (this._progress[id].done) warnOnce(`quests.start('${id}'): the quest is already done, so nothing happens (a done quest does not restart). Use a new quest id for a repeatable order, or let it fail first`);
+      return;
+    }
     DEV && this.engine.ops.guard('quests.start');
     this._progress[id] = { step: 0, done: false };
     this._say('start', id, this.engine.t('quests.new', { title: this.defs.get(id).title }));
@@ -147,7 +151,10 @@ export class Quests {
   /** @internal after steps moved: complete the quest at the end, else announce the new step */
   _finishOrSay(id, s, d, advanced) {
     if (s.step >= d.steps.length) {
-      s.done = true; d.reward?.(this.engine);
+      s.done = true;
+      // done is already set, so a reward that throws must not stop here: the quest:done event and the toast would be lost and the reward would be half given.
+      // The failure is reported (soft, no freeze) and the rest goes on; content.run applies every other effect of the reward before it rethrows
+      try { d.reward?.(this.engine); } catch (err) { reportError(this.engine, err, `quest '${id}' reward`, { soft: true }); }
       this._say('done', id, this.engine.t('quests.done', { title: d.title })); this.engine.events.emit('quest:done', { id });
     } else if (advanced) this._say('step', id, stepText(d.steps[s.step]));
     if (advanced) this.win.refresh();

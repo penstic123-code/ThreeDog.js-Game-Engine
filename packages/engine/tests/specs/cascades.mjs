@@ -15,7 +15,7 @@ export const specs = [
         const sky = engine.sky, sun = engine.lights.sun, L = THREE.ShaderLib, out = {};
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const compile = (m, lib) => { const s = { uniforms: {}, vertexShader: lib.vertexShader, fragmentShader: lib.fragmentShader }; m.onBeforeCompile(s, engine.renderer); return s; };
-        engine.pause();
+        engine.haltLoop();
         const chunks = [THREE.ShaderChunk.lights_fragment_begin, THREE.ShaderChunk.lights_pars_begin];
         const m = applyEffects(new THREE.MeshLambertMaterial(), { wind: 0.04, season: 'foliage' });
         const before = materialPatches(m).join();
@@ -81,7 +81,7 @@ export const specs = [
         engine.step(1 / 30, { describe: false });
         out.off = { names: materialPatches(m).join(), late: csmOf(late.material), csm: engine.shadows.csm, gone: extra.every(l => !l.parent), right: sun.shadow.camera.right === right0,
           chunks: THREE.ShaderChunk.lights_fragment_begin === chunks[0] };
-        engine.scene.remove(tree, basic, late); engine._resume();
+        engine.scene.remove(tree, basic, late); engine._unhalt();
         return out;
       });
       check('开启后材质补丁 = 原补丁链 + csm（风吹/季节/云影一个不少），MeshBasic 不受影响', r.on.names === r.on.before + ',csm' && r.on.before.includes('wind') && r.on.basic === '', JSON.stringify(r.on));
@@ -114,7 +114,7 @@ export const specs = [
       await page.waitForFunction(() => window.engine?.stateApplied && engine.world.ready, null, READY);
       const r = await ev(() => {
         const T = engine.THREE, sky = engine.sky, sun = styletest.picture.sun, cam = engine.camera, R = engine.renderer, gl = R.getContext();
-        engine.pause();
+        engine.haltLoop();
         engine.ops.run('styletest.view', { name: 'path' });
         engine.calendar.timeOfDay = 0.4;   // the sun off to one side, so pole shadows run diagonally across the floor
         // only the test rig is drawn (exhibits would cast onto the floor or stand between the camera and far poles)
@@ -187,7 +187,7 @@ export const specs = [
         out.seam.centers = [a, b].map(l => l.map(x => +(x.center * 100).toFixed(1)));
         shadows.remove();
         engine.scene.remove(rig); for (const o of kept) o.visible = true;
-        engine.ops.run('styletest.view', { name: 'overview' }); engine._resume();
+        engine.ops.run('styletest.view', { name: 'overview' }); engine._unhalt();
         return out;
       });
       const txt = JSON.stringify(r);

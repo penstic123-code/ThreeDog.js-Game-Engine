@@ -4,7 +4,8 @@
 //   CHROMIUM_ARGS.gpu       WebGL through ANGLE on the real GPU (backend per platform): shot / gallery / perf / stress prefer it, it is several times faster
 import { chromium } from 'playwright';
 import { trackPageErrors, trackRequests } from './wait-engine.mjs';
-import { viteOptions } from './paths.mjs';
+import { TOOLS, viteOptions } from './paths.mjs';
+import { parseOptions } from './lib/cli-args.mjs';
 
 const COMMON = ['--enable-webgl', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'];
 /** ANGLE backend that reaches the hardware GPU headless on this platform */
@@ -25,9 +26,10 @@ export const IGNORED_CONSOLE = /GL Driver|GPU stall due to ReadPixels|Automatic 
 /** What the user forced: --gpu / --software on the command line, else THREEDOG_RENDER=gpu|software, else null */
 export function forcedRender() {
   // both given: an error, not a silent pick (gpu used to win)
-  if (process.argv.includes('--gpu') && process.argv.includes('--software')) throw new Error('--gpu and --software pick opposite renderers: give one of them');
-  if (process.argv.includes('--gpu')) return 'gpu';
-  if (process.argv.includes('--software')) return 'software';
+  const { opt } = parseOptions(process.argv.slice(2), { positional: true, passthrough: true, flags: ['gpu', 'software'] });
+  if (opt.gpu && opt.software) throw new Error('--gpu and --software pick opposite renderers: give one of them');
+  if (opt.gpu) return 'gpu';
+  if (opt.software) return 'software';
   const e = process.env.THREEDOG_RENDER;
   if (e && e !== 'gpu' && e !== 'software') throw new Error(`THREEDOG_RENDER="${e}": use gpu or software`);
   return e || null;
@@ -113,4 +115,22 @@ export function withTimeout(promise, ms, label) {
   let t;
   const late = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`${label} timed out after ${Math.round(ms / 1000)} s`)), ms); });
   return Promise.race([promise, late]).finally(() => clearTimeout(t));
+}
+
+/**
+ * Open a page on a dev server and put a tool's own script into it. The first time vite meets a module it re-optimizes and reloads the page, which throws away the injected
+ * script, so the whole opening is tried again.
+ * @param {import('playwright').Page} page @param {string} base  the dev server's address
+ * @param {string} file  a file of the tools package @param {() => Promise<any>} open  go to the page and wait for the game
+ * @param {() => any} ready  runs in the page: true once the script is up
+ */
+export async function injectTool(page, base, file, open, ready) {
+  for (let i = 0; ; i++) {
+    try {
+      await open();
+      await page.addScriptTag({ type: 'module', url: `${base}/@fs${TOOLS.replace(/\\/g, '/').replace(/^(?!\/)/, '/')}/${file}` });
+      await page.waitForFunction(ready, null, { timeout: 60000 });
+      return;
+    } catch (e) { if (i === 2) throw e; }
+  }
 }

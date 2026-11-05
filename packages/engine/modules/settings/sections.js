@@ -1,6 +1,6 @@
-// Built-in tabs of the settings menu: graphics, audio, keys, language.
+// Built-in tabs of the settings menu: graphics, audio, keys, language, saves.
 // Each tab is { title: engine => text, render: (tools, engine, settings) => HTML, bind?: (element, engine, settings) => void, when?: engine => show or not, order }
-// Controls bind no events directly; they carry data-* attributes that Settings.js handles in one place (a style's whole-page template can use the same attributes):
+// Controls bind no events directly; they carry data-* attributes that view.js handles in one place (a game's whole-page template can use the same attributes):
 //   data-tab="graphics"                   switch tab
 //   data-set="shadows" data-value="true"  click sets the setting shadows to true (value parsed as JSON, falls back to a string)
 //   data-range="vol.music"                slider <input type="range">; applies live while dragging, saves on release
@@ -57,14 +57,14 @@ export const BUILTIN_SECTIONS = {
       h += row(t('settings.antialias'), toggle('antialias', v.antialias, tools), esc);
       if (e.post.get('bloom')) h += row(t('settings.bloom'), toggle('bloom', v.bloom, tools), esc);
       if (e.post.get('ao')) h += row(t('settings.ao'), toggle('ao', v.ao, tools), esc);
-      if (e.adaptive) h += row(t('settings.adaptive'), toggle('adaptive', v.adaptive, tools), esc);
+      h += row(t('settings.adaptive'), toggle('adaptive', v.adaptive, tools), esc);
       if (s.chunkHost()?.setViewChunks) h += row(t('settings.viewDistance'), range('viewChunks', v.viewChunks, 2, 8, 1, tools), esc);
       if (s.chunkHost()?.setDensity) h += row(t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools), esc);
       return h;
     },
   },
   audio: {
-    order: 20, title: e => e.t('settings.audio'), when: () => true,
+    order: 20, title: e => e.t('settings.audio'),
     render(tools, e, s) {
       const { esc, t } = tools;
       // every bus of engine.audio (master first); a game's own bus is labeled by its key settings.vol.<bus>, else by its name
@@ -144,7 +144,7 @@ export const OPTIONAL_SECTIONS = {
       const e = s.engine, rig = () => e.cameraRig;
       s.define('camera.sensitivity', rig()?.sensitivity ?? 1, v => { if (rig() && 'sensitivity' in rig()) rig().sensitivity = v; });
       s.define('camera.invertY', rig()?.invertY ?? false, v => { if (rig() && 'invertY' in rig()) rig().invertY = v; });
-      s.define('camera.fov', e.camera.fov, v => setFov(e, v));   // the player's slider: yields to a fov the game took (engine.view.manual('fov'))
+      s.define('camera.fov', e.camera.fov, v => setFov(e, v));   // the player's slider: yields to a fov the game took (engine.autoView.manual('fov'))
       // a new rig starts from its own defaults (and setCamera resets the fov): put the player's choices back on it
       s._track(e.events.on('camera:change', () => { for (const k of ['camera.sensitivity', 'camera.invertY', 'camera.fov']) s.custom.get(k)?.apply(s.values[k], e); }));
     },

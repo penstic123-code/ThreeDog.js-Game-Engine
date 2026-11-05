@@ -88,5 +88,5 @@ export function makeMesher({ cfg, CHUNK, RES, CELL, gridH, surface, slope, biome
   const place = makePlacer({ chunk: CHUNK, seed: SEED, surface, slope, typeAt: biomeAt, fbm, skip, flat: cfg.flatten.length ? inFlatZone : null });
 
   const build = shape ? makeIslandBuilder({ CHUNK, RES, CELL, gridH, faceColor, paintColor, cellType, diagOf, gridNormal, textured, smoothLight, colorMap, shape, sphereOf }) : buildChunk;
-  return { buildChunk: build, place, gridNormal };
+  return { buildChunk: build, place };
 }

@@ -34,7 +34,6 @@ export const objectOrigin = Fn((_, builder) => {
 /**
  * An object-space offset carried through the instance's rotation / scale: GLSL patches add offsets before instanceMatrix,
  * a TSL positionNode runs after it, so wind()'s offset goes through this to land the same
- * @internal
  */
 export const instanceOffset = Fn(/** @param {[import('three/webgpu').Node<'vec3'>]} a @param {any} builder */ ([v], builder) => {
   const m = instanceMatrixOf(builder);

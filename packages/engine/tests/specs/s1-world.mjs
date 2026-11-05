@@ -5,7 +5,7 @@ export const specs = [
     url: '/?cutscene=skip',   // the opening cutscene takes over the camera (focus does not follow the player)
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, p = engine.player.position, seen = [];
         const h = engine.events.on('world:change', d => seen.push(d.keys.join(',')));
         const a = W.add({ id: 's1-a', kind: 's1box', position: [p.x + 3, 0, p.z], hp: 5 });
@@ -34,7 +34,7 @@ export const specs = [
     url: '/?cutscene=skip',   // the opening cutscene takes over the camera (focus does not follow the player)
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, T = engine.THREE, P = engine.player, home = P.position.clone();
         W.present('s1tree', { build: () => new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()), radius: 40 });
         let nearCalls = 0;
@@ -72,7 +72,7 @@ export const specs = [
     expectErrors: /s1bad/,   // make one model fail to build on purpose
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, T = engine.THREE, p = engine.player.position, tick = () => new Promise(r => setTimeout(r, 0));
         const box = () => new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial());
         let R = 20;
@@ -114,7 +114,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, p = engine.player.position;
         engine.mod('clock.rate', { owner: 'test', set: 30 });   // game clock runs 30x: dt does not follow it
         let T = 0;
@@ -144,7 +144,7 @@ export const specs = [
     url: '/?cutscene=skip',   // the opening cutscene takes over the camera (focus does not follow the player)
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, p = engine.player.position;
         W.simulate('s1mob', { near: rec => W.move(rec.id, [rec.position.x + 0.01, 0, rec.position.z]), far: (rec, dt) => { rec.t = (rec.t || 0) + dt; } });
         for (let i = 0; i < 2000; i++) W.add({ kind: 's1mob', position: [p.x + (i % 50) * 20 - 500, 0, p.z + Math.floor(i / 50) * 20 - 400] });

@@ -117,7 +117,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause(); engine.step(0.05);
+        engine.haltLoop(); engine.step(0.05);
         const sun = engine.lights.sun, row0 = engine.describe().owned?.['shadow.follow'];
         engine.focus.set(3, 0, 3); engine.step(0.05);
         const followed = sun.target.position.x;
@@ -142,7 +142,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const out = {};
         // batching: 12 copies of one game mesh opted in (userData.batch = true) in one cell -> a batch, and stats carries the note
         const T = engine.THREE, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial();
@@ -157,7 +157,7 @@ export const specs = [
   },
   {
     // cloud shadow and season stay as signals and shader terms: nothing about them may need the picture layer to exist
-    name: '[guard] shader terms: engine.terms swaps, drops and restores cloud shadow and season on built materials; the term and patch code reach no picture entry',
+    name: '[guard] shader terms: engine.shaderTerms swaps, drops and restores cloud shadow and season on built materials; the term and patch code reach no picture entry',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const code = ['render/terms.js', 'render/patches.js', 'render/detail.js', 'render/fx/patchNodes.tsl.js'].map(read).join('\n').replace(/^\s*(\/\/|\*|\/\*).*$/gm, '');
@@ -167,20 +167,20 @@ export const specs = [
         const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'shader-terms' });
         const m = applyEffects(new THREE.MeshLambertMaterial(), { engine: e, season: 'ground' }), has = () => materialPatches(m).join();
         const key = () => m.customProgramCacheKey(), out = { start: has() }, was = key();
-        const mine = e.terms.cloudShadow({ glsl: 'reflectedLight.directDiffuse *= 0.5;' });
+        const mine = e.shaderTerms.cloudShadow({ glsl: 'reflectedLight.directDiffuse *= 0.5;' });
         out.own = key() !== was && has() === out.start;
         const later = applyEffects(new THREE.MeshLambertMaterial(), { engine: e });
         out.later = later.customProgramCacheKey().includes('game~');
-        mine.remove(); const none = e.terms.cloudShadow(false);
+        mine.remove(); const none = e.shaderTerms.cloudShadow(false);
         out.off = has();
         none.remove();
         out.back = [has().split(',').includes('clouds'), !key().includes('game~')];   // it comes back at the end of the list, so compare the term, not the key
-        e.terms.season(kind => ({ glsl: `diffuseColor.rgb *= ${kind === 'ground' ? '0.5' : '0.9'};` }));
+        e.shaderTerms.season(kind => ({ glsl: `diffuseColor.rgb *= ${kind === 'ground' ? '0.5' : '0.9'};` }));
         out.season = key().includes('ground~game~');
-        e.terms.season(false);
+        e.shaderTerms.season(false);
         out.seasonOff = has().split(',').includes('season');
         const keep = key();
-        try { e.terms.cloudShadow(7); } catch (x) { out.bad = [x.code, x.message]; }
+        try { e.shaderTerms.cloudShadow(7); } catch (x) { out.bad = [x.code, x.message]; }
         out.kept = key() === keep;
         e.dispose();
         return out;

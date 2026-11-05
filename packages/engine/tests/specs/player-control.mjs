@@ -8,7 +8,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player, inp = engine.input, at = () => ({ x: p.position.x, z: p.position.z });
         p.faceMode = 'move'; p.faceTarget = null;
         engine.step(10 / 60, { render: false });
@@ -45,7 +45,7 @@ export const specs = [
       check('camera control: W moves the player', r.defaultMoved > 1, JSON.stringify(r));
       check('[guard] a game step holds the player: W / A do nothing, only its +X moves it', r.offIdle < 0.05 && r.offDx > 1 && Math.abs(r.offDz) < 0.3 && r.describeOff === 'lunge', JSON.stringify(r));
       check('side-scroller step: W does not move it, D moves only along X; removing it gives the keys back', r.fnW < 0.05 && r.fnDx > 1 && r.fnDz < 1e-6 && r.describeFn === 'side' && r.back === 'player-input', JSON.stringify(r));
-      check('bad control throws with the fix, before touching the existing player; old true says none is gone', /is not a control/.test(r.err) && /presets\.player\.thirdPerson/.test(r.err) && /'none' is gone/.test(r.errOld) && r.stillPlayer, r.err + ' | ' + r.errOld);
+      check('bad control throws with the fix, before touching the existing player', /is not a control/.test(r.err) && /presets\.player\.thirdPerson/.test(r.err) && /is not a control/.test(r.errOld) && r.stillPlayer, r.err + ' | ' + r.errOld);
       check('[guard] no control: createPlayer throws player-control and names the preset (the engine picks no feel)', r.codeNone === 'player-control' && /presets\.player\.thirdPerson/.test(r.errNone) && /engine\.control\.take/.test(r.errNone), r.errNone);
     },
   },
@@ -54,7 +54,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player, inp = engine.input, at = () => ({ x: p.position.x, z: p.position.z });
         p.faceMode = 'move'; p.faceTarget = null;
         engine.step(10 / 60, { render: false });
@@ -84,7 +84,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const rig = engine.cameraRig, p = engine.player.position, cam = engine.camera.position, out = {};
         const side = () => { const rt = rig.right(); return (cam.x - rig.focus.x) * rt.x + (cam.z - rig.focus.z) * rt.z; };
         rig.shoulder = 0; engine.step(30 / 60, { frameEvery: 1, render: false }); out.side0 = side();

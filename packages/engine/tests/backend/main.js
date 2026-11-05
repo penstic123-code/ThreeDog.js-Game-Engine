@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import * as TG from 'three/webgpu';
 import 'threedog/tsl';   // what a WebGPU game imports first: it brings three/webgpu for renderer: 'webgpu'
-import { createEngine, applyEffects, world, terrain } from '../../index.js';
+import { createEngine, applyEffects, world, terrain, hlod } from '../../index.js';
 import { renderOnce, stats } from '../../render/backend.js';
 import { watchGeometries } from '../../core/geometryWatch.js';
 
@@ -14,7 +14,7 @@ const base = { lights: false, pixelRatio: 1, adaptiveResolution: false, ui: { lo
 // the default engine (WebGL): describe / perf / tier stay what they were before the WebGPU entry
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), ...base, saveKey: 'test-backend' });
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 const canvas = () => { const c = Object.assign(document.createElement('canvas'), { width: W, height: H }); c.style.cssText = `width:${W}px;height:${H}px`; document.body.appendChild(c); return c; };
 let n = 0;
@@ -96,7 +96,7 @@ window.backendCases = async () => {
   out.hook = { game: await hookStart(bend, 'bent'), engine: await hookStart(patchedOnly, 'swaying'), under: await hookStart(patchedThenHook, 'both') };
   // a ShaderMaterial added after start(): named on the next frame through the scene-entry visitor (sceneDelta), with no full scene walk per frame
   {
-    const e = make({ renderer: 'webgpu' }); await e.start(); e.pause();
+    const e = make({ renderer: 'webgpu' }); await e.start(); e.haltLoop();
     const errs = [], error = console.error; console.error = (...a) => errs.push(a.map(String).join(' '));
     try {
       e.step(1 / 60, { describe: false }); e.step(1 / 60, { describe: false });
@@ -104,7 +104,7 @@ window.backendCases = async () => {
       const late = new THREE.Mesh(new THREE.PlaneGeometry(), new THREE.RawShaderMaterial({ name: 'lateRaw' })); late.name = 'late';
       const holder = new THREE.Group(); e.scene.add(holder); holder.add(late);   // nested add: still seen
       e.step(1 / 60, { describe: false });
-      out.late = { error: e.error?.message ?? '', logged: errs.some(l => l.includes("'lateRaw'")), walks: e._webglOnlyView.walks - walks };
+      out.late = { error: errs.find(l => l.includes("'lateRaw'")) ?? '', frozen: !!e.error, logged: errs.some(l => l.includes("'lateRaw'")), walks: e._webglOnlyView.walks - walks };
     } finally { console.error = error; e.dispose(); }
   }
   // option mistakes
@@ -140,7 +140,7 @@ window.debugViewCases = async () => {
   const glass = new THREE.MeshBasicMaterial({ color: 0x4060ff, transparent: true, opacity: 0.4 });
   const panes = [0, 1].map(i => { const p = new THREE.Mesh(new THREE.PlaneGeometry(2, 1.5), glass); p.position.set(0, 1.5, 2 + i * 0.3); return p; });
   g.scene.add(ground, tree, box, ...panes);
-  await g.start(); g.pause();
+  await g.start(); g.haltLoop();
   const cam = new THREE.PerspectiveCamera(50, W / H, 0.1, 200); cam.position.set(0, 3, 8); cam.lookAt(0, 1, 0); cam.updateMatrixWorld();
   const U = g.uniforms; U.uTime.value = 1.7; U.uWindFreq.value = 1; U.uWindAmp.value = 1; U.uWind.value = 0;
   const errs = [], orig = console.error;
@@ -176,7 +176,7 @@ window.shadowViewEnvCases = async (renderer) => {
   ground.receiveShadow = true;
   const box = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2, 1.5), new THREE.MeshStandardMaterial({ color: 0xd02020 })); box.position.set(0, 1, 0); box.castShadow = true;
   g.scene.add(ground, box);
-  await g.start(); g.pause();
+  await g.start(); g.haltLoop();
   const sun = g.lights.sun; sun.castShadow = true; sun.position.set(4, 6, 2); sun.target.position.set(0, 0, 0);
   const step = () => g.step(1 / 60, { describe: false });
   step();
@@ -218,7 +218,7 @@ window.shaderErrorCases = async () => {
   try { applyEffects(new TG.MeshLambertNodeMaterial(), { clouds: false, patches: [{ name: 'oops', slot: 'position', tsl: c => c.nope.mul(2) }] }); }
   catch (e) { out.sync = { message: String(e.message).split('\n')[0], top: String(e.stack).split('\n')[1] ?? '' }; }
   const g = make({ renderer: 'webgpu', lights: true });
-  await g.start(); g.pause();
+  await g.start(); g.haltLoop();
   const cam = new THREE.PerspectiveCamera(50, W / H, 0.1, 100); cam.position.set(0, 1, 4); cam.lookAt(0, 0, 0); cam.updateMatrixWorld();
   const errs = [], orig = console.error;
   console.error = (...a) => { errs.push(a.map(x => (x instanceof Error ? `${x.message}\n${x.stack}` : String(x))).join(' ')); };
@@ -264,7 +264,7 @@ window.shaderErrorCases = async () => {
 };
 
 // What a dropped mesh leaves in WebGPURenderer until the record sweep comes by (tests/specs/webgpu-release.mjs). The WebGL2 backend runs the same RenderObjects bookkeeping as real WebGPU, so this needs no GPU.
-const gpuEngine = async () => { const e = make({ renderer: new TG.WebGPURenderer({ canvas: canvas(), antialias: false, forceWebGL: true }), batching: false }); await e.start(); e.pause(); return e; };
+const gpuEngine = async () => { const e = make({ renderer: new TG.WebGPURenderer({ canvas: canvas(), antialias: false, forceWebGL: true }), batching: false }); await e.start(); e.haltLoop(); return e; };
 const records = e => e.renderer._objects._renderObjects.size;
 window.releaseCases = async () => {
   const out = {};
@@ -302,6 +302,107 @@ window.releaseCases = async () => {
 };
 
 // What the record sweep frees and what it must leave alone (render/recordSweep.js), and the dev geometry warning (core/geometryWatch.js). tests/specs/webgpu-release.mjs reads these.
+// three's BundleGroup beside the engine (tests/specs/bundles.mjs). Everything is read off real pixels: a bundle's whole point is that it draws what was recorded, not what the scene says now.
+// Top-down camera, sun from +x, so the box's shadow falls on the ground at x = -3 and, with the sun moved, at x = +3. Points sit on the middle row, so the read-back's row order does not matter.
+window.bundleCases = async () => {
+  const e = make({ renderer: new TG.WebGPURenderer({ canvas: canvas(), antialias: false, forceWebGL: true }) }); await e.start(); e.haltLoop();
+  const r = e.renderer, out = { bundles: r.backend.beginBundle !== undefined }, cam = e.camera;
+  r.shadowMap.enabled = true;
+  cam.position.set(0, 30, 0.001); cam.lookAt(0, 0, 0); cam.updateMatrixWorld();
+  const sun = new THREE.DirectionalLight(0xffffff, 3); sun.position.set(10, 20, 0); sun.castShadow = true; Object.assign(sun.shadow.camera, { left: -20, right: 20, top: 20, bottom: -20 }); e.scene.add(sun, new THREE.AmbientLight(0xffffff, 0.3));
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(40, 40).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1 })); ground.receiveShadow = true; e.scene.add(ground);
+  let recorded = 0;
+  if (out.bundles) { const begin = r.backend.beginBundle; r.backend.beginBundle = function (c) { recorded++; return begin.call(this, c); }; }
+  const px = async () => {
+    const b = await shot(e, cam);
+    return x => { const v = new THREE.Vector3(x, 0, 0).project(cam), i = Math.round((v.x + 1) / 2 * (W - 1)), j = H >> 1, o = (j * W + i) * 4; return [b[o], b[o + 1], b[o + 2]]; };
+  };
+  const red = c => c[0] > c[1] * 2 + 20, sum = c => c[0] + c[1] + c[2];
+  const state = async () => { await px(); const q = await px(); return { box: red(q(0)), left: sum(q(-3)), right: sum(q(3)) }; };
+  const empty = await state();
+  const shadowed = v => v < empty.right * 0.75;   // the unshadowed ground, with nothing standing on it
+  const mat = new THREE.MeshStandardMaterial({ color: 0xff0000, roughness: 1 }), geo = new THREE.BoxGeometry(3, 6, 3).translate(0, 3, 0), box = new THREE.Mesh(geo, mat); box.castShadow = true;
+  const bundle = new TG.BundleGroup(); bundle.name = 'town'; bundle.add(box); e.scene.add(bundle);
+  const seen = async () => { const s = await state(); return { box: s.box, shadowLeft: shadowed(s.left), shadowRight: shadowed(s.right) }; };
+  out.drawn = await seen();
+  const rec = recorded; out.replay = await seen(); out.replayRecorded = recorded - rec;   // nothing changed: nothing is recorded again
+
+  // the shadow pass replays too, and must follow the light, not the frame it was recorded in
+  sun.position.set(-10, 20, 0); out.sunMoved = await seen();
+  sun.position.set(10, 20, 0); await seen();
+
+  // a child's visible: the bundle keeps replaying it until the game says so, and its shadow goes with it
+  box.visible = false; out.childHiddenStale = await seen();
+  bundle.needsUpdate = true; out.childHidden = await seen();
+  box.visible = true; bundle.needsUpdate = true; out.childBack = await seen();
+  // the group's own visible works at once, for the shadow as well, and costs no recording
+  const before = recorded; bundle.visible = false; out.groupHidden = await seen();
+  bundle.visible = true; out.groupBack = await seen(); out.groupRecorded = recorded - before;
+
+  // read, not assumed: what a replayed bundle takes along without a recording
+  box.position.x = 6; box.updateMatrixWorld(); out.moved = await seen();
+  box.position.x = 0; box.updateMatrixWorld(); await seen();
+  mat.color.set(0x0000ff); out.recolored = await seen();
+  mat.color.set(0xff0000); await seen();
+
+  // a light added after the recording
+  const extra = new THREE.PointLight(0xffffff, 400); extra.position.set(0, 12, 0); e.scene.add(extra);
+  const lit = await state(); out.lightAdded = { box: lit.box, ground: lit.right }; e.scene.remove(extra); extra.dispose(); await state();
+
+  // removal from the group, then the group from the scene, through the engine: nothing stays drawn, nothing stays held
+  bundle.remove(box); out.removedStale = await seen();
+  bundle.needsUpdate = true; out.removed = await seen();
+  bundle.add(box); bundle.needsUpdate = true; await seen();
+  let freed = 0; geo.addEventListener('dispose', () => freed++);
+  const records = () => r._objects._renderObjects.size, held = records();
+  e.remove(bundle); out.gone = await seen(); e._records.sweepNow(); e._records.sweepNow(); await seen();
+  out.goneFreed = freed; out.recordsDropped = held - records();
+
+  // one owner: what is in a bundle is never batched, a plain group of the same is
+  const warned = []; const say = console.warn; console.warn = (...a) => warned.push(a.join(' '));
+  try {
+    const kit = new THREE.BoxGeometry(), kitMat = new THREE.MeshStandardMaterial(), copies = (root, n = 12) => { for (let i = 0; i < n; i++) { const m = new THREE.Mesh(kit, kitMat); m.position.set(i * 2 - 12, 0.5, 8); root.add(m); } return root; };
+    const asked = copies(new TG.BundleGroup()); asked.name = 'asked'; asked.userData.batch = true; e.scene.add(asked);
+    const held2 = copies(new THREE.Group()), inner = copies(new TG.BundleGroup()); held2.add(inner); held2.userData.batch = true; e.scene.add(held2);
+    e.step(1 / 60); e.step(1 / 60);
+    out.batched = e.batching.stats.instances;   // the 12 plain copies alone
+    out.bundledLayers = [...asked.children, ...inner.children].every(m => m.layers.mask === 1 && !m.userData.batched);
+    out.batchWarned = warned.filter(w => w.includes('BundleGroup')).length;
+    const d = e.describe?.().render ?? e.describe?.render; out.described = d?.bundles ?? null; out.describedText = /render bundles/.test(d?.text ?? '');
+    const seenItem = e.inspect.scene({ limit: 500 }).items.find(x => x.path.includes('asked'));
+    out.inspected = seenItem?.reasons?.some(x => x.code === 'in-bundle') ?? false;
+    // a stream build may return a bundle: it loads with its meshes untouched, and unloading takes it out of the scene
+    let built = null;
+    const entry = e.stream.add({ position: [0, 0, 0], radius: 10, build: () => (built = copies(new TG.BundleGroup())) });
+    e.stream.source(cam, { detail: 'full', physics: false });
+    for (let i = 0; i < 10 && !built?.parent; i++) e.step(1 / 60);
+    e.step(1 / 60);
+    out.streamLoaded = !!built?.parent; out.streamBatched = e.batching.stats.instances;
+    entry.remove?.(); for (let i = 0; i < 10 && built?.parent; i++) e.step(1 / 60);
+    out.streamUnloaded = !built?.parent;
+    // hlod leaves a bundle alone and says so
+    e.use(hlod()); warned.length = 0;
+    const h = e.hlod.add(asked); for (let i = 0; i < 5; i++) e.step(1 / 60);   // the page is paused, so whenReady would wait for jobs nobody runs
+    out.hlodCells = h.cells.length; out.hlodWarned = warned.filter(w => w.includes('hlod')).length;
+    out.hlodTouched = asked.children.some(m => m.userData.hlod);
+    h.remove(); e.remove(asked); e.remove(held2);
+  } finally { console.warn = say; }
+
+  // a batch rests: its instances are static to three, and a write still reaches the screen (a move, a recolor, a copy leaving)
+  e.scene.add(new THREE.AmbientLight(0xffffff, 1));
+  const copyGeo = new THREE.BoxGeometry(2, 2, 2), copyMat = new THREE.MeshBasicMaterial({ color: 0xff0000 }), copies = [];
+  for (let i = 0; i < 12; i++) { const m = new THREE.Mesh(copyGeo, copyMat); m.position.set(i === 0 ? 0 : 200 + i * 3, 1, 0); m.userData.batch = true; e.scene.add(m); copies.push(m); }
+  const look = async () => { e.step(1 / 60); e.step(1 / 60); await px(); const p = await px(); return { at0: red(p(0)), at6: red(p(6)), dimmed6: p(6)[0] > 20 && p(6)[0] < 150 }; };
+  out.batch = await look();
+  const im = e.batching.of(copies[0])[0]?.mesh; out.batchUsage = im ? im.instanceMatrix.usage === THREE.DynamicDrawUsage : null;
+  copies[0].position.x = 6; out.batchMoved = await look();
+  // the first tint of a batch already drawn: the copy at 6 goes darker (red x grey) (spec in bundles.mjs)
+  e.batching.tint(copies[0], 0x808080); out.batchTinted = await look();
+  e.batching.tint(copies[0], null); e.remove(copies[0]); out.batchLeft = await look();
+  e.dispose();
+  return out;
+};
+
 window.sweepCases = async () => {
   const e = await gpuEngine(), r = e.renderer, s = e._records, out = {}, mat = new THREE.MeshLambertMaterial();
   const set = () => r._objects._renderObjects, box = new THREE.BoxGeometry();

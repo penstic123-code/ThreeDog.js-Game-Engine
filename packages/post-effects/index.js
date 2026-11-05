@@ -12,6 +12,7 @@
 // an effect declares skipOnLowTier itself, the engine only follows that declaration, and says so in describe() and with one console note when it holds one. None here declare it, so the heavy
 // ones (bloom, ao, dof, outline mode normal/both) stay the game's call on weak devices: read engine.tier and leave them out.
 import * as THREE from 'three';
+import { codedError } from 'threedog/error-hints';
 export { dof } from './dof.js';
 export { bloom, ao } from './hdr.js';
 export { outline, OUTLINE_OFF_LAYER } from './outline.js';
@@ -29,7 +30,7 @@ identity.format = THREE.RGBAFormat; identity.minFilter = identity.magFilter = TH
  * @example
  * import { LUTCubeLoader } from 'three/addons/loaders/LUTCubeLoader.js';
  * const { texture3D } = await new LUTCubeLoader().loadAsync('/luts/warm.cube');
- * engine.post.add(lut({ enabled: true, lut: texture3D, amount: 0.8, saturation: 1.1, temperature: 0.2 }))
+ * engine.post.add(lut({ lut: texture3D, amount: 0.8, saturation: 1.1, temperature: 0.2 }))
  * @param {{ lut?: import('three').Data3DTexture | null, amount?: number, contrast?: number, saturation?: number, temperature?: number, enabled?: boolean, order?: number }} [o]
  *   lut: a 3D LUT texture (null = only the numbers below); amount: how much of the LUT result to use (0..1); contrast, saturation: 1 = unchanged;
  *   temperature: -1 cool .. 1 warm
@@ -64,7 +65,7 @@ export function lut({ lut = null, amount = 1, contrast = 1, saturation = 1, temp
  * @returns {import('three').Data3DTexture}
  */
 export function paletteLut(colors, size = 32) {
-  if (!Array.isArray(colors) || colors.length < 2) throw new Error('paletteLut(colors): colors must be an array of at least 2 colors, e.g. [0x101014, 0xf4f1e8]');
+  if (!Array.isArray(colors) || colors.length < 2) throw codedError('post-effect', 'paletteLut(colors): colors must be an array of at least 2 colors, e.g. [0x101014, 0xf4f1e8]');
   const pal = colors.map(c => new THREE.Color(c).getRGB({ r: 0, g: 0, b: 0 }, THREE.SRGBColorSpace));
   const data = new Uint8Array(size ** 3 * 4);
   for (let i = 0, b = 0; b < size; b++) for (let g = 0; g < size; g++) for (let r = 0; r < size; r++, i += 4) {
@@ -80,7 +81,7 @@ export function paletteLut(colors, size = 32) {
 
 /**
  * Film grain (ldr slot): per-pixel noise, a little weaker in highlights.
- * @example engine.post.add(grain({ enabled: true, amount: 0.06 }))
+ * @example engine.post.add(grain({ amount: 0.06 }))
  * @param {{ amount?: number, size?: number, animated?: boolean, enabled?: boolean, order?: number }} [o]
  *   amount: noise strength; size: grain size in device pixels; animated: new noise every frame (24 per second)
  * @returns {PostEffect}
@@ -102,7 +103,7 @@ export function grain({ amount = 0.06, size = 1, animated = true, enabled, order
 
 /**
  * Vignette (ldr slot): darker screen corners.
- * @example engine.post.add(vignette({ enabled: true, strength: 0.4 }))
+ * @example engine.post.add(vignette({ strength: 0.4 }))
  * @param {{ strength?: number, start?: number, enabled?: boolean, order?: number }} [o]
  *   strength: darkness at the corners (0..1); start: distance from the center where darkening begins (0 center .. 1 corner)
  * @returns {PostEffect}
@@ -119,7 +120,7 @@ export function vignette({ strength = 0.35, start = 0.45, enabled, order = 20 } 
 /**
  * Chromatic aberration (ldr slot): red and blue shift apart toward the screen edge. Samples the pass input, so it starts a fused group
  * (default order puts it first, so it still joins the others).
- * @example engine.post.add(chromatic({ enabled: true, amount: 0.004 }))
+ * @example engine.post.add(chromatic({ amount: 0.004 }))
  * @param {{ amount?: number, enabled?: boolean, order?: number }} [o]  amount: edge shift in screen fractions
  * @returns {PostEffect}
  */

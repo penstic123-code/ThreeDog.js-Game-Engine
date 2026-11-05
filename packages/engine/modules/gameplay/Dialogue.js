@@ -36,7 +36,6 @@ const STR = {
 };
 const checkChannel = c => { if (!CHANNELS.includes(c)) throw codedError('module-params', STR.channel.replace('{got}', c)); };
 const SAY_KEYS = ['speaker', 'node', 'channel', 'at', 'seconds', 'queue', 'onCancel'], START_KEYS = ['channel', 'at', 'onCancel'];
-// 0.2 lock: false is now channel: 'bubble'; if not caught, old code would silently take the main channel and lock input (the opposite behavior), so name the new form first, then run the generic unknown-key check
 const readLine = (fn, keys, o) => readParams(`dialogue.${fn}`, keysSchema(keys), o ?? {});
 
 export class Dialogue {
@@ -44,7 +43,7 @@ export class Dialogue {
     this.engine = engine;
     this.scripts = new Map();
     this.state = { get flags() { return engine.vars.flags; } };   // story flags = engine.vars.flags (autosaved)
-    this.cps = charsPerSecond;
+    this.charsPerSecond = charsPerSecond;
     // default: confirm only (a basic key). Other actions advance only when the game names them: advanceActions: ['confirm', 'interact']
     this.advanceActions = advanceActions;
     this.holdSeconds = holdSeconds;
@@ -156,7 +155,7 @@ export class Dialogue {
     a.who = node.speaker || a.speaker;
     this.full = String(text ?? ''); this.shown = 0; this.typing = true; this._opts = null;
     this.engine.events.emit('dialogue:line', { script: a.speaker, node: id, speaker: a.who, text: this.full, data: node.data ?? {} });
-    if (!this.full || !(this.cps > 0)) this._finishTyping();   // charsPerSecond 0 = whole line at once
+    if (!this.full || !(this.charsPerSecond > 0)) this._finishTyping();   // charsPerSecond 0 = whole line at once
     else this._draw();
   }
 
@@ -213,7 +212,7 @@ export class Dialogue {
     const ops = this.engine.ops;
     if (this.typing) {
       const was = Math.floor(this.shown);
-      this.shown = Math.min(this.full.length, this.shown + dt * this.cps);
+      this.shown = Math.min(this.full.length, this.shown + dt * this.charsPerSecond);
       if (this.shown >= this.full.length) this._finishTyping();
       else if (Math.floor(this.shown) !== was) this._draw();   // redraw only when another character shows
     }
@@ -269,7 +268,7 @@ export function dialogue(opts = {}) {
       if (!a && !bubbles.length) return;
       const label = c => (typeof c.text === 'function' ? c.text(d.state, e) : c.text);
       if (ctx.out.ui) {
-        if (a) ctx.out.ui.dialogue = { speaker: a.who, text: d.full, typing: d.typing, choices: (d._opts || []).map(label), selected: d._opts ? a.focus.index ?? 0 : -1 };
+        if (a) ctx.out.ui.dialogue = { speaker: a.who, text: d.full, typing: d.typing, choices: (d._opts || []).map(label), selected: d._opts ? a.focus.index ?? 0 : -1, advance: d.advanceActions.map(x => e.input.label(x)).join(' / ') };
         if (bubbles.length) ctx.out.ui.bubbles = bubbles;
       }
     },

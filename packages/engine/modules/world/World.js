@@ -236,7 +236,7 @@ export class World {
    * @returns {{ remove(): void }}
    */
   pauseSimulation() { const s = this._s; s.fixed = () => {}; return { remove: () => { delete s.fixed; } }; }
-  /** Number of fixed steps simulated */ get steps() { return this._s.n; }
+  /** Number of fixed steps simulated @experimental */ get steps() { return this._s.n; }
 
 
 }

@@ -9,7 +9,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const T = engine.THREE, A = engine.assets, W = engine.world, tick = () => new Promise(res => setTimeout(res, 0));
-        engine.pause();
+        engine.haltLoop();
         const params = { h: { type: 'number', min: 0.1, max: 9, default: 1 } };
         const box = p => new T.BoxGeometry(1, p.h, 1);
         const group = n => () => { const g = new T.Group(); for (let i = 0; i < n; i++) { const m = new T.Mesh(new T.BoxGeometry(0.5, 0.5, 0.5), new T.MeshStandardMaterial()); m.position.y = i; g.add(m); } return g; };

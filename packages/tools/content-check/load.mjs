@@ -7,8 +7,7 @@ import { withDomStub } from './dom-stub.mjs';
 
 // The engine's content vocabulary (path read from paths.mjs); content-check.mjs and gamemap.mjs also take mergeRules etc. from here
 const rules = await import(pathToFileURL(abs(CONTENT_RULES_REL)).href);
-const { contentFiles, unknownContent } = rules;
-export const { mergeRules, CLOCK_RE, describeCond, describeEffect, NO_GAME_EFFECTS, kindProblems } = rules;
+export const { mergeRules, CLOCK_RE, describeCond, describeEffect, NO_GAME_EFFECTS, kindProblems, contentFiles, unknownContent } = rules;
 export { ROOT, rel };
 
 /** All game folders: those in packages/engine/examples/* and games/* that have a main.js (gameDirs in paths.mjs) */

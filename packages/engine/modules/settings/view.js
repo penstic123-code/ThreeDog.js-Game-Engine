@@ -55,7 +55,7 @@ export class SettingsView {
     el.addEventListener('input', ev => {
       const r = ev.target.closest?.('[data-range]'); if (!r) return;
       const key = r.dataset.range, v = +r.value;
-      this.values[key] = v;
+      this._values[key] = v;
       if (key !== 'density' && key !== 'viewChunks') this._apply(key, v);   // these two rebuild the world, so they apply on release
       const lab = el.querySelector(`[data-val="${CSS_ESC(key)}"]`); if (lab) lab.textContent = formatValue(key, v);
     });

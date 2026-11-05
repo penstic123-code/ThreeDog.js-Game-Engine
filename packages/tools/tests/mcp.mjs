@@ -88,7 +88,7 @@ async function steps(check, plain) {
     const p = await plain.rpc('tools/call', { name: 'describe', arguments: { path: 'time.clock' } });
     check('describe: structuredContent has ok, code, summary, runtime and data, and every tool declares an outputSchema',
       d.structuredContent?.ok === true && d.structuredContent.code === 'ok' && typeof d.structuredContent.summary === 'string'
-        && d.structuredContent.runtime.ready === true && ['running', 'paused', 'frozen'].includes(d.structuredContent.runtime.mode)
+        && d.structuredContent.runtime.ready === true && ['running', 'halted', 'frozen'].includes(d.structuredContent.runtime.mode)
         && Array.isArray(d.structuredContent.runtime.blockedBy) && (await plain.rpc('tools/list')).tools.every(t => t.outputSchema?.type === 'object'),
       JSON.stringify(d.structuredContent).slice(0, 300));
     const bad = await plain.rpc('tools/call', { name: 'op', arguments: { name: 'no.such.op' } }), er = await plain.rpc('tools/call', { name: 'errors', arguments: {} });
@@ -114,7 +114,7 @@ async function steps(check, plain) {
     const t = id ? await plain.rpc('tools/call', { name: 'thing', arguments: { id } }) : null;
     check('thing: the tool returns the id\'s explain() JSON (the name is echoed back in the text)', !!t && !t.isError && t.content[0].text.includes(id), `${id} ${JSON.stringify(t?.content?.[0]?.text).slice(0, 200)}`);
     const stt = await plain.rpc('tools/call', { name: 'status', arguments: {} });
-    check('status: against a live page the text has a "Run state:" line (running / paused(by …) / test-paused)', /Run state: (running|paused|test-paused|frozen)/.test(stt.content[0].text), stt.content[0].text);
+    check('status: against a live page the text has a "Run state:" line (running / frozen(by …) / halted)', /Run state: (running|halted|frozen)/.test(stt.content[0].text), stt.content[0].text);
     const nt = await plain.rpc('tools/call', { name: 'thing', arguments: { id: 'no-such-thing-xyz' } });
     check('thing: an unknown id is a tool error with a message, not a crash', nt.isError && nt.content[0].text.length > 5, nt.content[0].text);
     // async spawn on purpose: the dev server lives in this process, a blocking spawnSync would starve it

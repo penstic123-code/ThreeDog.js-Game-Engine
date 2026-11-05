@@ -5,7 +5,7 @@
 //   threedog errors --since 5      records after id 5 (E5 also works); never moves the read position, so it is safe to repeat
 // Ids are the order of appearance in the log (E1, E2…), restarting when the dev server restarts (the log is cleared then). The "read position" stores
 // the log's first line too, so a restarted dev server does not hide its new errors behind an old position.
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { hintFor } from 'threedog/error-hints';
 import { oneLine } from '../lib/oneline.mjs';
@@ -42,6 +42,22 @@ const epochOf = text => text.split('\n', 1)[0];
 export const allErrors = dir => parseErrors(readLog(dir));
 /** Records that count as errors (warnings are listed but do not fail a check) */
 export const isError = r => r.kind !== 'warning';
+
+const reloadFile = dir => join(dir, '.threedog/errors-reload');
+/** threedog reload: errors logged so far belong to the page that is about to go. Ids restart with the log, so the log's first line is kept with the count */
+export function markReload(dir) {
+  const text = readLog(dir), last = parseErrors(text).at(-1)?.id ?? 0;
+  mkdirSync(join(dir, '.threedog'), { recursive: true });
+  writeFileSync(reloadFile(dir), JSON.stringify({ first: text.split('\n')[0], last }));
+}
+/** The errors of the page running now: those after the last reload, or all of them when the log has restarted since */
+export function currentErrors(dir) {
+  const all = allErrors(dir);
+  try {
+    const m = JSON.parse(readFileSync(reloadFile(dir), 'utf8'));
+    return readLog(dir).split('\n')[0] === m.first ? all.filter(r => r.id > m.last) : all;
+  } catch { return all; }
+}
 
 /** Snapshot before a run: id -> count. A repeat of an old error only raises its count (no new record), so ids alone would miss it */
 export const errorMark = dir => new Map(allErrors(dir).map(r => [r.id, r.count]));

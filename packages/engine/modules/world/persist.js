@@ -7,7 +7,7 @@
 //   Loading before content is loaded works too: changes and removals are remembered and applied / skipped when content is added. Things newly added to content after a game update still show up with an old save.
 //   Temporary things (data for effects, one-off spawns): add(def, { save: false }) — not saved, cleared on load.
 //   Changes are found by comparing JSON against the original content, not by events: fields changed directly inside simulate are saved too.
-// Save format (part 'world', version 4): every record is keyed by its stable id, and only what play changed is stored:
+// Save format (part 'world', version 5): every record is keyed by its stable id, and only what play changed is stored:
 //   { seq, step, time, records: { id: whole runtime record without id }, changed: { id: { set?: changed fields, del?: [removed fields] } },
 //     removed: [ids of removed initial records], owed: { id: simulation seconds owed, only for kinds simulated with far } }
 //   Version 1 kept records as an array: migrate step 1 (WORLD_MIGRATE) turns it into the id-keyed object.
@@ -26,18 +26,25 @@ import { codedError } from '../../core/errorHints.js';
 import { isPlainObject } from '../../core/util.js';
 
 const PLAIN_STRINGS = {
-  msg: 'world data must be plain values (number, string, boolean, array, plain object): {path} is {what}. Put models in world.present() and logic in world.simulate()',
-  fn: 'a function', obj: 'a three.js object', asset: 'a three.js asset', dom: 'a DOM element',
+  msg: "saved world data must be plain values (number, string, boolean, array, plain object): {path} is {what}. A model: world.present('crate', { build: rec => mesh }), then world.view(id) gets it; logic: world.simulate(); not saved: world.add(rec, { save: false })",
+  fn: 'a function', obj: 'a three.js object', asset: 'a three.js asset', dom: 'a DOM element', instance: 'a {name}, which comes back from a save as a bare object: write {shape}',
 };
-/** Dev-time check: data must not contain three.js objects, functions or DOM elements (saves can only store plain values) @internal */
+/** Dev-time check: data must not contain three.js objects, functions, DOM elements or class instances (saves can only store plain values) @internal */
 export function checkPlain(v, path, depth = 0) {
   const fail = what => { throw codedError('world-plain', PLAIN_STRINGS.msg.replace('{path}', path).replace('{what}', what)); };
   if (v == null || typeof v !== 'object') { if (typeof v === 'function') fail(PLAIN_STRINGS.fn); return; }
   const what = v.isObject3D ? PLAIN_STRINGS.obj : v.isMaterial || v.isBufferGeometry || v.isTexture ? PLAIN_STRINGS.asset : typeof Element !== 'undefined' && v instanceof Element ? PLAIN_STRINGS.dom : null;
   if (what) fail(what);
+  // a Vector3 or Color passed here and came back from a load as a bare object, so rec.dir.add(...) threw only then
+  if (!Array.isArray(v) && !isPlainObject(v)) fail(PLAIN_STRINGS.instance.replace('{name}', v.isVector3 ? 'Vector3' : v.isColor ? 'Color' : 'class instance').replace('{shape}', v.isVector3 ? '{ x, y, z }' : v.isColor ? 'a number or a string' : 'plain fields'));   // not constructor.name: a build minifies it
   if (depth > 6) return;
   for (const k in v) checkPlain(v[k], `${path}.${k}`, depth + 1);
 }
+
+/** Whether a value can go into a save: what checkPlain accepts @internal */
+export function isPlain(v) { try { checkPlain(v, ''); return true; } catch { return false; } }
+
+const CHANGES_MAX = 50;
 
 /** Compare an initial record with its original: which top-level fields changed, which were removed (null if neither) */
 function diff(rec, base) {
@@ -50,7 +57,7 @@ function diff(rec, base) {
   return set || del ? { set: set ?? undefined, del: del ?? undefined } : null;
 }
 
-/** Upgrade steps of the world save part (saves.register version 3) @internal */
+/** Upgrade steps of the world save part (saves.register version 5) @internal */
 export const WORLD_MIGRATE = {
   1: d => ({ ...d, records: Object.fromEntries((d?.records || []).map(({ id, ...r }) => [id, r])) }),   // array of records -> keyed by id
   2: d => {   // runtime ids `<kind>-<n>` -> `<kind>#<n>`: record keys, owed keys, and field values that name a renamed record
@@ -83,6 +90,31 @@ export const WORLD_MIGRATE = {
 
 
 
+/**
+ * What play changed, for describe().world: totals alone said "same" after a prop moved. changed holds one row per record whose fields differ from its content
+ * (runtime records report their kind and place), removed the initial records gone. Capped, with the rest counted, because describe runs after every step and goes
+ * to the AI. The player's motion and the player record are left out: describe().player already says where it is, and those fields change every step. So is where a
+ * record with motion stands (a walking NPC): it is a new row on every step, and the one thing a command really changed would drop off the line that names it.
+ * @param {import('./World.js').World} w @internal
+ */
+export function worldChanges(w) {
+  const rows = [];
+  for (const rec of w.records.values()) {
+    if (w._unsaved.has(rec.id) || rec.kind === 'player') continue;
+    const base = w._base.get(rec.id);
+    if (!base) { rows.push({ id: rec.id, kind: rec.kind, runtime: true, ...(!rec.motion && { position: { ...rec.position } }) }); continue; }   // a copy: a kept describe result must not move
+    const d = diff(rec, base);
+    if (!d) continue;
+    const { motion, ...set } = d.set ?? {};
+    if (rec.motion) { delete set.position; delete set.rot; }
+    if (Object.keys(set).length || d.del) rows.push({ id: rec.id, ...set, ...(d.del && { removedFields: d.del }) });
+  }
+  rows.sort((a, b) => (a.id < b.id ? -1 : 1));
+  const removed = [...w._removed].sort();
+  return { ...(rows.length && { changed: rows.slice(0, CHANGES_MAX) }), ...(rows.length > CHANGES_MAX && { changedMore: rows.length - CHANGES_MAX }),
+    ...(removed.length && { removed: removed.slice(0, CHANGES_MAX) }), ...(removed.length > CHANGES_MAX && { removedMore: removed.length - CHANGES_MAX }) };
+}
+
 /** @param {import('./World.js').World} w @internal */
 export function saveWorld(w) {
   const records = {}, changed = {};
@@ -103,7 +135,7 @@ export function saveWorld(w) {
 const SHAPE_STRINGS = {
   bad: "world save: {path} {why} (got {got}); the save was refused and the game was rolled back. The save was edited by hand or damaged: fix that field, or load another save",
   obj: 'must be a plain object', kind: 'must have kind (a string)', pos: 'must be { x, y, z } with finite numbers within ±{max}',
-  arr: 'must be an array of record ids', count: 'must be a finite number >= 0',
+  arr: 'must be an array of record ids', motion: 'must be a plain object (the character motion state) or null', count: 'must be a finite number >= 0',
 };
 /** Positions beyond this are damage, not a big world: float32 models are already centimetres off at 1e5 and useless far before 1e7 */
 const POS_MAX = 1e7;
@@ -112,6 +144,8 @@ function checkWorldSave(d) {
   const bad = (path, why, got) => { throw codedError('save-bad-record', SHAPE_STRINGS.bad.replace('{path}', path).replace('{why}', why.replace('{max}', String(POS_MAX))).replace('{got}', String(JSON.stringify(got)).slice(0, 120))); };
   const pos = (path, p) => { if (!isPlainObject(p) || !['x', 'y', 'z'].every(k => Number.isFinite(p[k]) && Math.abs(p[k]) <= POS_MAX)) bad(path, SHAPE_STRINGS.pos, p); };
   const num = (path, v) => { if (v !== undefined && !(Number.isFinite(v) && v >= 0)) bad(path, SHAPE_STRINGS.count, v); };
+  // rec.motion is written in place by Character.saveMotion on every fixed step (npcSim): a number there threw "Cannot create property 'vx'" and froze the game
+  const motion = (path, m) => { if (m != null && !isPlainObject(m)) bad(path, SHAPE_STRINGS.motion, m); };
   if (!isPlainObject(d)) bad('the world part', SHAPE_STRINGS.obj, d);
   num('seq', d.seq); num('step', d.step); num('time', d.time);
   for (const f of ['records', 'changed', 'owed']) if (d[f] !== undefined && !isPlainObject(d[f])) bad(f, SHAPE_STRINGS.obj, d[f]);
@@ -120,10 +154,12 @@ function checkWorldSave(d) {
     if (!isPlainObject(r)) bad(`records.${id}`, SHAPE_STRINGS.obj, r);
     if (typeof r.kind !== 'string') bad(`records.${id}`, SHAPE_STRINGS.kind, r.kind);
     if ('position' in r) pos(`records.${id}.position`, r.position);
+    motion(`records.${id}.motion`, r.motion);
   }
   for (const [id, c] of Object.entries(d.changed ?? {})) {
     if (!isPlainObject(c) || (c.set !== undefined && !isPlainObject(c.set)) || (c.del !== undefined && !Array.isArray(c.del))) bad(`changed.${id}`, SHAPE_STRINGS.obj, c);
     if (c.set && 'position' in c.set) pos(`changed.${id}.set.position`, c.set.position);
+    if (c.set) motion(`changed.${id}.set.motion`, c.set.motion);
     if (c.set && 'kind' in c.set && typeof c.set.kind !== 'string') bad(`changed.${id}.set`, SHAPE_STRINGS.kind, c.set.kind);
   }
   for (const [id, v] of Object.entries(d.owed ?? {})) num(`owed.${id}`, v);

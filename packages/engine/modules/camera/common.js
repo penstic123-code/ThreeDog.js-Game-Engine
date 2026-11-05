@@ -22,7 +22,7 @@ import { codedError } from '../../core/errorHints.js';
 
 // the takeover calls the owned-camera warning quotes (core/owned.js): takeCamera is the one explicit entry (its remove() gives the camera back);
 // back is the hand-back for a camera the engine yielded to a direct write (that takeover has no handle)
-const LEVELS = { manual: "const cam = engine.takeCamera('me') (cam.remove() gives it back)", back: "engine.view.manual('camera', false)" };
+const LEVELS = { manual: "const cam = engine.takeCamera('me') (cam.remove() gives it back)", back: "engine.autoView.manual('camera', false)" };
 
 /** True during a cutscene takeover, and updates engine.focus from the focus the owner supplied */
 function applyOverride(e) {
@@ -87,7 +87,8 @@ export function clickToLock(rig, switched) {
   };
   rig._off = new AbortController();
   const sig = { signal: AbortSignal.any([e.signal, rig._off.signal]) };
-  document.addEventListener('pointerlockchange', () => { st.locked = document.pointerLockElement === canvas; if (st.locked) st.lastError = null; else st.requested = false; }, sig);
+  const change = e.events.on('page:pointerlock', ({ locked }) => { st.locked = locked; if (locked) st.lastError = null; else st.requested = false; });
+  sig.signal.addEventListener('abort', change.remove);
   document.addEventListener('pointerlockerror', () => fail('pointerlockerror (browser refused: needs a user gesture, or the page lost focus)'), sig);
   const swallow = () => rig.swallowLockClick !== false && wouldLock();
   e.input.swallowLockClick = swallow; rig._swallow = swallow;
@@ -122,7 +123,8 @@ export function viewForward(camera, fallback) {
   return planar(_v, fallback);
 }
 
-export { screenToGround } from '../../core/screenToGround.js';   // shared with grid placement and click-to-move; lives in core
+import { screenToGround } from '../../core/screenToGround.js';   // shared with grid placement and click-to-move; lives in core
+export { screenToGround };
 
 /**
  * A rig placed the camera outside its update (fixedCamera cut, rtsCamera moveTo instant): that write is the engine's, not the game's, so the
@@ -178,7 +180,7 @@ export function rigModule(kind, opts) {
     return c;
   }
   return {
-    name: 'cameraRig', type: 'picture', label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision'], stage: 'control',
+    name: 'cameraRig', type: 'picture', label: 'Camera', params: RIG_PARAMS.get(kind), options: opts, optional: ['collision', 'characters'], stage: 'control',
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.cameraRig': '相机' }, en: { 'module.cameraRig': 'camera' } });
       engine = e; fov0 = e.camera.fov; modInput = ctx.input; declared.clear();
       e.setCamera = setCamera;
@@ -198,7 +200,7 @@ export function rigModule(kind, opts) {
       ctx.track(e.events.on('state:placed', () => { if (c.target) { c.follow(c.target); fresh = true; } }));
       // The camera module places position / orientation every frame: a game that moves the camera directly takes it (the rig stops), warned once
       const cam = e.camera, p = cam.position, q = cam.quaternion;
-      // One camera state: takeCamera's 'camera' stack. engine.view.manual('camera') and a direct write become a takeCamera hold too (owner
+      // One camera state: takeCamera's 'camera' stack. engine.autoView.manual('camera') and a direct write become a takeCamera hold too (owner
       // 'manual:<who>' / 'three'), so cameraOverride, describe().holds and the rig's onOverride see every takeover the same way; handing back
       // (manual('camera', false)) removes that hold. Why: four entries with four states meant a pointer lock or focus that only one of them reset.
       let hold = null;
@@ -216,6 +218,9 @@ export function rigModule(kind, opts) {
       if (over !== was) { was = over; c.onOverride?.(over); }
       if (applyOverride(e)) { fresh = true; return; }   // not checked during takeover; re-record afterwards
       if (!fresh) owned.check();
+      // a platform moved this frame (onFrame, a timeline tween before this hook): the rider goes with it first, so the rig does not read last frame's position.
+      // Here and not by moving rigs after characters: prompts, markers, bubbles and chunk culling run in between and must see this frame's camera
+      e.characters?.carryRiders?.();
       if (owned.on) c.update(dt, e.input);
       e.focus.copy(c.focusPoint());   // decides only where the view (terrain, models) loads; the gameplay simulation center is world.anchor (default the player), so moving the camera away changes nothing
       owned.mark(); fresh = false;

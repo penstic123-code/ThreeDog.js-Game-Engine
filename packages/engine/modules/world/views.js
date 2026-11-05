@@ -111,7 +111,7 @@ export class Views {
    *  so waiting only in frame() would never resolve; builds still owed (per-frame limit) are done right here, like world.refresh() */
   wake() {
     if (!this.waiters.length) return;
-    if (this.presenters.size && (this.dirty || this.moved()) && this.w.engine.paused) this.refresh();
+    if (this.presenters.size && (this.dirty || this.moved()) && this.w.engine.halted) this.refresh();
     if (this.ready) for (const r of this.waiters.splice(0)) r();
   }
   /** End of fixed step: models that move themselves (positionFrom 'view') copy their position back to the record, so later gameplay in this step and saves read this step's result.
@@ -133,7 +133,7 @@ export class Views {
     for (const p of this.presenters.values()) { const r = this.radius(p); this.radii.set(p, r); if (r > maxR) maxR = r; }
     for (const a of this.memo.at) W._cells.forEach(a, a.s.reach(maxR), (rec, d2) => {
       const p = this.presenters.get(rec.kind);
-      if (!p || this.map.has(rec.id) || !W._inZone(rec)) return;
+      if (!p || this.map.has(rec.id) || !W.inZone(rec)) return;
       const r = this.reach(p, a.s);
       if (d2 > r * r || p.show && !p.show(rec)) return;
       if (n >= limit) { this.dirty = true; return; }   // enough built this frame: continue next frame, ready still waits
@@ -142,7 +142,7 @@ export class Views {
     for (const [id, v] of this.map) {   // teardown distance is widened to 1.25×: walking back and forth on the boundary does not build and tear down repeatedly
       const rec = W.records.get(id);
       const keep = this.near(rec, v.p) <= 1.5625 || v.p.positionFrom === 'view' && W._s.isNear(id);   // keep models that near simulation needs
-      if (!keep || !W._inZone(rec) || v.p.show && !v.p.show(rec)) this.unview(id);
+      if (!keep || !W.inZone(rec) || v.p.show && !v.p.show(rec)) this.unview(id);
     }
   }
   /**

@@ -7,7 +7,7 @@
 //   time     seconds (engine.uniforms.uTime); sunDir unit vector towards the sun (moon is opposite); night 0 day .. 1 night
 //   lit / shade cloud colors (clouds.color / clouds.shade); cover = weather cloud amount * clouds.coverage, 0..1+
 //   returns  rgb = final cloud color, a = opacity 0..1 (the dome does mix(sky, rgb, a)); apply your own horizon fade
-// In scope for your code: threedogHash(vec2), threedogNoise(vec2), the built-in cloud uniforms (uCloudScale, uCloudSpeed,
+// In scope for your code: threedogHash(vec2), threedogNoise(vec2), the built-in cloud uniforms (uSkyCloudScale, uSkyCloudSpeed,
 // uCloudHorizon, uCloudFade, uCloudSoft, uCloudOpacity, uCloudMul, uCloudWeights, uCloudRelief) and the patch's own uniforms.
 // WebGPURenderer draws the hook's tsl form instead ({ glsl, tsl, uniforms }; render/fx/sky.tsl.js): tsl: (ctx) => vec4 node, ctx = { dir, time,
 // sunDir, night, lit, shade, cover (the same arguments as nodes), clouds (the built-in kind's vec4, the value so far), uniforms (the dome's
@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import { closest } from '../../core/validate.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { codedError } from '../../core/errorHints.js';
+import { scanRenamed, RENAMED_DOME_UNIFORMS } from '../../render/uniformRenames.js';
 import { SKY as K, glslFloat as f } from '../../render/fxNumbers.js';
 
 const KINDS = ['plane', 'cumulus'];
@@ -28,7 +29,7 @@ const DEFAULTS = {
 
 // Original picture: one plane projected onto the sky (cells shrink towards the horizon), 3 fixed noise layers.
 const PLANE = `vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cov){
-  vec2 cp = d.xz / (d.y + uCloudHorizon) * uCloudScale + uCloudSpeed * time;
+  vec2 cp = d.xz / (d.y + uCloudHorizon) * uSkyCloudScale + uSkyCloudSpeed * time;
   float cn = threedogNoise(cp) * uCloudWeights.x + threedogNoise(cp * uCloudMul.x + 7.0) * uCloudWeights.y + threedogNoise(cp * uCloudMul.y) * uCloudWeights.z;
   float cloud = smoothstep(1.0 - cov, 1.0 - cov + uCloudSoft, cn) * smoothstep(uCloudFade.x, uCloudFade.y, d.y);
   vec3 cc = mix(shade, lit, smoothstep(${f(K.planeTone[0])}, ${f(K.planeTone[1])}, cn)) * (${f(K.nightDim)} + ${f(1 - K.nightDim)} * (1.0 - night));
@@ -45,7 +46,7 @@ const CUMULUS = `float threedogCumulusDensity(vec2 p){
   return s / ${f(K.norm)};
 }
 vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cov){
-  vec2 cp = d.xz / (d.y + uCloudHorizon) * uCloudScale + uCloudSpeed * time;
+  vec2 cp = d.xz / (d.y + uCloudHorizon) * uSkyCloudScale + uSkyCloudSpeed * time;
   vec2 toSun = normalize(sunDir.xz + vec2(0.0001, 0.0)) * ${f(K.toSun)};
   float n0 = threedogCumulusDensity(cp), n1 = threedogCumulusDensity(cp + toSun);
   float t = 1.0 - cov * ${f(K.cover)};
@@ -74,6 +75,7 @@ export function resolveClouds(c, hook, gpu = false) {
   if (h?.glsl != null) {
     if (typeof h.glsl !== 'string' || !/vec4\s+threedogClouds\s*\(/.test(h.glsl)) throw codedError('sky-option', "engine.sky.clouds(): glsl must define `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)` returning (rgb color, alpha); see modules/sky/clouds.js");
     glsl = h.glsl;
+    scanRenamed([h.glsl], 'engine.sky.clouds()', h.uniforms, RENAMED_DOME_UNIFORMS);
   }
   const { uniforms, decl } = declareUniforms('engine.sky.clouds().uniforms', h?.uniforms);
   return { kind, glsl, uniforms, decl };

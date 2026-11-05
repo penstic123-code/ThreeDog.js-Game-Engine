@@ -3,6 +3,8 @@
 
 // default dusk: lights fade in as daylight drops below 0.3 (calendar daylight: about 16:50 -> fully lit at 18:00). It is only a starting value:
 // each lightPool source may pass its own `dusk`, and a game's own fade reads uDaylight with its own edge
+import { DEV, warnOnce } from '../core/validate.js';
+import { coded } from '../core/errorHints.js';
 export const DUSK = 0.3;
 
 /** Daylight 0..1 from the 'daylight' measure (engine.audio.measure): the calendar registers it (gameplay day / night), the sky only when no
@@ -22,7 +24,7 @@ export function nightOf(d, dusk) {
 
 /** Time of day 0..1 from the 'timeOfDay' measure: the calendar registers it (the game clock), the sky only when no calendar did (its fixed time).
  * null when nothing owns a time of day (the uniform keeps its default) */
-export const timeOfDayOf = e => { const t = e.audio?.measures.get('timeOfDay')?.(e); return typeof t === 'number' ? t : null; };
+const timeOfDayOf = e => { const t = e.audio?.measures.get('timeOfDay')?.(e); return typeof t === 'number' ? t : null; };
 
 /**
  * Twice per frame, before the modules' frame hooks (an onFrame reads this frame's signal) and again just before drawing (a time jump in a hook reaches the picture
@@ -32,8 +34,23 @@ export const timeOfDayOf = e => { const t = e.audio?.measures.get('timeOfDay')?.
  * @param {any} e
  */
 export function writeDaylight(e) {
-  const d = daylightOf(e), t = timeOfDayOf(e);
+  const d = daylightOf(e), t = timeOfDayOf(e), w = e._daySignals ??= signalWatch(e, { uDaylight: "engine.audio.measure('daylight', () => value)", uTimeOfDay: "engine.audio.measure('timeOfDay', () => value)" });
+  w.check();
   e.uniforms.uNight.value = nightOf(d, DUSK);
   if (d !== null) e.uniforms.uDaylight.value = d;
   if (t !== null) e.uniforms.uTimeOfDay.value = t;
+  w.mark();
+}
+
+/**
+ * Dev: signals with one writer that rewrites them every frame. These have an entry of their own, so they are not owned values (a write has somewhere better to go),
+ * but a direct write used to vanish without a word, the bug core/owned.js exists to prevent: warn once with the entry. Release builds do nothing.
+ * @internal @param {any} e @param {Record<string, string>} exits signal name -> the line that changes it
+ */
+export function signalWatch(e, exits) {
+  const names = Object.keys(exits), last = new Map(), read = n => { const v = e.uniforms[n].value; return v?.isColor ? v.getHex() : v; };
+  return {
+    check() { if (DEV) for (const n of names) if (last.has(n) && last.get(n) !== read(n)) warnOnce(coded('signal-overwritten', `engine.uniforms.${n} was written directly, and the engine rewrites it every frame, so the write is lost. Use: ${exits[n]}`), `signal-overwritten:${n}`); },
+    mark() { if (DEV) for (const n of names) last.set(n, read(n)); },
+  };
 }

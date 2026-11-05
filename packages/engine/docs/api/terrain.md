@@ -19,17 +19,16 @@ Procedural terrain, data part (terrain() module: chunks, heights, edits, collisi
 - `terrain.retry() → number` — Send chunks that failed every try (terrain:chunkFailed) again, e.g. after fixing what their rule reads. Returns how many were queued
 - `terrain.rebuild()` — Rebuild all chunks
 - `terrain.edit(position: PositionLike, opts: TerrainEditOptions) → { heights: number; cells: number }` — (experimental) Change the ground: dig, raise, flatten, paint the ground type. Saved gameplay state: call it from an op or a fixed step. engine.surface / slope / groundType, collision, paths and vegetation follow at once; it is saved, and chunks generated later come out edited. Example: `engine.terrain.edit(pos, { radius: 3, lower: 1.5 });                                                   // dig a pit engine.terrain.edit(pos, { shape: 'square', radius: engine.terrain.cellSize / 2, paint: 'tilled' });  // till one cell`
-- `terrain.isReadyAround(position: PositionLike, opts?: { rings?: number }) → boolean` — Whether the chunks within rings rings (default 1) around position are all loaded
 - Properties:
-  - `T: TerrainGen` Pure-computation terrain (height, landform)
+  - `generator: TerrainGen` Pure-computation terrain (height, landform), what createTerrain() returns
   - `material: Material | null` The plain three.js material every chunk draws with (null under a draw part that replaced 'terrain-draw'). The neutral one takes direct writes; setting one swaps it on every loaded chunk and draws it as given. Nothing is regenerated, collision is untouched. Chunks carry position, normal, color and uv (world xz / chunk size). Example: `engine.terrain.material = applyEffects(new THREE.MeshStandardMaterial({ vertexColors: true }), { patches: engine.terrain.patches });`
   - `patches: ShaderPatch[]` The engine's ground patches (world, clouds, season, detail), so a game material keeps them: applyEffects(mat, { patches: engine.terrain.patches })
   - `uniforms: Record<string, { value: any }>` The detail layer's { value } uniforms, written directly and live: uDetailStrength, uDetailScale, uDetailTint... ({} without a detail layer)
-  - `CHUNK: number` Chunk edge length (meters)
+  - `chunkSize: number` Chunk edge length (meters), the same value as the chunkSize option and ground.chunkSize
   - `voidY: number` terrain({ shape }) only: below this height the player or a moving rigid body has fallen out of the world (one terrain:void per fall). shape.voidY, else 50 m under the lowest island chunk loaded so far; -Infinity without a shape. Example: `engine.events.on('terrain:void', ({ who }) => { if (who === engine.player) engine.player.placeAt(home); });`
   - `chunks: Map<string, TerrainChunk>` Loaded chunks: 'cx,cz' → chunk
-  - `viewChunks: number` View distance (in chunks)
-  - `density: number` Vegetation density multiplier
+  - `viewChunks: number` View distance (in chunks); writing it takes effect like setViewChunks
+  - `density: number` Vegetation density multiplier; writing it takes effect like setDensity
   - `applyBudgetMs: number` Time budget (milliseconds) for uploading chunks per frame
   - `stats: { builtThisFrame, applyMs, queued, failed, visible?, loaded?, … }` Statistics (for the debug panel); failed = chunks that failed every try (terrain:chunkFailed)
   - `cellSize: number` Grid spacing (meters) = chunkSize / resolution: edits snap to it, paint colors whole cells of this size

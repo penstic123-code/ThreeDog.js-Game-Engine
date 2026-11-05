@@ -5,6 +5,7 @@
 import { NoToneMapping, LinearToneMapping, ReinhardToneMapping, CineonToneMapping, ACESFilmicToneMapping, CustomToneMapping, AgXToneMapping, NeutralToneMapping } from 'three';
 import { SHADOW_TYPES } from './shadowTypes.js';
 import { rv } from './math.js';
+import { hex } from './MaterialInfo.js';
 import { defineOwned } from './owned.js';
 import { slotHolders } from './pictureSlots.js';
 import { backendFacts } from '../render/backend.js';
@@ -13,7 +14,6 @@ const shadowName = v => Object.keys(SHADOW_TYPES).find(k => SHADOW_TYPES[k].thre
 const TONE_NAMES = { [NoToneMapping]: 'none', [LinearToneMapping]: 'linear', [ReinhardToneMapping]: 'reinhard', [CineonToneMapping]: 'cineon',
   [ACESFilmicToneMapping]: 'aces', [CustomToneMapping]: 'custom', [AgXToneMapping]: 'agx', [NeutralToneMapping]: 'neutral' };
 const toneName = v => TONE_NAMES[v] ?? String(v);
-const hex = c => `#${c.getHexString()}`;
 /** What a build without the dev server says for every picture value (core/pictureWriters.js stays out of it) */
 export const NO_WRITERS = 'not tracked: source lines are only known on the dev server (threedog dev or npm run dev); a bundled build has no file:line to give';
 
@@ -67,7 +67,7 @@ export function recordRender(e, { owned }) {
  */
 function engineDefaults(e) {
   const r = e.renderer, s = e.scene, bg = s.background, rows = [];
-  if (bg && bg === e.baseBackground) rows.push({ what: 'scene.background', value: `#${bg.getHexString()}`, off: 'scene.background = your color or texture' });
+  if (bg && bg === e.baseBackground && bg.getHex() === e.baseBackgroundHex) rows.push({ what: 'scene.background', value: `#${bg.getHexString()}`, off: 'scene.background = your color or texture' });
   for (const [name, l] of Object.entries(e.lights ?? {})) if (l.parent) rows.push({ what: `lights.${name}`, value: `${l.type} ${rv(l.intensity)}`, off: 'createEngine({ lights: false })' });
   if (r.shadowMap.enabled) rows.push({ what: 'renderer.shadowMap', value: shadowName(r.shadowMap.type), off: 'renderer.shadowMap.enabled = false' });
   // render/postWebGL.js direct(): only once the game has picked a tone curve, so a Color background agrees with the effect chain's OutputPass
@@ -133,7 +133,11 @@ render scale: ${scale.current} of device pixel ratio ${dpr}${scale.upscaled ? ' 
   // occlusion culling (render/occlusion.js): what it skipped this frame, so a game can see whether it pays
   const occlusion = e.occlusion?.enabled ? e.occlusion.stats : null;
   if (occlusion) text += `\nocclusion: ${occlusion.hidden} of ${occlusion.watched} big things hidden, ${occlusion.trianglesSkipped} triangles skipped`;
-  return { debugView: dv, scale, toneMapping: tone, exposure, shadows, post, antialias, lights, defaults, probes, lightmap, occlusion, text };
+  // three's BundleGroup in the game's scene: it replays what was recorded, so an AI reading the state must know a child's visible is not what draws. A walk: describe is not per frame
+  let bundles = null;
+  e.scene.traverse(o => { if (o.isBundleGroup) { bundles ??= { groups: 0, meshes: 0, replayed: !!r.backend?.beginBundle }; bundles.groups++; o.traverse(c => { if (c.isMesh) bundles.meshes++; }); } });
+  if (bundles) text += `\nrender bundles: ${bundles.groups} BundleGroup(s), ${bundles.meshes} mesh(es), ${bundles.replayed ? 'replayed as recorded: after changing what is inside, set group.needsUpdate = true' : 'plain groups on this backend, no gain (only WebGPU has bundles)'}`;
+  return { debugView: dv, scale, toneMapping: tone, exposure, shadows, post, antialias, lights, defaults, probes, lightmap, occlusion, bundles, text };
 }
 
 /**

@@ -10,7 +10,7 @@
 // The id rule. Two numbers, never mixed up:
 //   a handle (what spawn returns, d.id[i]) names one object for as long as it lives and never names another afterwards; handles kept in a save stay good after loading it;
 //   a row i (what onStep and near pass, what d.x[i] reads) is where that object sits now. Rows are valid inside one callback or one plain loop:
-//   removing an object moves the last row into the gap. Keep handles; turn one into a row with swarm.row(h) (-1 = gone).
+//   removing an object moves the last row into the gap. Keep handles (in a variable, or in one of the swarm's own fields); turn one into a row with swarm.row(h) (-1 = gone).
 //
 // Time: onStep's function runs in the fixed step on the swarm's channel (default 'world'); not at all while frozen, or while that channel stands still.
 // Reserved field names drawn by the engine when listed in fields: yaw, pitch, roll (radians, three's order 'YXZ'), scale. Details: recipes/65-swarm.md.
@@ -25,6 +25,7 @@ import { makeMesh, writeMesh } from './draw.js';
 // handle = serial * SLOT + slot. serial counts this swarm's births and is saved, so an old handle never names a new object.
 // A fixed SLOT and not capacity: after a game update raises capacity, a saved handle still gives the same slot.
 // serial starts at 1, so a handle is always >= SLOT and a row always < SLOT: a row passed to free is caught at once and never removes the wrong object.
+// A handle passes 2^24 after 16 births, past what a Float32 holds exactly, so every column a game names is Float64: a stored target must still resolve. Only x, y, z and colour stay Float32.
 const SLOT = 2 ** 20;
 const FIXED = ['x', 'y', 'z'], COLOR = ['r', 'g', 'b'], NOT_FIELDS = ['id', 'color'];
 const OPTIONS = {
@@ -57,16 +58,17 @@ export class Swarm {
     /** Spawns refused because the swarm was full, since it was made @type {number} */ this.dropped = 0;
     const names = [...FIXED, ...fields, ...(color ? COLOR : [])];
     /**
-     * The columns: data.x[row], data.y[row], data.z[row], one Float32Array per field, and data.id[row], the handle of that row (Float64Array).
+     * The columns: data.x[row], data.y[row], data.z[row] (Float32Array), one Float64Array per field, so a field can hold a handle, and data.id[row], the handle of that row (Float64Array).
      * Rows 0 to count - 1 are live. The same object onStep and near pass as d
      * @type {SwarmData}
      */
     this.data = /** @type {any} */ ({ id: new Float64Array(capacity) });
-    /** @internal the columns swap-remove moves together */ this._cols = names.map(n => (this.data[n] = new Float32Array(capacity)));
+    /** @internal the columns swap-remove moves together */ this._cols = names.map(n => (this.data[n] = FIXED.includes(n) || (color && COLOR.includes(n)) ? new Float32Array(capacity) : new Float64Array(capacity)));
     /** @internal */ this._names = names;
     // scale defaults to 1, colour to white: a reused row goes back to defaults, so nothing leaks from the object that had it before
     /** @internal */ this._defaults = names.map(n => (n === 'scale' || (color && COLOR.includes(n)) ? 1 : 0));
-    /** @internal positions at the end of the last fixed step, for interpolation; they move with the row */ this._px = new Float32Array(capacity); this._py = new Float32Array(capacity); this._pz = new Float32Array(capacity);
+    /** @internal positions at the end of the step before the last, where interpolation starts; they move with the row */ this._px = new Float32Array(capacity); this._py = new Float32Array(capacity); this._pz = new Float32Array(capacity);
+    /** @internal positions at the end of the last step: the next step's _px */ this._ex = new Float32Array(capacity); this._ey = new Float32Array(capacity); this._ez = new Float32Array(capacity);
     /** @internal row -> slot */ this._slot = new Int32Array(capacity);
     /** @internal slot -> row, -1 = free */ this._at = new Int32Array(capacity).fill(-1);
     /** @internal slot -> current handle */ this._handle = new Float64Array(capacity);
@@ -104,7 +106,8 @@ export class Swarm {
    * @returns {number}
    */
   spawn(o) {
-    if (this._disposed) throw codedError('swarm-disposed', `swarm '${this.name}': spawn() after dispose()`);
+    // a late callback (a timer, a bullet's onStep after a level change) may call spawn after dispose: nothing to add to, so say so once and return -1 like a full swarm
+    if (this._disposed) { warnOnce(coded('swarm-disposed', `swarm '${this.name}': spawn() after dispose(), nothing was added`), `swarm-disposed-${this.name}`); return -1; }
     if (DEV && o) this._checkSpawn(o);
     if (this._n >= this.capacity) {
       this.dropped++;
@@ -116,7 +119,7 @@ export class Swarm {
     for (let k = 0; k < cols.length; k++) { const v = o ? o[names[k]] : undefined; cols[k][row] = v === undefined ? def[k] : v; }
     if (o?.color !== undefined) { const c = this._tint.setHex(o.color); d.r[row] = c.r; d.g[row] = c.g; d.b[row] = c.b; }
     // last position = birth position: otherwise interpolation draws a line from where the row's previous object was
-    this._px[row] = d.x[row]; this._py[row] = d.y[row]; this._pz[row] = d.z[row];
+    this._rest(row);
     if (this._grid?.ok) this._grid.insert(slot, row);
     return h;
   }
@@ -167,6 +170,7 @@ export class Swarm {
       const cols = this._cols, d = this.data, moved = this._slot[last];
       for (let k = 0; k < cols.length; k++) cols[k][row] = cols[k][last];
       this._px[row] = this._px[last]; this._py[row] = this._py[last]; this._pz[row] = this._pz[last];
+      this._ex[row] = this._ex[last]; this._ey[row] = this._ey[last]; this._ez[row] = this._ez[last];
       d.id[row] = d.id[last]; this._slot[row] = moved; this._at[moved] = row; this._gone[row] = this._gone[last];
     }
     this._gone[last] = 0;
@@ -191,13 +195,22 @@ export class Swarm {
     this._fn = fn;
     return { remove: () => { if (this._fn === fn) this._fn = null; } };
   }
-  /** @internal runs first in each step: a game's own change to d.x in onFixed counts as this step's movement and gets interpolated */
-  _begin() {
+  /** @internal a row with no movement to draw: both interpolation ends at its position */
+  _rest(row) {
+    const d = this.data;
+    this._px[row] = this._ex[row] = d.x[row]; this._py[row] = this._ey[row] = d.y[row]; this._pz[row] = this._ez[row] = d.z[row];
+  }
+  /**
+   * @internal time.onMove, after everything in the step, so it needs no place among the game's onFixed: the last end becomes the start, and a game's own
+   * change to d.x in onFixed counts as this step's movement and gets interpolated
+   */
+  _end() {
     if (this._grid) this._grid.ok = false;
+    [this._px, this._ex] = [this._ex, this._px]; [this._py, this._ey] = [this._ey, this._py]; [this._pz, this._ez] = [this._ez, this._pz];
     if (!this._n) return;
     const d = this.data;
     const n = this._n;   // live rows only: capacity is sized for the peak
-    this._px.set(d.x.subarray(0, n)); this._py.set(d.y.subarray(0, n)); this._pz.set(d.z.subarray(0, n));
+    this._ex.set(d.x.subarray(0, n)); this._ey.set(d.y.subarray(0, n)); this._ez.set(d.z.subarray(0, n));
   }
   /** @internal one fixed step */
   _step(dt) {
@@ -265,7 +278,7 @@ export class Swarm {
       this._n++;
       this._slot[row] = slot; at[slot] = row; this._handle[slot] = h; d.id[row] = h;
       for (let k = 0; k < this._cols.length; k++) { const x = v.cols[this._names[k]]?.[i]; this._cols[k][row] = Number.isFinite(x) ? x : this._defaults[k]; }   // a column added after the save takes its default
-      this._px[row] = d.x[row]; this._py[row] = d.y[row]; this._pz[row] = d.z[row];
+      this._rest(row);
     }
     this._freeN = 0;
     for (let s = this.capacity - 1; s >= 0; s--) if (at[s] < 0) this._free[this._freeN++] = s;
@@ -281,6 +294,7 @@ export class Swarm {
  * @example engine.use(swarm());
  * const coins = engine.swarm({ name: 'coins', capacity: 500, geometry, material, fields: ['yaw'], save: true });
  * @returns {import('../../types/core').ModuleDef}
+ * @experimental
  */
 export function swarm() {
   /** @type {Swarm[]} */ let list = [];
@@ -290,8 +304,8 @@ export function swarm() {
     install(e, ctx) {
       e.i18n.add({ 'zh-CN': { 'module.swarm': '成群对象' }, en: { 'module.swarm': 'swarm' } });
       const owner = { drop: s => { list = list.filter(o => o !== s); } };
-      // registered at install, ahead of the game's own onFixed: positions are recorded as a step begins
-      ctx.track(e.onFixed(() => { for (const s of list) s._begin(); }));
+      let firstLoad = false;   // set by the first load or new game: swarms spawned before it are warned about when it empties them
+      ctx.track(e.time.onMove(() => { for (const s of list) s._end(); }));
       // onRender and not frame: step(render: false) skips the matrices, only drawn frames write them
       ctx.track(e.onRender(() => { for (const s of list) if (s.mesh) writeMesh(s, e.stepBlend); }));
       // one save part for all swarms: a load or new game also empties swarms not in saves, or last round's bullets stay on the field
@@ -299,7 +313,13 @@ export function swarm() {
         save: () => Object.fromEntries(list.filter(s => s.saved).map(s => [s.name, s._save()])),
         load: d => {
           pending = { ...d };
-          for (const s of list) { if (s.saved && d?.[s.name]) { s._load(d[s.name]); delete pending[s.name]; } else s.clear(); }
+          for (const s of list) {
+            if (s.saved && d?.[s.name]) { s._load(d[s.name]); delete pending[s.name]; continue; }
+            // objects spawned before the first load / new game (at startup) are emptied with the rest: allowed, but it looks like a spawn that did not work
+            if (!firstLoad && s.count) warnOnce(`engine.swarm('${s.name}'): ${s.count} objects spawned before the first new game / load were cleared by it. Spawn after the game starts (on the start event), or pass save: true`);
+            s.clear();
+          }
+          firstLoad = true;
         } });
       return /** @param {SwarmOptions} opts */ opts => {
         const o = readParams('engine.swarm', OPTIONS, opts), { name, geometry, material, fields = [], color, channel, cell } = o;

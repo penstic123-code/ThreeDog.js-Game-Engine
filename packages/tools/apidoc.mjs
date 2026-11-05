@@ -50,7 +50,7 @@ const engApi = split(eng, 'Engine');
   structs(L, 'engine');
 }
 const COMMON = ['use', 'start', 'step', 'describe', 'describeText', 'applyState', 'onFixed',
-  'onFrame', 'add', 'remove', 'surface', 'snapToGround', 'raycast', 'pick', 'freeze', 'pause'];
+  'onFrame', 'add', 'remove', 'surface', 'snapToGround', 'raycast', 'pick', 'freeze', 'haltLoop'];
 idx.push('## Core everyday API (all methods, properties, createEngine options and how to write a module are in [api/engine.md](api/engine.md))');
 idx.push(`- \`${sig('createEngine', indexFns.find(x => x.name === 'createEngine').nodes[0])}\` — creates the engine (core only); options: canvas ui loading saveKey headless budget …`);
 idx.push(`- \`${sig('openWorld', indexFns.find(x => x.name === 'openWorld').nodes[0])}\` — open-world preset (world and environment + basic modules; add gameplay modules yourself; \`xxx: false\` turns one off), options in [api/openWorld.md](api/openWorld.md)`);
@@ -162,7 +162,7 @@ for (const p of engProps) {
     '- Condition words:', ...Object.entries(CONDITIONS).map(row), '- Effect words:', ...Object.entries(EFFECTS).map(row),
     '- Files content/ recognizes:', ...Object.entries(CONTENT_FILES).map(([k, d]) => `  - \`${k}.js\` ${d}`),
     '  - any other `<name>.js` the game registers in content/rules.js as '
-      + 'kinds: { name: { desc, load(e, data), check?, map? } } (enemies, recipes, loot tables…)');
+      + 'kinds: { name: { desc, load?(e, data), check?, map? } } (enemies, recipes, loot tables…)');
 }
 
 // ---------- Utility functions ----------

@@ -4,8 +4,11 @@
 // Color-space basis: three's color management manual. Color slots (map, emissiveMap) hold sRGB, data slots (normal, roughness, metalness, ao...) stay linear.
 import * as THREE from 'three';
 
-const COLOR_SLOTS = ['map', 'emissiveMap', 'specularColorMap', 'sheenColorMap'];
-const DATA_SLOTS = ['normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'bumpMap', 'alphaMap', 'displacementMap', 'specularMap', 'clearcoatMap', 'clearcoatNormalMap', 'clearcoatRoughnessMap', 'transmissionMap', 'thicknessMap', 'lightMap'];
+// The one slot table: engine.assets.report and engine.inspect.materials judge a texture by it. A lightMap holds light, not a color or a value: a linear bake and an sRGB
+// picture are both right, so it is in neither list
+export const COLOR_SLOTS = ['map', 'emissiveMap', 'specularColorMap', 'sheenColorMap'];
+export const DATA_SLOTS = ['normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'bumpMap', 'alphaMap', 'displacementMap', 'specularMap', 'specularIntensityMap', 'clearcoatMap', 'clearcoatNormalMap',
+  'clearcoatRoughnessMap', 'transmissionMap', 'thicknessMap', 'iridescenceMap', 'anisotropyMap', 'sheenRoughnessMap'];
 const SRGB = THREE.SRGBColorSpace, LINEAR = THREE.NoColorSpace;
 // three's PropertyBinding.sanitizeNodeName: the name the engine sees ("door.001" -> "door001")
 const sanitize = n => String(n ?? '').replace(/\s/g, '_').replace(/[[\].:/]/g, '');
@@ -37,7 +40,7 @@ export function reportGltf(gltf, entry = {}, root = gltf.scene, renderer) {
   });
   const mats = [...materials].map(m => {
     const maps = {};
-    for (const k of [...COLOR_SLOTS, ...DATA_SLOTS]) if (m[k]?.isTexture) {
+    for (const k of [...COLOR_SLOTS, ...DATA_SLOTS, 'lightMap']) if (m[k]?.isTexture) {
       maps[k] = m[k].colorSpace || 'none';   // not LINEAR: NoColorSpace is '', so a correct data map read as absent and every intact normal map was reported lost
       const t = textures.get(m[k]) ?? textures.set(m[k], { name: m[k].name || '(unnamed)', slots: [] }).get(m[k]);
       if (!t.slots.includes(k)) t.slots.push(k);
@@ -71,13 +74,4 @@ export function reportGltf(gltf, entry = {}, root = gltf.scene, renderer) {
     counts: { nodes: nodes.length, materials: mats.length, textures: texList.length, normalMaps: mats.filter(m => m.maps.normalMap).length, clips: clips.length, colliders: colliders.length, templates: templates.length },
     materials: mats, textures: texList, clips, colliders, templates, issues,
   };
-}
-
-/** Text for the console / describe: one block, issues last */
-export function reportText(r) {
-  const c = r.counts, L = [`model ${r.name ?? r.url}${r.fromFile ? '' : ' (built in code: no file to compare with)'}: ${c.nodes} nodes · ${c.materials} materials · ${c.textures} textures (${c.normalMaps} normal maps) · ${c.clips} clips · ${c.colliders} col_ · ${c.templates} template/id nodes`];
-  for (const m of r.materials) L.push(`  material ${m.name} (${m.type}${m.flatShading ? ', flat' : ''}${m.madeByEngine ? ', made by the engine' : ''}) ${Object.entries(m.maps).map(([k, v]) => `${k}:${v}`).join(' ') || 'no textures'}`);
-  for (const c of r.clips) L.push(`  clip ${c.name} ${c.seconds}s`);
-  for (const i of r.issues) L.push(`  ${i.severity === 'warn' ? '!' : '·'} [${i.code}] ${i.msg}`);
-  return L.join('\n');
 }

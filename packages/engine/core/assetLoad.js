@@ -55,10 +55,13 @@ async function download(url, task) {
   return buf;
 }
 
-/** Upload textures to the GPU now, so the first frame that shows them does not stall (the 'upload' phase) */
+/** Upload textures to the GPU now, so the first frame that shows them does not stall (the 'upload' phase). A WebGPURenderer before start() has no GPU to upload to and
+ *  throws if asked, so a load then leaves the texture for its first frame: this step only saves a stall, it never decides whether the load works */
 function upload(assets, textures, task) {
   task.phase('upload');
-  for (const t of textures) assets.engine.renderer.initTexture(t);
+  const r = assets.engine.renderer;
+  if (r.initialized === false) return;
+  for (const t of textures) r.initTexture(t);
 }
 
 // task.signal aborts when the load is ended (assetEntry.js). Before a value exists a phase just stops (the throw goes nowhere: an ended load reports
@@ -83,11 +86,26 @@ export async function loadGltf(assets, url, task) {
   try { gltf = restoreBaked(await parsing); }   // baked file: restore materials etc.
   catch (err) { throw new LoadError(String(err?.message ?? err) + (missing.length ? ` (missing: ${missing.join(', ')})` : ''), { url: missing[0] ?? url }); }
   if (task.signal.aborted) return gltf;
+  await noteFailedTextures(gltf, missing);
   task.source.animations = gltf.animations.map(a => a.name);
   const tex = new Set();
   gltf.scene.traverse(o => { for (const m of [].concat(o.material || [])) for (const k in m) if (m[k]?.isTexture) tex.add(m[k]); });
   upload(assets, tex, task);
   return gltf;
+}
+
+/** GLTFLoader swallows a texture that fails to decode (KTX2 / basis transcoder, bad image): it logs "Couldn't load texture" and the material just has no map,
+ *  and the LoadingManager never hears of it. Its texture cache still holds the answer (null), so a model that arrived without a texture is recorded as
+ *  missing a reference: loading shows it as partial instead of ok. Names are the image file, or "embedded texture" for data inside the file */
+async function noteFailedTextures(gltf, missing) {
+  const parser = gltf.parser, cache = parser?.textureCache;
+  if (!cache) return;
+  for (const [key, p] of Object.entries(cache)) {
+    if (await p) continue;
+    const ref = key.slice(0, key.lastIndexOf(':'));   // the cache key is "<uri or bufferView>:<sampler>"
+    const name = /^\d+$/.test(ref) ? `embedded texture (buffer view ${ref}, failed to decode)` : ref.startsWith('data:') ? 'embedded texture (failed to decode)' : ref;
+    if (!missing.includes(name)) missing.push(name);
+  }
 }
 
 /** Load a texture (.ktx2 through KTX2Loader, .hdr through HDRLoader), apply the entry's options and upload it */
@@ -125,10 +143,10 @@ export async function loadTexture(assets, e, task) {
   return t;
 }
 
-/** Import and create DRACOLoader / KTX2Loader on first use. Decoders default to the ones shipped with three (vite bundles them); if engine.decoders is set, download from there */
+/** Import and create DRACOLoader / KTX2Loader on first use. Decoders default to the ones shipped with three (vite bundles them); if createEngine({ decoders }) is set, download from there */
 function decoder(assets, kind) {
   return assets._loaders[kind] ||= (async () => {
-    const dir = assets.engine.decoders;
+    const dir = assets.engine._decoders;
     if (kind === 'draco') {
       const { DRACOLoader } = await import('three/addons/loaders/DRACOLoader.js');
       assets.draco = new DRACOLoader();

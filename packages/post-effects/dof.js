@@ -3,6 +3,7 @@
 // so a later depth reader such as outline still finds the scene's depth in the buffer it reads; keepsDepth tells the chain check so.
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+import { FULLSCREEN_VERT, DEPTH_GLSL, depthUniforms, writeDepthUniforms, depthNodes } from './depth.js';
 /** @import { PostEffect } from 'threedog' */
 
 class DofPass extends Pass {
@@ -11,24 +12,24 @@ class DofPass extends Pass {
     this.camera = camera;
     this.keepsDepth = true;
     this.material = new THREE.ShaderMaterial({
-      uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, uNear: { value: 0.3 }, uFar: { value: 1000 }, uOrtho: { value: 0 },
+      uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, uTexel: { value: new THREE.Vector2() }, ...depthUniforms(),
         uFocus: { value: 10 }, uRange: { value: 2 }, uFalloff: { value: 20 }, uMaxBlur: { value: 6 } },
-      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-      fragmentShader: `uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform vec2 uTexel; uniform float uNear; uniform float uFar; uniform float uOrtho;
+      vertexShader: FULLSCREEN_VERT,
+      fragmentShader: `uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform vec2 uTexel;
         uniform float uFocus; uniform float uRange; uniform float uFalloff; uniform float uMaxBlur;
         varying vec2 vUv;
-        float lin(vec2 uv){ float z = texture2D(tDepth, uv).x * 2.0 - 1.0; if (uOrtho > 0.5) return uNear + (z * 0.5 + 0.5) * (uFar - uNear); return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
+        ${DEPTH_GLSL}
         float coc(float d){ return clamp((abs(d - uFocus) - uRange) / uFalloff, 0.0, 1.0) * uMaxBlur; }
         void main(){
           gl_FragDepth = texture2D(tDepth, vUv).x;
-          float r = coc(lin(vUv));
+          float r = coc(lin(tDepth, vUv));
           if (r < 0.5) { gl_FragColor = texture2D(tDiffuse, vUv); return; }
           vec3 sum = texture2D(tDiffuse, vUv).rgb; float w = 1.0;
           // golden-angle disk; a neighbor in sharp focus (smaller blur than its distance) is left out so a crisp object does not bleed into the haze
           for (int i = 1; i < 16; i++) {
             float t = float(i) / 16.0, a = float(i) * 2.39996;
             vec2 o = vec2(cos(a), sin(a)) * sqrt(t) * r;
-            float s = step(length(o) * 0.5, coc(lin(vUv + o * uTexel)) + 0.5);
+            float s = step(length(o) * 0.5, coc(lin(tDepth, vUv + o * uTexel)) + 0.5);
             sum += texture2D(tDiffuse, vUv + o * uTexel).rgb * s; w += s;
           }
           gl_FragColor = vec4(sum / w, 1.0);
@@ -42,7 +43,7 @@ class DofPass extends Pass {
     const u = this.material.uniforms;
     u.tDiffuse.value = readBuffer.texture; u.tDepth.value = readBuffer.depthTexture;
     u.uTexel.value.set(1 / readBuffer.width, 1 / readBuffer.height);
-    u.uNear.value = this.camera.near; u.uFar.value = this.camera.far; u.uOrtho.value = this.camera.isOrthographicCamera ? 1 : 0;   // ortho depth is linear already
+    writeDepthUniforms(u, this.camera);
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
   }
@@ -54,7 +55,7 @@ class DofPass extends Pass {
  * It reads scene depth, so it must run before any pass that swaps buffers; it passes the scene depth on in its output, so a depth reader
  * after it (outline, whose default order is later) works: both can be on, lines drawn over the blurred image. Move the focus per frame with
  * engine.post.get('dof').set({ focus: distanceToTarget }).
- * @example engine.post.add(dof({ enabled: true, focus: 8, range: 3, maxBlur: 5 }))
+ * @example engine.post.add(dof({ focus: 8, range: 3, maxBlur: 5 }))
  * @param {{ focus?: number, range?: number, falloff?: number, maxBlur?: number, enabled?: boolean, order?: number }} [o]
  *   focus, range, falloff in meters; maxBlur in device pixels
  * @returns {PostEffect}
@@ -73,10 +74,8 @@ export function dof({ focus = 10, range = 2, falloff = 20, maxBlur = 6, enabled,
  * @param {any} input @param {any} ctx
  */
 function dofNode(input, { tsl: T, display, scenePass, camera, p }) {
-  const near = T.uniform(camera.near).onRenderUpdate(() => camera.near), far = T.uniform(camera.far).onRenderUpdate(() => camera.far);
-  const ortho = T.uniform(0).onRenderUpdate(() => (camera.isOrthographicCamera ? 1 : 0));
   const depth = scenePass.getTextureNode('depth'), color = display.texture(input), uv = T.screenUV, texel = T.vec2(1).div(T.screenSize);
-  const lin = q => { const d = depth.sample(q).x; return T.select(ortho.greaterThan(0.5), T.orthographicDepthToViewZ(d, near, far), T.perspectiveDepthToViewZ(d, near, far)).negate(); };
+  const { lin: linOf } = depthNodes(T, camera), lin = q => linOf(depth, q);
   const coc = d => T.clamp(d.sub(p.focus).abs().sub(p.range).div(p.falloff), 0, 1).mul(p.maxBlur);
   const r = coc(lin(uv)).toVar();
   let sum = color.sample(uv).rgb, w = T.float(1);

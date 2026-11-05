@@ -1,5 +1,10 @@
 // threedog capture: the frame summary and the Spector command count are plain functions, tested on a hand-made frame (no browser, no network)
-import { summarize, spectorDraws } from '../lib/capture-lib.mjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { summarize, spectorDraws, hookScript } from '../lib/capture-lib.mjs';
+import { rendererLine } from '../lib/page-url.mjs';
+import { refuseState } from '../wait-engine.mjs';
+import { TOOLS } from '../paths.mjs';
 
 export const name = 'capture: frame summary and Spector counts';
 
@@ -15,7 +20,32 @@ const frame = {
   ],
 };
 
+/** A stand-in for the page: the hook runs against a renderer that draws through `hook` only */
+function hooked(renderer) {
+  const held = { engine: globalThis.engine, window: globalThis.window };
+  globalThis.engine = { renderer }; globalThis.window = {};
+  try { return { hook: hookScript(), draws: globalThis.window.__draws }; } finally { for (const [k, v] of Object.entries(held)) if (v === undefined) delete globalThis[k]; else globalThis[k] = v; }
+}
+
 export async function run({ check }) {
+  // [guard] a value the page refused must not read as done: a URL has no caller to answer, so the tool that built it asks
+  const pageWith = refused => ({ evaluate: async () => refused }), word = { key: 'weather', value: 'rian', reason: 'no weather named "rian"' };
+  const stopped = await refuseState(pageWith([word]), ['weather']).then(() => null, e => e.message);
+  check('[guard] a refused value the user named stops the tool, and says why', /weather=rian \(no weather named/.test(stopped ?? ''), stopped);
+  check('the tool\'s own keys are not the user\'s to hear about', await refuseState(pageWith([{ key: 'cutscene', value: 'skip', reason: 'x' }]), ['weather']).then(() => true, () => false));
+  check('[guard] capture and shot both ask', ['capture.mjs', 'shot.mjs'].every(f => /await refuseState\(page,/.test(readFileSync(join(TOOLS, f), 'utf8'))));
+
+  // the hole this closes: the hook wrapped renderBufferDirect, which WebGPURenderer has not, and printed an empty report with exit 0
+  const mesh = { isMesh: true, type: 'Mesh', name: 'statue', geometry: { index: { count: 300 }, drawRange: { count: Infinity }, attributes: {} }, userData: {} };
+  const gpu = { getRenderTarget: () => null, setRenderTarget() {}, _renderObjectDirect() {} }, h = hooked(gpu);
+  gpu._renderObjectDirect(mesh, { type: 'MeshStandardNodeMaterial', userData: {} }, {}, {}, null, null);
+  check('[guard] on WebGPURenderer the hook wraps its draw function and counts the draw', h.hook === '_renderObjectDirect' && h.draws.draws.length === 1 && h.draws.draws[0].tris === 100, h.hook);
+  const gl = { getRenderTarget: () => null, setRenderTarget() {}, renderBufferDirect() {} }, g = hooked(gl);
+  gl.renderBufferDirect({}, {}, mesh.geometry, { type: 'MeshStandardMaterial', userData: {} }, mesh, null);
+  check('on WebGLRenderer it still wraps renderBufferDirect', g.hook === 'renderBufferDirect' && g.draws.draws.length === 1);
+  check('a renderer with neither is refused, not reported as empty', hooked({ getRenderTarget: () => null }).hook === null);
+  check('the renderer line says when a WebGPU game fell back', /WebGL2 \(fallback: WebGPU was asked for, no adapter; this is not a WebGPU picture\) on SwiftShader · software browser/.test(rendererLine({ requested: 'webgpu', backend: 'webgl2', reason: 'no adapter', gpu: 'SwiftShader' }, 'software')));
+
   const text = summarize(frame, { top: 2, gl: spectorDraws({ commands: [{ name: 'bindFramebuffer' }, { name: 'drawElements' }, { name: 'drawElementsInstanced' }, { name: 'useProgram' }, { name: 'drawArrays' }, { name: 'drawArrays' }, { name: 'drawArrays' }] }) });
   check('first line counts all draws, shadow draws and passes', /^Frame: 6 draw calls in 3 render passes · shadow-map draws 2 · scene and post draws 4/.test(text), text.split('\n')[0]);
   check('a colour pass after the screen pass is counted as a post pass', text.includes('post-effect or off-screen colour passes: 1'));

@@ -28,7 +28,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const R = engine.renderer, errs = [], orig = console.error;
         console.error = (...a) => { errs.push(a.map(String).join(' ')); orig(...a); };
         try {
@@ -64,9 +64,13 @@ export const specs = [
         engine.budget.enable({ drawCalls: 1 });
         const b = engine.inspect.perf();
         engine.budget.disable(); o.removeFromParent(); m.dispose();
-        return { a, b };
+        // what a page that has not drawn yet reads: the counters at 0
+        const info = engine.renderer.info.render, calls = info.calls; info.calls = 0;
+        const none = engine.inspect.perf(); info.calls = calls;
+        return { a, b, none };
       });
-      const { a, b } = r;
+      const { a, b, none } = r;
+      check('[guard] no draw counted: says nothing is measured, no tick on the frame metrics, not ok', none.measured === false && none.ok === false && /^nothing measured yet/.test(none.text) && !none.budgets.some(x => ['drawCalls', 'triangles', 'cpuMs', 'compileMs'].includes(x.name)), none.text);
       check('fields present', a.drawCalls > 0 && a.triangles > 0 && a.programs > 0 && typeof a.textureMB === 'number' && typeof a.cpuMs === 'number', JSON.stringify({ d: a.drawCalls, t: a.triangles, p: a.programs }));
       check('one verdict per budget', ['drawCalls', 'triangles', 'programs', 'textureMB', 'cpuMs', 'compileMs'].every(k => a.budgets.some(x => x.name === k)));
       check('the program compiled during play is counted as a stall frame', b.compiles.length > a.compiles.length, `${a.compiles.length} -> ${b.compiles.length}`);
@@ -80,7 +84,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const THREE = engine.THREE, R = engine.renderer;
         const wrap = body => `// threedog:begin file=shaders/test.frag\n${body}\n// threedog:end`;
         const v1 = wrap('void main() {\n  gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);\n}');

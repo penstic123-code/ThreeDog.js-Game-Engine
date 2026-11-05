@@ -16,4 +16,4 @@ paths:
 - Docs shipped with the package (`AI.md`, recipes) use paths relative to the package (`recipes/...`, `node_modules/threedog/docs/...`), never `packages/engine/...`.
 - Tests that match text: the user-facing example content (NPC names, item names, dialogue lines, i18n zh-CN values) stays as is; developer text (warnings, `describeText`) is matched in English.
 - Performance changes attach before/after numbers (`describe().perf` or `npm run perf`).
-- Names in hand-written docs (paths, `npm test --` names, commands, events, `engine.x.y`) are checked by R18; a doc that names a test keeps the test name in the same commit. Tests wait on conditions (`frames`, `__t.until`), never fixed sleeps or wall-clock pass/fail.
+- Names in hand-written docs (paths, test names after `npm test --` or `threedog test`, commands, events, `engine.x.y`) are checked by R18; a doc that names a test keeps the test name in the same commit. Tests wait on conditions (`frames`, `__t.until`), never fixed sleeps or wall-clock pass/fail.

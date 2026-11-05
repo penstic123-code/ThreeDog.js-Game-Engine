@@ -3,13 +3,10 @@
 // should carry `params` (a readParams schema), so engine.catalog(name) shows the options and their defaults and a misspelled one throws in dev.
 // Error: every module is on params now, so a new factory that falls back to a hand-written checkOptions key list is caught at once. Fix: `readParams(name, PARAMS, opts)` at the top of the factory
 // and `params: PARAMS, options: opts` on the definition (keysSchema(KEYS) is the quick form when the values take several shapes).
-import { ts, parse, visit, engineFiles, lineOf } from './_lib.mjs';
+import { ts, parse, visit, engineFiles, lineOf, hasProp, OPT_NAMES, factoryOf } from './_lib.mjs';
 
-const OPT_NAMES = new Set(['opts', 'options', 'all']);
-const hasProp = (obj, name) => obj.properties.some(p => p.name?.getText() === name);
 const isModuleDef = obj => hasProp(obj, 'install') && obj.properties.some(p => p.name?.getText() === 'name' && ts.isPropertyAssignment(p) && ts.isStringLiteralLike(p.initializer));
 const optionsParam = fn => fn.parameters.find(p => ts.isIdentifier(p.name) && OPT_NAMES.has(p.name.text));
-function factoryOf(n) { for (let p = n.parent; p; p = p.parent) if (ts.isFunctionLike(p) && !ts.isMethodDeclaration(p)) return p; return null; }
 
 export default {
   id: 'R37', title: 'module options without a params schema',

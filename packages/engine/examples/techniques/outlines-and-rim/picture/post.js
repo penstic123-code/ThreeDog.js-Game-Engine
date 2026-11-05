@@ -5,6 +5,6 @@ import { LINE, OUTLINE } from './palette.js';
 
 /** @param {any} engine */
 export function createPost(engine) {
-  engine.post.add(outline({ enabled: true, color: LINE, ...OUTLINE, offLayer: OUTLINE_OFF_LAYER }), { name: 'outline', slot: 'hdr' });
+  engine.post.add(outline({ color: LINE, ...OUTLINE, offLayer: OUTLINE_OFF_LAYER }), { name: 'outline', slot: 'hdr' });
   return { offLayer: OUTLINE_OFF_LAYER };
 }

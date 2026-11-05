@@ -3,7 +3,7 @@
 // Once installed, engine.nav offers findPath(from, to) and the native objects navMesh / query / tileCache / crowd / helper.
 // version: +1 on every rebuild / unload. Native objects (crowd agents etc.) are destroyed on rebuild; code that cached them must compare version and re-fetch when it changed (NPCs do this).
 //
-// Where the mesh comes from: the ground API's navGeometry() (optional, { positions, indices }); otherwise staticTrimeshes() (the level's walkable mesh).
+// Where the mesh comes from: the ground API's staticTrimeshes() (the level's walkable mesh).
 // Walls and obstacles: boxes/circles in the collision module (level col_ boxes, ones added by game collision.addBox) are all synced into TileCache dynamic obstacles,
 // and affected tiles are rebuilt on add/remove, so level walls and later-added obstacles work the same way.
 // Levels only for now (ground with staticTrimeshes); procedural terrain keeps using A*. Recast (about 1MB) is downloaded only at init.
@@ -65,7 +65,6 @@ export function nav(opts = {}) {
   /** Walkable triangle mesh of the ground (world coordinates), merged into one */
   function geometry() {
     const G = e.ground;
-    if (G.navGeometry) return G.navGeometry();
     const list = G.staticTrimeshes?.() || [];
     let n = 0, m = 0;
     for (const t of list) { n += t.positions.length; m += t.indices.length; }
@@ -116,18 +115,19 @@ export function nav(opts = {}) {
       if (res.success) list.push(res.obstacle);
     }
     queued += list.length;
-    if (queued >= 48) flush();
+    if (queued >= BATCH) flush();
     return list;
   }
   function syncObstacles() {
     if (!api.ready || !e.collision) return;
-    obstacles ??= e.collision.mirror({ add: obstacle, remove: list => { for (const ob of list) { api.tileCache.removeObstacle(ob); if (++queued >= 48) flush(); } } });
+    obstacles ??= e.collision.mirror({ add: obstacle, remove: list => { for (const ob of list) { api.tileCache.removeObstacle(ob); if (++queued >= BATCH) flush(); } } });
     if (!obstacles.sync()) return;
     flush();
     api.revision++;
     api.helper?.update();
   }
-  // at most 64 obstacle requests per batch: process once a batch has built up, until all tiles are rebuilt
+  // obstacle requests are processed once a batch has built up, until all tiles are rebuilt
+  const BATCH = 48;
   let queued = 0;
   function flush() { queued = 0; for (let i = 0; i < 256 && !api.tileCache.update(api.navMesh).upToDate; i++); }
 

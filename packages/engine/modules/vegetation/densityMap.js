@@ -7,7 +7,7 @@
 // stable id, so felled-tree records and saves stay valid whether the map is on, off or changed. Each instance keeps or drops by its own hash
 // against the density there, so raising the density only adds plants, it never moves the ones already standing.
 import { readParams, keysSchema } from '../../core/params.js';
-import { grayAt, loadGray } from '../../core/grayMap.js';
+import { grayWorld, loadGray } from '../../core/grayMap.js';
 import { codedError } from '../../core/errorHints.js';
 
 const MAP_KEYS = ['url', 'data', 'width', 'height', 'size', 'center', 'outside'];
@@ -26,10 +26,7 @@ export function makeDensity(spec, label) {
   const M = { ...spec, data: spec.data ?? null };
   const at = (x, z) => {
     if (!M.data) return 0;   // image not loaded yet: nothing grows, the chunks are placed again once it is
-    const [sx, sz] = M.size, [cx0, cz0] = M.center || [0, 0];
-    const u = (x - cx0) / sx + 0.5, v = (z - cz0) / sz + 0.5;
-    if (u < 0 || u > 1 || v < 0 || v > 1) return M.outside ?? 0;
-    return grayAt(M, u, v);
+    return grayWorld(M, x, z) ?? M.outside ?? 0;
   };
   const pending = M.data ? null : loadGray(spec.url).then(g => { Object.assign(M, g); }, err => { throw codedError('vegetation-option', `${label}: densityMap url ${spec.url} did not load (${err?.message ?? err})`); });
   return { at, pending };

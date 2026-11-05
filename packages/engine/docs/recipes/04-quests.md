@@ -23,7 +23,7 @@ export default {
   },
 };
 ```
-`target` forms: a place name (its coordinates come from `engine.content.load(data, { places })` or a level marker, recipe 01), `{ place, x, z }`, `{ x, z }` (world coordinates; any of these may add `floor` / `y` for a storey on multi-layer ground,
+`target` forms: a place name (its coordinates come from `content/places.js`, `engine.content.load(data, { places })` or a level marker, recipe 01), `{ place, x, z }`, `{ x, z }` (world coordinates; any of these may add `floor` / `y` for a storey on multi-layer ground,
 as in props), `{ npc: 'id in npcs.js' }`, `{ nearest: 'itemId' }` (the closest not-yet-picked-up pickup of that kind to the player; hidden
 automatically once picked up).
 In code you can also write a function `target: () => target or null` (evaluated every frame); to change the target of a manual marker use
@@ -81,7 +81,7 @@ or bar in that screen column.
   `quests: {...}` line).
   In more detail: `engine.quests.list()` (each step has `current/done/target`), `engine.quests.isActive(id)`; story flags in `engine.vars.flags`.
 - Objective markers: `describe().hud.markers` has `{ label: quest title, distance: meters, onScreen }`; counters are in `describe().hud.counters`.
-- After advancing a condition you don't have to wait: `engine.quests.check()` checks immediately. Related test: `npm test -- 目标指示`.
+- After advancing a condition you don't have to wait: `engine.quests.check()` checks immediately.
 
 ## Reading and moving progress from code
 `engine.quests.state(id)` gives `{ step, steps, done, failed, active }` (or null before it starts): a copy, so read it, never write it.

@@ -57,7 +57,7 @@ export function windCustom({ glsl, uniforms, tsl }, gpu) {
  */
 export function applyEffects(material, { wind, clouds = true, season, detail, lighting, engine, patches } = {}) {
   const list = [], te = engine ?? ENGINES[0] ?? null;
-  // cloud shadow and season tint: the engine's own term, or the one the game put in its place (engine.terms,
+  // cloud shadow and season tint: the engine's own term, or the one the game put in its place (engine.shaderTerms,
   // render/terms.js). The material is remembered under its engine, so a replace made later reaches it too.
   const cp = clouds && cloudsPatch(te), sp = season && seasonPatch(te, season);
   if (clouds || season) trackTerms(te, material, { clouds: !!clouds, season: season || null });
@@ -87,7 +87,7 @@ export function terrainMaterial(base = null, engine = undefined, { effects = tru
   if (base && effects === false) return base;
   const e = engine ?? ENGINES[0], on = detail && ((detail.texture && e?.assets) || detail.noise || detail.glsl);
   return applyEffects(base || neutralMaterial('terrain', { vertexColors: true }),
-    { season: 'ground', engine: e ?? undefined, ...(on && { detail: { scale: 0.25, strength: 0.35, ...detail } }) });
+    { season: 'ground', engine: e ?? undefined, ...(on && { detail }) });
 }
 
 /**

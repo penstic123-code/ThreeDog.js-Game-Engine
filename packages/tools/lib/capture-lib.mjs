@@ -6,9 +6,11 @@ import { join } from 'node:path';
 export const SPECTOR_URL = 'https://cdn.jsdelivr.net/npm/spectorjs@0.9.30/dist/spector.bundle.js';
 
 /**
- * Runs inside the page. Wraps renderer.renderBufferDirect (one call per draw call, shadow and post passes included) and renderer.setRenderTarget
- * (pass boundaries); the draws of every render from now on land in window.__draws = { passes, draws }. Names come from ThreeDog: the world record
- * that owns the object (engine.world), userData.budgetTag and material.userData.purpose.
+ * Runs inside the page. Wraps the one function each renderer draws through (shadow and post passes included): WebGLRenderer.renderBufferDirect, or
+ * WebGPURenderer._renderObjectDirect, on both of its backends. The draws of every render from now on land in window.__draws = { passes, draws }. Names come
+ * from ThreeDog: the world record that owns the object (engine.world), userData.budgetTag and material.userData.purpose.
+ * Returns the name of the function it wrapped, or null when this renderer has neither: the tool then refuses, an empty report would read as a free frame.
+ * shortcut: _renderObjectDirect is three's private name, there is no public draw hook on WebGPURenderer (setRenderObjectFunction is taken by the shadow pass); a three.js update that renames it lands in that refusal.
  */
 export function hookScript() {
   const r = engine.renderer, owners = new Map(), passes = [], draws = [];
@@ -16,26 +18,33 @@ export function hookScript() {
   const up = (obj, f) => { for (let o = obj; o; o = o.parent) { const v = f(o); if (v) return v; } return null; };
   const rtName = t => (t ? (t.texture?.name || (t.depthTexture ? 'depth target' : 'target')) + ` ${t.width}x${t.height}` : 'screen');
   let cur = null;
-  const direct = r.renderBufferDirect;
-  r.renderBufferDirect = function (camera, scene, geometry, material, object, group) {
+  const note = (geometry, material, object, group) => {
     const t = r.getRenderTarget();
     if (!cur || cur.t !== t) { cur = { t, name: rtName(t), draws: 0, tris: 0, depthOnly: true }; passes.push(cur); }
     const idx = geometry.index, total = group ? group.count : idx ? idx.count : (geometry.attributes.position?.count ?? 0);
     const n = Math.min(total, geometry.drawRange.count), inst = object.isInstancedMesh ? object.count : 1;
-    const tris = object.isMesh ? Math.round(n / 3) * inst : 0, depth = !!(material.isMeshDepthMaterial || material.isMeshDistanceMaterial);
+    // a WebGPU shadow pass draws with a node material, so the target says it is one (ShadowNode names its depth texture), not the material
+    const tris = object.isMesh ? Math.round(n / 3) * inst : 0, depth = !!(material.isMeshDepthMaterial || material.isMeshDistanceMaterial || t?.depthTexture?.name === 'ShadowDepthTexture');
     cur.draws++; cur.tris += tris; if (!depth) cur.depthOnly = false;
     if (draws.length < 20000) draws.push({
       pass: passes.length - 1, tris, inst, depth, type: object.type, name: object.name || object.geometry?.name || '',
       record: up(object, o => owners.get(o)), tag: up(object, o => o.userData?.budgetTag),
       material: material.userData?.purpose || material.name || material.type, materialType: material.type,
     });
-    return direct.apply(this, arguments);
   };
+  const hook = r.renderBufferDirect ? 'renderBufferDirect' : r._renderObjectDirect ? '_renderObjectDirect' : null;
+  if (!hook) return null;
+  const direct = r[hook];
+  r[hook] = hook === 'renderBufferDirect'
+    ? function (camera, scene, geometry, material, object, group) { note(geometry, material, object, group); return direct.apply(this, arguments); }
+    : function (object, material, scene, camera, lightsNode, group) { note(object.geometry, material, object, group); return direct.apply(this, arguments); };
+  // the renderer takes its draw function from this property at the start of each render(), so the wrapper above is the one the next render calls
   const setTarget = r.setRenderTarget;
   r.setRenderTarget = function (t, ...rest) { if (cur && cur.t !== t) cur = null; return setTarget.call(this, t, ...rest); };
   window.__draws = { passes, draws };
   // serialisable view for page.evaluate's return value: the render targets themselves cannot cross
   Object.defineProperty(window.__draws, 'toJSON', { value: () => ({ passes: passes.map(p => ({ name: p.name, draws: p.draws, tris: p.tris, depthOnly: p.depthOnly })), draws }) });
+  return hook;
 }
 
 /** The Spector bundle text: from the cache, else fetched from url (default SPECTOR_URL) and cached */

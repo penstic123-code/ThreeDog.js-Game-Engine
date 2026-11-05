@@ -5,7 +5,7 @@ export const specs = [
     url: '/?cutscene=skip',   // the opening cutscene takes over the camera (focus would not follow the player)
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, P = engine.player, S = engine.calendar, home = P.position.clone();
         S.timeOfDay = 9 / 24;
         const A = { x: home.x + 4, z: home.z + 4 }, B1 = { x: home.x + 34, z: home.z + 4 }, B2 = { x: home.x + 204, z: home.z + 4 };
@@ -94,7 +94,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, npc = engine.npcs.get('fisher');
         engine.step(0.5);
         engine.saves.save('s1-npc');
@@ -122,7 +122,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const P = engine.player, home = P.position.clone();
         engine.calendar.timeOfDay = 6.02 / 24;   // just past 6:00: the old fisherman heads to the river and the test NPC to its second stop, both walking
         const A = { x: home.x + 3, z: home.z + 3 };
@@ -156,7 +156,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const P = engine.player, home = P.position.clone(), H = { x: home.x + 400, z: home.z };
         P.placeAt({ x: home.x - 400, z: home.z }); engine.step(3);   // walk far away: focus follows
         engine.random.setSeed(5);
@@ -184,7 +184,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const P = engine.player, home = P.position.clone();
         engine.npcs.behavior('clock', { near: (rec, dt) => { rec.mind.t = (rec.mind.t ?? 0) + dt; rec.mind.nearT = (rec.mind.nearT ?? 0) + dt; }, far: (rec, dt) => { rec.mind.t = (rec.mind.t ?? 0) + dt; } });
         const n = engine.npcs.add({ id: 'clk', name: '计时', position: { x: home.x + 4, z: home.z + 4 }, behavior: 'clock' });
@@ -212,8 +212,12 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
         const P = engine.player, h = P.position.clone(), T = { x: h.x + 14, z: h.z + 14 };
+        // the same scene every run: a tree beside T bends the paths, so the off gap below measured 0.42 with the tree and 0.74 on a busy machine that halted before the chunk's
+        // trees arrived. Colliders land after the terrain is ready (jobs.pending is 0 by then), so wait until their count holds still
+        const trees = () => { let n = 0; engine.ground.forEachCollider?.(T.x, T.z, 40, () => { n++; }); return n; };
+        for (let n = -1, quiet = 0, t0 = performance.now(); quiet < 5 && performance.now() - t0 < 30000; await new Promise(res => setTimeout(res, 200))) { const m = trees(); quiet = m > 0 && m === n ? quiet + 1 : 0; n = m; }
+        engine.haltLoop();
         const ids = Array.from({ length: 8 }, (_, i) => 's1-av' + i);
         ids.forEach((id, i) => {
           const a = i / 8 * Math.PI * 2, A = { x: T.x + Math.cos(a) * 6, z: T.z + Math.sin(a) * 6 };
@@ -246,7 +250,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const h = engine.player.position.clone(), out = {};
         // time avoid.push directly: step once to record start positions, then push all 400 NPCs with dt = 0 (no movement) and take the fastest of several runs (includes rebuilding the grid once per step)
         const A = engine.npcs.avoid;
@@ -282,7 +286,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, h = engine.player.position.clone();
         // default (no tiers): an NPC as far out as the tiered ones below still walks every step
         engine.npcs.behavior('tick', { near: rec => { rec.mind.n++; } });

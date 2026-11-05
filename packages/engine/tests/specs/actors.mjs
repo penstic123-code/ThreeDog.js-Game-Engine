@@ -13,7 +13,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         const HELPER = 'helper-1';   // ev() runs this function in the page: constants of this file do not exist there
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, I = engine.inventory, P = engine.pickups, p = engine.player.position;
         const out = {};
         engine.ops.allow(() => {
@@ -60,7 +60,7 @@ export const specs = [
         engine.step(0.1, { render: false });
         tz.remove(); tp.remove(); hEv.remove();
         out.trig = ids.join();
-        W.remove(HELPER); engine._resume();
+        W.remove(HELPER); engine._unhalt();
         return out;
       });
       check('pickup.take as a second actor: the item lands in that actor\'s container, not the player\'s', r.take.ok && r.afterTake.helper === 1 && r.afterTake.player === 0, JSON.stringify(r));

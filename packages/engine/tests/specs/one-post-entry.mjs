@@ -13,7 +13,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const { ShaderPass, CopyShader, postEffects: E } = window.threedogTest, out = {}, err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         const names = () => engine.post.list().map(e => `${e.name}:${e.slot}:${e.enabled}`);
         // 1. one verb for each shape; each is switched through its handle
@@ -49,7 +49,6 @@ export const specs = [
         hs.remove(); engine.step(0.05);
         // 5. the old entries are gone (one way in)
         out.old = { addPass: typeof engine.post.addPass, insertPass: typeof engine.post.insertPass, removePass: typeof engine.post.removePass };
-        out.postOption = err(() => window.threedogTest.createEngine({ canvas: document.createElement('canvas'), post: { bloom: true } }));
         return out;
       });
       console.log('  one post entry:', JSON.stringify(r));
@@ -62,7 +61,6 @@ export const specs = [
       check('a second scene-drawing pass is refused by name (the scene slot holds one)', r.scene.second.includes("slot 'scene' already holds"), r.scene.second);
       check('engine.post.addPass / insertPass / removePass are gone',
         r.old.addPass === 'undefined' && r.old.insertPass === 'undefined' && r.old.removePass === 'undefined', JSON.stringify(r.old));
-      check('createEngine({ post: { bloom: true } }) fails and points to engine.post.add(bloom()) and the handle', r.postOption.includes('engine.post.add(bloom())') && r.postOption.includes('.enabled = false'), r.postOption);
     },
   },
   {
@@ -72,7 +70,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         const p = engine.post, out = {}, err = f => { try { f(); return ''; } catch (e) { return e.message; } };
-        engine.pause();
+        engine.haltLoop();
         const before = p.list().length;
         const a = p.add({ name: 'gateA', slot: 'ldr', params: { k: 0.5 }, fuse: { uniforms: { uGateA: 'float' }, values: q => ({ uGateA: q.k }), glsl: 'color.rgb *= uGateA + 0.0 * fxHash(vUv * uResolution);' } });
         const b = p.add({ name: 'gateB', slot: 'ldr', fuse: { glsl: 'color.rgb *= 0.9;' } });

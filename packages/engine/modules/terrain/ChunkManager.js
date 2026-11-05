@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { createTerrain } from './terrainGen.js';
 import { chunkHandler } from './chunkJob.js';
 import { TerrainEdits } from './terrainEdit.js';
-import { ChunkStream } from '../../core/chunkStream.js';
+import { ChunkStream, bookCollision } from '../../core/chunkStream.js';
 import { chunkQueries } from './chunkQueries.js';
 import { reportError } from '../../core/errors.js';
 import { codedError } from '../../core/errorHints.js';
@@ -21,15 +21,13 @@ const NO_VEG = { baseNames: () => [], nearNames: () => [], list: () => [], get: 
 // A failed ground job is sent again up to this many times in all (a worker that crashed or ran out of memory usually passes next time); then the
 // chunk is marked failed and reported. Before, it sat in 'pending' for ever and the loading screen waited without a word.
 const MAX_TRIES = 3;
-const COLLIDER_LAG = 30;   // base delay before chunk collision takes effect (fixed steps, 30 = 0.5 s), multiplied by (1 + ring)
 
 export class ChunkManager {
   constructor(engine, terrainCfg) {
     this.engine = engine;
-    this.T = createTerrain(terrainCfg);          // main-thread copy: height queries for the character and camera
+    this.generator = createTerrain(terrainCfg);          // main-thread copy: height queries for the character and camera
     this.chunks = new Map();
-    this.viewChunks = 4;                        // unit: chunks
-    this.density = 1;
+    /** @internal view distance in chunks and vegetation density: the module sets both at install (terrain/index.js holds the defaults) */ this._viewChunks = 0; this._density = 0;
     this.applyBudgetMs = 3;                       // max ms per frame spent taking worker results
     this.maxInFlight = 4;
     this.inFlight = 0;
@@ -53,7 +51,7 @@ export class ChunkManager {
     /** @internal edit records (saved with the save) */ this.edits = new TerrainEdits(engine, this);
   }
 
-  get CHUNK() { return this.T.CHUNK; }
+  get chunkSize() { return this.generator.CHUNK; }
   // the draw part's entries, here because engine.terrain is where a game looks for them; this file stays data only
   /** @internal */
   _drawPart() { return this.drawPart ?? (() => { throw codedError('terrain-option', "the engine's terrain drawing is not installed: a draw part that replaces 'terrain-draw' draws the ground its own way"); })(); }
@@ -76,9 +74,9 @@ export class ChunkManager {
    * chunk loaded (at most -50); -Infinity without a shape
    * @example engine.events.on('terrain:void', ({ who }) => { if (who === engine.player) engine.player.placeAt(home); });
    */
-  get voidY() { return this.T.shape ? this.T.shape.voidY ?? Math.min(0, this.lowest) - 50 : -Infinity; }
+  get voidY() { return this.generator.shape ? this.generator.shape.voidY ?? Math.min(0, this.lowest) - 50 : -Infinity; }
   /** Grid spacing (meters): edits snap to it, and paint colors whole cells of this size. Set by chunkSize / resolution */
-  get cellSize() { return this.T.CELL; }
+  get cellSize() { return this.generator.CELL; }
   /**
    * Change the ground: dig, raise, flatten, or paint the ground type. Call it from an op or a fixed step (it is saved gameplay state).
    * Heights snap to grid points and paint to cells (cellSize); the nearest one is taken when the shape is smaller than a cell.
@@ -97,14 +95,6 @@ export class ChunkManager {
   edit(position, opts) { return this.edits.edit(position, opts); }
 
   /**
-   * Draw these chunks. Hooks: add(c) (generated: c.data holds the arrays pos / nor / col / uv / tex, c.cx / c.cz the chunk), change(c) (an edit
-   * rewrote c.data, same vertex count), remove(c) (released), show(c, visible) (in the camera view or not). Chunks already loaded are added at
-   * once. This is how a draw part that replaces 'terrain-draw' draws the ground. Returns { remove() } (ctx.track it).
-   * @example ctx.track(engine.terrain.view({ add(c) { draw(c) }, remove(c) { undraw(c) } }))
-   * @param {{ add?: (c: any) => void, change?: (c: any) => void, remove?: (c: any) => void, show?: (c: any, visible: boolean) => void }} v
-   * @returns {{ remove(): void }}
-   */
-  /**
    * Hand the terrain its planter (the vegetation data part calls this): it is told when chunks mount, unmount and drop. Returns a handle;
    * remove() puts the empty planter back if this one is still set.
    * @param {object} planter
@@ -115,6 +105,14 @@ export class ChunkManager {
     return { remove: () => { if (this.plants === planter) this.plants = NO_VEG; } };
   }
 
+  /**
+   * Draw these chunks. Hooks: add(c) (generated: c.data holds the arrays pos / nor / col / uv / tex, c.cx / c.cz the chunk), change(c) (an edit
+   * rewrote c.data, same vertex count), remove(c) (released), show(c, visible) (in the camera view or not). Chunks already loaded are added at
+   * once. This is how a draw part that replaces 'terrain-draw' draws the ground. Returns { remove() } (ctx.track it).
+   * @example ctx.track(engine.terrain.view({ add(c) { draw(c) }, remove(c) { undraw(c) } }))
+   * @param {{ add?: (c: any) => void, change?: (c: any) => void, remove?: (c: any) => void, show?: (c: any, visible: boolean) => void }} v
+   * @returns {{ remove(): void }}
+   */
   view(v) {
     this.views.add(v);
     for (const c of this.chunks.values()) if (c.state === 'ready') v.add?.(c);
@@ -134,7 +132,7 @@ export class ChunkManager {
   }
   /** Replace the terrain config in every worker (height map loaded, recolor); species is the full rule table */
   reinit(terrainCfg, species) {
-    this.T = createTerrain(terrainCfg);
+    this.generator = createTerrain(terrainCfg);
     this.edits.attach();
     this.lane.broadcast({ type: 'init', terrain: terrainCfg, species }, 'init');
     this.rebuild();
@@ -177,20 +175,28 @@ export class ChunkManager {
   }
 
   /**
-   * View distance (in chunks). Also moves the camera far plane out to it; with terrain({ viewFog: true }) the signal uViewDistance follows too (the drawing half
-   * writes it, see viewFogFar; the game's fog is its own)
+   * View distance (in chunks). Also moves the camera far plane out to it; with terrain({ viewFog: true }) the signal uViewDistance follows too (see viewFogFar;
+   * the game's fog is its own)
    */
   setViewChunks(n) {
-    this.viewChunks = n;
-    const e = this.engine, d = (n - 0.3) * this.T.CHUNK;
-    e.viewFar(d + 150);   // chunks in view must not be clipped (unless the game owns camera.far)
+    this._viewChunks = n;
+    this.engine.viewFar(this._viewMeters() + 150);   // chunks in view must not be clipped (unless the game owns camera.far)
   }
+  /** @internal the view distance in meters */
+  _viewMeters() { return (this._viewChunks - 0.3) * this.generator.CHUNK; }
   /** The view distance the signal uViewDistance gets with terrain({ viewFog: true }) (meters), else null; never scene.fog itself */
-  get viewFogFar() { return this.viewFog ? (this.viewChunks - 0.3) * this.T.CHUNK : null; }
+  get viewFogFar() { return this.viewFog ? this._viewMeters() : null; }
   /** Vegetation density multiplier: plants are placed again on the loaded chunks; the ground and its collision stay, old trees block until the new ones are in */
-  setDensity(d) { this.density = d; this.vgen++; this._regrow(this.plants.baseNames()); }
+  setDensity(d) { this._density = d; this.vgen++; this._regrow(this.plants.baseNames()); }
+  // Why setters: a plain write used to change the number and nothing else (no far plane, no new plants), with no error
+  /** View distance (in chunks); writing it takes effect like setViewChunks */
+  get viewChunks() { return this._viewChunks; }
+  set viewChunks(n) { this.setViewChunks(n); }
+  /** Vegetation density multiplier; writing it takes effect like setDensity */
+  get density() { return this._density; }
+  set density(d) { this.setDensity(d); }
   // plants-only jobs for every loaded chunk (the ground, its collision and the near-only detail stay). c.regrow counts the ones not yet
-  // mounted: isReadyAround is false until they are, so a headless page (core/headlessLoad.js) keeps running loading frames and stateApplied
+  // mounted: readyAt is false until they are, so a headless page (core/headlessLoad.js) keeps running loading frames and stateApplied
   // waits for the new plants, as it did when a species dropped the whole terrain
   _regrow(names) {
     if (!names.length) return;
@@ -214,13 +220,10 @@ export class ChunkManager {
   _queue(cx, cz, key) {
     const c = { cx, cz, key, state: 'queued', data: null, plants: {}, colliders: {}, inView: true, pendingDetail: false, detailDone: new Set(), level: -1, sphere: null, solid: false, gen: this.gen };
     this.chunks.set(key, c);
-    const ring = this._ring(c);
-    c.ticket = this.engine.commits.request({
-      lag: !this.engine.ready && ring <= 1 ? 0 : COLLIDER_LAG * (1 + ring),
+    bookCollision(this, c, this._ring(c), {
       // collision counts from this step on (a new token makes the physics module build this chunk's collision)
       apply: () => { c.solid = true; c.colToken = {}; },
       fallback: () => this._forceReady(c),
-      valid: () => this.chunks.get(c.key) === c && c.gen === this.gen,
     });
     return c;
   }
@@ -240,7 +243,7 @@ export class ChunkManager {
 
   /** sources: engine.stream.sources() (every stream source; a source radius caps the view distance) */
   update(sources, camera) {
-    this._stream.follow(sources, this.T.CHUNK, this.viewChunks);   // queue what a source needs, release what is far from all
+    this._stream.follow(sources, this.generator.CHUNK, this.viewChunks);   // queue what a source needs, release what is far from all
     this._pump();
     this.stats.queued = this._want.length;
 
@@ -304,8 +307,8 @@ export class ChunkManager {
     const i = this.ready.findIndex(r => r.terrain && r.cx === c.cx && r.cz === c.cz && r.gen === c.gen && r.ev === this.edits.version(c.key));
     let r = i >= 0 ? this.ready.splice(i, 1)[0] : null;
     if (!r || r.vgen !== this.vgen) {
-      r = { terrain: r?.terrain ?? this.T.buildChunk(c.cx, c.cz), veg: {} };
-      for (const name of this.plants.baseNames()) r.veg[name] = this.T.place(c.cx, c.cz, this.plants.get(name).rule, this.density);
+      r = { terrain: r?.terrain ?? this.generator.buildChunk(c.cx, c.cz), veg: {} };
+      for (const name of this.plants.baseNames()) r.veg[name] = this.generator.place(c.cx, c.cz, this.plants.get(name).rule, this.density);
     }
     this._applyTerrain(c, r.terrain);
     for (const name in r.veg) this.plants.mount(c, name, r.veg[name]);

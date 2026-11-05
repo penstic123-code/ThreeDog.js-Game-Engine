@@ -11,7 +11,7 @@ const W = 240, H = 180;
 // the test runner waits for window.engine; the scene below is plain three.js and never touches it
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), lights: false, pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, saveKey: 'test-style-basics', urlState: false });
 await engine.start();
-engine.pause();
+engine.haltLoop();
 const r = new WebGPURenderer({ canvas: Object.assign(document.createElement('canvas'), { width: W, height: H }), antialias: false, forceWebGL: true });
 await r.init();
 r.setPixelRatio(1); r.setSize(W, H, false);

@@ -156,7 +156,7 @@ plus the changing values on the record, and wrap the table with `Object.freeze` 
 ## 4. Tests
 `tests/specs/templates.mjs`: two chests of one template share the model, open / goods per instance, save and reload restores each, the definition
 never changes. `tests/specs/template-stages.mjs`: stages grow over game time near and far and survive save / load, `update` runs on the
-fixed step, an interaction runs its op, and the engine root has no second placement path (no entities module, no root-level spawn). `tests/specs/single-source.mjs` (`npm test -- "Single source"`): ids, duplicates, baseline + diff, orphans, level nodes, source lines, pick.
+fixed step, an interaction runs its op, and the engine root has no second placement path (no entities module, no root-level spawn). `tests/specs/single-source.mjs` (`threedog test "Single source"`): ids, duplicates, baseline + diff, orphans, level nodes, source lines, pick.
 
 ## 5. Point -> thing: where is this defined
 Runtime ops change only the current session and its saves. To change the level itself, edit the content files or the level model, then reload. To find
@@ -180,10 +180,10 @@ from `rules.js`, the level model) is what you want when the thing must be saved 
 times. Both land in the same registry: `engine.thing(id)` answers for either and says what a save keeps (recipe 40). Game code keeps the rules: ops,
 `world.simulate` / `world.present`, conditions and UI. Something that appears during play is created inside an op with `engine.content.spawn`.
 
-`npm run check` (rule R33) flags only what breaks, in examples, templates and `games/*` alike. Error: `world.add` (without `{ save: false }`),
+`npm run check` (rule R33) flags only what can break, in examples, templates and `games/*` alike. Warning, with `// runtime: <reason>` as the way to say it is fine (no saves, a new run only): `world.add` (without `{ save: false }`),
 `engine.content.spawn`, `pickups.spawn` or `npcs.add` at module top level or in an `engine:ready` / `level:loaded` / `session:start`
-handler, because those are saved whole and the startup code would make a second copy after every load; and `world.add(…, { initial: true })`
-anywhere. Warning: code that `engine.add`s a `world.view(id)` model or writes its position / rotation / scale (world puts it back every frame).
+handler, because those are saved whole and the startup code would make a second copy after every load. Error: `world.add(…, { initial: true })`
+anywhere, which corrupts what saves compare against. Warning: code that `engine.add`s a `world.view(id)` model or writes its position / rotation / scale (world puts it back every frame).
 The fix is a placement in content, or an op. Places computed from the seed (a flat spot for `home`) stay in code and are passed as `places` to
 `content.load`; a mesh built in code becomes a model by name (`engine.assets.manifest({ models: { cabin } })`) when you want it as a template.
 A line that really must do it from code at startup carries `// runtime: <reason>`.
@@ -211,10 +211,12 @@ the place's. Change the place and every entry follows, with its model and collis
 second `engine.content.load(data, { places })`. What play moved or turned stays where the player left it, and a save keeps only what play changed, so an old
 save follows the new place too. Only places in `places.js` (or the `places` of `content.load`) have `rot`; a level marker gives a position.
 
-**`source`** is a plain optional string on a model or template entry, naming what the entry was copied from. It has no effect at runtime; it is there to ask:
+**`source`** (experimental, with `content stamp` and `content capture`) is a plain optional string on a model or template entry, naming what the entry was copied from. It has no effect at runtime; it is there to ask:
 ```js fragment
 engine.world.query({ where: r => r.source === 'stall' });   // every thing copied from that arrangement
 ```
+**Moving entries by hand.** On the dev server press F2 (or add `?edit=1` to the address), click an entry and drag its handle: letting go writes `x` and `z` into its content file, as an offset when it stands on a place. Comments and alignment stay. A value someone changed since the click is refused, and code-built entries and things added by code say why they cannot be saved.
+
 **Arrangements.** To stamp out the same group again (`threedog content stamp <name> id=stall-1 x=20 z=5 rot=1.6`, then `threedog content set --source <name> <part> y=2` changes that part in every copy, as one explicit edit), keep it as a small file, `content/arrangements/<name>.js`: entries around zero, with a local `part` name
 instead of an id and no place. Only the tools read it, when they copy it into `props.js`; the game never loads it, so the copies are ordinary entries from then
 on and changing the file later changes nothing already placed.

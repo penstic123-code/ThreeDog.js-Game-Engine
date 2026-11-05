@@ -61,7 +61,7 @@ export const specs = [
           a.remove();
           out.tie = I.pick('player')?.id;
           out.items = I.items.filter(x => x.id.startsWith('g-')).map(x => x.id).join(',');
-          out.get = I.get('g-a') === null && I.get('g-c')?.id === 'g-c';
+          out.get = I.get('g-a') === undefined && I.get('g-c')?.id === 'g-c';
           b.remove(); c.remove(); I.pickMode = mode;
         }
         // 4. a failed stand-in texture: one load-failed warning naming where, resolves false, use() never runs

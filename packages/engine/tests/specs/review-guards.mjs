@@ -99,7 +99,7 @@ export const specs = [
         out.idleAuto = L.lightPool.lights.map(l => l.shadow.autoUpdate);
         const h = L.lightPool.add({ x: 0, y: 1, z: 0 }, { intensity: 3, distance: 8 });
         L.step(0.3);
-        out.lit = L.lightPool.usage().lit; out.autoAfter = L.lightPool.lights.filter(l => l.shadow.autoUpdate).length;
+        out.lit = L.lightPool.stats.lit; out.autoAfter = L.lightPool.lights.filter(l => l.shadow.autoUpdate).length;
         h.remove(); L.step(0.5);
         out.autoGone = L.lightPool.lights.filter(l => l.shadow.autoUpdate).length;
         L.dispose();
@@ -182,7 +182,7 @@ export const specs = [
       // since acb3fd2a autopilot { speed } is a move.speed entry (owner 'autopilot', id 'player'); moveInput() returns only the direction.
       // The guard is that the speed still reaches the player and is released again, so a recording or benchmark walks at the asked speed
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const s = engine.stacks.get('move.speed');
         engine.input.autopilot = { x: 0, y: 1, speed: 3.5 }; engine.step(0.05);
         const a = [s.value('player'), s.names('player').includes('autopilot'), engine.characters.moveInput().speed];

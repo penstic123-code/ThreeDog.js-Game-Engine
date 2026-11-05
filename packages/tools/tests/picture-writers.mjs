@@ -19,7 +19,7 @@ export async function run({ check }) {
     page.on('console', m => { if (m.type() === 'warning' && /written twice/.test(m.text())) warnings.push(m.text()); });
     await page.goto(`${server.resolvedUrls.local[0]}tests/picture-writers/index.html`);
     await page.waitForFunction(() => window.engine?.ready, null, { timeout: 90000 });
-    const step = n => page.evaluate(k => { window.engine.pause(); for (let i = 0; i < k; i++) window.engine.step(1 / 60, { describe: false }); }, n);
+    const step = n => page.evaluate(k => { window.engine.haltLoop(); for (let i = 0; i < k; i++) window.engine.step(1 / 60, { describe: false }); }, n);
     const values = () => page.evaluate(() => window.engine.describe('picture').picture.writers);
     await step(3);
     let w = await values();

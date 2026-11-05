@@ -23,6 +23,7 @@ export const specs = [
       const fxOk = c => c.diff < 3 && c.effectGL > 0.5 && c.effectGPU > 0.5;
       for (const [n, c] of Object.entries(r.outline))
         check(`outline ${n}: WebGPU node vs WebGL OutlinePass screenshot mean within 3%, lines drawn on both`, fxOk(c), JSON.stringify(c));
+      check('a number param set to a Color rebuilds, it does not throw', r.colorParam === '', r.colorParam);
       check('outline offLayer: the exempt sphere loses its lines on both backends (less change than without the mask)',
         r.outline.offLayer.effectGL < r.outline.depth.effectGL - 0.2 && r.outline.offLayer.effectGPU < r.outline.depth.effectGPU - 0.2, JSON.stringify(r.outline.offLayer));
       check('dof: WebGPU node vs WebGL DofPass screenshot mean within 3%, blur visible on both', fxOk(r.dof), JSON.stringify(r.dof));

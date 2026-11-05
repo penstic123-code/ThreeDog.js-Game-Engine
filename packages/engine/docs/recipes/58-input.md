@@ -47,8 +47,8 @@ Everything a module declares or binds through `ctx.input` leaves with it (rollba
 ## 4. What the engine tells you
 - **`input-unbound`** (dev, once per action): a module needs an action nobody bound. The message names the action, its context and the bind line.
   `engine.input.isUnbound('interact')` asks the same thing: true for no key at all, false for any key, an optional action or `[]` (no key on purpose).
-- **`interaction-no-key`** (dev throws, gameplay freezes): interactions were added to an action with no key. Rule R51 finds it in `check`, the smoke test fails on it,
-  `describe` calls the thing `no key bound` and `interaction.use` is refused with `noKey`.
+- **`interaction-no-key`** (dev warning, once per action): interactions were added to an action with no key. Rule R51 warns in `check`, `describe` calls the thing `no key bound`,
+  and `ops` does not offer it, but `interaction.use` still runs when code asks: a click-only or touch-only game is right. `engine.input.bind('interact', [])` says so and ends the warning.
 - **`input-bound-twice`** (dev throws; release: the later wins): two owners bind one action, e.g. the game's `createEngine({ bindings })` and a
   module's `ctx.input.bind` for the same action. Keep one. The same owner binding again only replaces its keys.
 - **`input-action-context`**: two owners declare one action in different contexts. Rename one, or use the same context to share it.

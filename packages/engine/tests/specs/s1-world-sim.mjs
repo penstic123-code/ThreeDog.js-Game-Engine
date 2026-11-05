@@ -9,7 +9,7 @@ export const specs = [
     expectErrors: /s1throw|s1disp/,   // make build / dispose fail on purpose
     async run({ check, ev }) {
       const r = await ev(async mk => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, p = engine.player.position, box = new Function('return ' + mk);
         const errs = [], warns = [], ce = console.error, cw = console.warn;
         console.error = (...a) => { errs.push(a.map(String).join(' ')); ce(...a); };
@@ -63,7 +63,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(mk => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, T = engine.THREE, p = engine.player.position, box = new Function('return ' + mk);
         const cs = W._cells.size, x0 = Math.floor(p.x / cs) * cs + 4, z = Math.floor(p.z / cs) * cs + 16, f = new T.Vector3(x0, p.y, z);
         globalThis.__cam = engine.takeCamera('s1', { focus: f });   // the test places the camera focus
@@ -90,7 +90,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, p = engine.player.position;
         let T = 0; const h = engine.onFixed(dt => { T += dt; });
         const owedOf = id => W.toJSON().owed[id] ?? 0;
@@ -128,7 +128,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(mk => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, T = engine.THREE, p = engine.player.position, box = new Function('return ' + mk);
         const n = { home: 0, away: 0 };
         W.simulate('s1an', { near: rec => { n[rec.tag]++; }, radius: 30 });
@@ -164,7 +164,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, p = engine.player.position, v = p.clone();
         const err = f => { try { f(); return null; } catch (e) { return e.message; } };
         const nan = err(() => W.add({ kind: 's1e', position: [v[0], 0, v[2]] }));   // Vector3 used as an array
@@ -200,7 +200,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, R = engine.random, P = engine.player, p = P.position;
         // random walk when near, approach the player when far (crossing the near / far boundary), all using engine.random
         W.simulate('s1fr', {

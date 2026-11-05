@@ -19,7 +19,7 @@ On `renderer: 'webgpu'` take `PMREMGenerator` from `three/webgpu`. A map you mad
 - Nothing is built before this call. Without `into` nothing is written anywhere: read `handle.texture` (a live getter) and put it on the materials you choose (`material.envMap`).
 - With `into`, that object's `.environment` gets the map at each rebuild. A map you write there yourself stays: the rebuilds go on, but only `handle.texture` follows them.
 - The dome is rendered into a cube and prefiltered with `PMREMGenerator`. It is rebuilt only when the sky colors, sun direction or cloud
-  cover actually changed AND at least `interval` seconds (default 1, 4 times longer on a low-tier device) passed since the last check, never every frame. A fixed time of
+  cover actually changed AND at least `interval` seconds (default 1, 4 on a low-tier device; a number the game gives stands) passed since the last check, never every frame. A fixed time of
   day builds once. A call before the first frame waits for that frame, so the map uses real colors.
 - The cube is at least 256 px per face (PMREMGenerator's floor in 0.187), so a low tier saves time by rebuilding less often, or by your `picture/` code skipping the call on `engine.tier === 'low'`.
 - An asset map is a fixed photo: it does not dim at night. Write `scene.environmentIntensity` from your own frame code reading `engine.uniforms.uDaylight`.
@@ -61,12 +61,16 @@ probes.remove();
 The best-looking baked light, and free at run time: it is plain `material.lightMap` on a second UV set, so a file baked on WebGPU draws the same on WebGL. Baking needs a real GPU and Google Chrome on the machine that bakes, not on the player's.
 ```js
 floor.userData.static = true; wall.userData.static = true;   // named meshes that never move
-// npx threedog bake light --out public/light/level.lightmap --size 1024 --spacing 2
-const light = await engine.loadLightmap('light/level.lightmap');   // once the level is built
-hemi.intensity = 0;                                                // the bake saw it: keep the sun, drop the ambient
+// npx threedog bake light --page "/?bake=1" --out public/light/level.lightmap --size 1024
+const baking = new URLSearchParams(location.search).has('bake');  // the bake must see the lights the map replaces
+if (!baking) {
+  const light = await engine.loadLightmap('light/level.lightmap');   // once the level is built
+  hemi.visible = false;                                              // the bake saw it: keep the sun, drop the ambient
+}
 floor.material.lightMapIntensity = 1.2;                            // plain three.js, yours
 ```
-- What is baked: sky and first bounce, from a probe grid over the static meshes. The sun stays real-time, so moving things keep their shadows. The game's hemisphere or ambient light stands in for the sky during the bake.
+- What is baked: sky and bounced light, by rays traced from every lightmap texel through the static meshes, so light stops at walls and a pillar shades what stands behind it. The sun stays real-time where it lands, so moving things keep their shadows, and its bounce is in the map. The game's hemisphere or ambient light is the sky during the bake, at the same strength: an open floor comes out as bright as under that light.
+- Turning the ambient off: a line that sets `intensity` once is lost if picture code writes it every frame, as the template's `picture/lights.js` does. So hide the light (`visible = false`, which that code leaves alone) or change it where it is written. Do it behind a URL flag as above, not in the palette: with the ambient gone for good, the next bake sees no sky. A bake that sees no light at all stops and writes nothing.
 - Instanced and skinned meshes and anything moving cannot hold a lightmap: give them `engine.bakeProbes`. A grid also lights the baked meshes, so where the two overlap the light doubles; keep the grid's `bounds` to where the moving things go, or turn `lightMapIntensity` down.
 - Files are large: half precision, 8 MB at 1024, 32 MB at 2048, before the server's compression. Start small.
 - Check it: `engine.describe().render.lightmap` lists `skipped` (instanced), `missing` (not found, or changed since the bake: bake again), `moved`, `doubled` (ambient light or a grid on top) and `shared` (an unbaked mesh on a baked material: give it its own).
@@ -119,5 +123,6 @@ engine.post.add(lightVolumes({ bounds: new THREE.Box3(min, max) }));    // spot 
 
 - Three things share the word occlusion and are separate: occlusion culling (this section) skips drawing what is hidden; camera occlusion (`cameraOcclusion` of `collision()`, recipe 21) moves the camera so a wall does not stand between it and the player; `voxelGI`'s `occlusion` only darkens corners of its bounced light.
 - Hidden things stay in shadows, in `engine.rays` and in `voxelGI`'s volume, and `visible` stays yours. Nothing else sees them while hidden: a second camera of yours and a `THREE.Raycaster` of your own do not (their layers lack it; enable `RESERVED_LAYERS.occlusionHidden` from `threedog/layers` if they must).
+- **Step mode hides nothing.** The answers arrive over drawn frames, so under `threedog step` / `engine.step()` (no real frames) `hidden` stays 0 and `inspect perf` counts every draw (about double a real-time run in one test). Judge occlusion with `threedog resume` and real time, never from a step-mode reading.
 - Answers come a few frames late. Camera moves and cuts are covered. A big occluder that moves fast (a falling wall, a gate thrown open) can show a gap of a few frames.
 

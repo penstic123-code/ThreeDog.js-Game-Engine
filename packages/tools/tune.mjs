@@ -1,8 +1,9 @@
 // threedog tune: write values tuned in the dev panel back into code, dry run first.
-//   threedog tune show                    what the panel saved (.threedog/tune.json, written by the panel's "write back" button)
-//   threedog tune write <file>            print the change as a diff (nothing is written)
-//   threedog tune write <file> --apply    write it
-// The change is one marked block of plain calls, replaced on the next write and appended at the end of the file the first time:
+//   threedog tune show [-w game]                    what the panel saved (.threedog/tune.json, written by the panel's "write back" button)
+//   threedog tune write <file> [-w game]            print the change as a diff (nothing is written); with -w the file is relative to the game folder
+//   threedog tune write <file> --apply [-w game]    write it
+// The change is one marked block of plain calls, appended at the end of the file the first time. A later write merges: the panel only holds what changed since the
+// page loaded, so the block's own lines are read back and the new values go over them. To drop a value, delete its line.
 //   // threedog:tune begin ... // threedog:tune end
 // It holds three.js writes (engine.renderer.toneMappingExposure = 1.2; engine.water.material.color.set(0x3388aa);), UI colors as CSS variables on
 // engine.uiRoot, and material values as material.setValues({...}) by material name. Review it, then keep it or move each value where it belongs (the
@@ -14,7 +15,9 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve, relative } from 'node:path';
 import { parseAst } from 'vite';
 import { writeAtomic } from './lib/atomic.mjs';
+import { literalValue } from './lib/ast-value.mjs';
 import { parseOptions } from './lib/cli-args.mjs';
+import { command } from './paths.mjs';
 import { fileURLToPath } from 'node:url';
 
 const BEGIN = '// threedog:tune begin', END = '// threedog:tune end';
@@ -32,25 +35,71 @@ export function tuneBlock(t) {
   const out = [`${BEGIN} (dev panel values written by \`threedog tune write\`; review, keep or move each value where it belongs)`];
   for (const [path, v] of Object.entries(t.values || {})) out.push(typeof v === 'string' ? `${path}.set(${lit(v)});` : `${path} = ${+v.toPrecision(6)};`);   // a slider step leaves 0.36999999999999994
   for (const [k, v] of Object.entries(t.css || {})) out.push(`engine.uiRoot.style.setProperty('--threedog-${k}', ${JSON.stringify(v)});`);
+  out.push(...(t.kept || []));
   if (some(t.materials)) {
     out.push(`{ const tuned = ${obj(t.materials)};   // material name -> values (three.js Material.setValues)`,
-      '  engine.scene.traverse(o => { for (const m of [].concat(o.material ?? [])) if (tuned[m.name]) m.setValues(tuned[m.name]); }); }');
+      // the cast: a game's main.js is type-checked, and Object3D has no .material
+      '  engine.scene.traverse((/** @type {any} */ o) => { for (const m of [].concat(o.material ?? [])) if (tuned[m.name]) m.setValues(tuned[m.name]); }); }');
   }
   out.push(END);
   return out.join('\n');
 }
 
+/** A material literal of the block back to values: '#rrggbb' for what was written as 0x, so the next write prints it the same. undefined: a hand edit put code in it */
+function materialsOf(text) {
+  try { return literalValue(parseAst(`(${text})`).body[0].expression, n => /^0x[0-9a-f]{6}$/i.test(n.raw ?? '') ? '#' + n.raw.slice(2) : n.value); } catch { return undefined; }
+}
+
 /**
- * Plan writing tune values into a file's text: { after, diff, replaced } (diff: the old block's lines as -, the new block's as +)
+ * Read a written block back into tune values. A line this cannot read (a hand edit) stays in `kept` and is written again as it is; so does a materials
+ * line with code in it (side: THREE.DoubleSide), whole, because values read out of it would lose that field.
+ * @param {string} block @returns {{ values: Record<string, any>, css: Record<string, string>, materials: Record<string, any>, kept: string[] }}
+ */
+export function parseTuneBlock(block) {
+  const t = { values: {}, css: {}, materials: {}, kept: [] }, lines = block.split(/\r?\n/).slice(1, -1);
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i]; let m;
+    if ((m = /^(.+?)\.set\(0x([0-9a-f]{6})\);$/i.exec(l))) t.values[m[1]] = '#' + m[2];
+    else if ((m = /^([\w$.[\]'"]+) = (-?[\d.]+(?:e[-+]?\d+)?);$/i.exec(l))) t.values[m[1]] = +m[2];
+    else if ((m = /^engine\.uiRoot\.style\.setProperty\('--threedog-(.+?)', (".*")\);$/.exec(l))) t.css[m[1]] = JSON.parse(m[2]);
+    else if ((m = /^\{ const tuned = (\{.*\});   \/\/ /.exec(l)) && (m = materialsOf(m[1]))) { t.materials = m; i++; }   // the next line is the traverse that goes with it
+    else t.kept.push(l);
+  }
+  return t;
+}
+
+/** What a hand-edited line of the block sets, in the keys of the tune values: `a.b = 1;   // note` and `a.b.set(0xff0000); // note` both set value a.b */
+function setBy(line) {
+  const css = /^\s*engine\.uiRoot\.style\.setProperty\('--threedog-(.+?)'/.exec(line);
+  if (css) return { css: css[1] };
+  const value = /^\s*([\w$.[\]'"]+?)(?:\.set\(|\s*=(?!=))/.exec(line);
+  return value ? { value: value[1] } : {};
+}
+
+/** New values over the block's: per value, and per field inside a material. A kept line runs after the values, so one that sets a value the panel just changed must go or the old value wins */
+function mergeTune(old, t) {
+  const materials = { ...old.materials };
+  for (const [k, v] of Object.entries(t.materials || {})) materials[k] = { ...materials[k], ...v };
+  return { values: { ...old.values, ...t.values }, css: { ...old.css, ...t.css }, materials,
+    kept: old.kept.filter(l => { const { css, value } = setBy(l); return !(css in (t.css ?? {})) && !(value in (t.values ?? {})); }) };
+}
+const countTune = t => Object.keys(t.values).length + Object.keys(t.css).length + Object.values(t.materials).reduce((a, m) => a + Object.keys(m).length, 0);
+
+/**
+ * Plan writing tune values into a file's text: { after, diff, replaced, keptValues } (diff: the old block's lines as -, the new block's as +;
+ * keptValues: how many values of the old block the panel did not touch)
  * @param {string} text the file now @param {any} t tune values
  */
 export function planTune(text, t) {
-  const block = tuneBlock(t), i = text.indexOf(BEGIN), j = i >= 0 ? text.indexOf(END, i) : -1;
+  const i = text.indexOf(BEGIN), j = i >= 0 ? text.indexOf(END, i) : -1;
   const old = i >= 0 && j > i ? text.slice(i, j + END.length) : null;
-  const after = old ? text.slice(0, i) + block + text.slice(j + END.length) : text.replace(/\s*$/, '') + '\n\n' + block + '\n';
+  const before = old ? parseTuneBlock(old) : null, merged = before ? mergeTune(before, t) : t, block = tuneBlock(merged);
+  const keptValues = before ? countTune(merged) - countTune(mergeTune({ values: {}, css: {}, materials: {}, kept: [] }, t)) : 0;
+  const eol = text.includes('\r\n') ? '\r\n' : '\n', written = block.replaceAll('\n', eol);   // a file keeps its own line endings
+  const after = old ? text.slice(0, i) + written + text.slice(j + END.length) : text.replace(/\s*$/, '') + eol + eol + written + eol;
   const line = old ? text.slice(0, i).split('\n').length : text.replace(/\s*$/, '').split('\n').length + 2;
-  const diff = [`@@ line ${line}${old ? ' (replaces the earlier tune block)' : ' (appended)'} @@`, ...(old ? old.split('\n').map(l => '- ' + l) : []), ...block.split('\n').map(l => '+ ' + l)].join('\n');
-  return { after, diff, replaced: !!old };
+  const diff = [`@@ line ${line}${old ? ' (merges into the earlier tune block)' : ' (appended)'} @@`, ...(old ? old.split('\n').map(l => '- ' + l) : []), ...block.split('\n').map(l => '+ ' + l)].join('\n');
+  return { after, diff, replaced: !!old, keptValues };
 }
 
 /**
@@ -129,11 +178,15 @@ function tuneFile(from) {
 
 export async function main([sub, ...args]) {
   // one strict parse: --apply anywhere, at most one file
-  let p;
-  try { p = parseOptions(args, { positional: true, flags: ['apply'] }); } catch (e) { console.error('✗ ' + e.message); return 1; }
+  // -w: the same workspace rule as every other command; without it the file's own folder finds tune.json, so a run from inside a game keeps working
+  let p, root = process.cwd();
+  try {
+    p = parseOptions(args, { positional: true, flags: ['apply'], workspace: true });
+    if (p.workspace !== undefined) root = command(['-w', p.workspace]).dir;
+  } catch (e) { console.error('✗ ' + e.message); return 1; }
   if (p.rest.length > 1) { console.error(`✗ one file only, got ${p.rest.join(' ')}`); return 1; }
-  const file = p.rest[0], apply = !!p.opt.apply;
-  const src = tuneFile(file ? dirname(resolve(file)) : process.cwd());
+  const file = p.rest[0], apply = !!p.opt.apply, path = file ? resolve(root, file) : null;
+  const src = tuneFile(path ? dirname(path) : root);
   if (!src) { console.error('No .threedog/tune.json yet: open the page with the dev panel (?panel=1), change values, press "write back", then run this again'); return 1; }
   const t = JSON.parse(readFileSync(src, 'utf8'));
   if (sub === 'show') { console.log(tuneBlock(t)); if (some(t.models)) console.log('// model params (written to their registration): ' + JSON.stringify(t.models)); return 0; }
@@ -146,11 +199,13 @@ export async function main([sub, ...args]) {
       return 0;
     }
   }
-  if (sub !== 'write' || !file) { console.error('Usage: threedog tune show · threedog tune write [file] [--apply] (dry run without --apply; file: where three.js, UI color and material values go, model params go to their registration)'); return 1; }
-  const path = resolve(file);
+  if (sub !== 'write') { console.error('Usage: threedog tune show · threedog tune write [file] [--apply] [-w game] (dry run without --apply; file: where three.js, UI color and material values go, model params go to their registration)'); return 1; }
+  // the usage shows the file as optional because model params need none; say so when these values do need one, and what would have gone in it
+  if (!file) { console.error(`✗ tune write needs a file for these values: ${[...Object.keys(t.values ?? {}), ...Object.keys(t.css ?? {}).map(k => '--threedog-' + k), ...Object.keys(t.materials ?? {}).map(k => 'material ' + k)].join(', ')}. Name where they go, usually the game's entry: threedog tune write main.js`); return 1; }
   if (!existsSync(path)) { console.error(`${file} does not exist`); return 1; }
-  const { after, diff } = planTune(readFileSync(path, 'utf8'), t);
+  const { after, diff, keptValues } = planTune(readFileSync(path, 'utf8'), t);
   console.log(diff);
+  if (keptValues) console.log(`\nKept ${keptValues} value(s) of the earlier block that the panel did not change. To drop one, delete its line.`);
   if (!apply) { console.log(`\nDry run: nothing written. Write it: threedog tune write ${file} --apply`); return 0; }
   writeAtomic(path, after);   // the shared temp file + rename (lib/atomic.mjs): a half-written main.js would break the dev page
   console.log(`\nWritten to ${file}.`);

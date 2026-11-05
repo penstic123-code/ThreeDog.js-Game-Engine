@@ -4,7 +4,7 @@ const CONTROL_FIX = "pick how the player moves: createPlayer({ ...presets.player
   "control: 'camera' (keys relative to the camera) or a function (player, input, dt) => ({ x, z, run? }). The game moving the player itself (a roll, a lunge) " +
   "takes control for that time: engine.control.take(player, { owner: 'roll', layer: 'script', step })";
 export const DEV_STRINGS = { noControl: 'characters.createPlayer(): no control given; ' + CONTROL_FIX,
-  badControl: "characters.createPlayer(): control {got} is not a control; " + CONTROL_FIX + ". ('none' is gone: a function returning null stands still; a game-driven move takes control, see recipe 57)",
+  badControl: "characters.createPlayer(): control {got} is not a control; " + CONTROL_FIX + ". (A function returning null stands still; a game-driven move takes control, see recipe 57)",
   noFollow: "characters.createPlayer(): a camera module is installed but cameraFollow was not given, so the camera does not follow the player. " +
     'Pass cameraFollow: true (presets.player.* do), or cameraFollow: false if the game aims the camera itself',
   noWorld: 'characters.createPlayer() needs world() installed first: the player is a record in world (position is saved, world splits near/far by it). Use engine.use(world(), …); openWorld() already installs it' };

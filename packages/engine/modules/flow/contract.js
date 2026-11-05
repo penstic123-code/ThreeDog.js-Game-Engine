@@ -1,5 +1,5 @@
 // What any game-flow module must provide (fields: see gameplay/inventory.contract.js; shared check: @threedog/tools/contract).
-// A state that stops the game holds engine.freeze('flow') (not engine.pause), so describe().holds and the settings menu see who holds it.
+// A state that stops the game holds engine.freeze('flow') (not engine.haltLoop), so describe().holds and the settings menu see who holds it.
 export default {
   name: 'flow',
   api: ['define', 'go', 'transition'],

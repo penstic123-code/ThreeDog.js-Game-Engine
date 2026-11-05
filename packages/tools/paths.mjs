@@ -55,21 +55,6 @@ export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/core/Random.js`, `${ENGINE_REL}/core/Commits.js`, `${ENGINE_REL}/core/Threads.js`, `${ENGINE_REL}/core/Ops.js`, `${ENGINE_REL}/core/Views.js`, `${ENGINE_REL}/core/Jobs.js`, `${ENGINE_REL}/core/Events.js`, `${ENGINE_REL}/core/Stream.js`, `${ENGINE_REL}/core/Batching.js`, `${ENGINE_REL}/core/Rays.js`, `${ENGINE_REL}/core/DebugOverrides.js`, `${ENGINE_REL}/core/I18n.js`, `${ENGINE_REL}/core/Audio.js`, `${ENGINE_REL}/core/audioVoice.js`, `${ENGINE_REL}/core/Input.js`, `${ENGINE_REL}/core/Saves.js`, `${ENGINE_REL}/core/session.js`, `${ENGINE_REL}/core/page.js`, `${ENGINE_REL}/core/Budget.js`,
   `${ENGINE_REL}/core/control.js`,
 ];
-/**
- * APIs that may still change: each [file, declared name] must carry @experimental in the JSDoc right above it (R07-H); AI.md "Stability" lists them for readers
- */
-export const STABILITY = {
-  experimental: [
-    [`${ENGINE_REL}/modules/net/index.js`, 'net'], [`${ENGINE_REL}/modules/net/transports.js`, 'fakeNetwork'], [`${ENGINE_REL}/modules/net/transports.js`, 'webSocket'],
-    [`${ENGINE_REL}/core/Threads.js`, 'Threads'],
-    [`${ENGINE_REL}/modules/grid/index.js`, 'grids'], [`${ENGINE_REL}/modules/grid/index.js`, 'Grids'], [`${ENGINE_REL}/modules/grid/Grid.js`, 'Grid'], [`${ENGINE_REL}/modules/grid/Layer.js`, 'Layer'],
-    [`${ENGINE_REL}/types/world.d.ts`, 'edit'],
-    [`${ENGINE_REL}/render/PostFX.js`, 'get'], [`${ENGINE_REL}/render/PostFX.js`, 'list'],
-    [`${ENGINE_REL}/core/Stream.js`, 'source'], [`${ENGINE_REL}/core/Stream.js`, 'sources'], [`${ENGINE_REL}/core/Stream.js`, 'teleport'], [`${ENGINE_REL}/core/Stream.js`, 'readyCheck'],
-    [`${ENGINE_REL}/modules/hlod/index.js`, 'hlod'],
-    [`${ENGINE_REL}/core/Ops.js`, 'guard'], [`${ENGINE_REL}/core/Ops.js`, 'allow'],
-  ],
-};
 // ── Optional add-on packages ───────────────────────
 // Gameplay-side add-ons such as the terrain generator (world shape is not a picture, so it may not live in a style) and shared post effects:
 // npm name `@threedog/<name>`, monorepo folder packages/<name>/ (one workspace each). Listed by name so rules scan them.

@@ -20,10 +20,10 @@ Navmesh (nav() module)
 - `nav.dispose()` — Unload the navmesh (frees native objects); characters.findPath then falls back to A*
 - Properties:
   - `ready: boolean` The navmesh has been generated
-  - `navMesh: any` Native Recast NavMesh (null until ready)
-  - `query: any` Native Recast NavMeshQuery
-  - `tileCache: any` Native Recast TileCache (for dynamic obstacles)
-  - `crowd: any` Native Recast Crowd (only when crowd: true)
-  - `helper: any` three.js object for the debug display (only when debug: true)
+  - `navMesh: any` (experimental) Native Recast NavMesh (null until ready)
+  - `query: any` (experimental) Native Recast NavMeshQuery
+  - `tileCache: any` (experimental) Native Recast TileCache (for dynamic obstacles)
+  - `crowd: any` (experimental) Native Recast Crowd (only when crowd: true)
+  - `helper: any` (experimental) three.js object for the debug display (only when debug: true)
   - `version: number` +1 on rebuild / unload: code that cached native objects (crowd agents etc.) must recreate them when it changes
   - `agent: { radius, height, maxClimb, maxSlope } | null` Character size actually in effect (from engine.movement, or the override in nav())

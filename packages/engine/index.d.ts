@@ -46,7 +46,7 @@ import type { ambience } from './types/generated/modules/ambience/Ambience';
 import type { debug } from './types/generated/modules/debug/DebugPanel';
 
 // Types are exported too, so game code can write JSDoc: /** @type {import('threedog').DialogueScript} */
-export * from './types/common';
+export type { ColorLike, Vec3Like, PositionLike, XZ, DirXZ, Range, EaseName, Ease, Loose, Handle } from './types/common';   // a list, not *: three.js's own types come from 'three'
 export * from './types/core';
 export * from './types/world';
 export * from './types/physics';
@@ -211,8 +211,6 @@ export { hud } from './types/generated/modules/hud/index';
 
 /** Screen coordinates (-1..1) -> point on the ground; null if the ray misses the ground */
 export function screenToGround(engine: Engine, ndcX: number, ndcY: number, opts?: { maxDistance?: number }): Vector3 | null;
-/** All easing functions: name -> function */
-export const EASINGS: Record<EaseName, (t: number) => number>;
 /**
  * A grid of numbers (height, moisture, density, walkable...) as a function (x, z) -> value. data[j * width + i] sits at origin + (i, j) * cell.
  * interp 'nearest' = flat steps, 'linear' (default) = bilinear, 'cubic' = smooth (clamp: true avoids overshoot). Outside: edge value, or `outside`.

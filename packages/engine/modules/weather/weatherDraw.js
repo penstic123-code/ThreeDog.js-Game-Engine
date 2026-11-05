@@ -12,14 +12,14 @@ import { makeSystem, updateSystem, dropSystem, RAIN, SNOW } from './particles.js
 const DRAW_PARAMS = keysSchema(['particles', 'area', 'rain', 'snow']);   // the picture options of weather(): the rest are the state's
 const BASE = { rain: RAIN, snow: SNOW };
 
-/** engine.weatherDraw: particles and picture effects of the current weather */
+/** engine.weatherDraw: particles and picture effects of the current weather @experimental */
 export class WeatherDraw {
   /**
    * @internal
    * @param {any} engine
    * @param {{ particles?: number, area?: number, rain?: any, snow?: any }} [opts]
    */
-  constructor(engine, { particles = 6000, area = 40, rain = {}, snow = {} } = {}) {
+  constructor(engine, { particles, area = 40, rain = {}, snow = {} } = {}) {
     /** @internal */ this.engine = engine;
     /** @internal the state half: read only */ this.state = engine.weather;
     /** Sky flash now, 1 at a strike (the weather:lightning event) fading to 0 @type {number} */
@@ -28,14 +28,14 @@ export class WeatherDraw {
     // handle.change (core/sharedPoint.js), so a frame adds no entry and no cleanup handle. ctx is set by the module's install
     /** @internal */ this._ctx = null; /** @internal */ this._h = {};
     /** @internal */ this._tint = { color: this.state.overcastColor, amount: 0, horizon: 0 };
-    /** Default particle count per system (halved on low-tier devices) @type {number} */
-    this.particles = engine.tier === 'low' ? Math.round(particles / 2) : particles;
+    /** Default particle count per system: weather({ particles }), else 6000 (3000 on low-tier devices) @type {number} */
+    this.particles = particles ?? (engine.tier === 'low' ? 3000 : 6000);
     /** @internal */ this.area = area;
-    /** Particle systems drawn now: field -> { field, object, material, uniforms, spec } (rain / snow when the table has them, plus fields engine.weather.define adds) @type {Map<string, any>} */
+    /** Particle systems drawn now: field -> { field, object, material, uniforms, spec } (rain / snow when the table has them, plus fields engine.weather.defineField adds) @type {Map<string, any>} */
     this.systems = new Map();
     // zero cost when unused: a table where nothing ever rains or snows builds no particle meshes
     const { cover, ...snowGiven } = snow;
-    /** @internal what weather({ rain, snow }) gave: define(field, null) goes back to it */ this._given = { rain, snow: snowGiven };
+    /** @internal what weather({ rain, snow }) gave: defineField(field, null) goes back to it */ this._given = { rain, snow: snowGiven };
     for (const k of Object.keys(BASE)) if (this._used(k)) this._build(k, this._given[k], BASE[k]);
     // snow cover: foliage / ground season tint moves toward the snow colors as current.snow rises (ground.cover)
     if (cover !== undefined) {
@@ -51,11 +51,11 @@ export class WeatherDraw {
   /** @internal does any type have this field above 0 */
   _used(field) { return Object.values(this.types).some(v => v[field] > 0); }
 
-  /** @internal engine.weather.define */
-  define(field, spec) {
+  /** @internal engine.weather.defineField */
+  defineField(field, spec) {
     const fields = [...new Set(Object.values(this.types).flatMap(t => Object.keys(t)))];
-    if (!fields.includes(field)) throw codedError('weather-option', `weather.define('${field}'): no weather type has this field; add it to a type in weather({ types }) (e.g. ashfall: { ${field}: 1 }), or use one of ${fields.join(', ')}`);
-    if (spec !== null && (typeof spec !== 'object' || Array.isArray(spec))) throw codedError('weather-option', `weather.define('${field}', spec): spec is an object, e.g. { shape: 'soft', color: 0x555555 } or { create }, or null to give the field back; see recipes/44-water-weather-hooks.md`);
+    if (!fields.includes(field)) throw codedError('weather-option', `weather.defineField('${field}'): no weather type has this field; add it to a type in weather({ types }) (e.g. ashfall: { ${field}: 1 }), or use one of ${fields.join(', ')}`);
+    if (spec !== null && (typeof spec !== 'object' || Array.isArray(spec))) throw codedError('weather-option', `weather.defineField('${field}', spec): spec is an object, e.g. { shape: 'soft', color: 0x555555 } or { create }, or null to give the field back; see recipes/44-water-weather-hooks.md`);
     if (spec) return this._build(field, spec, BASE[field]);
     if (BASE[field] && this._used(field)) return this._build(field, this._given[field], BASE[field]);
     const s = this.systems.get(field);
@@ -75,7 +75,7 @@ export class WeatherDraw {
 
   /**
    * @internal fallback 'webgl': systems built before start() carry WebGPURenderer node materials; rebuild them for the renderer in use, keeping what
-   * the game wrote since (spec numbers, uniforms, its material). A define() create(engine) object is the game's own and stays (the scene check names it
+   * the game wrote since (spec numbers, uniforms, its material). A defineField() create(engine) object is the game's own and stays (the scene check names it
    * if WebGL cannot draw it).
    */
   _rendererSwapped() {
@@ -101,13 +101,15 @@ export class WeatherDraw {
     this.flash = Math.max(0, this.flash - dt * 3);
     T.amount = c.grey; T.horizon = c.grey * 0.8; this._put('sky.tint', 'value', T);
     this._put('sky.flash', 'add', this.flash > 0 ? this.state.lightning(this.flash, e) * this.state.lightningBrightness : 0);
-    if (this._cover) { this._coverMod.amount = (c.snow ?? 0) * this._cover.strength; this._put('ground.cover', 'value', this._coverMod); }   // requires sky: the picture points exist
+    if (this._cover) { this._coverMod.amount = (c.snow ?? 0) * this._cover.strength; this._put('ground.cover', 'value', this._coverMod); }
     for (const sys of this.systems.values()) updateSystem(sys, c[sys.field] ?? 0, camera, t, c.wind);
   }
   /** @internal one contribution to a shared point: taken on first use, then changed in place */
   _put(point, op, v) {
     // change() is false when the entry is gone (a point cleared on a new session): take it again, as the old per-frame take did anyway
     if (this._h[point]?.change(v)) return;
+    // no sky module: the point does not exist and nothing reads it; a game's own sky reads weather.current.grey and weatherDraw.flash, or defines the point itself
+    if (!this.engine.stacks.has(point)) return;
     const o = op === 'value' ? { value: v } : { [op]: v, layer: 'effect' };   // tint / cover are data points (value), the flash an effect-layer number
     this._h[point] = this._ctx ? this._ctx.mod(point, o) : this.engine.mod(point, { ...o, owner: 'weatherDraw' });
   }
@@ -121,7 +123,7 @@ export function weatherDrawModule(opts) {
   readParams('weather (drawing half)', DRAW_PARAMS, opts);
   let L = null;
   return {
-    name: 'weatherDraw', type: 'picture', provides: ['weatherDraw'], label: 'Weather drawing', params: DRAW_PARAMS, options: opts, requires: ['weather', 'sky'], stage: 'environment', before: ['sky'], after: ['weather'],
+    name: 'weatherDraw', type: 'picture', provides: ['weatherDraw'], label: 'Weather drawing', params: DRAW_PARAMS, options: opts, requires: ['weather'], optional: ['sky'], stage: 'environment', before: ['sky'], after: ['weather'],
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.weatherDraw': '天气外观' }, en: { 'module.weatherDraw': 'weather drawing' } });
       L = new WeatherDraw(e, opts);
       L._ctx = ctx;   // the weather's entries on the shared points go with this module (ctx.mod)

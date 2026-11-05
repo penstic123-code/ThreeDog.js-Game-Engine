@@ -27,6 +27,7 @@ export const ENGINE_EVENTS = [
   'character:launch',
   'character:fall',
   'character:model',
+  'character:step',
   'character:land',
   'character:water',
   'dialogue:start',

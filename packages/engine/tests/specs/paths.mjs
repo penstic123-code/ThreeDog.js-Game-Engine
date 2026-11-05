@@ -22,7 +22,7 @@ const twin = async ({ useNav, n, crash = true, change = true }) => {
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const span = useNav ? 18 : 70, reqs = Array.from({ length: n }, () => [{ x: (rnd() * 2 - 1) * span, z: (rnd() * 2 - 1) * span }, { x: (rnd() * 2 - 1) * span, z: (rnd() * 2 - 1) * span }]);
   const logs = [[], []], ms = [0, 0], syncMs = [0];
-  const ask = (E, k, from, to, i) => E.characters.findPathAsync(from, to, (path, status) => logs[k].push(`${i}@${E.tick}:${status}:${JSON.stringify(path)}`));
+  const ask = (E, k, from, to, i) => E.characters.findPathAsync(from, to, (path, status) => logs[k].push(`${i}@${E.time.tick}:${status}:${JSON.stringify(path)}`));
   const steps = async (count, k) => { const t0 = performance.now(); for (let s = 0; s < count; s++) { [A, B][k].step(1 / 60); await new Promise(r => setTimeout(r, 2)); } return performance.now() - t0; };
   if (!crash) {   // cost run: workers already started and holding the mesh (a game's first requests also pay that once); base = step cost without requests
     for (const E of [A, B]) E.characters.findPathAsync({ x: 1, z: -5 }, { x: 1, z: 5 }, () => {});

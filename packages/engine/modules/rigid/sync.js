@@ -9,7 +9,7 @@ import * as THREE from 'three';
 // Returns true while chunks are still waiting, so the caller syncs again on the next step instead of after 0.5 s.
 const CHUNKS_PER_STEP = 1;
 export function syncTerrain(r, src) {
-  const e = r.engine, R = r.R, want = new Set(), todo = [];
+  const e = r.engine, R = r.rapier, want = new Set(), todo = [];
   for (const [pcx, pcz, n] of src) for (let dz = -n; dz <= n; dz++) for (let dx = -n; dx <= n; dx++) {
     const cx = pcx + dx, cz = pcz + dz, key = cx + ',' + cz; if (want.has(key)) continue; want.add(key);
     todo.push({ cx, cz, key, d: Math.max(Math.abs(dx), Math.abs(dz)) });
@@ -74,7 +74,7 @@ function nearChunks(x, z, d, CH, fn) {
 }
 /** Build / drop trunk cylinders for the chunks near the anchors (only where the terrain collider is already built). Returns true while chunks are still queued */
 export function syncTrees(r, focus, CH) {
-  const e = r.engine, R = r.R, a = anchors(r, focus), want = new Map(), keep = new Set();
+  const e = r.engine, R = r.rapier, a = anchors(r, focus), want = new Map(), keep = new Set();
   for (let i = 0; i < a.length; i += 2) {
     nearChunks(a[i], a[i + 1], r.treeRadius + TREE_KEEP, CH, (cx, cz, d) => {
       const key = cx + ',' + cz; keep.add(key);
@@ -112,7 +112,7 @@ function dropTrees(r, key) {
 // Vegetation on a level model or code-built ground has no chunked collision: its trunks reach us only as circles through
 // ground.forEachCollider (the same source character collision and path planning read). Make them cylinders around the physics sources
 export function syncGroundTrees(r, src, CH) {
-  const e = r.engine, G = e.ground, R = r.R, half = r.treeColliderHeight / 2, want = new Set();
+  const e = r.engine, G = e.ground, R = r.rapier, half = r.treeColliderHeight / 2, want = new Set();
   if (G.forEachCollider) for (const [pcx, pcz, n] of src) {
     G.forEachCollider((pcx + 0.5) * CH, (pcz + 0.5) * CH, (n + 0.5) * CH * Math.SQRT2, (x, z, rad) => {
       const key = x + ',' + z + ',' + rad;
@@ -135,7 +135,7 @@ const UP = new THREE.Vector3(0, 1, 0), Q = new THREE.Quaternion();
 export function syncStatics(r) {
   r._statics ??= r.engine.collision.mirror({
     add(type, o) {
-      const R = r.R, g = o.y ?? r.engine.surface(o.x, o.z);
+      const R = r.rapier, g = o.y ?? r.engine.surface(o.x, o.z);
       if (type !== 'box') return r.world.createCollider(R.ColliderDesc.cylinder(o.h / 2, o.r).setTranslation(o.x, g + o.h / 2, o.z));
       Q.setFromAxisAngle(UP, o.rot);
       return r.world.createCollider(R.ColliderDesc.cuboid(o.hw, o.h / 2, o.hd).setTranslation(o.x, g + o.h / 2, o.z).setRotation({ x: Q.x, y: Q.y, z: Q.z, w: Q.w }));
@@ -151,7 +151,7 @@ export function syncLevel(r) {
   const v = G.staticVersion?.() ?? 0; if (v === r._levelVersion) return;
   r._levelVersion = v;
   for (const c of r._levelColliders || []) r.world.removeCollider(c, false);
-  const desc = t => r.R.ColliderDesc.trimesh(t.positions, t.indices).setFriction(0.9);
+  const desc = t => r.rapier.ColliderDesc.trimesh(t.positions, t.indices).setFriction(0.9);
   r._levelColliders = G.staticTrimeshes().map(t => r.world.createCollider(desc(t)));
 }
 

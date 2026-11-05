@@ -33,7 +33,7 @@ export function registerManifest(a, pack, hot = null) {
     for (const [name, v] of Object.entries(map)) {
       const o0 = typeof v === 'string' ? { url: v } : typeof v === 'function' ? { build: v } : v?.isTexture && type === 'texture' ? { texture: v } : v;
       if (type === 'font') readParams(`assets.manifest() fonts.${name}`, keysSchema(FONT_KEYS), o0);
-      const o = o0.url ? { ...o0, url: resolve(o0.url) } : o0;
+      const o = o0.url ? { ...o0, url: resolve(o0.url), ...(o0.lods && { lods: o0.lods.map(resolve) }) } : o0;
       const old = a.entries.get(name);
       // a model's params is a schema (core/params.js format, parsed here so a bad spec fails at registration, naming the field)
       const schema = type === 'model' && o.params ? parseSchema(`assets.manifest() models.${name}.params`, o.params) : null;

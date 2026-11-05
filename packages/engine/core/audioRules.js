@@ -117,7 +117,9 @@ export function applyDucks(a, fade) {
 /** What is playing: bus levels, duck multipliers, live voices per sound name (Audio.info) */
 export function audioInfo(a) {
   const ducks = {}, voices = {};
-  for (const [b, n] of Object.entries(a._duckNodes)) ducks[b] = +n.gain.value.toFixed(3);
+  // the TARGET multiplier (every active duck's level multiplied), not the node's gain right now: a duck with a fade ramps on the audio clock, which stands
+  // still on a headless page, so the node would read 1 for ever there. The target is what the game asked for, and what the ramp ends at
+  for (const b of Object.keys(a._duckNodes)) { let v = 1; for (const d of a._ducks) v *= d.levels[b] ?? 1; ducks[b] = +v.toFixed(3); }
   for (const [name, list] of a._voices) { const n = list.filter(v => v.playing).length; if (n) voices[name] = n; }
   return { running: a.running, state: a.state, levels: { ...a.levels }, ducks, voices };
 }

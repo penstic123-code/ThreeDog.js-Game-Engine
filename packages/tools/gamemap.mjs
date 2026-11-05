@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from '
 import { join, relative, basename, sep } from 'node:path';
 import { findGames, loadGame, levelIsFile } from './content-check.mjs';
 import { describeCond as dc, describeEffect as de, mergeRules } from './content-check/load.mjs';
-import { ENGINE, cli, within, workspaceOf, docRef, rel } from './paths.mjs';
+import { ENGINE, MODE, cli, within, workspaceOf, docRef, rel } from './paths.mjs';
 import { MAX_ROWS, read, uniq, walk, cell, cut, noComments, summary, balanced, splitTop, capped } from './gamemap/text.mjs';
 import { contentLine, templateLines, gridLines, declaredEvents, eventLines, readForLines } from './gamemap/extra.mjs';
 
@@ -181,7 +181,9 @@ let stale = 0;
 for (const dir of findGames().filter(g => !named || dirs.some(d => within(g, d)))) {
   const out = join(dir, 'GAMEMAP.md'), content = await buildMap(dir);
   if (check) {
-    if ((existsSync(out) ? read(out) : '') !== content) { console.log(`✗ ${rel(out)} is not up to date, run npm run map`); stale++; }
+    // the engine's examples stay strict. In a game the map is a convenience that goes stale after any code change, and that breaks nothing: say so, do not fail
+    const strict = MODE === 'monorepo' && within(dir, join(ENGINE, 'examples'));
+    if ((existsSync(out) ? read(out) : '') !== content) { console.log(`${strict ? '✗' : '⚠'} ${rel(out)} is not up to date, run npm run map`); if (strict) stale++; }
     else console.log(`✓ ${rel(out)} is up to date`);
   } else { writeFileSync(out, content); console.log(`Generated ${rel(out)} (${content.split('\n').length} lines)`); }
 }

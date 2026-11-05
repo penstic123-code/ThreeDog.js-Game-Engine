@@ -29,7 +29,7 @@ const box = new THREE.Mesh(new THREE.BoxGeometry(2, 5, 2), new THREE.MeshStandar
 box.position.set(0, 2.5, 0); box.castShadow = true; box.userData.budgetTag = 'caster';
 engine.scene.add(left, right, box);
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 const cam = engine.camera;
 const rt = new TG.RenderTarget(W, H);

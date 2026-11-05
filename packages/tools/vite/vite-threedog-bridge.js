@@ -12,8 +12,9 @@ import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { waitEngine } from '../wait-engine.mjs';
+import { waitEngine, trackPageErrors } from '../wait-engine.mjs';
 import { isLocalRequest, readBody } from './local.js';
+import { headlessUrl } from '../lib/page-url.mjs';
 
 const VIRTUAL = 'virtual:threedog-bridge', RESOLVED = '\0' + VIRTUAL;
 const CLIENT = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'threedog-bridge-client.js'), 'utf8');
@@ -33,9 +34,9 @@ export default function threedogBridge() {
       let seq = 0, headless = null; // headless: Promise<{ browser, page, path }>
       let headlessBusy = 0, closeWhenIdle = false;
       // A headless page must not burn CPU while nobody asks it for anything (a resumed software-WebGL game runs ~10 cores): a few seconds after
-      // the last command it is paused again (idlePaused), and after IDLE_CLOSE_MIN minutes the browser is closed (the next command opens a new one)
+      // the last command it is halted again (idleHalted), and after IDLE_CLOSE_MIN minutes the browser is closed (the next command opens a new one)
       const IDLE_PAUSE_MS = +process.env.THREEDOG_HEADLESS_PAUSE_S * 1000 || 15000, IDLE_CLOSE_MS = (+process.env.THREEDOG_HEADLESS_IDLE_MIN || 10) * 60000;
-      let idleTimer = null, idlePaused = false, lastCmd = Date.now();
+      let idleTimer = null, idleHalted = false, lastCmd = Date.now();
 
       /** Fail every command waiting on client (it reloaded or closed) */
       const dropClient = client => {
@@ -75,24 +76,25 @@ export default function threedogBridge() {
           try { ({ launchBrowser } = await import('../browser.mjs')); } catch { throw new Error('playwright not found · run npm install first'); }
           const browser = await launchBrowser().catch(() => { throw new Error('browser not installed · run npx playwright install chromium first'); });
           const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
-          await page.goto(baseUrl() + path + (path.includes('?') ? '&' : '?') + 'threedog-headless&cutscene=skip');
+          trackPageErrors(page);   // before goto: main.js runs during it, and an error missed there leaves waitEngine waiting on a dead page
+          await page.goto(baseUrl() + headlessUrl(path, { cutscene: 'skip' }));
           return { browser, page, path };
         })();
         headless.catch(() => { headless = null; });
         return (await headless).page;
       }
       async function closeHeadless() {
-        const h = headless; headless = null; idlePaused = false; clearTimeout(idleTimer);
+        const h = headless; headless = null; idleHalted = false; clearTimeout(idleTimer);
         if (h) await (await h.catch(() => null))?.browser.close().catch(() => {});
       }
       server.httpServer?.on('close', closeHeadless);
-      /** After a command: pause a real-time-running headless page soon, close the browser later */
+      /** After a command: halt a real-time-running headless page soon, close the browser later */
       function armIdle() {
         clearTimeout(idleTimer);
         idleTimer = setTimeout(async () => {
           const h = headless && await headless.catch(() => null);
           if (!h || headlessBusy) return;
-          idlePaused = await h.page.evaluate(() => { const e = window.engine; if (!e?.headless || e.paused) return false; e.pause('bridge-idle', { kind: 'test' }); return true; }).catch(() => false);
+          idleHalted = await h.page.evaluate(() => { const e = window.engine; if (!e?.headless || e.halted) return false; e.haltLoop('bridge-idle'); return true; }).catch(() => false);
           idleTimer = setTimeout(() => { if (!headlessBusy) closeHeadless(); }, Math.max(1000, IDLE_CLOSE_MS - IDLE_PAUSE_MS));
         }, IDLE_PAUSE_MS);
       }
@@ -112,7 +114,7 @@ export default function threedogBridge() {
         try {
           const page = await openHeadless(path || '/');
           await waitEngine(page, { dir: server.config.root });
-          if (idlePaused) { idlePaused = false; await page.evaluate(() => window.engine?._resume('bridge-idle')); }   // hand the page back as it was before the idle pause
+          if (idleHalted) { idleHalted = false; await page.evaluate(() => window.engine?._unhalt('bridge-idle')); }   // hand the page back as it was before the idle pause
           if (op === 'eval') return await page.evaluate(([s, a]) => (0, eval)('(' + s + ')')(a), [src, arg]);
           if (op === 'shot') return (await page.screenshot()).toString('base64');   // the headless page is captured together with the HTML UI
           await page.reload(); return null;

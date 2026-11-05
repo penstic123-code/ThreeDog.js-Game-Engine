@@ -9,7 +9,7 @@ export const specs = [
     url: '/?cutscene=skip',   // the opening cutscene takes over the camera (focus would not follow the player)
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, I = engine.inventory, p = engine.player.position, S = (item, at, o) => engine.pickups.spawn(at, { give: item, ...o });
         const pk = W.query({ kind: 'pickup' }).map(x => x.id), pr = W.query({ kind: 'prop' }).map(x => x.id);
         // two pickups of the same item at the same spot: each has its own id, taking one leaves the other
@@ -41,7 +41,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const tick = () => new Promise(r => setTimeout(r, 0));
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, P = engine.player, I = engine.inventory, home = P.position.clone();
         const solid = id => W.view(id)?.userData.colliders?.length ?? 0;
         engine.step(0.3);
@@ -77,7 +77,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ page, check, ev }) {
       const mid = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, P = engine.player, I = engine.inventory;
         const berry = W.get('pickup:berry:1'), x0 = W.get('prop:rock:3').position.x;
         P.placeAt({ x: berry.position.x + 0.5, z: berry.position.z }); engine.step(3);
@@ -112,7 +112,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const V = engine.vegetation, t = V.instanceAt(engine.player.position, { radius: 60 });
         if (!t) return { none: true };
         const gone = () => V.isRemoved(t.species, t.cx, t.cz, t.id);

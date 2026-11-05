@@ -18,7 +18,7 @@ export const specs = [
     name: 'describe snapshot: small town after loading, fields player / camera / ui / modules (small town)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
-      await ev(() => { engine.pause(); engine.step(0.5); });
+      await ev(() => { engine.haltLoop(); engine.step(0.5); });
       await expectDescribe({ check, ev }, 'city-start', { only: ['player.ground', 'player.state', 'player.inWater', 'camera.type', 'ui', 'modules'], tolerance: 1 });
     },
   },
@@ -26,7 +26,7 @@ export const specs = [
     name: 'describe snapshot: open world with the opening cutscene skipped, noon (open world)',
     url: '/?cutscene=skip&time=12:00&weather=clear',
     async run({ check, ev }) {
-      await ev(() => { engine.pause(); engine.step(0.5); });
+      await ev(() => { engine.haltLoop(); engine.step(0.5); });
       await expectDescribe({ check, ev }, 'world-noon', { only: ['player.ground', 'player.state', 'player.inWater', 'weather.name', 'ui', 'cutscene'], tolerance: 1 });
     },
   },
@@ -34,7 +34,7 @@ export const specs = [
     name: 'describe snapshot: state registered with describe.add is part of the baseline (small town)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
-      await ev(() => { engine.pause(); engine.describe.add('snapDemo', () => ({ score: 3, targets: [{ name: 'crate', hp: 10 }, { name: 'barrel', hp: 5 }] })); engine.step(0.1); });
+      await ev(() => { engine.haltLoop(); engine.describe.add('snapDemo', () => ({ score: 3, targets: [{ name: 'crate', hp: 10 }, { name: 'barrel', hp: 5 }] })); engine.step(0.1); });
       await expectDescribe({ check, ev }, 'city-custom-state', { only: ['snapDemo'] });
     },
   },
@@ -44,7 +44,7 @@ export const specs = [
     expectErrors: /plain values/,   // a gameplay error provoked on purpose
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const { warns } = await __t.warns(() => { engine.input.pressed('jupm'); engine.input.pressed('jupm'); });
         engine.events.on('hint:test', () => { throw new Error('world data must be plain values (number, string, boolean, array, plain object): x is a function [world-plain]'); });   // as the engine writes it: tagged
         engine.events.emit('hint:test');

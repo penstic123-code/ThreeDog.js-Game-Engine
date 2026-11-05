@@ -12,7 +12,7 @@ const outBounce = t => {
   return n * (t -= 2.625 / d) * t + 0.984375;
 };
 
-export const EASINGS = {
+const EASINGS = {
   linear: t => t,
   smooth: t => t * t * (3 - 2 * t),
   inQuad: t => t * t, outQuad: t => 1 - (1 - t) * (1 - t), inOutQuad: t => t < 0.5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2,

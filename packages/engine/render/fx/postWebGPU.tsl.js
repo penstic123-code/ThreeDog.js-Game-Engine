@@ -9,8 +9,9 @@ import * as TSL from 'three/tsl';
 import { bloom } from 'three/addons/tsl/display/BloomNode.js';
 import { ao } from 'three/addons/tsl/display/GTAONode.js';
 import { codedError } from '../../core/errorHints.js';
-import { registerWebGPUPart } from '../backend.js';
+import { registerWebGPUPart, MSAA_SAMPLES } from '../backend.js';
 import { RESERVED_LAYERS } from '../layers.js';
+import * as FX from './library.tsl.js';
 import { nameNodeBuild, lostStatements } from './nodeErrors.tsl.js';
 
 const { pass, renderOutput, uniform, screenUV, screenSize, time, convertToTexture, mrt, output, normalView, diffuseColor, velocity } = TSL;
@@ -18,17 +19,18 @@ const { pass, renderOutput, uniform, screenUV, screenSize, time, convertToTextur
 // What PostEffect.needsBuffers can ask of the scene render. Raw, not packed: display nodes read them as they are
 const BUFFERS = { normal: normalView, diffuse: diffuseColor, velocity };
 
-/** Live uniform for a param value (numbers, booleans as 0 / 1, colors, vectors), or null: anything else rebuilds the chain when it changes */
+/** Which uniform a param value makes: 'number' (numbers, booleans as 0 / 1), a color or vector kind, or null: anything else rebuilds the chain when it changes */
+const kindOf = v => (typeof v === 'number' || typeof v === 'boolean' ? 'number' : v?.isColor ? 'color' : v?.isVector2 ? 'vec2' : v?.isVector3 ? 'vec3' : v?.isVector4 ? 'vec4' : null);
+/** Live uniform for a param value, or null when it has no live kind */
 function liveUniform(v) {
-  if (typeof v === 'number') return uniform(v);
-  if (typeof v === 'boolean') return uniform(v ? 1 : 0);
-  if (v?.isColor || v?.isVector2 || v?.isVector3 || v?.isVector4) return uniform(v.clone());
-  return null;
+  const kind = kindOf(v);
+  return kind === null ? null : uniform(kind === 'number' ? +v : v.clone());
 }
-const live = v => typeof v === 'number' || typeof v === 'boolean' || v?.isColor || v?.isVector2 || v?.isVector3 || v?.isVector4;
+/** Can this uniform take the value as a plain write? A color uniform also takes what Color.set takes (0xffcc66, 'red'). A number uniform never takes a color: its type is fixed in the graph */
+const fits = (u, v) => !!u && (kindOf(u.value) === kindOf(v) ? kindOf(v) !== null : kindOf(u.value) === 'color' && (typeof v === 'number' || typeof v === 'string'));
 function writeUniform(u, v) {
-  if (typeof v === 'number') u.value = v;
-  else if (typeof v === 'boolean') u.value = v ? 1 : 0;
+  if (u.value?.isColor) u.value.set(v);
+  else if (typeof u.value === 'number') u.value = +v;
   else u.value.copy(v);
 }
 /** The effect's uniform nodes by param name, made once per effect and kept across chain rebuilds (so set() keeps working on the same nodes) */
@@ -80,18 +82,21 @@ const webgpuPost = {
   // The pass node owns its render targets and resizes them with the renderer; nothing is handed out as ping-pong targets on this backend
   targets: () => null,
   /**
-   * Param change: number / color params only write their uniforms; another kind (a texture, a mode string), or a param node() read as a plain
-   * value from ctx.params (built into the graph as a constant, so its uniform reaches nothing), rebuilds the chain, as WebGL rebuilds an effect
-   * without update(). true = handled
+   * Param change: number / color params only write their uniforms; another kind (a texture, a mode string), a value of another kind than its
+   * uniform (a Color for a param that started as a number: the uniform is replaced), or a param node() read as a plain value from ctx.params
+   * (built into the graph as a constant, so its uniform reaches nothing), rebuilds the chain, as WebGL rebuilds an effect without update(). true = handled
    */
   set(post, h, p) {
-    if (Object.entries(p).every(([k, v]) => h._u?.[k] && live(v) && !h._read?.has(k))) { for (const [k, v] of Object.entries(p)) writeUniform(h._u[k], v); return true; }
-    for (const [k, v] of Object.entries(p)) if (h._u?.[k] && live(v)) writeUniform(h._u[k], v);
+    if (Object.entries(p).every(([k, v]) => fits(h._u?.[k], v) && !h._read?.has(k))) { for (const [k, v] of Object.entries(p)) writeUniform(h._u[k], v); return true; }
+    for (const [k, v] of Object.entries(p)) {
+      if (fits(h._u?.[k], v)) writeUniform(h._u[k], v);
+      else if (h._u?.[k] && kindOf(v)) h._u[k] = liveUniform(v);
+    }
     if (h.enabled) { h._impl?.dispose?.(); h._impl = null; post._pipe && (post._pipe.key = null); post._sync(); }
     return true;
   },
   refresh() {},
-  samples: post => (post.active ? post._pipe?.samples ?? (post._aa ? 4 : 0) : post.engine.renderer.samples),
+  samples: post => (post.active ? post._pipe?.samples ?? (post._aa ? MSAA_SAMPLES : 0) : post.engine.renderer.samples),
   setAntialias(post) { if (post._pipe) post._pipe.key = null; },
   sync(post) {
     const { renderer, scene, camera } = post.engine;
@@ -99,7 +104,7 @@ const webgpuPost = {
     // the union over the effects that are on, in one fixed order: one setMRT for all of them, and none at all (no extra targets) when nobody asks
     const buffers = Object.keys(BUFFERS).filter(b => on.some(e => e._def.needsBuffers?.includes(b)));
     // velocity means a temporal resolve follows: it is the antialiasing, and MSAA under it would only cost
-    const samples = post._aa && !buffers.includes('velocity') ? 4 : 0;
+    const samples = post._aa && !buffers.includes('velocity') ? MSAA_SAMPLES : 0;
     for (const e of on) if (e._def.fuse ? typeof e._def.fuse.tsl !== 'function' : typeof e._def.node !== 'function') throw e._def.fuse ? glslOnly(e) : onlyCreate(e);
     // Same effects, same build, same samples: the graph is current (a set() of a number param never gets here)
     const key = `${samples}|${buffers}|${on.map(e => e.name).join(',')}`;
@@ -114,7 +119,7 @@ const webgpuPost = {
     for (const e of post._list) { e._impl?.dispose?.(); e._impl = null; }
     const size = post._size(), order = [];
     const ctxOf = (e, made) => ({ engine: post.engine, scene, camera, width: size.x, height: size.y, params: paramsOf(e), scenePass: P.scenePass,
-      tsl: TSL, display: displayFor(made), p: uniformsOf(e) });
+      tsl: TSL, fx: FX, display: displayFor(made), p: uniformsOf(e) });
     // the effect's node is built only when the pipeline first draws: errors then, and statements lost outside an Fn, name the effect
     const run = (e, color) => {
       const label = `[threedog] post effect '${e.name}'`;

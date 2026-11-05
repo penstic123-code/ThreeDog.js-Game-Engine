@@ -12,7 +12,7 @@ import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 const BLOOM_NODE_STRENGTH = 3;
 
 /**
- * Bloom (glow around bright pixels), hdr slot. Off by default on low-tier devices.
+ * Bloom (glow around bright pixels), hdr slot.
  * @example engine.post.add(bloom({ strength: 0.35, radius: 0.5, threshold: 0.85 }))
  * @param {{ strength?: number, radius?: number, threshold?: number, enabled?: boolean, order?: number }} [o]
  * @returns {PostEffect}
@@ -28,10 +28,10 @@ export function bloom({ strength = 0.35, radius = 0.5, threshold = 0.85, enabled
 }
 
 /**
- * Ambient occlusion (soft contact shadows in corners; heavy on weak devices), hdr slot, on when listed (enabled: false lists it off). radius: how far a surface looks for
+ * Ambient occlusion (soft contact shadows in corners; heavy on weak devices), hdr slot. radius: how far a surface looks for
  * occluders, in world units; intensity: 0 = none, 1 = full. Defaults are three's GTAOPass defaults (no look chosen here).
  * Order 20 puts it before bloom (30), so bloom sees the darkened corners. Other GTAOPass settings: post.object().
- * @example engine.post.add(ao({ enabled: true, radius: 0.5 }))
+ * @example engine.post.add(ao({ radius: 0.5 }))
  * @param {{ radius?: number, intensity?: number, enabled?: boolean, order?: number }} [o]
  * @returns {PostEffect}
  */

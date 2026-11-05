@@ -17,11 +17,12 @@ export const specs = [
       check('a misspelt spawn key throws [swarm-field]; color without { color: true } too', L.badField === 'swarm-field' && L.noColor === 'swarm-field', J(L));
       check('clear empties it and kills the handles', L.cleared[0] === 0 && L.cleared[1] === -1, J(L));
       check('20000 random spawns and frees: every handle still reads its own data', L.churn === true);
+      check('a handle past 2^24 kept in a field still finds its object', L.keptInField[0] && L.keptInField[1] && L.keptInField[2], J(L.keptInField));
       const C = r.capacity;
       check('capacity: the spawn is refused with -1, dropped counts it, one [swarm-full] warning per swarm', C.count === 3 && C.dropped === 2 && C.warns === 1 && C.minus === -1 && /\[swarm-full\]/.test(C.text), J(C));
       check('describe, explain and counts show count and capacity', C.describe.count === 3 && C.describe.capacity === 3 && C.describe.dropped === 3 && C.explain.capacity === 3 && C.counts.alive === 3, J(C));
       check('bad setups are named: duplicate name, taken field, geometry alone, unknown channel', C.duplicate === 'swarm-name' && C.badField === 'module-params' && C.half === 'module-params' && C.badChannel === 'unknown-name', J(C));
-      check('spawn after dispose throws [swarm-disposed]; the name is free again', C.after === 'swarm-disposed' && C.again === 'no error', J(C));
+      check('spawn after dispose returns -1 with a warning, no throw; the name is free again', C.after === -1 && C.again === 'no error', J(C));
       const N = r.near;
       check('near equals brute force on fresh, churned and partly removed grids, any radius', N.wrong === 0 && N.nonEmpty > 100, J(N));
       check('free inside near: the walk goes on, the next query does not see them', N.removedInQuery[0] === true && N.removedInQuery[1] === 0, J(N));
@@ -45,6 +46,7 @@ export const specs = [
         const D = r[k];
         check(`${k} (${D.backend}): one InstancedMesh in the scene, nothing drawn while empty`, D.inScene && D.empty[0] === 0 && D.empty[1] === 0, J(D));
         check(`${k}: instance matrices interpolate between fixed steps; step() draws the latest`, D.lerp === 0.25 && D.latest === 2, J(D));
+        check(`${k}: a game's own move interpolates, whatever the hook order`, D.lerpOwn === 0.25, J(D));
         check(`${k}: yaw, pitch, roll and scale match three's Matrix4.compose`, D.matrixDiff < 1e-5, J(D));
         check(`${k}: a reused row does not streak from the old object`, D.noStreak === 1000, J(D));
         check(`${k}: bounds follow the swarm: seen 1 km from the origin, in its colour; culled facing away`, D.sphere[0] === 1000 && D.farLit > 8 && D.farGreen === 0 && D.culledLit === 0, J(D));

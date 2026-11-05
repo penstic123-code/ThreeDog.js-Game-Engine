@@ -16,7 +16,7 @@ import { readParams, keysSchema } from '../../core/params.js';
 import { toast } from '../../ui/UI.js';
 import { coded } from '../../core/errorHints.js';
 import { setShadowUpdate, shadowsOn } from '../../render/backend.js';
-const GROUP = 'photo';   // group name in the blobs store of engine.saves.store
+const GROUP = 'photo';   // attachment group in engine.saves
 const TAKE_KEYS = ['scale', 'shadowMapSize', 'bloom', 'quality', 'format'];
 
 export class Photo {
@@ -67,25 +67,22 @@ export class Photo {
   async _persist(shot) {
     const id = shot.id = `${Date.now().toString(36)}-${this._n++}`;   // wall-clock: photo id
     const meta = { time: shot.time, position: shot.position, subject: shot.subject };
-    const saves = this.engine.saves;
     try {
-      await saves.queue(async () => {   // queued at once, so saves.flush() waits for this photo
+      await this.engine.saves.putAttachment(GROUP, id, async () => {   // a function, so saves.flush() also waits for the bytes of this photo
         const blob = await (await fetch(shot.url)).blob();
         if (this.album.includes(shot)) shot.url = URL.createObjectURL(blob);   // still in the album: hold the bytes as a Blob from now on
-        await saves.store.putBlob(GROUP, id, blob, meta);
-      });
+        return blob;
+      }, meta);
     } catch (err) { this._fail(err); }
   }
   /** Photos pushed out of the album: delete from storage and release the blob: URLs created at load */
   _drop(shot) {
     if (shot.url.startsWith('blob:')) URL.revokeObjectURL(shot.url);
-    if (shot.id) this.engine.saves.queue(() => this.engine.saves.store.deleteBlob(GROUP, shot.id)).catch(err => this._fail(err));
+    if (shot.id) this.engine.saves.removeAttachment(GROUP, shot.id).catch(err => this._fail(err));
   }
   /** At startup / after importing a save file, read the stored photos back into the album (newest first, merged with and de-duplicated against what is already there) */
   async restore() {
-    const saves = this.engine.saves;
-    await saves.whenReady;
-    let rows; try { rows = await saves.store.blobs(GROUP); } catch (err) { this._fail(err); return; }
+    let rows; try { rows = await this.engine.saves.attachments(GROUP); } catch (err) { this._fail(err); return; }
     const have = new Set(this.album.map(s => s.id));
     for (const r of rows) if (!have.has(r.id)) this.album.push({ id: r.id, url: URL.createObjectURL(r.blob), ...r.meta, at: r.at });
     this.album.sort((a, b) => (b.at ?? Infinity) - (a.at ?? Infinity) || 0);   // a just-taken shot has no `at`: goes first
@@ -127,7 +124,7 @@ export function photo(all = {}) {
   const opts = all;
   let ph = null;
   return {
-    name: 'photo', type: 'tool', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'calendar', 'vegetation'],
+    name: 'photo', type: 'tool', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'calendar', 'vegetation', 'characters'],
     install(e, ctx) {
       e.i18n.add(STRINGS);
       // declared only: the game binds the key (presets.bindings.photo or its own; [] = no key), so every key in a game comes from one bindings table

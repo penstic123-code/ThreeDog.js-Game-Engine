@@ -17,9 +17,9 @@ import { dropOwned } from './owned.js';
 import { reportError } from './errors.js';
 import { releaseContext, memory } from '../render/backend.js';
 
-/** The per-step / per-frame callback lists (onFixed, onFrame, onRender, module hooks), empty: the constructor's starting state and what dispose leaves */
+/** The per-step / per-frame callback lists (onFixed, onFrame, animators, onRender, module hooks), empty: the constructor's starting state and what dispose leaves */
 export function clearHooks(e) {
-  e._fixed = []; e._fixedLate = []; e._frame = []; e._onRender = { before: [], after: [] }; e._hooks = { fixed: [], frame: [], afterRender: [], skip: [] };
+  e._fixed = []; e._fixedLate = []; e._frame = []; e._animate = []; e._onRender = { before: [], after: [] }; e._hooks = { fixed: [], frame: [], afterRender: [], skip: [] };
 }
 
 const STRINGS = { failed: '[engine] dispose hook of module {name} threw (the rest are still cleaned up)',
@@ -52,7 +52,7 @@ export const lifecycleMethods = {
   dispose(opts = {}) {
     if (opts === null || typeof opts !== 'object' || Object.keys(opts).some(k => k !== 'keepContext')) throw codedError('dispose-options', STRINGS.opts.replace('{v}', JSON.stringify(opts)));
     if (this.disposed) return;
-    this.phase = 'disposed'; this.paused = true;
+    this.phase = 'disposed'; this.halted = true;
     cancelAnimationFrame(this._raf);
     dropOwned(this, [...(this._owned?.values() ?? [])]);   // owned.js keeps a page-wide list for allowOwned
     for (const m of [...this.modules.values()].reverse()) {
@@ -93,7 +93,7 @@ export const lifecycleMethods = {
   counts() {
     const mem = memory(this.renderer);
     const c = {
-      listeners: this.events.size, fixed: this._fixed.length + this._fixedLate.length, frame: this._frame.length, timers: this.time.size,
+      listeners: this.events.size, fixed: this._fixed.length + this._fixedLate.length, frame: this._frame.length + this._animate.length, timers: this.time.size,
       statics: this.rays.statics.size, streamEntries: this.stream.entries.size, jobs: this.jobs.pending, commits: this.commits.pending,
       geometries: mem.geometries, textures: mem.textures,
     };

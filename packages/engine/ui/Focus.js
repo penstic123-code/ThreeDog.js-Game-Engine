@@ -28,7 +28,8 @@ export function uiFocus(engine) {
   let f = stacks.get(engine);
   if (f) return f;
   const entries = [], stick = { key: '', t: 0 };
-  let frame = 0, root = null;
+  let root = null;
+  const frame = () => engine.input.frameCount;
   // One place for every window, menu and choice list: under a lock the cursor is gone and a click lands on the canvas. The engine's own release, so it is not read as Esc
   const freeMouse = () => engine.page.releaseLock();
   f = {
@@ -38,9 +39,9 @@ export function uiFocus(engine) {
     /** Push: { cancel, nav }. Returns a handle { id, fresh, index, consumed, setNav(nav), remove() } */
     push(id, { cancel = null, nav = null } = {}) {
       const h = {
-        id, cancel, nav, index: null, at: frame, used: -1,
-        get fresh() { return h.at === frame; },
-        get consumed() { return h.used === frame; },
+        id, cancel, nav, index: null, at: frame(), used: -1,
+        get fresh() { return h.at === frame(); },
+        get consumed() { return h.used === frame(); },
         setNav(n) { forgetNav(h); h.nav = n; h.index = null; if (n) freeMouse(); },
         remove() { forgetNav(h); const i = entries.indexOf(h); if (i >= 0) entries.splice(i, 1); },
       };
@@ -51,12 +52,11 @@ export function uiFocus(engine) {
     /** Who gets the back key when the stack is empty (only one; a later registration replaces the earlier) */
     setRoot(fn) { root = fn; return { remove: () => { if (root === fn) root = null; } }; },
   };
-  // Start of each frame (the onFrame callback runs before module frame hooks): bump the frame number so the back key dispatches once,
-  // then the cursor of the top entry moves / presses (before the dialogue's own confirm check, which reads h.consumed)
+  // Each frame (the onFrame callback runs before module frame hooks): the back key dispatches once, and
+  // the cursor of the top entry moves / presses (before the dialogue's own confirm check, which reads h.consumed)
   f.hook = engine.onFrame(dt => {
-    frame++;
     const top = entries.at(-1);
-    if (top?.nav && stepCursor(engine, top, stick, dt)) top.used = frame;
+    if (top?.nav && stepCursor(engine, top, stick, dt)) top.used = frame();
     if (!engine.input.pressedRaw('cancel')) return;
     if (entries.at(-1)) entries.at(-1).cancel?.();
     else root?.();

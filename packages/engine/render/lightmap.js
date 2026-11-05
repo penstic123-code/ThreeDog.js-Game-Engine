@@ -1,5 +1,5 @@
 // Baked lightmaps: reads the file `threedog bake light` writes and hands plain three.js what it needs. At run time a lightmap is only
-// material.lightMap and a second UV set, so it costs nothing per frame and looks the same on WebGL and WebGPU, whichever renderer drew nothing at all here.
+// material.lightMap and a second UV set, so it costs nothing per frame and looks the same on WebGL and WebGPU.
 // Why the file carries geometry and not just a picture: the unwrap cuts seams, so a baked mesh has more vertices than the source. Each entry keeps which
 // source vertex every new vertex came from, and the mesh is rebuilt from that: the game's own attributes stay the game's, only the layout changes.
 // The checks are here because the runtime is where it goes wrong without a word: a mesh that moved keeps light from where it was, a mesh that is not the
@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { readParams } from '../core/params.js';
 import { codedError, coded } from '../core/errorHints.js';
 import { warnOnce } from '../core/validate.js';
+import { mats, noteFillLight, noteEnvironment } from './lit.js';
 
 const FORMAT = 'threedog-lightmap', VERSION = 1, MAGIC = 0x4d4c4454;   // 'TDLM'
 const LOAD = { owner: { type: 'string', default: 'game', desc: 'who loaded it (describe().render.lightmap)' } };
@@ -54,7 +55,6 @@ function relayout(src, from, index, uv1) {
   return g;
 }
 
-const mats = o => Array.isArray(o.material) ? o.material : [o.material];
 
 /** One lightmap in the scene: three's plain texture on the baked meshes' materials. Made by loadLightmap only */
 class Lightmap {
@@ -66,11 +66,11 @@ class Lightmap {
     const moved = [], doubled = [], shared = [], onMapped = new Set();
     for (const [o] of this._entries) for (const m of mats(o)) onMapped.add(m);
     this._e.scene.traverseVisible(o => {
-      if (o.isAmbientLight || o.isHemisphereLight || o.isLightProbe) { if (o.intensity > 0) doubled.push(`${o.type} ${o.name || o.id}`); }
-      else if (o.isLightProbeGrid) doubled.push(`probe grid ${o.name}`);
+      if (noteFillLight(o, doubled)) return;
+      if (o.isLightProbeGrid) doubled.push(`probe grid ${o.name}`);
       else if (o.isMesh && !this._entries.has(o) && mats(o).some(m => onMapped.has(m))) shared.push(o.name || `${o.type} ${o.id}`);
     });
-    if (this._e.scene.environment && this._e.scene.environmentIntensity > 0) doubled.push('scene.environment');
+    noteEnvironment(this._e.scene, doubled);
     for (const [o, matrix] of this._entries) {
       o.updateWorldMatrix(true, false);
       if (o.matrixWorld.elements.some((v, i) => Math.abs(v - matrix[i]) > 1e-3)) moved.push(o.name);

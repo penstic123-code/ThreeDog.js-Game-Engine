@@ -10,7 +10,7 @@ export class Rays {
     ray: any;
     /**
      * Register a static object and every mesh under it (an array also works; meshes over 256 triangles get a BVH); occluder: true also blocks the camera. Returns a handle { remove() }.
-     * Only visible objects are hit; hiding that just swaps in something else on screen (such as the far-away hlod original) is marked userData.rayVisible = true and is still hit.
+     * Only visible objects are hit. Something that is merely not drawn is still hit: batched originals, far hlod originals and the full model of a far assets.lod sit on a reserved layer, with their visible true.
      * Unregisters automatically on geometry dispose or engine.remove.
      * @param {THREE.Object3D | THREE.Object3D[]} obj
      * @param {{ occluder?: boolean }} [opts]
@@ -24,26 +24,7 @@ export class Rays {
     forget(obj: THREE.Object3D): void;
     /** A module merges its own hits (rigid adds rigid bodies; asked only when targets is 'all'). Returns a handle { remove() } @param {RayProvider} fn @returns {Handle} */
     addProvider(fn: RayProvider): Handle;
-    /**
-     * Cast a ray from origin along dir and return the nearest hit or null (same as engine.raycast).
-     * @param {Vec3Like} origin
-     * @param {Vec3Like} dir
-     * @param {RaycastOptions} [opts]
-     * @returns {RayHit | null}
-     */
-    cast(origin: Vec3Like, dir: Vec3Like, opts?: RaycastOptions): RayHit | null;
-    /**
-     * Cast from screen coordinates (-1..1) through the camera (same as engine.pick).
-     * @param {number} ndcX
-     * @param {number} ndcY
-     * @param {RaycastOptions} [opts]
-     * @returns {RayHit | null}
-     */
-    pick(ndcX: number, ndcY: number, opts?: RaycastOptions): RayHit | null;
 }
 import * as THREE from 'three';
 import type { Handle } from '../../common';
 import type { RayProvider } from '../../core';
-import type { Vec3Like } from '../../common';
-import type { RaycastOptions } from '../../core';
-import type { RayHit } from '../../core';

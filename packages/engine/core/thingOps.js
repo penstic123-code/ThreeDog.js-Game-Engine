@@ -4,7 +4,7 @@
 // For a record the ops turn into world.set / world.move / world.remove (the model follows the record); for a plain object they write the transform and,
 // when the object has a stable id and is rebuilt by code at setup, record it as an override in the 'scene' save part (things.js).
 import { Things, snap, write, moduleOwnerOf } from './things.js';
-import { closest, DEV } from './validate.js';
+import { closest, DEV, goodPos } from './validate.js';
 import { onSceneRoot } from './sceneDelta.js';
 import { codedError } from './errorHints.js';
 import { explainThing } from './thingExplain.js';
@@ -120,12 +120,13 @@ export function installThings(e) {
     noThing: 'no world record or engine.add object has this id (engine.thing(id) suggests the closest one)',
     engineOwned: 'an engine module manages this object (water, particles, physics…); change it through that module',
     recordVisible: 'a world record has no visible flag: hide its model with present({ show: rec => … }) and a field set by world.set',
+    badPosition: 'position takes [x, y, z] or { x, y, z } with finite numbers (y may be left out of the object)',
   };
   e.ops.define('thing.set', {
     targets: '*',
     desc: 'Move / turn / scale / show or hide a thing: a world record (via world.set / move) or an engine.add object (saved as an override when it has an id)',
     args: { id: 'string', position: 'any?', rotation: 'any?', scale: 'any?', visible: 'bool?' },
-    can: (_, a) => { const k = kindOf(a.id); return !k ? 'noThing' : k === 'engine' ? 'engineOwned' : k === 'record' && a.visible != null ? 'recordVisible' : true; },
+    can: (_, a) => { const k = kindOf(a.id); return !k ? 'noThing' : k === 'engine' ? 'engineOwned' : k === 'record' && a.visible != null ? 'recordVisible' : a.position != null && !goodPos(a.position) ? 'badPosition' : true; },
     run(eng, a) {
       if (kindOf(a.id) === 'record') {
         const patch = { ...(a.position && { position: xyz(a.position) }), ...(a.rotation != null && { rot: yaw(a.rotation) }), ...(a.scale != null && { scale: uni(a.scale) }) };

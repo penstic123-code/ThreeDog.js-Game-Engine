@@ -10,9 +10,9 @@ export const specs = [
       const r = await ev(() => {
         const w0 = console.warn; console.warn = () => {};
         try {
-          engine.pause();
+          engine.haltLoop();
           const a = engine.adaptive, pr = () => engine.renderer.getPixelRatio();
-          const fresh = () => { Object.assign(a, { on: true, paused: false, target: 60, t: 0, good: 0, cooldown: 0, lowered: false, from: null, age: 0, costs: [], gaps: [], refresh: Infinity }); engine.setPixelRatio(a.max); };
+          const fresh = () => { Object.assign(a, { on: true, target: 60, t: 0, good: 0, cooldown: 0, lowered: false, from: null, age: 0, costs: [], gaps: [], refresh: Infinity }); engine.setPixelRatio(a.max); };
           // feed(seconds, frame interval s, cost ms or i => ms, compiled i => bool, gpu time known)
           const feed = (secs, gap, cost, compiled = () => false, gpu = false) => { for (let t = 0, i = 0; t < secs; t += gap, i++) engine._adapt(gap, typeof cost === 'function' ? cost(i) : cost, compiled(i), gpu); };
           const out = { max: a.max };

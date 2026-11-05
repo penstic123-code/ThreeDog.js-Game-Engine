@@ -3,7 +3,7 @@
 // that depends on machine speed and background-thread queueing -- but on a fixed-step tick decided when the request is made:
 //   const t = engine.commits.request({ apply: r => change gameplay state with the result, fallback: () => compute the same result on the main thread now, valid: () => still wanted? });
 //   when the background work finishes: t.resolve(result); when no longer wanted: t.remove()
-// At the due tick (engine.tick at request + lag, default 30 steps = 0.5 s) requests take effect in a stable order (due tick, then request order):
+// At the due tick (engine.time.tick at request + lag, default 30 steps = 0.5 s) requests take effect in a stable order (due tick, then request order):
 //   finished -> apply(result); not finished -> apply(fallback()) (stats.late +1; a background result that arrives later is ignored); valid() false -> dropped.
 // A save load or level change (invalidate) drops the requests that have no valid: they were made for the old world. A request with valid decides itself
 // (terrain colliders survive a load because the terrain is the same; pass valid when your result belongs to state a load replaces).
@@ -43,7 +43,7 @@ export class Commits {
   request(opts) {
     const { apply, fallback, valid = null, lag = this.lag } = opts;
     if (typeof fallback !== 'function') throw codedError('commit-fallback', STRINGS.noFallback);
-    const t = { due: this.engine.tick + Math.max(1, lag), lag, seq: this._seq++, apply, fallback, valid, epoch: this.epoch, done: false, result: undefined, canceled: false };
+    const t = { due: this.engine.time.tick + Math.max(1, lag), lag, seq: this._seq++, apply, fallback, valid, epoch: this.epoch, done: false, result: undefined, canceled: false };
     this._insert(t);
     const remove = () => { t.canceled = true; };
     return { due: t.due, resolve: r => { if (!t.done) { t.done = true; t.result = r; } }, remove };
@@ -60,13 +60,14 @@ export class Commits {
       const t = this.queue.shift();
       if (t.canceled || (t.valid ? !t.valid() : t.epoch !== this.epoch)) { this.stats.dropped++; continue; }
       if (!t.done) { t.result = t.fallback(); t.done = true; this.stats.late++; }
+      if (t.canceled) { this.stats.dropped++; continue; }   // the fallback itself gave up on the request (a job that failed): nothing to apply
       t.apply(t.result);
       this.stats.applied++;
     }
   }
   /** @internal Called when start() finishes loading: pending requests restart timing from now (due = now + lag); lag 0 takes effect immediately */
   rebase() {
-    const now = this.engine.tick, list = this.queue.splice(0);
+    const now = this.engine.time.tick, list = this.queue.splice(0);
     for (const t of list) { t.due = now + t.lag; this._insert(t); }
     this.tick(now);
   }

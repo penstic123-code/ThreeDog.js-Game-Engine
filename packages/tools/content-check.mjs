@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkWorldData } from './content-check/world.mjs';
 import { checkQuests } from './content-check/quests.mjs';
-import { checkKinds } from './content-check/kinds.mjs';
+import { checkKinds, checkListed } from './content-check/kinds.mjs';
 import { checkAudio } from './content-check/audio.mjs';
 import { checkViews } from './content-check/views.mjs';
 import { checkFields } from './content-check/fields.mjs';
@@ -18,13 +18,12 @@ import { glbLevels } from './content-check/glb.mjs';
 import { writeIndex } from './content-check/index-ids.mjs';
 import { cli, within } from './paths.mjs';
 import { item, result, startJson } from './lib/result.mjs';
+import { KEYBOARD_CODE } from './lib/text.mjs';
 import { ROOT, rel, findGames, loadGame, dupKeys, gameAssets, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 export { ROOT, findGames, loadGame, gameAssets, levelIsFile };
 
-const KEY_RE = new RegExp('^(Key[A-Z]|Digit\\d|Numpad\\d|F([1-9]|1[0-2])|Arrow(Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|' +
-  'Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Minus|Equal|Comma|Period|Slash|Semicolon|Quote|Backquote|BracketLeft|BracketRight|Backslash|' +
-  // Mouse buttons and gamepad buttons are keys too (core/inputPointer.js, core/inputPad.js): an attack on Mouse0 or PadX is a normal content action
-  'Mouse[0-4]|Pad(A|B|X|Y|LB|RB|LT|RT|Select|Start|L3|R3|Up|Down|Left|Right))$');
+// Mouse buttons and gamepad buttons are keys too (core/inputPointer.js, core/inputPad.js): an attack on Mouse0 or PadX is a normal content action
+const KEY_RE = new RegExp(`^(${KEYBOARD_CODE}|Mouse[0-4]|Pad(A|B|X|Y|LB|RB|LT|RT|Select|Start|L3|R3|Up|Down|Left|Right))$`);
 
 /** Validate one game folder, returning { errors: [], warnings: [] } (English) */
 export async function checkGame(dir) {
@@ -223,6 +222,7 @@ export async function checkGame(dir) {
 
   // 11. The game's vocabulary and its own content kinds
   checkKinds({ c, err, warn, known });
+  checkListed({ dir, c, files, code, err, warn });
   for (const [group, vocab] of [['conditions', c.rules?.conditions], ['effects', c.rules?.effects]]) for (const [word, d] of Object.entries(vocab || {})) {
     const fn = group === 'conditions' ? 'test' : 'run';
     if (typeof d?.[fn] !== 'function') err('rules', `"${word}" in ${group} has no ${fn} function`);

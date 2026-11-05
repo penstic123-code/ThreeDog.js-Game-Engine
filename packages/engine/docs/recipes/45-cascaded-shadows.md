@@ -1,4 +1,4 @@
-# Shadows: cascades, box, budget, the switch
+# Shadows: cascades, box, budget, cache, the switch
 
 **In this recipe**: `engine.shadows` works on a light you hand it and leaves every other light alone: cascades, a box that follows, an update budget, the master
 switch. Filter, bias, softness and map size are plain three.js (last section).
@@ -105,6 +105,34 @@ box.remove();              // position, target and the shadow camera come back
   (your player, say) is never moved. It works like cascades here: `position` and `target` hold the placement while the box is on, and writes to `light.position` or a new `light.target` set the direction.
 - The engine's placeholder sun under `sky()` has a box already, following `engine.focus`, 30 m each way. `engine.shadows.box(engine.lights.sun, { follow: false, extent: 9 })` changes that one
   box and `remove()` restores it. Writing `engine.lights.sun.target.position` yourself takes the box's center over, with one warning; `{ follow: 'focus' }` gives it back.
+
+## Keep what does not move
+
+```js
+const kept = engine.shadows.cache(sun, { static: mesh => mesh !== cars.mesh });   // a test on each mesh; or an Object3D, or a list of them
+kept.redraw();                  // a static object moved, hid or left
+kept.set({ static: town });     // say again what is static
+kept.remove();                  // three's own shadow node again
+```
+
+Off until you call it, and only on the light you hand in. Static casters are drawn once into a second depth map. Each shadow frame copies that map into the light's own
+shadow map and draws the rest on top, so no material or shadow filter changes. Whatever you did not name static keeps redrawing: forgetting one costs time, never a
+wrong shadow. A static object added later (a streamed block) casts at once, drawn with the moving things until the next redraw. A batch counts as static when all its originals do, by a subtree or by a test; one moving original keeps the whole batch
+redrawing.
+
+**You must call `redraw()`** when a static object moves, hides or is removed: its old shadow stays until then. The engine does not watch for this, with one exception: an
+`InstancedMesh` whose instances changed, or that left the scene (a batch too), redraws the kept map by itself.
+
+It does not help when:
+- **The sun moves.** Any change to the light or its box redraws everything, on top of the copy, so a day cycle costs more than plain shadows. Under a box the map holds
+  still until the center has left a quarter of the box; the shadows reach that much less far on the side the camera moves toward, and each step is one full redraw.
+- **Wind or vertex animation moves a "static" object.** Its kept shadow does not sway. Leave those objects out of `static`.
+- **Terrain detail changes.** A chunk that swaps its detail leaves the old shape in the kept map until `redraw()`. Leave it out, or call `redraw()` on the swap.
+- **Few things cast.** The copy and the second map (mapSize x mapSize x 4 bytes, and float depth on the light's own map) are a fixed price. Frame time has not been measured yet.
+
+WebGPU backend only, one plain map only: with cascades it is refused, and three's `CSMShadowNode` gives no way in. On WebGLRenderer and on WebGPURenderer's WebGL2 backend
+the light draws everything, with one warning: the same picture, no saving. A budget on the same light still sets how often the moving things redraw.
+Listed in `describe().threePatches` as `shadow-cache`.
 
 ## An update budget
 A shadow map of a still scene need not redraw every frame:

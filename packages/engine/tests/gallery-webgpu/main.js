@@ -20,7 +20,7 @@ async function make(extra) {
     urlState: false, saveKey: 'test-gallery-webgpu', ...extra });
   e.assets.manifest({ models });
   await e.start();
-  e.pause();
+  e.haltLoop();
   return e;
 }
 

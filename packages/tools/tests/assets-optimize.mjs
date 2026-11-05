@@ -1,14 +1,13 @@
 // assets optimize: a small real glTF (color + normal texture, real PNG pixels) goes through the real command in a temp game folder.
 // Guards: originals unchanged byte for byte, output is KTX2 + Meshopt, the normal map is UASTC / linear and the color map ETC1S / sRGB, a rerun skips,
-// --dry writes nothing, assets.js points at the result. Needs `ktx` (KTX-Software) on PATH or in THREEDOG_KTX_DIR; without it the KTX2 steps are
-// reported as skipped, and the message for the missing tool is checked instead.
+// --dry writes nothing, assets.js points at the result. Uses `ktx` (KTX-Software) when it is on PATH (or in THREEDOG_KTX_DIR), else the wasm
+// encoder ktx2-encoder from npm.
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, delimiter } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
-import { spawnSync } from 'node:child_process';
 import { ROOT } from '../paths.mjs';
 import { runOptimize } from '../assets-optimize.mjs';
 
@@ -41,7 +40,7 @@ export async function run({ check }) {
     const src = join(dir, 'art/models/crate.glb');
     await makeModel(src);
     writeFileSync(join(dir, 'assets.js'), '// a game\nexport default [];\n');
-    const before = sha(src), ktxOk = !spawnSync('ktx', ['--version']).error;
+    const before = sha(src);
 
     // [guard] a failed model must leave the game as it was: assets.js once pointed at a file this run never made
     const bad = mkdtempSync(join(tmpdir(), 'threedog-optimize-bad-'));
@@ -53,10 +52,9 @@ export async function run({ check }) {
       check('a failed model: exit 1, assets.js unchanged, no pack written, and it says so', rb.code === 1 && readFileSync(join(bad, 'assets.js'), 'utf8') === '// a game\nexport default [];\n'
         && !existsSync(join(bad, 'assets.optimized.js')) && /were not changed/.test(rb.text), rb.text);
     } finally { rmSync(bad, { recursive: true, force: true }); }
-    // [guard] a model without textures (no real ktx needed, but the CLI wants one on PATH): which URL a name finally resolves to, and what a cache hit still reports
     // [guard] no texture, so no ktx needed: which URL a name finally resolves to, and what a cache hit still reports
-    const plain = ktxOk ? mkdtempSync(join(tmpdir(), 'threedog-optimize-plain-')) : null;   // the CLI wants ktx on PATH even for a model without textures
-    if (plain) try {
+    const plain = mkdtempSync(join(tmpdir(), 'threedog-optimize-plain-'));
+    try {
       mkdirSync(join(plain, 'art/models'), { recursive: true });
       const core = createRequire(resolve(ROOT, 'package.json'))('@gltf-transform/core'), pd = new core.Document(), pb = pd.createBuffer();
       const pp = pd.createPrimitive().setAttribute('POSITION', pd.createAccessor().setType('VEC3').setArray(new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0])).setBuffer(pb));
@@ -89,12 +87,8 @@ export async function run({ check }) {
     check('--dry reports the file and writes nothing', dry.code === 0 && /crate\.glb/.test(dry.text) && !existsSync(join(dir, 'public')) && !existsSync(join(dir, '.threedog')) && !existsSync(join(dir, 'assets.optimized.js')), dry.text);
     check('--dry gives the GPU memory before and after', /GPU ≈ [\d.]+ (KB|MB) → [\d.]+ (KB|MB)/.test(dry.text), dry.text);
 
-    if (!ktxOk) {
-      const r = await quiet(() => runOptimize(dir, {}));
-      check('without ktx only this command fails, says what to install, and leaves the source alone', r.code === 1 && /KTX-Software/.test(r.text) && sha(src) === before, r.text);
-      check('ktx is not installed here: the KTX2 steps are skipped (set THREEDOG_KTX_DIR to run them)', true);
-      return;
-    }
+    // the wasm encoder (ktx2-encoder) stands in when `ktx` is not on PATH, so the KTX2 steps below run on any machine that ran npm install
+    check('the run says which texture encoder it uses', /Texture encoder: (ktx \(|ktx2-encoder )/.test(dry.text), dry.text);
     const r1 = await quiet(() => runOptimize(dir, {}));
     const out = join(dir, 'public/optimized/crate.glb');
     check('first run optimizes the model', r1.code === 0 && existsSync(out), r1.text);

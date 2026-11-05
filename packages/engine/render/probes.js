@@ -16,6 +16,7 @@ import { codedError, coded } from '../core/errorHints.js';
 import { warnOnce } from '../core/validate.js';
 import { vec3 } from '../core/math.js';
 import { isWebGPU, webgpuPart, freshFrame, readLayer, onRendererSwap } from './backend.js';
+import { mats, lit, noteFillLight, noteEnvironment } from './lit.js';
 
 const FORMAT = 'threedog-probes', VERSION = 2, MAX_PROBES = 4096, SH = 27;
 const CHUNK = 8;        // probes baked per turn of the event loop, so the page keeps drawing during a long bake
@@ -106,23 +107,19 @@ function toBase64(bytes) {
   return btoa(s);
 }
 
-const LIT = m => !!(m?.isMeshStandardMaterial || m?.isMeshLambertMaterial || m?.isMeshPhongMaterial || m?.isMeshToonMaterial || (m?.isNodeMaterial && m.lights));
-const mats = o => Array.isArray(o.material) ? o.material : [o.material];
-
 /** Visible lit meshes no set fully holds, and everything else in the scene that adds light the bake already saw. Runs on describe() and when a set is added, never per frame */
 function probeChecks(e) {
   const boxes = [...sets(e)].map(s => s.box), b = new THREE.Box3(), outside = [], doubled = [];
   let mapped = 0;
   e.scene.traverseVisible(o => {
-    if (o.isAmbientLight || o.isHemisphereLight || o.isLightProbe) { if (o.intensity > 0) doubled.push(`${o.type} ${o.name || o.id}`); return; }
-    if (!o.isMesh || !mats(o).some(LIT)) return;
+    if (noteFillLight(o, doubled) || !o.isMesh || !mats(o).some(lit)) return;
     if (mats(o).some(m => m.lightMap)) mapped++;
     const src = o.isInstancedMesh ? o : o.geometry;
     if (!src.boundingBox) src.computeBoundingBox();
     b.copy(src.boundingBox).applyMatrix4(o.matrixWorld);
     if (!boxes.some(x => x.containsBox(b))) outside.push(o.name || `${o.type} ${o.id}`);
   });
-  if (e.scene.environment && e.scene.environmentIntensity > 0) doubled.push('scene.environment');
+  noteEnvironment(e.scene, doubled);
   if (mapped) doubled.push(`material.lightMap on ${mapped} mesh(es)`);
   return { outside, doubled };
 }

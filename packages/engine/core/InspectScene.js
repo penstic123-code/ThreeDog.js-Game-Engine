@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { materialInfo, infoLine } from './MaterialInfo.js';
 import { describeRender } from './describeRender.js';
+import { r1 } from './math.js';
 
 const KINDS = [['isMesh', 'Mesh'], ['isPoints', 'Points'], ['isLine', 'Line'], ['isSprite', 'Sprite']];
 const kindOf = o => KINDS.find(([k]) => o[k])?.[1] ?? null;
@@ -12,7 +13,6 @@ const PLANES = ['right', 'left', 'bottom', 'top', 'far', 'near'];   // order of 
 // reasons that are just "not in the picture right now" (the camera looks elsewhere), not a bug: listed after the other undrawn objects
 const CULLED = new Set(['outside-frustum', 'behind-camera', 'beyond-far', 'fogged-out']);
 const NAN_SCAN_MAX = 100000;   // vertices checked for NaN per geometry: enough to find a broken generator, bounded for huge merged meshes
-const r1 = v => Math.round(v * 10) / 10;
 const fmt = o => o.name || '(unnamed)';
 const why = (code, text, fix, level = 'hidden') => ({ code, level, text, ...(fix && { fix }) });
 
@@ -126,7 +126,7 @@ function viewReasons(o, type, center, radius, view, cam, fog) {
 
 /** One object: its reasons (most likely first: switched off, wrong layer, material, transform / geometry, then where it is) and its record */
 function checkObject(o, type, ctx) {
-  const { view, cam, scene, memo } = ctx, reasons = [], off = [];
+  const { view, cam, scene, memo, replays } = ctx, reasons = [], off = [];
   for (let n = o; n; n = n.parent) if (n.visible === false) off.push(n);
   if (off[0] === o) reasons.push(why('hidden-self', 'its own visible is false', `${fmt(o)}.visible = true`));
   const anc = off.find(n => n !== o);
@@ -136,6 +136,8 @@ function checkObject(o, type, ctx) {
     reasons.push(why('layers', `layers do not match the camera (object mask ${o.layers.mask}, camera mask ${cam.layers.mask}): the renderer skips it`,
       'object.layers.enable(n) for a layer the camera sees, or camera.layers.enable(n)'));
   }
+  // here what the state says and what draws can differ, so it comes first. Only where bundles exist: elsewhere a BundleGroup is a plain group
+  if (replays) for (let n = o.parent; n; n = n.parent) if (n.isBundleGroup) { reasons.push(why('in-bundle', `inside BundleGroup ${fmt(n)}, which replays what it recorded: a change to its visible, children or castShadow shows after a new recording`, `${fmt(n)}.needsUpdate = true`, 'maybe')); break; }
   reasons.push(...materialReasons(o));
   const me = o.matrixWorld.elements, sc = [Math.hypot(me[0], me[1], me[2]), Math.hypot(me[4], me[5], me[6]), Math.hypot(me[8], me[9], me[10])];
   const shape = shapeReasons(o, type, sc, memo);
@@ -171,7 +173,7 @@ function lineOf(x) {
  * @param {{ hidden?: boolean, limit?: number }} [opts] hidden: list only objects that are not drawn; limit: how many to list (default 40; counts cover all)
  */
 export function inspectScene(e, { hidden = false, limit = 40 } = {}) {
-  const scene = e.scene, cam = e.camera, ctx = { scene, cam, view: viewOf(cam), memo: new Map() };
+  const scene = e.scene, cam = e.camera, ctx = { scene, cam, view: viewOf(cam), memo: new Map(), replays: !!e.renderer?.backend?.beginBundle };
   scene.updateMatrixWorld();
   const items = [], counts = { total: 0, drawn: 0, notDrawn: 0, byType: {} };
   scene.traverse(o => {

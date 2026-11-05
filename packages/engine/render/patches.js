@@ -9,7 +9,7 @@
 // on a NodeMaterial, and on the node twin WebGPURenderer builds of a classic material (dressNodeTwins below). So one patched MeshLambertMaterial
 // draws with its GLSL on WebGLRenderer and with its tsl on WebGPURenderer: the engine's own materials stay classic, which is what lets
 // fallback: 'webgl' (decided in start(), after they were made) keep them. A patch without tsl throws on a NodeMaterial and is named by
-// start() on WebGPURenderer (render/backend.js webglOnlyOn). Engine uniforms (engine.uniforms: uTime, uWind, uCloud...) are resolved per
+// start() on WebGPURenderer (render/backend.js webglOnlyOn). Engine uniforms (engine.uniforms: uTime, uWind, uWeatherCloud...) are resolved per
 // renderer when the program compiles, so one material works under any engine and two engines on a page each drive their own time and weather.
 // A patch that moves vertices (shadow: true) owns its shadow: meshes using the material get matching depth and distance
 // materials automatically (see the customDepthMaterial / customDistanceMaterial defaults below), callers never set them.
@@ -32,11 +32,11 @@ import { closest, DEV, warnOnce } from '../core/validate.js';
 import { EFFECTS, PROVIDED_BY } from './effects.js';
 import { noteCopy, VERSION } from '../core/copies.js';
 import { notePatch, patchOn } from '../core/threePatches.js';
-import { sameUniform, resolveUniform } from './engineUniforms.js';
+import { sameUniform, resolveUniform, engineUniformName } from './engineUniforms.js';
 import { SLOTS, SLOT_NAMES, toAnchors } from './slots.js';
 import { codedError, coded } from '../core/errorHints.js';
 import { webgpuPart, webgpuPartOrNull, addWebGPURule } from './backend.js';
-import { engineUniformName } from './engineUniforms.js';
+import { scanRenamed } from './uniformRenames.js';
 import { copyTerms } from './terms.js';   // a cycle (terms.js patches materials); only called at run time, never while loading
 
 /** @import { Material } from '../types/common' */
@@ -234,6 +234,8 @@ export function patchMaterial(material, patches, { strict = true } = {}) {
       warnOnce(coded('shader-patch', '[threedog] ' + msg + '; skipped'));
       continue;
     }
+    // the text is scanned as data (a slot and an anchor patch hold their GLSL in different fields); the patch's own uniforms stay its own names
+    if (DEV && !deriving) scanRenamed([JSON.stringify({ ...p, uniforms: undefined }).replace(/\\n/g, ' ')], `patch '${p.name}'`, p.uniforms);
     const i = list.findIndex(q => q.name === p.name);
     if (i >= 0) list[i] = p; else list.push(p);
   }
@@ -448,7 +450,7 @@ export function unpatchMaterial(material, name) {
 export function copyPatches(from, to) {
   const list = LISTS.get(from);
   if (!list?.length || from === to) return to;
-  copyTerms(from, to);   // the copy carries the cloud / season terms, so a later engine.terms call reaches it too
+  copyTerms(from, to);   // the copy carries the cloud / season terms, so a later engine.shaderTerms call reaches it too
   deriving = true;   // already checked on `from`
   try { return patchMaterial(to, list, { strict: false }); } finally { deriving = false; }
 }

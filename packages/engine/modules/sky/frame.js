@@ -5,6 +5,8 @@ import { defineOwned } from '../../core/owned.js';
 import { applySeason } from './season.js';
 import { applyCover, skyTint } from './tint.js';
 import { fogBand } from './fog.js';
+import { signalWatch } from '../../render/daylight.js';
+import { sunAngle } from '../../core/dayTime.js';
 
 /**
  * Brightness of the sky's ambient light for one sky color pair: ambient intensity x the luminance of the hemi color (top / horizon halfway,
@@ -17,6 +19,7 @@ const lum = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 // The copyable takeover calls each owned property's warning quotes (core/owned.js): the engine yields to a direct write, these say it explicitly
 const L = {
   background: { manual: 'engine.sky.dome.visible = false', back: 'engine.sky.replace(null)' },
+  sunDir: { manual: "engine.autoView.manual('sunDir')", back: "engine.autoView.manual('sunDir', false)" },
 };
 
 /**
@@ -24,15 +27,19 @@ const L = {
  */
 export function watchOwned(sky) {
   const e = sky.engine, scene = e.scene;
+  sky._signals = signalWatch(e, { uSkyTop: 'engine.sky.top = color', uSkyHorizon: 'engine.sky.horizon = color' });
   const own = (id, part, key, read, levels, objects) => defineOwned(e, { id, part, key, read, levels, objects });
   const list = [];
   // background: the sky writes it with a backdrop / skybox; with the dome it draws over whatever scene.background holds, so a game that sets one
   // takes it, and the dome hides (onChange) so the game's background shows; handing it back shows the dome again
   list.push(sky._oBg = own('background', 'sky', 'background', () => [scene.background, scene.backgroundIntensity], L.background, [scene]));
-  sky._oBg._onChange = o => { if (!sky._backdrop && !sky.skybox && !sky._ownSky) sky.dome.visible = o.on; };   // a replaced sky keeps the dome hidden
+  sky._oBg._onChange = o => { if (!sky._backdrop && !sky.skybox && !sky._ownSky && !sky._noSky) sky.dome.visible = o.on; };   // a replaced sky keeps the dome hidden
   // the reference is the scene as the engine made it, not what is there now: picture code runs before start() (and may run before sky()), and a write
   // with no reference to differ from would leave the dome drawn over the game's background for good
   sky._oBg.mark([e.baseBackground, 1]);
+  // the sun: part 'view', so engine.autoView.manual('sunDir') is the one takeover entry. The shadow and the game's lights follow this value, so a sun at a chosen
+  // direction has to survive the frame. sunDir and uSunDir are one vector (Sky.js), so a write to either name is seen here
+  list.push(sky._oSun = defineOwned(e, { id: 'sky.sunDir', part: 'view', key: 'sunDir', read: () => sky.sunDir.toArray(), levels: L.sunDir, objects: [sky] }));
   return list;
 }
 
@@ -66,16 +73,17 @@ export function updateSky(sky) {
   const bd = sky._backdrop;   // engine.sky.backdrop (dome.js): a flat background in place of the dome
   if (bd && sky._oBg.on) { sky.dome.visible = false; scene.background = bd.color; }
   // the drawn sky colors for game shaders (render/effects.js uSkyTop / uSkyHorizon): the horizon a game's fog can copy
+  sky._signals.check();
   sky.engine.uniforms.uSkyTop.value.copy(u.uTop.value); sky.engine.uniforms.uSkyHorizon.value.copy(bd ? bd.color : u.uHorizon.value);
+  sky._signals.mark();
   u.uFogBand.value = fogBand(scene.fog, u.uHorizon.value);   // compared to the dome's horizon (not the backdrop): the band is drawn on the dome
   u.uSunColor.value.copy(a[3]).lerp(b[3], f);   // the keyframes' sun color: the dome's sun disk, and a signal for the game's own sun (shader.js shares the object)
 
-  const ang = (t - 0.25) * Math.PI * 2, elev = Math.sin(ang);
-  sky.sunDir.set(Math.cos(ang) * sky.orbit.sway, elev, sky.orbit.tilt).normalize();
-  u.uSunDir.value.copy(sky.sunDir);
+  const ang = sunAngle(t), elev = Math.sin(ang);
+  if (sky._oSun.on) sky.sunDir.set(Math.cos(ang) * sky.orbit.sway, elev, sky.orbit.tilt).normalize();
   // uDaylight / uTimeOfDay are not written here: render/daylight.js writes them from the 'daylight' / 'timeOfDay' measures (one writer each)
   u.uNight.value = Math.min(1, Math.max(0, -elev * 4));
   // a skybox is the dome's stand-in, so it dims with the keyframes' ambient column like the dome dims with its colors
-  if (sky.skybox && sky._oBg.on) sky.engine.scene.backgroundIntensity = Math.max(0.05, hemiI / 1.2);
+  if (sky.skybox && sky._oBg.on) sky.engine.scene.backgroundIntensity = Math.max(0.05, sky._ambientPeak > 0 ? hemiI / sky._ambientPeak : 1);
   for (const o of sky._owned) o.mark();
 }

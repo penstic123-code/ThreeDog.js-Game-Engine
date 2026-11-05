@@ -6,7 +6,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE;
         engine.assets.manifest({ models: { 's1-level2': () => {
           const g = new T.Group(), floor = new T.Mesh(new T.BoxGeometry(40, 1, 40), new T.MeshBasicMaterial());
@@ -77,15 +77,15 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE, A = engine.assets;
         // a small model that generates fast (under 20 ms in dev; also guards against the "fast generation returns undefined" regression)
         A.manifest({ models: { 's1-box': () => { const g = new T.Group(); g.add(new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial())); return g; } } });
         const a = engine.add(await A.model('s1-box')), b = engine.add(await A.model('s1-box'));
         const geo = b.children[0].geometry; let disposed = 0; geo.addEventListener('dispose', () => disposed++);
-        const out = { shared: a.children[0].geometry === geo, users2: A.users('s1-box') };
+        const out = { shared: a.children[0].geometry === geo, users2: A._users('s1-box') };
         engine.remove(a); engine.step(0.05);
-        out.afterA = { users: A.users('s1-box'), disposed, bOk: !!b.parent && b.children[0].geometry === geo };
+        out.afterA = { users: A._users('s1-box'), disposed, bOk: !!b.parent && b.children[0].geometry === geo };
         A.release('s1-box'); out.afterRelease = disposed;
         engine.remove(b); out.afterB = disposed;
         const c = engine.add(await A.model('s1-box')), geo2 = c.children[0].geometry; let d2 = 0; geo2.addEventListener('dispose', () => d2++);
@@ -105,7 +105,7 @@ export const specs = [
     expectErrors: /s1-boom|give failed/,   // this test deliberately causes two errors
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         let fxCalls = 0;
         engine.use({ name: 's1fx', type: 'picture', frame() { fxCalls++; throw new Error('s1-boom'); } });
         engine.step(0.2);
@@ -155,14 +155,14 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player.position, x = p.x, z = p.z;
         const count = () => { let n = 0; engine.ground.forEachCollider(x, z, 30, () => n++); return n; };
-        const stepTo = tick => { while (engine.tick < tick) engine.step(1 / 60, { render: false }); };
+        const stepTo = tick => { while (engine.time.tick < tick) engine.step(1 / 60, { render: false }); };
         const run = async waitForWorker => {
           engine.terrain.rebuild();
           engine.step(1 / 30, { render: false });              // run the frame hook once: issues the chunk request
-          const t0 = engine.tick, late0 = engine.commits.stats.late;
+          const t0 = engine.time.tick, late0 = engine.commits.stats.late;
           // let the background thread send the results back: wait until every queued chunk was sent and answered
           //   (paused, so replies only collect in terrain.ready; a timeout falls through to the late path)
           const T = engine.terrain;
@@ -184,20 +184,20 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const got = [];
-        const t0 = engine.tick;
-        engine.jobs.add(function* () { for (let i = 0; i < 5; i++) yield; return 42; }, { apply: v => got.push({ v, tick: engine.tick }) });
+        const t0 = engine.time.tick;
+        engine.jobs.add(function* () { for (let i = 0; i < 5; i++) yield; return 42; }, { apply: v => got.push({ v, tick: engine.time.tick }) });
         engine.step(0.2, { render: false });                   // the job finished long ago, but the tick has not come
         const early = got.length;
-        while (engine.tick < t0 + 31) engine.step(1 / 60, { render: false });
+        while (engine.time.tick < t0 + 31) engine.step(1 / 60, { render: false });
         const onTime = got[0];
-        const t1 = engine.tick;
-        engine.jobs.add(function* () { for (let i = 0; i < 1000; i++) yield; return 7; }, { apply: v => got.push({ v, tick: engine.tick }), lag: 1 });
+        const t1 = engine.time.tick;
+        engine.jobs.add(function* () { for (let i = 0; i < 1000; i++) yield; return 7; }, { apply: v => got.push({ v, tick: engine.time.tick }), lag: 1 });
         engine.step(1 / 60, { render: false });                // fixed step runs before jobs: at the tick it has not started yet
         engine.events.emit('s1:ev', { a: 1, obj: engine.scene });
         const ev = engine.events.recent('s1:ev').at(-1);
-        return { early, onTime, t0, forced: got[1], t1, pending: engine.jobs.pending, ev, tick: engine.tick };
+        return { early, onTime, t0, forced: got[1], t1, pending: engine.jobs.pending, ev, tick: engine.time.tick };
       });
       check('Waits for the tick even when done: no effect before it', r.early === 0, JSON.stringify(r));
       check('Takes effect on the 30th tick after the request, with the right result', r.onTime?.v === 42 && r.onTime.tick === r.t0 + 30, JSON.stringify(r));

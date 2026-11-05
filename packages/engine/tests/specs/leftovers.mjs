@@ -8,7 +8,7 @@ export const specs = [
     url: '/tests/placeables/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, home = engine.player.position.clone();
         engine.content.load({ templates: { tser: { model: 'rock', stages: [{ name: 'a', duration: 100 }, { name: 'b', model: 'pine' }] } } });
         engine.ops.allow(() => engine.content.spawn('tser', { x: home.x + 3, z: home.z }, { id: 'ts-1' }));
@@ -48,7 +48,7 @@ export const specs = [
     url: '/tests/cameras/index.html?cam=fixed',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause(); engine.step(0.1);
+        engine.haltLoop(); engine.step(0.1);
         const rig = engine.cameraRig, proto = Object.getPrototypeOf(rig);
         const unwrapped = rig.forward === proto.forward && rig.cut === proto.cut;
         const shots = Object.keys(rig.shots), other = shots.find(s => s !== rig.current) ?? shots[0];
@@ -58,7 +58,7 @@ export const specs = [
         engine.camera.position.x += 5;   // a real outside write must still yield
         engine.step(0.1);
         const afterWrite = engine._owned.get('camera').mode;
-        engine.view.manual('camera', false);
+        engine.autoView.manual('camera', false);
         return { unwrapped, afterCut, afterWrite };
       });
       check('[guard] rig methods are the class methods (no per-call pose compare)', r.unwrapped, JSON.stringify(r));
@@ -88,7 +88,7 @@ export const specs = [
     url: '/tests/placeables/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         let release = null, fixed = 0, state = 1;
         engine.saves.register('loSlow', { save: () => ({ v: state }), load: d => new Promise(res => { release = () => { state = d.v; res(); }; }) });
         engine.ops.define('lo.poke', { args: {}, run: () => { state = 99; } });
@@ -118,7 +118,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const S = engine.stacks; S.define('lo.k', { base: 2 });
         const h = engine.mod('lo.k', { owner: 'lo', mul: 0.5, layer: 'effect' }), ent0 = S.get('lo.k')._map(undefined).get('lo');
         const v1 = S.get('lo.k').value(); h.change(0.25);

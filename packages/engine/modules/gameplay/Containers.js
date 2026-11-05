@@ -1,5 +1,5 @@
 // Container table: implementation of inventory.container() / transfer() and the containers save part.
-import { DEV } from '../../core/validate.js';
+import { DEV, warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { Container } from './Container.js';
 import { codedError } from '../../core/errorHints.js';
@@ -77,7 +77,15 @@ export class Containers {
   /** @internal place a container's starting goods (content setup: the ops guard lets it through) */
   _seed(c) {
     c._entries = [];
-    this.inv.engine.ops.allow(() => { for (const [item, n] of Object.entries(c._start)) c.add(item, n, { silent: true }); });
+    this.inv.engine.ops.allow(() => {
+      for (const [item, n] of Object.entries(c._start)) {
+        const before = c.count(item);
+        c.add(item, n, { silent: true });
+        // a start list longer than the room is allowed (a game may start a shelf overfull on purpose), but the goods that did not fit are gone: say so once
+        const lost = n - (c.count(item) - before);
+        if (lost > 0) warnOnce(`inventory.container('${c.id}'): ${lost} of ${n} '${item}' in its starting items did not fit (capacity ${c.capacity}, maxWeight ${c.maxWeight}) and were not placed. Raise capacity or shorten items if they should all be there`);
+      }
+    });
     c.seeded = true;
   }
   /** Save: non-player containers that have contents or ever had starting contents placed (an emptied one is still recorded, or a load would treat it as new and place them again) */

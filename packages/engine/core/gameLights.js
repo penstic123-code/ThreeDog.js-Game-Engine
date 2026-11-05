@@ -16,8 +16,16 @@ import { sceneVisitor } from './sceneDelta.js';
 import { moduleOwnerOf } from './things.js';
 import { notePatch, patchOn } from './threePatches.js';
 import { shadowMaps } from '../render/backend.js';
+import { warnOnce } from './validate.js';
+import { MANY } from './lightWatch.js';
 
-const MANY = 8;   // same line as the dev warning in lightWatch.js: above it every lit material slows down first on mobile GPUs
+
+// Dev warning, once: three.js adds every light up (by design, the engine never changes that), so a game light next to the engine's still-lit
+// placeholder sun and hemisphere is brighter than the game meant. Warning only; no warning when the placeholders are gone (lights: false or removed).
+const ADDED_UP = "The game added its own light ('{what}') while the engine's placeholder lights (engine.lights.sun, engine.lights.hemi) are still in the scene, " +
+  "so the two add up and the picture is brighter than your light alone. Fix: createEngine({ lights: false }) and write the whole picture yourself, " +
+  "or keep the placeholders on purpose and ignore this. (three.js lights add up by design; nothing was changed.)";
+const placeholderOn = e => ['sun', 'hemi'].some(k => { const l = e.lights?.[k]; return l?.parent && l.visible && l.intensity > 0; });
 
 /** The engine module that owns o (it or an ancestor carries engineOwned), else null */
 function engineOwner(o) { for (let p = o; p; p = p.parent) { const m = moduleOwnerOf(p); if (m) return m; } return null; }
@@ -27,6 +35,8 @@ export function watchGameLights(e) {
   const all = new Set(), game = new Set(), idled = new WeakSet(), handed = new WeakSet();
   const view = sceneVisitor(e.scene, {
     enter(o) {
+      if (o.isLight && !o.isLightProbe && !o.isLightProbeGrid && o !== e.lights?.sun && o !== e.lights?.hemi && !o.userData.fixedCount && !engineOwner(o) && placeholderOn(e))
+        warnOnce(ADDED_UP.replace('{what}', o.name || o.type), 'game-light-adds-up');
       if (!o.isPointLight && !o.isSpotLight) return;
       all.add(o);
       if (!o.userData.fixedCount && !engineOwner(o)) game.add(o);

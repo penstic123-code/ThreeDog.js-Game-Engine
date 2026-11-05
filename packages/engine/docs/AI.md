@@ -18,13 +18,14 @@ New games start on WebGPU with TSL (recipe 56). With no WebGPU the same game run
 - Something broke: read `.threedog/errors.log` first; recipe 16 §11.
 
 ## What to read, in order
-The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries for one task: `CONVENTIONS.md`. When needed: `THREE.md` · `COMMANDS.md` · `PERF.md` · `MIGRATING-0.7.md`.
+The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries for one task: `CONVENTIONS.md`. When needed: `THREE.md` · `COMMANDS.md` · `MIGRATING-0.8.md`.
+
 
 ## One thing, one entry point (don't build another)
 ### Project, world, content
 | To do | Use | Recipe |
 |---|---|---|
-| New game, project layout, preset start | `npm run new-game name`, `createEngine`, `openWorld()` | 01-new-game.md |
+| New game, project layout, preset start | `npx threedog init` (repo: `new-game`), `createEngine`, `openWorld()` | 01-new-game.md |
 | Put something in the scene | `scene.add(obj)`; saved: `engine.add(obj, { id })` | 40-scene.md |
 | Content data, packs, change an entry for good | `engine.content`, `threedog content set` | 20-content-actions-save.md |
 | Reusable objects (prefabs), groups of them | `templates`, flat `props` | 30-templates.md |
@@ -35,8 +36,8 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | Terrain, height, edits | `engine.terrain`, `engine.ground` | 28-terrain.md |
 | Own ground or plant drawing, keep collision | `{ replaces: 'terrain-draw' }`, `engine.terrain.view`, `engine.terrainDraw`, `engine.vegetationDraw` | 28-terrain.md §6 |
 | Ground picture | `engine.terrain.material`, `.recolor`, `terrain({ detail, shading, shape })` | 36-sky-ground-plants.md, 53-ground-up-close.md, 42-terrain-shape.md |
-| Grid placement, plots, build on cells; a grid from a PNG | `engine.grids`, `layer.material`, `sampleGrid`, `assets.gridFromImage` | 29-grid.md, 37-terrain-draw-hooks.md §7 |
-| Asset packs, loading; models made in code, their colors | `engine.assets.manifest`, `.palette`, `engine.loading` | 05-props-bake.md |
+| Grid placement, plots, build on cells; a grid from a PNG | `engine.grids`, `layer.material`, `sampleGrid`, `assets.gridFromImage` | 29-grid.md, 37-terrain-hooks.md §7 |
+| Asset packs, loading; code-made models; far detail | `engine.assets.manifest`, `.palette`, `.lod`, `engine.loading` | 05-props-bake.md, 15-perf.md |
 | Blender -> GLB art; fixed views before / after | `threedog assets check`, `engine.views` | 46-blender-art-route.md |
 
 ### Characters, input, UI
@@ -49,7 +50,7 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | 2D, side-scroller, orthographic; 2D lights | `presets.player.sideScroller`, example `rc2d` | 21-camera.md §6, 09-materials-lights-models.md §1b |
 | Skeletal animation | `engine.assets.animate`, `engine.hlod` | 13-animation.md, 15-perf.md |
 | Pathfinding, navmesh, "can walk there" | `engine.characters.findPath`, `engine.nav` | 12-navmesh.md |
-| Physics (push crates, joints), collision, vehicles | `engine.collision`, `engine.rigid` | 11-vehicles.md |
+| Physics (crates, joints, ragdoll), collision, vehicles | `engine.collision`, `engine.rigid` | 11-vehicles.md |
 | Ray / mouse picking, shooting, lock-on | `engine.rays` | 19-shooting-picking.md |
 | Prompts, trigger zones | `engine.interactions`, `engine.triggers` | 20-content-actions-save.md |
 | Press E on a mesh | `interactions.add(mesh, { once, counter })` | 03-items-pickups.md |
@@ -61,7 +62,7 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | A settings row that turns off your own effect | `engine.settings.define(key, true, { limits: 'post.<name>.enabled' })` | 26-ui-parts.md §6 |
 | Action game: hp, attacks, enemy AI, drops | your ops + `world.simulate` | 32-action-game.md |
 | Many bullets, debris with rules | `engine.swarm` | 65-swarm.md |
-| Enemy crowds, hordes | `engine.swarm` | 65-swarm.md |
+| Enemy crowds, hordes, flocks | `engine.swarm` | 65-swarm.md |
 
 ### Rules, state, time
 | To do | Use | Recipe |
@@ -87,15 +88,15 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | The picture in three.js (`picture/`): lights, fog, exposure, parts | `lights: false`, `engine.uniforms` | 62-picture-code.md, 38-environment-hooks.md |
 | Read the picture, its writers; try a value | `describe().picture`, `debug.override(owner, obj, key, value)` | 52-around-the-picture.md, 62-picture-code.md |
 | Materials, textures, a module's picture | `engine.water.material` | 09-materials-lights-models.md |
-| Own material or shader (toon, cartoon, cel shading) | `THREE.ShaderMaterial` on WebGL, `rampTexture`, `celLighting` | 43-shader-patches-surfaces.md, 56-webgpu-tsl.md |
+| Own material or shader (toon, cel shading) | TSL (WebGPU), `ShaderMaterial` (WebGL), `rampTexture`, `celLighting` | 43-shader-patches-surfaces.md, 56-webgpu-tsl.md |
 | WebGPU renderer, TSL node materials, WebGL fallback | `renderer: 'webgpu'`, `import 'threedog/tsl'` | 56-webgpu-tsl.md |
 | Drop-in file per piece, no main.js | `plugins/`, `engine.plugins`, `describe().slots` | 40-scene.md |
 | three.js idioms, own renderer | the idiom table, `createEngine({ renderer })` | 54-three-idioms.md, 50-own-renderer.md |
 | Dust, smoke | `particles({ effects })`, `engine.particles` | 64-particles.md |
 | Sky (`replace`, `clouds`, `layer`, `keyframes`), season tints, weather, wet roads | `engine.sky`, `engine.weather`, `engine.weatherDraw` | 08-weather-sky.md |
-| Water, rain / snow shapes, snow cover | `engine.water`, `weather({ rain, snow })`, `weather.define` | 44-water-weather-hooks.md, 47-island-snow-backdrop.md |
-| Shadows: blur, follow, cost | `engine.shadows.cascades(light)`, `.box(light)`, `.budget(light)`, `.mapSize(light, n)`, `.enabled` | 45-cascaded-shadows.md |
-| Own far, fov; cloud, season | `engine.view`, `engine.terms` | 52-around-the-picture.md |
+| Water, rain / snow, snow cover | `engine.water`, `weather({ rain, snow })`, `weather.defineField` | 44-water-weather-hooks.md, 47-island-snow-backdrop.md |
+| Shadows: blur, follow, cost | `engine.shadows.cascades(light)`, `.box(light)`, `.budget(light)`, `.cache(light, { static })`, `.mapSize(light, n)`, `.enabled` | 45-cascaded-shadows.md |
+| Own far, fov; clouds | `engine.autoView`, `engine.shaderTerms` | 52-around-the-picture.md |
 | Environment light, reflections, probes, lightmaps, GI, culling | `engine.sky.environment`, `engine.bakeProbes`, `engine.loadLightmap`, `engine.occlusion` | 34-environment-lighting.md |
 | Post passes: color grading, bloom, outline, depth | `post.add(pass)`: `lut`, `paletteLut`, `outline` of `@threedog/post-effects` | 52-around-the-picture.md#post-effect-chain, 59-depth-post-effects.md |
 | Ambient occlusion, soft shadows | `engine.post.add(ao())`, `bakeVertexAO` | 52-around-the-picture.md |
@@ -118,4 +119,4 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 - **Fixed step vs frame**: `onFixed` runs game time (damage, AI, timers); `onFrame` is presentation (animation, HUD).
 
 ## Stability
-May change before 1.0: `net()` · `engine.threads` · `grids()` · `terrain.edit` · `world.simulate({ worker })` · `post.add` · `stream.source` · `hlod()` · `ops.guard / allow`.
+`@experimental` on a name: it may change or go with no migration note (list: `CONVENTIONS.md`, "Stability").

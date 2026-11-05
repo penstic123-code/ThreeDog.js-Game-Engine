@@ -19,9 +19,15 @@ export const specs = [
         a.setVolume('master', 0.7); o.master = a.master.gain.value;
         try { a.setVolume('nope', 1); } catch (err) { o.err = err.message; }
         a.addBus('radio', { level: 0.6 }); o.added = a.buses.radio?.gain.value;
+        // a wrong bus name must not throw at connect: in dev a throw in a game callback freezes gameplay
+        const warned = []; const warn = console.warn; console.warn = (...m) => warned.push(m.join(' '));
+        const wrong = a.buses.reverbb; console.warn = warn;
+        o.master2 = a.buses.master === a.master; o.wrong = wrong === a.master; o.wrongWarn = warned.some(w => /reverbb.*\[unknown-name\]/.test(w));
+        const n = a.ctx.createGain(); n.connect(a.buses.master); n.connect(a.buses.reverbb); n.disconnect();
         return o;
       });
-      check('buses are GainNodes: music sfx ambience ui + the game\'s voice bus', b.buses === 'ambience,music,sfx,ui,voice' && Math.abs(b.voice - 0.9) < 1e-6, b.buses);
+      check('buses.master is the master node; a wrong bus name warns and gives master, so connect does not throw', b.master2 && b.wrong && b.wrongWarn, JSON.stringify(b));
+      check('buses are GainNodes: music sfx ambience ui + the game\'s voice bus', b.buses === 'ambience,master,music,sfx,ui,voice' && Math.abs(b.voice - 0.9) < 1e-6, b.buses);
       check('setVolume sets the bus / master gain', Math.abs(b.set - 0.4) < 1e-6 && Math.abs(b.master - 0.7) < 1e-6, JSON.stringify(b));
       check('[guard] an unknown bus throws and names the fix (addBus)', /addBus/.test(b.err || ''), b.err);
       check('addBus makes a live bus at once', Math.abs(b.added - 0.6) < 1e-6, b.added);
@@ -104,6 +110,9 @@ export const specs = [
         return o;
       });
       check('ducks stack (0.5 x 0.5 = 0.25) and restore in any order', d.both.music === 0.25 && d.both.ambience === 0.2 && d.one.music === 0.5 && d.one.ambience === 1 && d.none.music === 1, JSON.stringify(d));
+      // a duck with a fade ramps on the audio clock (still on a headless page): info.ducks and describe().audio say the TARGET at once
+      const f = await ev(() => { const dk = engine.audio.duck({ music: 0.3 }, { fade: 2 }); const o = { info: engine.audio.info.ducks.music, text: engine.describeText(), d: engine.describe().audio?.ducks?.music }; dk.remove(0); return o; });
+      check('a fading duck reads its target level in info and describe().audio', f.info === 0.3 && f.d === 0.3 && /music ducked to 0.3/.test(f.text), JSON.stringify(f));
       check('ducking never changes the bus level the player set', d.levelUntouched);
       check('[guard] ducking a misspelled bus throws with a suggestion', /music/.test(d.err || ''), d.err);
 

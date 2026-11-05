@@ -21,6 +21,7 @@ import { readParams, keysSchema } from '../../core/params.js';
 import { cellsChanged } from '../../core/streamCells.js';
 import { createVehicle, VEHICLE_KEYS, STRINGS } from './Vehicles.js';
 import { syncTerrain, syncTrees, treesChanged, syncGroundTrees, syncStatics, syncLevel, recordLocks, carryBody, carryCollider } from './sync.js';
+import { Ragdolls } from './ragdoll.js';
 import { codedError, coded } from '../../core/errorHints.js';
 import { warnOnce, DEV } from '../../core/validate.js';
 // Params of addBox / addBall / addHull
@@ -58,10 +59,10 @@ function warmRapier(R) {
 }
 
 export class RigidBodies {
-  /** gravity gravity = gravity; terrainRing = chunk rings around each physics stream source that get terrain collision; buoyancy = buoyancy toggle; buoyancyForce = buoyancy strength (1 = exactly floats); waterDrag = drag in water;
-   * floatLine / floatDepth： floatLine / floatDepth: buoyancy starts when the body center is below floatLine meters above the surface and peaks floatDepth
-   * meters deeper; treeColliderHeight = trunk collision cylinder height; treeRadius = trunks get cylinders only in chunks within this many meters of the player or a non-fixed body;
-   *  playerCapsule { halfHeight, radius }  playerCapsule { halfHeight, radius } = player capsule size (default derived from engine.movement radius / height) */
+  /** terrainRing = chunk rings around each physics stream source that get terrain collision; buoyancyForce = buoyancy strength (1 = exactly floats); waterDrag = drag in water;
+   * floatLine / floatDepth: buoyancy starts when the body center is below floatLine meters above the surface and peaks floatDepth meters deeper;
+   * treeColliderHeight = trunk collision cylinder height; treeRadius = trunks get cylinders only in chunks within this many meters of the player or a non-fixed body;
+   * playerCapsule { halfHeight, radius } = player capsule size (default derived from engine.movement radius / height) */
   constructor(engine, { gravity = -9.81, terrainRing = 1, buoyancy = true, buoyancyForce = 1.6, waterDrag = 2.5, floatLine = 0.3, floatDepth = 0.8,
     treeColliderHeight = 6, treeRadius = 16, playerCapsule } = {}) {
     const mv = engine.movement;   // default capsule uses the shared character radius / height: total height = 2 * halfHeight + 2 * radius
@@ -71,8 +72,8 @@ export class RigidBodies {
     this.terrainRing = terrainRing;
     this.buoyancy = buoyancy; this.buoyancyForce = buoyancyForce; this.waterDrag = waterDrag; this.playerCapsule = playerCapsule;
     this.floatLine = floatLine; this.floatDepth = floatDepth; this.treeColliderHeight = treeColliderHeight; this.treeRadius = treeRadius;
-    this.R = null; this.world = null;
-    this.bodies = [];                 // { body, mesh, offset, enabled }
+    this.rapier = null; this.world = null;
+    this.bodies = [];                 // { body, mesh, enabled }
     /** @internal body handle -> entry for rays, rebuilt only after bodies changed (null): a ray cast every frame (aim, a camera probe) built a new Map each time */ this._byHandle = null;
     /** @internal a session:end asked for a rebuild that world:load / afterLoad has not run yet (one rebuild per new game or load) */ this._freshDue = false;
     this.terrain = new Map();         // chunk key -> { colliders: [] }
@@ -95,17 +96,16 @@ export class RigidBodies {
   /** @internal module hook */
   async init() {
     if (this.ready) return;
-    this.R = await this._wasm();
+    this.rapier = await this._wasm();
     this._newWorld();
     this.ready = true;
   }
   /** @internal A fresh Rapier world with the player capsule (and the flat plane without chunked ground): what init builds, and what _fresh rebuilds */
   _newWorld() {
-    const R = this.R;
+    const R = this.rapier;
     /** @internal bumps with every world: a character mover holding a controller of an older world builds a new one (movers/rapier.js) */
     this.gen = (this.gen ?? 0) + 1;
     this.world = new R.World({ x: 0, y: this.gravity, z: 0 });
-    this.world.timestep = 1 / 60;
     // Player capsule (kinematic: the character controller decides position; physics only pushes other things away)
     this.playerBody = this.world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased());
     const pc = this.playerCapsule;
@@ -134,7 +134,7 @@ export class RigidBodies {
       for (const b of this.bodies) { const y = b.body; y.setLinvel({ x: 0, y: 0, z: 0 }, false); y.setAngvel({ x: 0, y: 0, z: 0 }, false); y.resetForces(false); y.resetTorques(false); if (y.isDynamic()) y.sleep(); }
       return;
     }
-    const old = this.world, R = this.R, hadJoints = old.impulseJoints.len();
+    const old = this.world, R = this.rapier, hadJoints = old.impulseJoints.len();
     this._newWorld();
     this.terrain.clear(); this.trees.clear(); this.groundTrees.clear(); this._statics?.clear();
     this._levelVersion = undefined; this._levelColliders = [];
@@ -173,7 +173,7 @@ export class RigidBodies {
   _add(mesh, desc, { id, mass = 1, friction = 0.7, restitution = 0.1, damping = 0.05, angularDamping = 0.1, fixed = false } = {}) {
     // id names the body in the save part 'rigid': two live bodies with one id would load into each other
     if (id != null && this.bodies.some(b => b.id === id)) throw codedError('rigid-misuse', `rigid: id '${id}' is already used by another body or vehicle; ids name the body in saves, pick a unique one (e.g. the world record id)`);
-    const R = this.R, p = mesh.position, q = mesh.quaternion;
+    const R = this.rapier, p = mesh.position, q = mesh.quaternion;
     const bd = (fixed ? R.RigidBodyDesc.fixed() : R.RigidBodyDesc.dynamic())
       .setTranslation(p.x, p.y, p.z).setRotation({ x: q.x, y: q.y, z: q.z, w: q.w })
       .setLinearDamping(damping).setAngularDamping(angularDamping).setCanSleep(true);
@@ -195,18 +195,14 @@ export class RigidBodies {
     readParams('rigid.addBox()', keysSchema([...BODY_KEYS, 'size']), o);
     if (!this._ready('addBox')) return null;
     const s = o.size || new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3()).toArray();
-    const e = this._add(mesh, this.R.ColliderDesc.cuboid(s[0] / 2, s[1] / 2, s[2] / 2), o);
-    if (e) e.volume = s[0] * s[1] * s[2];
-    return e;
+    return this._add(mesh, this.rapier.ColliderDesc.cuboid(s[0] / 2, s[1] / 2, s[2] / 2), o);
   }
   /** Ball */
   addBall(mesh, o = {}) {
     readParams('rigid.addBall()', keysSchema([...BODY_KEYS, 'radius']), o);
     if (!this._ready('addBall')) return null;
     const r = o.radius ?? new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3()).x / 2;
-    const e = this._add(mesh, this.R.ColliderDesc.ball(r), o);
-    if (e) e.volume = 4.19 * r * r * r;
-    return e;
+    return this._add(mesh, this.rapier.ColliderDesc.ball(r), o);
   }
   /** Convex hull: auto-wrapped around the model shape (irregular objects such as rocks, barrels) */
   addHull(mesh, o = {}) {
@@ -217,9 +213,7 @@ export class RigidBodies {
     for (let i = 0; i < g.attributes.position.count; i++) {
       v.fromBufferAttribute(g.attributes.position, i).multiply(mesh.scale); pts.set([v.x, v.y, v.z], i * 3);
     }
-    const e = this._add(mesh, this.R.ColliderDesc.convexHull(pts), o);
-    if (e) { g.computeBoundingBox(); const s = g.boundingBox.getSize(v).multiply(mesh.scale); e.volume = s.x * s.y * s.z * 0.5; }
-    return e;
+    return this._add(mesh, this.rapier.ColliderDesc.convexHull(pts), o);
   }
   /**
    * Wheeled vehicle (Rapier ray-cast vehicle controller): id (stable, for saves; default vehicle1, vehicle2... in creation order), wheels, mass,
@@ -246,12 +240,24 @@ export class RigidBodies {
     this.world.removeVehicleController(v.controller);
     this._remove(v);
   }
-  /** Whether the physics ground under a position is built (used by mover: 'rapier'; always true without chunked terrain) */
-  groundReady(position) {
-    if (!this.engine.ground.chunkCollision) return true;
-    const [x, z] = xzOf(position), CH = this.engine.ground.chunkSize ?? 64;
-    return !!this.terrain.get(Math.floor(x / CH) + ',' + Math.floor(z / CH))?.ready;
+  /**
+   * Turn a skinned character limp, one call; rd.remove() returns it to animation. Its mover, animation, capsule and camera yield until then. @experimental
+   * @param {any} who a Character, an NPC handle, a character id or a skinned Object3D
+   * @param {{ impulse?: any, position?: any, bones?: Record<string, any>, limits?: Record<string, any>, mass?: number }} [o] impulse: a push (kg*m/s) on the part nearest position, else on hips; bones: part -> bone name or bone, over the auto-detection; limits: part or kind ('lowerLeg') -> { bend, side, twist } as [min, max] radians from the bind pose; mass: whole body, default 70 kg
+   * @example const rd = engine.rigid.ragdoll(player, { impulse: [0, 200, -300], position: hit.point }); engine.clock.after(4, () => rd.remove());
+   */
+  ragdoll(who, o) {
+    if (!this._ready('ragdoll')) return null;
+    return (this._ragdolls ??= new Ragdolls(this)).start(who, o);
   }
+  /** @internal Whether the physics ground under a position is built (used by mover: 'rapier'; always true without chunked terrain) */
+  readyAt(position) {
+    if (!this.engine.ground.chunkCollision) return true;
+    const [x, z] = xzOf(position);
+    return this._chunkReady(x, z);
+  }
+  /** @internal */
+  _chunkReady(x, z) { const CH = this.engine.ground.chunkSize ?? 64; return !!this.terrain.get(Math.floor(x / CH) + ',' + Math.floor(z / CH))?.ready; }
   /** Delete the body (called by entry.remove()); the model stays */
   _remove(entry) {
     const i = this.bodies.indexOf(entry); if (i < 0) return;
@@ -273,7 +279,7 @@ export class RigidBodies {
     if (!byHandle) { byHandle = this._byHandle = new Map(); for (const b of this.bodies) byHandle.set(b.body.handle, b); }
     const max = Number.isFinite(far) ? far : 1e6;
     const only = c => byHandle.has(c.parent()?.handle);
-    const hit = this.world.castRayAndGetNormal(new this.R.Ray(origin, dir), max, true, undefined, undefined, undefined, this.playerBody, only);
+    const hit = this.world.castRayAndGetNormal(new this.rapier.Ray(origin, dir), max, true, undefined, undefined, undefined, this.playerBody, only);
     if (!hit) return null;
     const entry = byHandle.get(hit.collider.parent()?.handle);
     if (!entry) return null;
@@ -294,7 +300,7 @@ export class RigidBodies {
     return out;
   }
   /** @internal Load: bodies here now take their state in afterLoad (after _fresh rebuilt them); the rest when they are added */
-  _loadState(d) { this._saved = new Map(Object.entries(d ?? {})); }
+  _loadState(d) { this._saved = new Map(Object.entries(d ?? {})); this._ragdolls?.load(); }
   /** @internal afterLoad: hand the loaded state to the bodies that exist (vehicles, bodies the game keeps across a load) */
   _claimSaved() {
     for (const b of this.bodies) { const s = b.id != null && this._saved.get(b.id); if (s) { this._saved.delete(b.id); putState(b, s); } }
@@ -305,6 +311,8 @@ export class RigidBodies {
   step(dt) {
     if (!this.ready) return;
     const e = this.engine, G = e.ground, CH = G.chunkSize ?? 64, chunked = !!G.chunkCollision;
+    // the simulation runs on the world channel, like characters, walks and swarms: slow motion slows bodies and a hit-stop holds them. Collider upkeep below stays on real time
+    const worldDt = e.time.dt('world');
     const focus = e.player ? e.player.position : e.focus;   // player-body: the player's own kinematic body follows the character, not engine.actor
     // terrain collision around physics stream sources: sync at once when their chunks change, otherwise check every 0.5 s (tree felling etc.)
     // compared in place against last step's cells (no array, no string key while nothing crosses a chunk border); the list is built only when syncing
@@ -328,15 +336,16 @@ export class RigidBodies {
     // player capsule follows the player (the rapier mover computes collision and writes the position itself); turned off while driving to avoid colliding with
     // the car
     if (e.player) this.playerBody.setNextKinematicTranslation({ x: focus.x, y: focus.y, z: focus.z });
-    const onFoot = !e.player?.vehicle;
+    // no player, no capsule: with no player nothing moves it, and it would sit as an invisible solid body at the origin
+    const onFoot = !!e.player && !e.player.vehicle && !this._ragdolls?.holds(e.player);
     if (this.playerCollider.isEnabled() !== onFoot) this.playerCollider.setEnabled(onFoot);
-    for (const v of this.vehicles) if (v.enabled) v._update(dt);
+    if (worldDt > 0) for (const v of this.vehicles) if (v.enabled) v._update(worldDt);
 
     // freeze bodies without terrain collision under them (unfrozen they would fall through)
     for (const b of this.bodies) {
       const t = b.body.translation();
       b._x = t.x; b._z = t.z;
-      const ok = !chunked || !!this.terrain.get(Math.floor(t.x / CH) + ',' + Math.floor(t.z / CH))?.ready;
+      const ok = !chunked || this._chunkReady(t.x, t.z);
       if (ok !== b.enabled) { b.body.setEnabled(ok); b.enabled = ok; }
       // buoyancy: the submerged part gets an upward force, and water adds drag
       const water = this.buoyancy ? e.waterAt(t.x, t.z) : -Infinity;
@@ -352,10 +361,10 @@ export class RigidBodies {
       }
     }
 
-    this.world.step();
+    if (worldDt > 0) { this.world.timestep = worldDt; this.world.step(); }
 
     for (const b of this.bodies) {
-      if (!b.enabled || b.body.isSleeping()) continue;
+      if (!b.enabled || b.body.isSleeping() || b.ragdoll) continue;   // ragdoll parts are drawn by ragdoll.js, through the bones
       const t = b.body.translation(), r = b.body.rotation();
       b.mesh.position.set(t.x, t.y, t.z);
       b.mesh.quaternion.set(r.x, r.y, r.z, r.w);
@@ -366,6 +375,7 @@ export class RigidBodies {
       b._void = under;
     }
     for (const v of this.vehicles) v._sync();
+    this._ragdolls?.sync();
   }
 
   get stats() {
@@ -400,7 +410,7 @@ export function rigid(opts = {}) {
       e.i18n.add(STRINGS); e.i18n.add({ 'zh-CN': { 'module.rigid': '物理引擎' }, en: { 'module.rigid': 'physics' } }); r = new RigidBodies(e, opts);
       r._wasm().catch(() => {});   // start loading now (see _wasm); a failure surfaces in init, which awaits the same promise
       e.budget.metric('rigidBodies', () => r.bodies.length);
-      e.stream.readyCheck('rigid', s => !s.physics || r.ready && r.groundReady(s));   // a physics stream source waits for the collider under it
+      e.stream.addReadyCheck('rigid', s => !s.physics || r.ready && r.readyAt(s));   // a physics stream source waits for the collider under it
       e.rays.addProvider((o, d, far) => r._raycast(o, d, far));   // engine.raycast(..., { targets: 'all' }) includes rigid bodies
       // a new playthrough / a load is a fresh page for physics too (_fresh), rebuilt once per load: session:end only marks it due. With the world
       // module the rebuild runs on world:load, after the load removed the records' bodies, so the rebuilt world gets them back in view order; without
@@ -413,15 +423,15 @@ export function rigid(opts = {}) {
       return r;
     },
     afterLoad() { if (r._freshDue) r._fresh(); r._claimSaved(); },   // after every part loaded and _fresh rebuilt the world (world:load is emitted inside the world part's load)
-    async init(e, ctx) { await r.init(); ctx.whileCompiling(() => warmRapier(r.R)); },
+    async init(e, ctx) { await r.init(); ctx.whileCompiling(() => warmRapier(r.rapier)); },
     counts() { return r.bodies.length; },   // engine.counts().rigid
     // bodies by type and what they are doing: sleeping = at rest (normal), frozen = disabled because no terrain collider is under them yet (they wait, not fall)
     describe() {
       const B = r.bodies, n = f => B.filter(f).length;
       return { ready: r.ready, bodies: B.length, dynamic: n(b => !b.fixed), fixed: n(b => b.fixed), sleeping: n(b => b.enabled && b.body.isSleeping()),
-        frozen: n(b => !b.enabled), vehicles: r.vehicles.length, colliders: r.world ? r.world.colliders.len() : 0 };
+        frozen: n(b => !b.enabled), vehicles: r.vehicles.length, colliders: r.world ? r.world.colliders.len() : 0, ...(r._ragdolls?.live.size && { ragdolls: r._ragdolls.live.size }) };
     },
     fixed(dt) { if (r.ready) r.step(dt); },
-    dispose() { r.world?.free(); r.world = null; },
+    dispose() { r._ragdolls?.dispose(); r.world?.free(); r.world = null; },
   };
 }

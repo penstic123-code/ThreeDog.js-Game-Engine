@@ -11,6 +11,8 @@ import { DebugView } from './debugView.js';
 import { isWebGPU, webgpuPart } from '../render/backend.js';
 import { reloadGlsl } from '../render/hotGlsl.js';
 import { reloadAssets } from './assetHot.js';
+import { hex } from './MaterialInfo.js';
+import { isUnder } from './util.js';
 
 const KEYS = ['visible', 'material', 'apply'];
 const MATERIALS = ['flat', 'wire'];   // 'cost' (the shaderCost view) is internal: it needs patch.colorOf
@@ -19,7 +21,7 @@ const MATERIALS = ['flat', 'wire'];   // 'cost' (the shaderCost view) is interna
 function meshes(obj) { const out = []; obj.traverse(o => { if (o.isMesh || o.isPoints || o.isLine) out.push(o); }); return out; }
 const patchInfo = p => ({ ...p, ...(p.apply && { apply: 'function' }) });
 /** A value in describe(): plain data as is, a three.js object by its type (describe() stays JSON) */
-const plain = v => (v === null || typeof v !== 'object' ? v : v.isColor ? `#${v.getHexString()}` : `<${v.type ?? 'object'}>`);
+const plain = v => (v === null || typeof v !== 'object' ? v : v.isColor ? hex(v) : `<${v.type ?? 'object'}>`);
 
 export class DebugOverrides {
   /** @internal */
@@ -190,4 +192,4 @@ export class DebugOverrides {
 }
 
 /** True while obj hangs under the scene (a removed thing is detached) */
-function inScene(obj, scene) { for (let o = obj; o; o = o.parent) if (o === scene) return true; return !scene; }
+function inScene(obj, scene) { return !scene || isUnder(obj, scene); }

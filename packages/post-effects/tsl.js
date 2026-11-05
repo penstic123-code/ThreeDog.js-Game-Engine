@@ -15,6 +15,7 @@ import { gaussianBlur } from 'three/addons/tsl/display/GaussianBlurNode.js';
 import { bayer16 } from 'three/addons/tsl/math/Bayer.js';
 import { Box3, BoxGeometry, Color, Layers, Mesh, Vector3, VolumeNodeMaterial } from 'three/webgpu';
 import { RESERVED_LAYERS } from 'threedog/layers';
+import { codedError } from 'threedog/error-hints';
 /** @import { PostEffect } from 'threedog' */
 
 const { lightVolumes: VOLUME_LAYER } = RESERVED_LAYERS;
@@ -67,11 +68,11 @@ export function temporalAA({ order = 900, enabled, name = 'temporalAA' } = {}) {
  * @returns {PostEffect}
  */
 export function sunShafts({ light, density = 2, maxDensity = 0.6, falloff = 2, color = new Color(1, 1, 1), steps = 60, setup, order = 200, enabled, name = 'sunShafts' } = {}) {
-  return { name, slot: 'hdr', order, enabled, params: { density, maxDensity, falloff, color },
+  return { name, slot: 'hdr', order, enabled, params: { density, maxDensity, falloff, color: new Color(color) },
     node(input, { engine, tsl, p, scenePass, camera, display }) {
       const depth = scenePass.getTextureNode('depth'), sun = light ?? engine.lights?.sun;
       // engine.lights.sun exists even under createEngine({ lights: false }), out of the scene; three's own error for a light with no shadow map names nothing
-      if (!sun?.parent || !sun.castShadow) throw new Error('sunShafts: no light to follow; give sunShafts({ light }) a light that is in the scene and casts shadows (default: engine.lights.sun)');
+      if (!sun?.parent || !sun.castShadow) throw codedError('post-effect', 'sunShafts: no light to follow; give sunShafts({ light }) a light that is in the scene and casts shadows (default: engine.lights.sun)');
       const rays = display.own(godrays(depth, camera, sun));
       Object.assign(rays, { density: p.density, maxDensity: p.maxDensity, distanceAttenuation: p.falloff });
       rays.raymarchSteps.value = steps;
@@ -90,9 +91,9 @@ export function sunShafts({ light, density = 2, maxDensity = 0.6, falloff = 2, c
  * @returns {PostEffect}
  */
 export function lightVolumes({ bounds, density = 0.3, steps = 16, scale = 0.25, blur = 4, scattering, order = 200, enabled, name = 'lightVolumes' } = /** @type {any} */ ({})) {
-  if (!bounds?.isBox3) throw new Error('lightVolumes: bounds is required, the box of air to light: lightVolumes({ bounds: new THREE.Box3(min, max) })');
+  if (!bounds?.isBox3) throw codedError('post-effect', 'lightVolumes: bounds is required, the box of air to light: lightVolumes({ bounds: new THREE.Box3(min, max) })');
   return { name, slot: 'hdr', order, enabled, params: { density },
-    node(input, { engine, tsl, p, scene, camera, scenePass, display }) {
+    node(input, { tsl, p, scene, camera, scenePass, display }) {
       const size = bounds.getSize(new Vector3()), mat = new VolumeNodeMaterial();
       mat.steps = steps;
       mat.offsetNode = bayer16(tsl.screenCoordinate);
@@ -112,7 +113,7 @@ export function lightVolumes({ bounds, density = 0.3, steps = 16, scale = 0.25, 
       let look = 0;
       air.updateBefore = frame => {
         // three lights a pass only with the lights on its layers; a new lamp is found within half a second
-        if (look-- <= 0) { look = 30; for (const l of engine._gameLights.all()) if (!l.layers.isEnabled(VOLUME_LAYER)) { l.layers.enable(VOLUME_LAYER); lamps.add(l); } }
+        if (look-- <= 0) { look = 30; scene.traverse(l => { if ((l.isPointLight || l.isSpotLight) && !l.layers.isEnabled(VOLUME_LAYER)) { l.layers.enable(VOLUME_LAYER); lamps.add(l); } }); }
         const r = frame.renderer, { background, backgroundNode } = scene, clear = r.getClearColor(new Color()), alpha = r.getClearAlpha();
         // three prefers backgroundNode over background, so both go
         scene.background = scene.backgroundNode = null; r.setClearColor(0x000000, 0);

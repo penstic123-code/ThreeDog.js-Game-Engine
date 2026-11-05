@@ -14,23 +14,23 @@ import { codedError } from '../../core/errorHints.js';
 import { isWebGPU, webgpuPart } from '../../render/backend.js';
 
 const DEFAULT_INTERVAL = 1;   // seconds between rebuilds (only when the sky actually changed)
-const LOW_TIER_SLOWER = 4;    // a low-tier device rebuilds this many times less often: the cube cannot be made smaller (256 px is PMREMGenerator's floor)
+const LOW_TIER_SLOWER = 4;    // by default a low-tier device rebuilds this many times less often (an interval the game gives stands): the cube cannot be made smaller (256 px is PMREMGenerator's floor)
 
 // Numbers that decide how the procedural sky looks right now: when they stay put the environment is not rebuilt
 function skyKey(u) {
   const f = x => Math.round(x * 400);
-  return [...u.uTop.value.toArray(), ...u.uHorizon.value.toArray(), ...u.uSunDir.value.toArray(), ...u.uSunColor.value.toArray(), u.uNight.value, u.uCloud.value].map(f).join(',');
+  return [...u.uTop.value.toArray(), ...u.uHorizon.value.toArray(), ...u.uSunDir.value.toArray(), ...u.uSunColor.value.toArray(), u.uNight.value, u.uWeatherCloud.value].map(f).join(',');
 }
 
 export const environmentMethods = {
   // engine.sky.environment(): the first build waits for the first frame's colors, later calls build at once
-  _envStart({ into = null, interval = DEFAULT_INTERVAL, ...rest } = {}) {
+  _envStart({ into = null, interval = this.engine.tier === 'low' ? DEFAULT_INTERVAL * LOW_TIER_SLOWER : DEFAULT_INTERVAL, ...rest } = {}) {
     const bad = Object.keys(rest)[0];
     if (bad) throw codedError('sky-option', `engine.sky.environment({ ${bad} }): the options are into and interval. Intensity and rotation are plain three.js: scene.environmentIntensity, scene.environmentRotation`);
     if (into !== null && typeof into !== 'object') throw codedError('sky-option', 'engine.sky.environment({ into }): into is the object whose .environment is written, usually engine.scene');
     if (typeof interval !== 'number' || !(interval >= 0)) throw codedError('sky-option', `engine.sky.environment({ interval }): interval is seconds, 0 or more; got ${JSON.stringify(interval)}`);
-    if (this._env) throw codedError('sky-option', 'engine.sky.environment(): already on; call remove() on its handle first');
-    const env = this._env = { into, interval: this.engine.tier === 'low' ? interval * LOW_TIER_SLOWER : interval, key: null, since: 0, builds: 0, target: null, deferred: !this._envFramed };
+    this._envOff();   // a second call replaces the first (a new interval, hot reload, another scene); the old handle's remove() then does nothing
+    const env = this._env = { into, interval, key: null, since: 0, builds: 0, target: null, deferred: !this._envFramed };
     if (!env.deferred) this._envBuild();
     // a lost context takes the map's pixels with it, and the key cannot see that: with the sky standing still (a fixed hour) the map would stay black
     env.restored = this.engine.events.on('page:contextrestored', () => { env.key = null; env.deferred = true; });

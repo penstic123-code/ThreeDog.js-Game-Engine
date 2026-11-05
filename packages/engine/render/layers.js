@@ -9,6 +9,6 @@ export const RESERVED_LAYERS = Object.freeze({
   occlusionHidden: 28,
   /** objects outline({ offLayer }) leaves without lines */
   outlineOff: 29,
-  /** originals drawn through engine.batching: not drawn, not in shadows, still hit by engine.rays */
+  /** originals drawn through engine.batching, standing behind a far hlod proxy, or the full model of a far assets.lod: not drawn, not in shadows, still hit by engine.rays */
   batched: 31,
 });

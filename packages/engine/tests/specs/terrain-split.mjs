@@ -37,7 +37,7 @@ async function parts(renderer) {
       }));
     }, describe() { return {}; } }, { replaces: 'vegetation-draw' });
     await within(E.start(), 'start E');
-    E.pause?.();
+    E.haltLoop?.();
     for (let i = 0; i < 80 && !E.ground.chunkCollision(0, 0); i++) E.step(1 / 60, { describe: false });
     out.lookGone = !E.terrainDraw;
     out.drawn = drawn.size > 0 && [...drawn.values()].every(m => m.material === mat);
@@ -67,7 +67,7 @@ async function parts(renderer) {
     const H = mk('terrain-split-h');
     H.use(hlod({ level: false }));
     await within(H.start(), 'start H');
-    H.pause?.();
+    H.haltLoop?.();
     const house = new THREE.Group(), wall = new THREE.Mesh(new THREE.BoxGeometry(4, 4, 4), new THREE.MeshBasicMaterial());
     house.add(wall); house.position.set(400, 0, 0); H.scene.add(house);
     const h = H.hlod.add(house, { near: 50 });

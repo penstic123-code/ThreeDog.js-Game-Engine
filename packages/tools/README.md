@@ -23,6 +23,8 @@ Common commands (run in the game folder; the full list is `node_modules/threedog
 | `threedog map` | regenerate GAMEMAP.md |
 | `threedog examples list` / `pull <name>` | copy a technique example into the game |
 
+In-browser editor: on the dev server press F2 (or add `?edit=1`), click a content entry, then move or turn it with its handles, edit its fields, add, delete and undo; each change is written into its content file by the same targeted edit as `threedog content set`, refused when the file changed since the click. A game needs no code for it and a build has none of it.
+
 vite preset: `import { gameConfig } from '@threedog/tools/vite'; export default gameConfig(import.meta.dirname);`
 
 Headless commands use Playwright's Chromium (`npx playwright install chromium` once). Peer dependencies: `threedog`; optional `tweakpane` (dev panel) and `@gltf-transform/cli` (asset optimisation). MIT license.

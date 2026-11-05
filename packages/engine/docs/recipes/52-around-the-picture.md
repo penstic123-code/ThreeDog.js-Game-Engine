@@ -26,7 +26,7 @@ Which knob changes what on screen, and how to judge it for your picture: [recipe
 
 - Fog: `engine.scene.fog` is the game's, [recipe 38](38-environment-hooks.md#fog-plain-threejs-signals-your-own-math).
 - The sky: plain values and calls on `engine.sky`, [recipe 08](08-weather-sky.md).
-- <a id="tsl-forms"></a>**tsl forms** (`renderer: 'webgpu'`): the GLSL hooks `engine.sky.clouds` and `engine.sky.layer` take `{ glsl, tsl }`; each renderer draws its own form and a missing one throws by name (`[webgpu-needs-tsl]` on WebGPU). `tsl: (ctx) => vec4 node`, ctx = the GLSL function's arguments as nodes plus the value so far (`ctx.clouds` the built-in kind, `ctx.color` the sky under a layer, `ctx.fog` what the fog kind alone draws), `ctx.uniforms` (the dome's, yours included), `ctx.fx.noise` / `hash` and `ctx.tsl` (three/tsl):
+- <a id="tsl-forms"></a>**tsl forms** (`renderer: 'webgpu'`): the GLSL hooks `engine.sky.clouds` and `engine.sky.layer` take `{ glsl, tsl }`; each renderer draws its own form and a missing one throws by name (`[webgpu-needs-tsl]` on WebGPU). `tsl: (ctx) => vec4 node`, ctx = the GLSL function's arguments as nodes plus the value so far (`ctx.clouds` the built-in kind, `ctx.color` the sky under a layer, `ctx.fog` what the fog kind alone draws), `ctx.uniforms` (the dome's, yours included), `ctx.fx` (the `threedog/tsl` functions, `ctx.fx.noise` and `hash` among them) and `ctx.tsl` (three/tsl):
   `engine.sky.layer('glow', { glsl, tsl: ({ dir, tsl }) => tsl.vec4(1, 0.6, 0.3, tsl.smoothstep(0.3, 0.8, dir.y).mul(0.4)), blend: 'add' })`.
 - Shadows are `engine.shadows` and three.js, recipe 45.
 - Whether a picture reads as lit is mostly key against fill. The key (the sun or one main light) is the light that casts the shadow; the fill is
@@ -48,20 +48,20 @@ engine.terrain.material = myGroundMaterial;                                     
 engine.uniforms.uWindFreq.value = 1.5; engine.uniforms.uWindAmp.value = 0.5;            // signals: live on every plant, planted ones too
 engine.vegetation.define('grass', { geometry, wind: { amplitude: 0.05, glsl, tsl } });  // your own sway: threedogWind(...) / tsl: (ctx) => moved position (recipe 36)
 engine.vegetation.color({ glsl: 'diffuseColor.rgb *= 0.8;', tsl: c => c.color.mul(0.8) });   // code in the color slot, live on planted species
-engine.terms.cloudShadow({ glsl: 'reflectedLight.directDiffuse *= myShade(vThreedogWorld);', tsl: c => ({ directDiffuse: c.directDiffuse.mul(myShadeNode) }) });
-engine.terms.cloudShadow(false);                                                        // no engine cloud shadow anywhere: draw your own
-engine.terms.season(kind => ({ glsl: 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uCover.y);', tsl: c => myTint(c, kind) }));   // your own season / snow tint
+engine.shaderTerms.cloudShadow({ glsl: 'reflectedLight.directDiffuse *= myShade(vThreedogWorld);', tsl: c => ({ directDiffuse: c.directDiffuse.mul(myShadeNode) }) });
+engine.shaderTerms.cloudShadow(false);                                                        // no engine cloud shadow anywhere: draw your own
+engine.shaderTerms.season(kind => ({ glsl: 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uGroundCover.y);', tsl: c => myTint(c, kind) }));   // your own season / snow tint
 ```
 
 - Wind is signals: `engine.uniforms.uWind` (weather), `uWindFreq`, `uWindAmp`. A three.js material of yours sways with `applyEffects(mat, { wind: 0.03 })`; your own shader calls `threedogWind(position, origin, amplitude)` (`#include <threedog_wind>`) or `wind(position, origin, amplitude)` (`threedog/tsl`). `uWindFreq` is the start value of `uWindFreq`.
 - The plants: `engine.vegetation.color(glsl | { glsl, tsl, uniforms })` puts code in the `color` slot of every species' material, changed live. The whole plant picture is replaced as a module: `engine.use(myPlants, { replaces: 'vegetation-draw' })`.
-- `engine.terms.cloudShadow(spec)` and `engine.terms.season(spec)` put your own patch (`{ glsl, tsl, uniforms?, pars?, slot? }`, slot `lighting` / `color` by default) in place of the engine's on every material that carries the term, including ones built before the call; `false` removes the term; the handle's `remove()` gives the engine's back. The signals stay bound: `uCloud*` and `threedogCloudShadow(worldPos)`; `uFoliageTint` / `uGroundTint` / `uFoliageMix` / `uGroundMix`, `uCover` (cover amount alone, x foliage, y ground) and `threedogSeason(color, kind)` (TSL: `season(color, kind)`). `season` also takes `kind => spec` (kind `'foliage'` | `'ground'`). Each renderer draws its own form, and a missing one throws by name.
-- Cloud shadow values are signals: `engine.uniforms.uCloudShadow` (darkest, 0 = none), `uCloudScale`, `uCloudSpeed`. The term sits on engine materials and on what you pass to `applyEffects(mat)`; your own shader calls `threedogCloudShadow(worldPos)` (GLSL) or `cloudShadow(positionWorld)` (`threedog/tsl`). The engine adds it to no other material.
+- `engine.shaderTerms.cloudShadow(spec)` and `engine.shaderTerms.season(spec)` put your own patch (`{ glsl, tsl, uniforms?, pars?, slot? }`, slot `lighting` / `color` by default) in place of the engine's on every material that carries the term, including ones built before the call; `false` removes the term; the handle's `remove()` gives the engine's back. The signals stay bound: `uWeatherCloud, uCloudShadow*` and `threedogCloudShadow(worldPos)`; `uFoliageTint` / `uGroundTint` / `uFoliageMix` / `uGroundMix`, `uGroundCover` (cover amount alone, x foliage, y ground) and `threedogSeason(color, kind)` (TSL: `season(color, kind)`). `season` also takes `kind => spec` (kind `'foliage'` | `'ground'`). Each renderer draws its own form, and a missing one throws by name.
+- Cloud shadow values are signals: `engine.uniforms.uCloudShadow` (darkest, 0 = none), `uCloudShadowScale`, `uCloudShadowSpeed`. The term sits on engine materials and on what you pass to `applyEffects(mat)`; your own shader calls `threedogCloudShadow(worldPos)` (GLSL) or `cloudShadow(positionWorld)` (`threedog/tsl`). The engine adds it to no other material.
 
 ## Water, weather
 
 - Water is plain three.js on the module (`engine.water.material`, `engine.water.uniforms`, `engine.water.shader`): recipe 44.
-- Weather: `weather({ rain, snow })` gives the particles, `engine.weather.define(field, spec)` a game's own (recipe 44).
+- Weather: `weather({ rain, snow })` gives the particles, `engine.weather.defineField(field, spec)` a game's own (recipe 44).
 
 ## Post effect chain
 
@@ -91,6 +91,9 @@ engine.post.add({ name: 'myLut', slot: 'ldr', params: { lut: myLut }, create: ({
 // a plugin file brings the same effect with no main.js line: plugins/10-bloom.js
 export default bloom({ strength: 0.2 });
 ```
+- `bloom({ strength, radius, threshold })`, defaults 0.35, 0.5, 0.85: `strength` is how much glow is added, `radius` how far it spreads (0 to 1), `threshold` the brightness a pixel needs before it
+  glows at all. It reads linear color before the tone curve, so a surface brighter than 1 glows hard however small it is: if the frame washes out, raise `threshold` or lower that surface's brightness
+  before lowering `strength`. On the WebGPU route three's own `BloomNode` is also open to you through `engine.post.add({ node })`.
 - The engine ships no effects. `@threedog/post-effects` (import only what you use) has `bloom`, `ao`, `outline`, `dof` (all `hdr`; outline and dof
   read depth) and `lut` (contrast / saturation / warm-cool / optional 3D LUT, or `paletteLut(colors)` for a fixed palette; it reads display colors after the tone curve), `grain`, `vignette`, `chromatic` (`ldr`). An added effect is on
   (`enabled: false` adds it off, for `handle.enabled = true` later). The heavy ones (`bloom`, `ao`, `dof`, outline `normal`/`both`) are the game's
@@ -153,7 +156,7 @@ Some three.js values the engine writes **on its own**, every frame or on a timer
 Each of them is registered once (`core/owned.js`), and every one behaves the same way:
 
 - **Engine** (default): the engine writes it. Adjust it while the engine keeps driving: the `set` call in the table.
-- **Taken** (`manual`): `engine.view.manual('far' | 'fov' | 'pixelRatio')` stops the engine writing it; the three.js value is yours.
+- **Taken** (`manual`): `engine.autoView.manual('far' | 'fov' | 'pixelRatio')` stops the engine writing it; the three.js value is yours.
   `manual(key, false)` (or the handle's `remove()`) gives it back. No module option starts a value taken over.
 - **Written directly** without `manual`: the engine notices, **stops writing it and keeps your value**, and warns once with the `manual` call and the
   hand-back call. This happens in release builds too (only the warning is dev-only), so a game behaves the same with and without checks.
@@ -168,9 +171,11 @@ behaviors for every registered value and fails when one is registered without a 
 | `shadow.follow` | shadow | the box on the engine sun: under a sky every frame (center = `sun.target`); without one the placeholder sun follows `engine.focus` | `engine.shadows.box(engine.lights.sun, { follow: false })` | `engine.shadows.box(engine.lights.sun, { extent })` |
 | `toneMapping` | tone | never: `renderer.toneMapping` stays three.js's default until your code writes it | `engine.renderer.toneMapping = THREE.ACESFilmicToneMapping`; an own curve as a post stage: `engine.post.add({ name, slot: 'tone', create })` (or `node` on WebGPU; replaces OutputPass / renderOutput; outputs display color) | - |
 | `background` | sky | sky: a backdrop color or skybox every frame; with the dome the dome hides when you take it | `scene.background = x` (the dome hides); whole sky: `engine.sky.replace(texture \| object3D)` | `engine.sky.backdrop = '#335577'` |
-| `view.far` | view | terrain view range (`setViewChunks`) | `engine.view.manual('far')` | - |
-| `view.fov` | view | the settings menu fov slider, camera modules (first person / rts fov, fixed shots, back to the install fov on a switch) | `engine.view.manual('fov')` | - |
-| `view.pixelRatio` | view | adaptive resolution, about once a second while slow | `engine.view.manual('pixelRatio')` | `engine.setPixelRatio(1.5)` |
+| `view.aspect` | view | every resize | `engine.autoView.manual('aspect')` | - |
+| `sky.sunDir` | view | `sky()` each frame, from the time and `engine.sky.orbit` (the same vector as `uSunDir`) | `engine.autoView.manual('sunDir')` | - |
+| `view.far` | view | terrain view range (`setViewChunks`) | `engine.autoView.manual('far')` | - |
+| `view.fov` | view | the settings menu fov slider, camera modules (first person / rts fov, fixed shots, back to the install fov on a switch) | `engine.autoView.manual('fov')` | - |
+| `view.pixelRatio` | view | adaptive resolution, about once a second while slow | `engine.autoView.manual('pixelRatio')` | `engine.setPixelRatio(1.5)` |
 | `camera` (position, rotation) | view | the camera module, every frame | `const cam = engine.takeCamera('me')` (`cam.remove()` gives it back) | - |
 | `post.chain` | post | whenever the effect list changes (add / remove / on / off, MSAA): the engine rebuilds the composer passes (WebGL) or `pipeline.outputNode` (WebGPU) | `engine.post.own()`: the built chain stays as you left it in `engine.post.object()`; `own(false)` rebuilds it from the list. A write to `object()` without `own()` does not yield: the next chain change replaces it | `engine.post.get('bloom').set({ strength: 0.6 })` |
 | `shadow.csm` (not a property: a list) | shadow | while cascades are on: the `csm` patch goes on every built-in lit material, yours too (else N times as bright) | - (`handle.remove()`); your ShaderMaterial is left alone until `engine.shadows.include(mat)` | - |

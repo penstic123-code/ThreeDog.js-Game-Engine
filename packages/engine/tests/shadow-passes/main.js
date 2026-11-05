@@ -13,7 +13,7 @@ const base = { pixelRatio: 1, adaptiveResolution: false, ui: { loading: false },
 const canvas = () => { const c = Object.assign(document.createElement('canvas'), { width: W, height: H }); c.style.cssText = `width:${W}px;height:${H}px`; document.body.appendChild(c); return c; };
 const engine = window.engine = createEngine({ canvas: canvas(), ...base, lights: false, saveKey: 'test-shadow-passes' });
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 /** Ground and a grid of casting boxes under the baseline sun, shadows on */
 function fill(e) {
@@ -65,7 +65,7 @@ async function run(opts) {
   const e = createEngine({ canvas: canvas(), ...base, saveKey: `test-shadow-passes-${opts.renderer ?? 'webgl'}`, ...opts });
   fill(e);
   await e.start();
-  e.pause();
+  e.haltLoop();
   const out = { backend: e.describe().renderer.backend };
   out.off = measure(e);
   e.post.add(ao({ enabled: true }));

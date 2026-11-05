@@ -5,13 +5,13 @@ ground flat color shapes, a painted surface, a photographic texture, or a few li
 jump to the symptoms.
 
 ## Approaches (pick by the picture you want)
-| Picture | How | Typical values |
-|---|---|---|
-| Flat color blocks, no detail (minimal, flat illustration; on purpose) | `shading: 'flat'` or `'smooth'`, `colors` / `biomeColors`, no `detail`; a few `variation.patches` with `levels` | `resolution: 16`; `patches: { size: 90, levels: 3, strength: 0.15 }` |
-| Color map + detail layer + near grass (soft variation, crisp borders) | `terrain({ shading: 'texture', colorResolution, detail })`, grass with `vegetation.define(name, { nearOnly: true })` | `colorResolution: 128`; `detail: { noise: 'dabs', scale: 0.5, strength: 0.25, normal: 0.03 }` |
-| Tiling or triplanar textures (your own painted, photographed or generated images) | your own material with `map` and `texture.repeat` through `terrain({ material })`, or `detail: { texture: 'name' }` (`projection: 'triplanar'` on slopes and rocks) | `repeat: 8`; `detail: { texture, scale: 0.5, strength: 0.6 }` |
-| Vertex color + toon lighting | vertex colors from `colors` and `variation.jitter`, `terrain({ material })` with a `MeshToonMaterial`, `gradientMap: rampTexture(...)`; detail optional | `jitter: { size: 2, min: 0.9, range: 0.15 }`; `rampTexture([0.4, 0.75, 1])` |
-| Your own shader or plain three.js | `terrain({ material })`, or recipe 40 section 8 (what you give up) | any |
+| Picture | How |
+|---|---|
+| Flat color blocks, no detail (minimal, flat illustration; on purpose) | `shading: 'flat'` or `'smooth'`, `colors` / `biomeColors`, no `detail`; a few `variation.patches` with `levels` |
+| Color map + detail layer + near grass (soft variation, crisp borders) | `terrain({ shading: 'texture', colorResolution, detail })`, grass with `vegetation.define(name, { nearOnly: true })` |
+| Tiling or triplanar textures (your own painted, photographed or generated images) | your own material with `map` and `texture.repeat` through `terrain({ material })`, or `detail: { texture: 'name' }` (`projection: 'triplanar'` on slopes and rocks) |
+| Vertex color + toon lighting | vertex colors from `colors` and `variation.jitter`, `terrain({ material })` with a `MeshToonMaterial`, `gradientMap: rampTexture(...)`; detail optional |
+| Your own shader or plain three.js | `terrain({ material })`, or recipe 40 section 8 (what you give up) |
 
 Detail noises (recipe 43): `grain` fine speckle, `paper` fibres, `stroke` directional streaks (stretched on purpose), `dabs` soft oval dabs with
 no direction. `fade` (on by default) removes the detail where its pattern is smaller than a pixel. At run time: `engine.terrain.recolor({ detail })`. On any
@@ -43,8 +43,8 @@ pixel, so it stays sharp); near grass over the ground; or accept soft color and 
 (wavelength and `strength` of the two-color noise) and `steep`. One color with no `biomeColors` and a flat blend is one green. Options: two
 colors in `biomeColors` for the type; `blend.strength` 1.5; `variation.patches` with a `tint`; more ground types.
 
-**Dark blotches.** Cause: usually cloud shadows (`engine.uniforms.uCloudShadow.value` above 0), not texture; they drift with `uCloudSpeed`, and bigger clouds mean
-bigger blotches. Test by setting `uCloudShadow` to 0; if they vanish, lower it or change `uCloudScale`. Blotches that
+**Dark blotches.** Cause: usually cloud shadows (`engine.uniforms.uCloudShadow.value` above 0), not texture; they drift with `uCloudShadowSpeed`, and bigger clouds mean
+bigger blotches. Test by setting `uCloudShadow` to 0; if they vanish, lower it or change `uCloudShadowScale`. Blotches that
 never move are `variation.patches` or a strong `detail`.
 
 **Shimmer far away.** Cause: a pattern smaller than a pixel aliases. `detail.fade` (default) fades it out; `fade: false` keeps it. In your own

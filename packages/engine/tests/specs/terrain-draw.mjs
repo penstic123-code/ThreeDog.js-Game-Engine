@@ -1,4 +1,4 @@
-// Terrain drawing open points (recipes/37-terrain-draw-hooks.md): shading 'texture' (per-chunk color map), diagonal, normalFn, boundsPad.
+// Terrain drawing open points (recipes/37-terrain-hooks.md): shading 'texture' (per-chunk color map), diagonal, normalFn, boundsPad.
 // Defaults draw what they always drew (golden hashes computed with the code before these options existed); the river-bank check renders
 // the real engine into a render target and measures the color border. Same format as the other files here.
 const PAGE = '/tests/perf/index.html?mode=world';
@@ -81,7 +81,7 @@ export const specs = [
           colors: { A: 0xff0000, B: 0x0000ff, P: 0x00ff00 }, biomeColors: { a: ['A'], b: ['B'], paint: ['P'] }, steep: [], variation: { jitter: { min: 1, range: 0 } },
           height: '(x,z)=>0', groundType: `(x,z)=> z > ${OZ + 32} + 14*Math.sin((x - ${OX})*0.09) ? "a" : "b"` });
         const species = {}; for (const sp of engine.vegetation?.list() || []) species[sp.name] = sp.rule;
-        engine.pause();
+        engine.haltLoop();
         engine.player.root.visible = false; T.setDensity(0);
         const cam = new THREE.OrthographicCamera(-32, 32, 32, -32, 1, 200); cam.position.set(OX + 32, 100, OZ + 32); cam.up.set(0, 0, -1); cam.lookAt(OX + 32, 0, OZ + 32);   // top-down over chunk (0, 0), x right, z down
         const N = 512, rt = new THREE.WebGLRenderTarget(N, N), R = engine.renderer;
@@ -112,7 +112,7 @@ export const specs = [
         for (const sh of ['smooth', 'texture']) {
           engine.terrain.reinit(cfgOf(sh), species);
           engine.player.placeAt({ x: OX + 32, z: OZ + 32 });
-          out[sh + 'Ready'] = await wait(() => engine.terrain.isReadyAround({ x: OX + 32, z: OZ + 32 }));
+          out[sh + 'Ready'] = await wait(() => engine.terrain.readyAt({ x: OX + 32, z: OZ + 32 }));
           for (let i = 0; i < 3; i++) engine.step(1 / 30, { describe: false });
           out[sh] = bank(shot());
         }
@@ -136,7 +136,7 @@ export const specs = [
         let disposed = 0; tex.addEventListener('dispose', () => disposed++);
         engine.terrain.reinit(cfgOf('smooth'), species);
         out.disposed = disposed === 1;
-        engine._resume(); rt.dispose();
+        engine._unhalt(); rt.dispose();
         return out;
       });
       check('texture 与 smooth 都在 resolution 16 下加载出区块', r.smoothReady && r.textureReady);

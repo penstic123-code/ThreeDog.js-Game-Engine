@@ -3,9 +3,9 @@
 __GAMEPLAY_NOTE__
 
 ## Already here
-The picture is plain three.js. The engineering is the engine's: start screen, autosave, Esc pause and quality settings are wired in `main.js` (commented lines to copy);
-delete one only if the game has none (a hand-written one is left out of saves, tests and `describe()`). Docs: `node_modules/threedog/docs/` in the nearest parent folder that has `node_modules`.
-**Anything not in this table: run `threedog how "<task words>"` first**, before writing it by hand.
+The engineering is the engine's: start screen, autosave, Esc pause and quality settings are wired in `main.js` (commented lines to copy);
+keep, replace (`engine.ui.set`) or delete each (a hand-written one needs its own save and test hooks). Docs: `node_modules/threedog/docs/` in the nearest parent folder that has `node_modules`.
+**Anything not in this table: run `threedog how "<task words>"` first.**
 __DEFAULT_LAYER__
 
 ## First session
@@ -20,10 +20,9 @@ with its real picture), then widen it. Stop at DESIGN.md "Done for this version"
 ## How to work
 1. Before writing, list every place the change must reach (callers, content, saves, tests, records) and what it could break for the player.
 2. Take the first option that fully works: does it need to exist -> already in this game or the engine (the table above, GAMEMAP.md,
-   `threedog how "<2-4 English task words>"`, `threedog catalog`, AI.md; note the system in DESIGN.md Systems) -> plain three.js or the browser (`THREE.md`) ->
+   `threedog how`, `threedog catalog`, `threedog examples list`, AI.md; note the system in DESIGN.md Systems) -> plain three.js or the browser (`THREE.md`) ->
    an installed package -> the least code that works. "Least" is about code, never the result.
-3. Before writing an effect or a model from scratch: `threedog lib list` (`threedog how` lists library hits too), `threedog art board`. Technique examples (`threedog examples list`) are a reference for what a shot check or review
-   finds you cannot fix, never a starting point or the picture.
+3. Write the game's own look. The library (`threedog lib list`, `threedog art board`) holds what the user liked before; use it when DESIGN.md asks.
 4. No abstraction, option or "for later" code nobody asked for. A new way replaces the old one: delete the old in the same change.
 5. Debugging: root cause first (grep the callers, `engine.describe()`, recipe 16 §11), fix it once where it lives. Cannot reproduce: say what is missing.
 6. Check the license, and tell the user, before using someone else's code or assets.
@@ -31,22 +30,21 @@ with its real picture), then widen it. Stop at DESIGN.md "Done for this version"
 8. A known-limit shortcut gets `// shortcut: <limit>, <when to upgrade>`. Other comments: only the why.
 9. Never cut: save-data safety, input checks at data entry, what the user asked for.
 10. Report what is true: verified, not verified, still a placeholder. Never call a picture "close to the reference".
-11. Before a long task ends, update STATUS.md.
 
-The picture is plain three.js in `picture/`, one file per job; gameplay code uses material names, signals and `picture/` exports (`picture.lamp(id).off()`), not lights.
-__PICTURE_ROUTE__ Optional looks: `celLighting` (56), `outline`, `lut`, `paletteLut`, `dof` (52), voxelGI (34). Costly things read `engine.tier`. Signals, sky, post: recipe 62. Picture rounds: recipe 35; judging: recipe 60.
+The picture is plain three.js in `picture/`, one file per job; by default gameplay code uses material names, signals and `picture/` exports (`picture.lamp(id).off()`); direct writes work too.
+__PICTURE_ROUTE__ Optional looks: recipes 34, 52, 56. Costly things read `engine.tier`. Signals, sky, post: recipe 62. Picture rounds: recipe 35; judging: recipe 60.
 `threedog shot --play` or `threedog snap` run the picture check; other screenshots skip it.
-Judge taste against DESIGN.md "Loved / Not for this game".
 
 ## Content vs code
-Shape in code, placement in content: a model built in code is registered by name in `assets.js` (`marker` there is the example), and where it stands goes in
-`content/props.js` (`{ model: 'marker', place, x, z }`), plus a template (`content/templates.js`) when it has state. `npm run check` rejects startup code that creates what a save
-stores whole (`world.add`, `engine.content.spawn`, pickups, NPCs). Code holds rules: ops, `onFixed` for game time (damage, cooldowns, AI, timers),
-`onFrame` for what shows (animation, camera, HUD). Things made in play come from `engine.content.spawn` inside an op. Items, NPCs, dialogues and quests go in `content/`; files in `public/`; one-file three.js pieces in `plugins/`.
+By default shape is code, placement is content (saves read it); plain three.js works too. A model built in code is registered by name in `assets.js`, and where it stands goes in
+`content/props.js` (`{ model: 'marker', place, x, z }`), plus a template (`content/templates.js`) when it has state. What a save
+stores whole (`world.add`, `engine.content.spawn`, pickups, NPCs) must not be made again at startup; `npm run check` warns; `// runtime: <reason>` ends that. Code holds rules: ops, `onFixed` for game time (damage, cooldowns, AI, timers),
+`onFrame` for what shows (animation, camera, HUD). By default gameplay code lives in `game/`, one file per system (weapons, enemies, waves), each a small createX(engine, ...), and `main.js` only wires them; one small system may stay in one file. Several systems: one `engine.onFixed(dt => { weapons.step(dt); enemies.step(dt); })` in `main.js` fixes their order (separate registrations run as written); `{ phase: 'late' }` reads this step's results; modules with before / after: recipe 14. Made in play: `engine.content.spawn` in an op. Items, NPCs, dialogues and quests go in `content/`; files in `public/`; one-file three.js pieces in `plugins/`. Hundreds of same-kind moving things (shots, crowds, flocks, debris) are `engine.swarm` (recipe 65), not one mesh each.
 
 ## Commands and docs
-`npm run dev`, `check`, `test`, `map`, `build`. After a change: `npm run map` (only if code, JSDoc or content changed), `npm run check`, then the related tests (`npm test -- name`). MCP (`.mcp.json`): the dev bridge as tools while `npm run dev` runs (recipe 16 §10).
-Reading order: STATUS.md -> DESIGN.md -> `docs/design/<system>.md` or `docs/plans/<feature>.md` -> GAMEMAP.md (`npm run map`) -> `AI.md` (above) -> its recipe.
-Records: a change updates only the records it makes wrong (rules, systems, Done: DESIGN.md and `docs/design/`; progress: STATUS.md). A finished plan moves to `docs/plans/done/`. Reply in the user's language.
+`threedog play` runs the game for you (`--stop` ends it), `npm run dev` for a person. After a change: `npm run map` (if code, JSDoc or content changed), `npm run check`, related tests (`threedog test name`). MCP (`.mcp.json`): the dev bridge as tools while the game runs (recipe 16 §10).
+Reading order: STATUS.md -> DESIGN.md -> `docs/design/<system>.md` or `docs/plans/<feature>.md` -> GAMEMAP.md -> `AI.md` (above) -> its recipe.
+
+Records: a change updates only the records it makes wrong (rules, systems, Done: DESIGN.md and `docs/design/`; progress: STATUS.md). Reply in the user's language.
 
 <!-- "How to work" items 1-2, 4 and 7-9 adapt principles from the ponytail skill (github.com/DietrichGebert/ponytail, MIT). -->

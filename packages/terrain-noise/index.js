@@ -7,6 +7,7 @@
 // pack holds looks only (packages/engine/docs/recipes/09-materials-lights-models.md). Swapping the picture must never move a river. The colors of these ground types belong
 // to whichever style the game uses (e.g. style.terrain.biomeColors, keyed by the names below).
 // height and groundType run in terrain workers, so they are pure: they read only their parameters (n.params is the options below) and Math.
+// That is also why the river formula is written out in each of them (core/threadPure.js recompiles a function in an empty scope, so a shared helper is out of reach): the numbers live once, in `river`.
 // The ground type names are plain strings that vegetation rules, style colors and a game's footstep map match by name.
 
 // Biome rules: checked top to bottom, the first match is the biome there (the last has no condition and is the default).
@@ -34,10 +35,11 @@ export const terrainStrings = {
 
 const DEFAULTS = {
   shape: 'hills',      // 'hills' | 'island' | 'canyon' (mesas) | 'flat' (gentle plain)
-  heightScale: 1,      // overall relief multiplier
+  heightScale: 1,      // multiplies the base land and hills around sea level (lows get deeper too, not only highs); `mountains` is a separate amount that heightScale does not scale, so the highest point may not rise with it
   mountains: 1,        // mountain strength
   rivers: true,        // carve rivers
   riverWidth: 0.03,    // river width (noise threshold, 0.02 narrow, 0.05 wide)
+  river: { scale: 0.0022, offset: [40, -70], bank: 2.2, edge: 0.85 },   // noise behind the rivers; bank width in river widths; the share of depth outside the river itself
   biomes: BIOMES,
   tempScale: 0.0011, moistScale: 0.0014, tempLapse: 0.006,   // temperature / moisture noise scale; temperature drop per meter of altitude
   noise: { baseScale: 0.0035, baseAmp: 46, hillScale: 0.016, hillAmp: 10, mountainScale: 0.0018, mountainAmp: 900, mountainThreshold: 0.52, seaBias: 0.42 },
@@ -66,8 +68,8 @@ function height(x, z, n) {
   } else h = hills();
   // rivers: thin bands where noise is near 0.5 are dug below the water surface
   if (P.rivers) {
-    const r = Math.abs(fbm(x * 0.0022 + 40, z * 0.0022 - 70, 3) - 0.5), w = P.riverWidth, bank = w * 2.2;
-    if (r < bank) h = h + (n.waterLevel - 1.6 - h) * Math.min(1, smooth(1 - r / bank) * (r < w ? 1 : 0.85) * 1.25);
+    const R = P.river, r = Math.abs(fbm(x * R.scale + R.offset[0], z * R.scale + R.offset[1], 3) - 0.5), w = P.riverWidth, bank = w * R.bank;
+    if (r < bank) h = h + (n.waterLevel - 1.6 - h) * Math.min(1, smooth(1 - r / bank) * (r < w ? 1 : R.edge) * 1.25);
   }
   return h;
 }
@@ -80,8 +82,8 @@ function groundType(x, z, h, sl, n) {
   const moist = () => ms ??= fbm(x * P.moistScale - 200, z * P.moistScale + 100, 3);
   const river = () => rv ??= (() => {
     if (!P.rivers) return 0;
-    const r = Math.abs(fbm(x * 0.0022 + 40, z * 0.0022 - 70, 3) - 0.5), w = P.riverWidth, bank = w * 2.2, t = 1 - r / bank;
-    return r >= bank ? 0 : t * t * (3 - 2 * t) * (r < w ? 1 : 0.85);
+    const R = P.river, r = Math.abs(fbm(x * R.scale + R.offset[0], z * R.scale + R.offset[1], 3) - 0.5), w = P.riverWidth, bank = w * R.bank, t = 1 - r / bank;
+    return r >= bank ? 0 : t * t * (3 - 2 * t) * (r < w ? 1 : R.edge);
   })();
   const test = c => c.any ? c.any.some(test) : !((c.minHeight != null && h < c.minHeight) || (c.maxHeight != null && h > c.maxHeight) ||
     (c.maxAboveWater != null && h >= W + c.maxAboveWater) || (c.minSlope != null && sl < c.minSlope) ||
@@ -102,18 +104,18 @@ function groundType(x, z, h, sl, n) {
 export function riverAt(x, z, n) {
   const P = n.params;
   if (!P?.rivers) return 0;
-  const r = Math.abs(n.fbm(x * 0.0022 + 40, z * 0.0022 - 70, 3) - 0.5), w = P.riverWidth, bank = w * 2.2, t = 1 - r / bank;
-  return r >= bank ? 0 : t * t * (3 - 2 * t) * (r < w ? 1 : 0.85);
+  const R = P.river, r = Math.abs(n.fbm(x * R.scale + R.offset[0], z * R.scale + R.offset[1], 3) - 0.5), w = P.riverWidth, bank = w * R.bank, t = 1 - r / bank;
+  return r >= bank ? 0 : t * t * (3 - 2 * t) * (r < w ? 1 : R.edge);
 }
 
 /**
- * Noise terrain preset: spread it into terrain() (or openWorld({ terrain })). Options override the defaults above; noise, island and
- * canyon merge field by field.
+ * Noise terrain preset: spread it into terrain() (or openWorld({ terrain })). Options override the defaults above; noise, island,
+ * canyon and river merge field by field.
  * @example engine.use(terrain({ seed: 7, ...terrainPreset({ shape: 'island', rivers: false }) }))
  * @param {Partial<typeof DEFAULTS>} [opts]
  */
 export function terrainPreset(opts = {}) {
   const params = { ...DEFAULTS, ...opts };
-  for (const k of ['noise', 'island', 'canyon']) params[k] = { ...DEFAULTS[k], ...(opts[k] || {}) };
+  for (const k of ['noise', 'island', 'canyon', 'river']) params[k] = { ...DEFAULTS[k], ...(opts[k] || {}) };
   return { waterLevel: 0, height, groundType, params };   // this generator's rivers and coasts are carved toward sea level 0
 }

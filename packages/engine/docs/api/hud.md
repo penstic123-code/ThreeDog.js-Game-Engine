@@ -8,7 +8,7 @@ Objective markers, counters, progress bars (hud() module)
 ## Methods and properties
 - `hud.marker(target: HudTarget, opts?: HudMarkerOptions) → HudMarker` — Add an objective marker: target is an object, position or place name
 - `hud.counter(id: string, opts: { label?, icon?, value?, max?, anchor? })` — Counter or text status (calling again with the same id = update; calling every frame is fine): counter('fish', { label: '鱼', value: 2, max: 5 }), counter('clock', { value: '08:30' }); no value = the label alone
-- `hud.add(id: string, n?: number) → number` — Add n (default 1) to a number counter, return the new value; one not declared yet starts at 0 with its id as the label
+- `hud.bump(id: string, n?: number) → number` — Add n (default 1) to a number counter, return the new value; one not declared yet starts at 0 with its id as the label
 - `hud.value(id: string) → number | string | undefined` — Current value of a counter or bar (number or text), undefined when there is none; reads what interactions.add({ counter }) has added up
 - `hud.bar(id: string, opts: { value, max?, label?, anchor? })` — Progress bar (calling again with the same id = update; calling every frame is fine, the DOM is untouched when the value is unchanged), value/max 0–max
 - `hud.remove(id: string)` — Delete a counter or progress bar

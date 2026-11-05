@@ -107,20 +107,20 @@ export const specs = [
         out.back = rain.object.material === eng;
         out.badMaterial = err(() => { rain.material = 3; });
         // define: a field of the game's own, then the create form, a built-in in place, then back
-        const ash = e.weather.define('ash', { shape: 'soft', color: 0x555555 });
+        const ash = e.weather.defineField('ash', { shape: 'soft', color: 0x555555 });
         out.ash = [P().ash === ash, ash.object.isPoints, !!ash.material];
         let args = null; const own = new THREE.Group();
-        const made = e.weather.define('ash', { create: (en, a) => { args = [en === e, a.area, a.count]; return { object: own }; } });
+        const made = e.weather.defineField('ash', { create: (en, a) => { args = [en === e, a.area, a.count]; return { object: own }; } });
         out.create = [made.object === own, args?.join(), made.material === null, own.parent === e.scene, !ash.object.parent];
         out.ownMaterial = err(() => { made.material = new THREE.MeshBasicMaterial(); });
-        e.weather.define('ash', null);
+        e.weather.defineField('ash', null);
         out.ashGone = !('ash' in P()) && !own.parent;
-        e.weather.define('rain', { shape: 'square', size: 30 });
+        e.weather.defineField('rain', { shape: 'square', size: 30 });
         out.replaced = P().rain.object.isPoints;
-        e.weather.define('rain', null);
+        e.weather.defineField('rain', null);
         out.rainBack = [P().rain.object.isLineSegments, P().rain.spec.speed];
-        out.badField = err(() => e.weather.define('ahs', {}));
-        out.badSpec = err(() => e.weather.define('ash', 5));
+        out.badField = err(() => e.weather.defineField('ahs', {}));
+        out.badSpec = err(() => e.weather.defineField('ash', 5));
         // rule: the weather reaches light and fog through signals, never by writing them
         e.lights.sun.intensity = 2.5; e.scene.fog = new THREE.Fog(0x808080, 1, 300);
         e.step(1, { render: false });

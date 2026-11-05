@@ -11,16 +11,16 @@ export const specs = [
       const r = await ev(async () => {
         // step until cond() or the limit, yielding so worker replies arrive
         const pump = async (cond, max = 900) => { for (let i = 0; i < max && !cond(); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); } return cond(); };
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, P = engine.player, L = engine.stream, T = engine.THREE, home = P.position.clone();
         const dest = { x: home.x + 1500, z: home.z + 300 };
         W.present('ld-chest', { build: () => new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()), radius: 30 });
         W.add({ id: 'ld-chest-dest', kind: 'ld-chest', position: [dest.x + 4, 0, dest.z] });
-        const before = { chunk: engine.terrain.isReadyAround(dest), ground: engine.rigid.groundReady(dest), view: !!W.view('ld-chest-dest') };
+        const before = { chunk: engine.terrain.readyAt(dest), ground: engine.rigid.readyAt(dest), view: !!W.view('ld-chest-dest') };
         let done = false, movedEarly = false;
         L.teleport(dest).then(() => { done = true; });
         const at = await pump(() => { if (!done && Math.hypot(P.position.x - home.x, P.position.z - home.z) > 1) movedEarly = true; return done; });
-        const after = { chunk: engine.terrain.isReadyAround(dest, { solid: true }), ground: engine.rigid.groundReady(dest), view: !!W.view('ld-chest-dest'),
+        const after = { chunk: engine.terrain.readyAt(dest, { solid: true }), ground: engine.rigid.readyAt(dest), view: !!W.view('ld-chest-dest'),
           off: Math.hypot(P.position.x - dest.x, P.position.z - dest.z), sources: L.sources().map(s => s.name) };
         return { before, at, movedEarly, after, builtins: [L.player.physics, L.camera.physics] };
       });
@@ -40,7 +40,7 @@ export const specs = [
       const r = await ev(async () => {
         // step until cond() or the limit, yielding so worker replies arrive
         const pump = async (cond, max = 900) => { for (let i = 0; i < max && !cond(); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); } return cond(); };
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, P = engine.player, L = engine.stream, T = engine.THREE, I = engine.inventory, home = P.position.clone();
         const box = rec => { const m = new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()); m.userData.opened = !!rec.opened; return m; };
         W.present('ld-chest', { build: box, radius: 30 });
@@ -83,7 +83,7 @@ export const specs = [
       const r = await ev(async () => {
         // step until cond() or the limit, yielding so worker replies arrive
         const pump = async (cond, max = 900) => { for (let i = 0; i < max && !cond(); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); } return cond(); };
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, L = engine.stream, T = engine.THREE, home = engine.player.position.clone();
         let builds = 0;
         W.present('ld-sign', { build: () => { builds++; return new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()); }, radius: 30 });
@@ -96,8 +96,8 @@ export const specs = [
         const ready = await pump(() => view.ready && simple.ready);
         const CH = engine.ground.chunkSize, key = Math.floor(cam.x / CH) + ',' + Math.floor(cam.z / CH);
         const out = {
-          ready, camChunk: engine.terrain.isReadyAround(cam), camColliders: engine.rigid.terrain.has(key), camGround: engine.rigid.groundReady(cam),
-          camModel: !!W.view('ld-sign-cam'), farChunk: engine.terrain.isReadyAround(far), farModel: W.view('ld-sign-far') === null,
+          ready, camChunk: engine.terrain.readyAt(cam), camColliders: engine.rigid.terrain.has(key), camGround: engine.rigid.readyAt(cam),
+          camModel: !!W.view('ld-sign-cam'), farChunk: engine.terrain.readyAt(far), farModel: W.view('ld-sign-far') === null,
         };
         gone = true; engine.step(1 / 30);
         out.untilRemoved = !L.sources().includes(simple);

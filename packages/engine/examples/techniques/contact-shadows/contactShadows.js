@@ -43,7 +43,7 @@ export function applyContactShadows(engine, { sun, hemi, ...opts }) {
   };
   shadow([-p.extent, p.extent, p.extent, -p.extent], p.mapSize, p.normalBias, p.bias);
   if (hemi) hemi.intensity *= p.fill;
-  const aoPass = p.ao ? engine.post.add(ao({ enabled: true, radius: p.aoRadius, intensity: p.aoIntensity }), { name: 'ao' }) : null;
+  const aoPass = p.ao ? engine.post.add(ao({ radius: p.aoRadius, intensity: p.aoIntensity }), { name: 'ao' }) : null;
   return {
     remove() {
       shadow(saved.box, saved.mapSize, saved.normalBias, saved.bias);

@@ -2,7 +2,7 @@
 
 Audience: AI agents that maintain the engine. Intent and principles are in `design.md` (Chinese, the owner's words); this file is the code-side map as of 0.6: each part, its files, its one rule, and the test that fails if the rule is bypassed. Games use `packages/engine/docs/AI.md`, not this file. Read the file header of each source file for details; this page only says where to look and what must hold.
 
-Test names below are filters for `npm test -- "<name>"` (they match test names, not file names). Specs live in `packages/engine/tests/specs/`.
+Test names below are filters for `threedog test "<name>"` (they match test names, not file names). Specs live in `packages/engine/tests/specs/`.
 
 ## 1. Lifecycle
 
@@ -19,7 +19,7 @@ Test names below are filters for `npm test -- "<name>"` (they match test names, 
 - Layer table, lowest first: `engine < game < effect < system < settings < debug`. Inside a layer: `set`, then every `add`, then every `mul`, then every `clamp`. A higher layer's `set` hides everything below. Settings only restrict (`clamp: { max }`, `mul` 0..1, `set: false`); it never raises a value or switches something on, and it sits above `system`, so a cutscene or menu cannot undo what the player turned off (only `debug` can).
 - One entry per owner per point (the same owner writing again replaces its entry). Two different owners that `set` one point on one layer throw `shared-conflict` in dev (the later wins in release). `add / mul / clamp` never conflict.
 - Nothing remembers an old value: a read is a recompute from the base and the entries still there. This is why effects can end in any order.
-- Kinds: `number`, `value`, `any` (true while anyone holds it: pause, gates), `top` (latest holder: camera), `one` (exclusive slot).
+- Kinds: `number`, `value`, `any` (true while anyone holds it: freeze, halt, gates), `top` (latest holder: camera), `one` (exclusive slot).
 - Slots: a module declares `provides: ['inventory']`, `requires: ['inventory']` (the slot, not a module name); `engine.use(mine(), { replaces: 'inventory' })` unloads the holder first. A slot is a kind-`one` shared point, so `describe().shared` shows holders beside values.
 - A point writes no three.js by itself. The few values the engine still writes on its own yield to a direct three.js write (`core/owned.js`, listed in `describe().owned`).
 - Tests: `shared points` (conflict, layers, settings, slots, rollback), `shared points in a running game`, `owned`.
@@ -54,7 +54,7 @@ Test names below are filters for `npm test -- "<name>"` (they match test names, 
 
 ## 7. The picture is plain three.js
 
-- Files: the game's `picture/` folder writes three.js and reads `engine.uniforms` (recipe 62); `core/describeRender.js` reads `describe().picture` straight off three.js; `core/shadows.js` (`engine.shadows`), `core/view.js` (`engine.view`), `render/terms.js` (`engine.terms`), `render/PostFX.js` (`engine.post`) are the entries that do what three.js has no line for.
+- Files: the game's `picture/` folder writes three.js and reads `engine.uniforms` (recipe 62); `core/describeRender.js` reads `describe().picture` straight off three.js; `core/shadows.js` (`engine.shadows`), `core/view.js` (`engine.autoView`), `render/terms.js` (`engine.shaderTerms`), `render/PostFX.js` (`engine.post`) are the entries that do what three.js has no line for.
 - Rule: the engine has no second picture language. A module's look is a three.js material on the module (`engine.water.material`), a picture value is the three.js value, and what the engine computes (sun, daylight, wind, cloud shadow) is a signal in `engine.uniforms`. Several systems that share one value meet on a shared point (`post.<name>.enabled`, `shadows.enabled`, `sky.tint`, `sky.flash`, `ground.cover`).
 - Picture writers tool: `core/pictureWriters.js` keeps "one writer per value" from being words only. On the dev server it puts an own get / set on the picture values of objects in the engine's scene (`notePatch` entry `picture-writers`), records which `file:line` last wrote each value (`describe('picture').picture.writers`, `explain({ picture })`), and warns `picture-conflict` with both lines when two places write one value in one frame. Slots: `core/pictureSlots.js` is the one table of picture slot names (sky, fog, tone, environment, background, sun, taken with `provides`); a write to a held value from anyone else is `picture-held`, naming the holder and both lines, and a picture module removed (`engine.unuse`, `replaces`) with lights, objects, post effects or hooks still there is `picture-leftover`. It reports and never blocks; a value written every frame is sampled, and outside parts two anonymous functions in one file count as one place. Bundles and release builds do not carry it. R48 checks that engine code itself does not write these values.
 - One entry per job: post effects go in only through `engine.post.add(x)` (a three.js Pass, a TSL node function, or an effect `{ name, create | node | fuse }`; on / off and params with its handle; `render/PostFX.js`).
@@ -77,7 +77,7 @@ Test names below are filters for `npm test -- "<name>"` (they match test names, 
 
 - Saves: `core/Saves.js`, `saveApply.js`, `saveVersions.js`, `SaveStore.js`. Parts are checked and migrated before anything changes; a shape change raises `version` with a `migrate`. Entries on shared points are saved for layers below settings.
 - Ops: `core/Ops.js` (+ `opsRun`, `opsCheck`, `opsGuard`, `opsHistory`). `engine.ops.define / run`: one discrete player or NPC action, checked by `can`, logged with tick and actor. `ops.guard` warns in dev when saved gameplay state is written outside fixed steps and ops.
-- Content: `modules/content/`, world records `modules/world/`. Design data (content, templates, placements) lives in the game's files with fixed ids; `packages/tools/content-write.mjs` (`threedog content set|add|remove`, `threedog tune`) edits one file by targeted text edit, refuses code-built entries, and rolls back when the check fails. The in-browser editor is the next version (`plans/2026-11-02-world-ir-editor.md`).
+- Content: `modules/content/`, world records `modules/world/`. Design data (content, templates, placements) lives in the game's files with fixed ids; `packages/tools/content-write.mjs` (`threedog content set|add|remove`, `threedog tune`) edits one file by targeted text edit, refuses code-built entries, and rolls back when the check fails. The in-browser editor (`packages/tools/editor/`, dev server only, plan `plans/2026-11-05-editor.md`) reaches content through two files only: `editor/design.js` in the page, `content-write.mjs` on the server (R54).
 - Tests: `Save failure`, `durability-saves`, `ops`, tools tests `content-write`, `content-src`.
 
 ## 11. Describe and verification

@@ -6,6 +6,7 @@
 import { warnMissing } from './validate.js';
 import { readParams, keysSchema } from './params.js';
 import { codedError } from './errorHints.js';
+import { setFov } from './view.js';
 
 const vec3 = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
 
@@ -14,6 +15,7 @@ export class Views {
   constructor(engine) {
     /** @internal */ this.engine = engine;
     this.map = new Map(); this.current = null; this._cam = null;
+    /** @internal the camera's fov before a view changed it: release() gives it back */ this._fov = null;
   }
   /**
    * Declare a view. position and target are [x, y, z]; fov (degrees) is optional (the camera's own when left out). Returns { remove() } (undeclares it).
@@ -40,14 +42,20 @@ export class Views {
     const v = this.map.get(name);
     if (!v) { warnMissing('view', name, this.list()); return null; }
     const e = this.engine, c = e.camera;
-    this._cam = e.takeCamera('views');
+    // focus: the world loads around what the view looks at, not around a player far away (the view was an empty sheet of ground without it)
+    const focus = c.position.clone().fromArray(v.target);
+    this._cam = e.takeCamera('views', { focus });
+    e.focus.copy(focus);
     c.position.fromArray(v.position); c.lookAt(...v.target);
-    if (v.fov != null && c.isPerspectiveCamera) { c.fov = v.fov; c.updateProjectionMatrix(); e._oFov?.mark(); }   // asked through the engine: not an outside write
+    if (v.fov != null && c.isPerspectiveCamera) { this._fov ??= c.fov; setFov(e, v.fov); }   // yields to a fov the game took (engine.autoView.manual('fov'))
     c.updateMatrixWorld(true);
     this.current = name;
     e.events.emit('camera:shot', { name });   // a cut: what follows the camera (the light pool) settles at once instead of easing over
     return { remove: () => { if (this.current === name) this.release(); } };
   }
   /** Give the camera back (to the previous holder, e.g. a running cutscene, or to the rig) */
-  release() { this._cam?.remove(); this._cam = null; this.current = null; }
+  release() {
+    if (this._fov != null) { setFov(this.engine, this._fov); this._fov = null; }
+    this._cam?.remove(); this._cam = null; this.current = null;
+  }
 }

@@ -10,7 +10,8 @@
 // Limits (said in the report): a copy's collision box keeps the size it was placed with until the next load; an InstancedMesh or a merged batch
 // the game built itself from a geometry is not found (only engine paths are).
 import { registerManifest, paramValues } from './assetManifest.js';
-import { protoCaches, protoOf, cachedModel, list } from './namedModel.js';
+import { protoCaches, protoOf, cachedModel } from './namedModel.js';
+import { list } from './util.js';
 import { reportError } from './errors.js';
 import { codedError } from './errorHints.js';
 import { note } from './validate.js';
@@ -27,7 +28,7 @@ const LAST = 10;   // swaps kept for describe().assetSwaps
  * with the new ones mesh by mesh; every scene mesh using an old geometry / material gets the new one.
  * @param {any} e @param {{ name: string, type: string, old: any }[]} changed @param {string} why for the report ('edit', 'params')
  */
-export async function swapModels(e, changed, why = 'edit') {
+async function swapModels(e, changed, why = 'edit') {
   const t0 = performance.now(), a = e.assets, fail = failWith(e);   // measure
   const names = new Set(changed.filter(c => c.type === 'model').map(c => c.name));
   const geo = new Map(), mat = new Map(), tex = new Map(), protoNew = new Map(), structure = new Set(), copies = {};

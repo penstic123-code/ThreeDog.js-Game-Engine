@@ -9,6 +9,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cli, rel, viteOptions } from './paths.mjs';
+import { headlessUrl } from './lib/page-url.mjs';
 import { parseGalleryOptions, fileStems, escapeHtml as esc } from './gallery/index.js';
 
 
@@ -31,7 +32,7 @@ if (!opt.shots) {
   try {
     const page = await newGamePage(browser, { errors });
     // desktop tier like shot (core/tier.js): the headless browser would be detected low and the turntables would lack the game's post
-    await page.goto(base + '/?threedog-headless&threedog-tier=high&cutscene=skip&gallery=1');
+    await page.goto(base + headlessUrl('/', { 'threedog-tier': 'high', cutscene: 'skip', gallery: '1' }));
     await waitEngine(page, { timeout: 120000, errors, dir });
     await page.waitForFunction(() => !!globalThis.threedogGallery, null, { timeout: 30000 });
     const size = opt.size ? +opt.size : 256, only = typeof opt.only === 'string' ? opt.only.split(',') : null;

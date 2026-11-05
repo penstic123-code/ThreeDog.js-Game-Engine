@@ -22,7 +22,6 @@ import { Views } from './Views.js';
 import { Stream } from './Stream.js';
 import { Batching } from './Batching.js';
 import { defineHoldStacks } from './holds.js';
-import { Stacks } from './stacks.js';
 import { Control } from './control.js';
 import { Time } from './time.js';
 import { DebugOverrides } from './DebugOverrides.js';
@@ -42,20 +41,20 @@ import { watchGameLights } from './gameLights.js';
 export function createServices(engine, { canvas, validate, locale, strings, saveKey, joystick, bindings, audio, decoders, budget, seed, headless, urlState, threads, batching }) {
   // DEV, not import.meta.env.DEV: the npm test bundle is a production build that sets THREEDOG_TEST, and the spelling check must run there too
   engine.events = new Events({ check: DEV && validate !== false,
-    onError: (name, err) => reportListenerError(engine, name, err), now: () => engine.tick });   // listener errors are handled by severity (errors.js)
+    onError: (name, err) => reportListenerError(engine, name, err), now: () => engine.time.tick });   // listener errors are handled by severity (errors.js)
   engine.i18n = new I18n(engine, { locale, strings });
   engine.saves = new Saves(engine, { prefix: saveKey + '-' });
   engine.session = new Session(engine);          // new game / continue / back to title from a clean slate (session.js)
   // before Input: key bindings are the shared point 'input.keys'.
   // shared quantities (stacks.js): engine.mod(name, { owner, mul | add | set | clamp, for }) is the one way several systems change one
-  (engine.stacks ??= new Stacks(engine))._hook();   // one registry, made early by Engine.js (drawing parts register points); saves and events hook in now
+  engine.stacks._hook();   // one registry, made early by Engine.js (drawing parts register points); saves and events hook in now
   engine.mod = (name, o) => engine.stacks.mod(name, o);
   engine.stacks.define('input.gate', { kind: 'any', per: true });   // input.gate(action, owner): one entry per owner and action (Input.js)
   engine.input = new Input(engine, canvas, { joystick, bindings });
-  engine.events.on('ui:open', id => engine.openWindows.add(id));
-  engine.events.on('ui:close', id => engine.openWindows.delete(id));
+  engine.events.on('ui:open', id => engine._openWindows.add(id));
+  engine.events.on('ui:close', id => engine._openWindows.delete(id));
   engine.audio = new Audio(engine, audio);
-  engine.decoders = decoders;
+  engine._decoders = decoders;
   engine.assets = new Assets(engine);
   engine.control = new Control(engine);          // who decides where each character goes (control.js): one holder in charge per character
   // module methods (wrap.js): engine.wrap(engine.inventory, 'add', (next, ...a) => ...) is the one way to change what a public method does
@@ -71,7 +70,7 @@ export function createServices(engine, { canvas, validate, locale, strings, save
   engine.random = new Random(seed ?? (headless ? 1 : Date.now()));   // wall-clock: differs per run when no seed is given
   engine.saves.register('random', { atomic: true, save: () => engine.random.toJSON(), load: d => engine.random.fromJSON(d) });
   engine._urlState = new UrlState(engine, { fromUrl: urlState });
-  // who holds the engine still: three named stacks (stacks.js: same owner rules as every shared quantity, holders in describe); pause / freeze / takeCamera in holds.js
+  // who holds the engine still: three named stacks (stacks.js: same owner rules as every shared quantity, holders in describe); haltLoop / freeze / takeCamera in holds.js
   defineHoldStacks(engine);
   engine.commits = new Commits(engine);          // background results that affect gameplay take effect on a fixed tick (see Commits.js)
   engine.ops = new Ops(engine);                  // one entry point for actions (define / run / can / list / recent), see Ops.js

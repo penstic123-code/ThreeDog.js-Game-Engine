@@ -8,7 +8,7 @@ export const specs = [
     async run({ page, check, ev }) {
       await page.waitForFunction(() => window.ready === true, null, { timeout: 20000 });
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player, a = p.anim, model = p.root.children.find(o => o.userData.animations);
         const wrist = model.getObjectByName('WristR')   /* GLTFLoader drops the dot of Wrist.R */, v = new THREE.Vector3();
         const wristAt = () => { model.updateMatrixWorld(true); return wrist.getWorldPosition(v).clone(); };
@@ -26,6 +26,8 @@ export const specs = [
         a.sync('attack', 0.1); engine.step(0.016); const w1 = wristAt();
         a.sync('attack', 0.25); engine.step(0.016); const w2 = wristAt();
         a.sync('attack', 0.1); engine.step(0.016); const w3 = wristAt();
+        // an onFrame registered after the animator: its sync shows this frame, not the next (the animators run after the whole onFrame list)
+        const lateSync = engine.onFrame(() => a.sync('attack', 0.25)); engine.step(0.016); lateSync.remove(); const w4 = wristAt();
         // 判定段与挥砍对齐：按玩法 t 每 0.02 秒摆一次，量右手腕高度。举到最高点应在判定段开始（0.16）附近，
         // 判定段 [0.16, 0.28) 里砍下的落差应占整个下砍的大部分（timing 写错时最高点会落在前摇中段或后摇里）
         const ys = [];
@@ -40,13 +42,14 @@ export const specs = [
           a.sync('atack', 0.1); a.go('atack');
           const bad = engine.assets.animate(model.clone(), { states: { slash: { clip: 'Sword_Slashh' } } }); bad.dispose();
         });
-        return { mapped, fading, held, ended, viaDescribe, moved: w1.distanceTo(w2), same: w1.distanceTo(w3), peak, back, errs, boneCount: model.getObjectByProperty('isSkinnedMesh', true)?.skeleton.bones.length };
+        return { mapped, fading, held, ended, viaDescribe, moved: w1.distanceTo(w2), same: w1.distanceTo(w3), lateSync: w2.distanceTo(w4), peak, back, errs, boneCount: model.getObjectByProperty('isSkinnedMesh', true)?.skeleton.bones.length };
       });
       check('映射：Idle_Sword 找到 "CharacterArmature|Idle_Sword"，无报错', r.mapped.idle === 'idle' && r.mapped.clip === 'Idle_Sword' && r.mapped.bad === 0, JSON.stringify(r.mapped));
       check('sync 进入时按过渡淡入（idle 与 attack 同时有权重）', r.fading.attack > 0 && r.fading.attack < 1 && r.fading.idle > 0, JSON.stringify(r.fading));
       check('sync 后进度由 t 决定（timing 把 0.22 映射到 clip 0.37 秒）：步进 0.5 秒不前进、不结束、go() 抢不走', r.ended && Math.abs(r.held.time - 0.37) < 0.01 && r.held.t === 0.22, JSON.stringify(r.held));
       check('describe().player.anim 能看到当前动作和进度', r.viaDescribe?.state === 'attack' && r.viaDescribe.driven === true && r.viaDescribe.progress > 0, JSON.stringify(r.viaDescribe));
       check('骨骼姿态跟着 t：不同 t 手腕位置不同，同一 t 位置相同', r.moved > 0.05 && r.same < 1e-4, `moved ${r.moved.toFixed(3)} same ${r.same.toExponential(1)} bones ${r.boneCount}`);
+      check('a later onFrame sync shows the same frame', r.lateSync < 1e-4, String(r.lateSync));
       check('挥砍对上判定段：手腕最高点在 0.16 附近，判定段内完成七成以上的下砍', r.peak.apexT >= 0.12 && r.peak.apexT <= 0.2 && r.peak.inActive > 0.7, JSON.stringify(r.peak));
       check('sync(null) 交还控制，角色回 idle', r.back.state === 'idle' && !r.back.driven, JSON.stringify(r.back));
       check('写错动作名报错并给出 `attack`', r.errs.some(m => m.includes('"atack"') && m.includes('`attack`')), JSON.stringify(r.errs));
@@ -62,7 +65,7 @@ export const specs = [
     async run({ page, check, ev }) {
       await page.waitForFunction(() => window.ready === true, null, { timeout: 20000 });
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const url = URL.createObjectURL(new Blob([await window.skinnedGlb()], { type: 'model/gltf-binary' }));
         const states = { idle: { clip: 'Idle_Armed' }, walk: { clip: 'Walk' }, attack: { clip: 'Slash', loop: false, timing: 0.5 }, hurt: { clip: 'Hit', loop: false } };
         engine.assets.manifest({ name: 'generated', models: {

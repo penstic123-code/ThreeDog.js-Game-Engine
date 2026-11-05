@@ -1,13 +1,14 @@
-// threedog assets optimize [-w game] [--dry] [--force] [--budget MB] [--strict]
+// threedog assets optimize [-w game] [--dry] [--force] [--budget MB] [--strict] [--lod [--lod-shares 0.5,0.2]]
 // Reads the game's source models (art/models/*.glb|gltf, never changed), writes the optimized copies to public/optimized/<name>.glb, and points the
 // game at them (assets.optimized.js, imported by assets.js). Existing open-source tools do the work: @gltf-transform/cli (meshopt, prune, textures)
-// and KTX-Software's `ktx` (Basis Universal encoder). Neither is needed to install threedog; a missing one fails only this command, and says which.
+// and a Basis Universal texture encoder: KTX-Software's `ktx` when it is on PATH (first choice), else the WebAssembly encoder of the npm package ktx2-encoder
+// (assets-ktx.mjs). Neither is needed to install threedog; with no encoder at all only this command fails, and says what to install.
 // Textures: one KTX2 per texture, encoded by the slot that uses it (glTF Transform's own rule): normal / occlusion / metallicRoughness are linear data
 // and go UASTC, color slots go ETC1S + sRGB. After the run every output texture is read back and checked against its slot, so a normal map
 // compressed as color is reported, not shipped silently (this needs ktx-parse; without it the run says the check was skipped).
 // Not touched: baked lightmaps (*.lightmap). Their banding after compression is not measured yet, so they are left as baked and the report says so.
 // A rerun handles only files whose content, options or tool versions changed (hash, not file time). --dry changes nothing and reports what would be saved.
-import { existsSync, readdirSync, statSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { resolve, basename, extname, dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
@@ -16,6 +17,8 @@ import { ROOT } from './paths.mjs';
 import { KB, MB, modelStats } from './assets-check/stats.mjs';
 import { readModel, hasReader, NO_READER } from './assets-check/read.mjs';
 import { reviewMaterials } from './assets-check/materials.mjs';
+import { loadWasmEncoder, encodeTextures, WASM_HOW } from './assets-ktx.mjs';
+import { buildLevels, dropLevels, lodSkipReason, parseRatios, triangleCount } from './assets-lod.mjs';
 
 const DEFAULT_BUDGET_MB = 32;   // GPU memory of one model's textures; over it is reported (a game decides the real number with --budget)
 const COLOR_SLOTS = ['baseColorTexture', 'emissiveTexture'];
@@ -23,6 +26,10 @@ const COLOR_SLOTS = ['baseColorTexture', 'emissiveTexture'];
 const MODEL_UASTC = 166, TRANSFER_SRGB = 2;
 
 const mem = n => (n < 1048576 ? KB(n) : MB(n));   // small models show in KB, not 0.0 MB
+/** One report line: triangles per level, or why there are no levels */
+const lodLine = (f, l) => l.skipped ? `  LOD ${f}: skipped, ${l.skipped}` : `  LOD ${f}: ${l.triangles.join(' → ')} triangles (full${l.files.map((_, i) => ` → level ${i + 1}`).join('')})${l.note ? '; ' + l.note : ''}`;
+/** What the pack says about one model: its path, plus the level files when it has any (only engine.assets.lod reads those, so a game that did not opt in downloads none) */
+const packEntry = (name, l) => l?.files?.length ? { url: `/optimized/${name}.glb`, lods: l.files.map(x => `/optimized/${x}`) } : `/optimized/${name}.glb`;
 /** Texture GPU bytes once the file is KTX2: block-compressed, ~1 byte per pixel, +1/3 for mips (same estimate as modelStats) */
 const ktx2Gpu = t => Math.round(t.width * t.height * 4 / 3);
 
@@ -115,6 +122,8 @@ export async function runOptimize(dir, opt) {
   const SRC = resolve(dir, 'art/models'), OUT = resolve(dir, 'public/optimized'), STATE = resolve(dir, '.threedog');
   const dry = !!opt.dry, force = !!opt.force, strict = !!opt.strict, budget = opt.budget === undefined ? DEFAULT_BUDGET_MB : Number(opt.budget);
   if (!(budget > 0)) { console.error('✗ --budget takes a number of MB, like --budget 32'); return 1; }
+  let ratios = null;
+  try { if (opt.lod || opt['lod-shares']) ratios = parseRatios(opt['lod-shares'] ?? true); } catch (e) { console.error('✗ ' + e.message); return 1; }
   if (!existsSync(SRC)) { console.log(`${SRC} does not exist. Put the .glb / .gltf exported from Blender into art/models/ and run again.`); return 0; }
   if (!hasReader()) { console.error('✗ assets optimize needs @gltf-transform/cli: run npm i -D @gltf-transform/cli (' + NO_READER + ')'); return 1; }
   const req = createRequire(resolve(ROOT, 'package.json'));
@@ -122,12 +131,15 @@ export async function runOptimize(dir, opt) {
   let ktxParse = null; try { ktxParse = req('ktx-parse'); } catch {}
   const ktx = spawnSync('ktx', ['--version'], { encoding: 'utf8' }), ktxOk = !ktx.error && ktx.status === 0;
   const ktxVersion = ktxOk ? (ktx.stdout || ktx.stderr).trim() : null;
-  const ktxHow = 'Texture compression needs the `ktx` command from KTX-Software 4.3+ (Apache-2.0, https://github.com/KhronosGroup/KTX-Software/releases): install it and put it on PATH. Nothing else in threedog needs it.';
+  // encoder: `ktx` on PATH stays the first choice; else the wasm one; the run says which one it used
+  const wasm = ktxOk ? null : await loadWasmEncoder(), encoderOk = ktxOk || !!wasm;
+  const encoderName = ktxOk ? `ktx (KTX-Software ${ktxVersion})` : wasm ? `ktx2-encoder ${wasm.version} (Basis Universal, WebAssembly)` : null;
+  const ktxHow = WASM_HOW;
 
   // No texture resize (a size is an art decision); names, hierarchy and material names stay (the level module reads col_, spawn ...)
   const FLAGS = ['--compress', 'meshopt', '--texture-compress', 'ktx2', '--texture-size', '16384', '--flatten', 'false', '--join', 'false', '--instance', 'false', '--simplify', 'false', '--palette', 'false'];
   const version = JSON.parse(readFileSync(resolve(dirname(cliBin), '../package.json'), 'utf8')).version;
-  const toolKey = JSON.stringify({ gltfTransform: version, ktx: ktxVersion, flags: FLAGS });
+  const toolKey = JSON.stringify({ gltfTransform: version, encoder: encoderName, flags: FLAGS, lod: ratios });
   const readJson = (p, d) => { try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return d; } };
   const cachePath = resolve(STATE, 'optimize-cache.json'), reportPath = resolve(STATE, 'optimize-report.json');
   const cache = readJson(cachePath, {}), report = readJson(reportPath, {});
@@ -138,13 +150,16 @@ export async function runOptimize(dir, opt) {
   const names = {};   // only models with a usable result: the pack must never point at a file this run could not make
   let readBackSkipped = false;
   console.log(`${dry ? 'Dry run (nothing is written): ' : ''}${files.length} model(s) in ${SRC}`);
+  console.log(`Texture encoder: ${encoderName ?? 'none found'}`);
   for (const f of files) {
     const name = basename(f, extname(f)), src = resolve(SRC, f), out = resolve(OUT, name + '.glb'), key = sourceHash(src, toolKey);
     if (!force && existsSync(out) && cache[f] === key) {
       // No reconversion, but the verdict must match THIS run's flags: the budget problem is judged again against the current --budget, the other
       // problems (source and KTX2 slot checks) do not depend on flags and come from the stored report, so a cache hit cannot hide them from --strict
-      console.log(`  unchanged  ${f}`); names[name] = `/optimized/${name}.glb`;
+      console.log(`  unchanged  ${f}`);
       const prev = report[f];
+      names[name] = packEntry(name, prev?.lods);
+      if (prev?.lods) console.log(lodLine(f, prev.lods));
       if (prev?.source) {
         const gpu = (prev.source.textures?.list || []).reduce((s, t) => s + ktx2Gpu(t), 0);
         const now = [...(prev.problems || []).filter(p => p.code !== 'over-budget'), ...(gpu > budget * 1048576 ? [overBudget(gpu, budget)] : [])];
@@ -158,24 +173,43 @@ export async function runOptimize(dir, opt) {
     const s0 = modelStats(src0.doc, src0.core), hasTex = s0.textures.count > 0;
     const gpuEst = s0.textures.list.reduce((s, t) => s + ktx2Gpu(t), 0), a = statSync(src).size;
     const problems = sourceProblems(src0.doc, src0.core, budget, gpuEst);
-    let s1 = null, b = null;
+    let s1 = null, b = null, lods = null;
+    const skip = ratios && lodSkipReason(src0.doc);
     if (dry) {
-      console.log(`- ${f}  ${KB(a)}, ${s0.textures.count} texture(s): GPU ≈ ${mem(s0.textures.gpuBytes)} → ${mem(gpuEst)} as KTX2 (estimate); the download size is known after a real run${hasTex && !ktxOk ? '\n  ! ktx is not installed: a real run would fail on this file. ' + ktxHow : ''}`);
+      if (ratios) console.log(skip ? lodLine(f, { skipped: skip }) : `  LOD ${f}: ${triangleCount(src0.doc)} triangles, levels are measured in a real run`);
+      console.log(`- ${f}  ${KB(a)}, ${s0.textures.count} texture(s): GPU ≈ ${mem(s0.textures.gpuBytes)} → ${mem(gpuEst)} as KTX2 (estimate); the download size is known after a real run${hasTex && !encoderOk ? '\n  ! no texture encoder is installed: a real run would fail on this file. ' + ktxHow : ''}`);
     } else {
-      if (hasTex && !ktxOk) { console.log(`✗ ${f}: ${ktxHow}`); failed++; continue; }
-      const t0 = Date.now(), r = spawnSync(process.execPath, [cliBin, 'optimize', src, out, ...FLAGS], { encoding: 'utf8' });
+      if (hasTex && !encoderOk) { console.log(`✗ ${f}: ${ktxHow}`); failed++; continue; }
+      const t0 = Date.now();
+      // the CLI's own ktx2 step needs the `ktx` program; without textures or without it, texture compression is switched off for the CLI
+      let input = src, flags = hasTex && ktxOk ? FLAGS : FLAGS.map((x, i) => FLAGS[i - 1] === '--texture-compress' ? 'false' : x), encMs = 0;
+      if (hasTex && wasm) {
+        // wasm route: encode the textures here (by slot), hand the CLI a glb whose textures are already KTX2 and tell it not to touch textures
+        try {
+          const tmp = resolve(STATE, 'tmp-' + name + '.glb'); mkdirSync(STATE, { recursive: true });
+          const gx = req('@gltf-transform/extensions'), e = await encodeTextures(src0.doc, gx, wasm); encMs = e.ms;
+          await new (req('@gltf-transform/core').NodeIO)().registerExtensions(gx.ALL_EXTENSIONS).write(tmp, src0.doc);
+          input = tmp;
+        } catch (e) { console.log(`✗ ${f}: texture encoding failed (${e.message})`); failed++; continue; }
+      }
+      const r = spawnSync(process.execPath, [cliBin, 'optimize', input, out, ...flags], { encoding: 'utf8' });
+      if (input !== src) try { unlinkSync(input); } catch {}
       if (r.status) { console.log(`✗ ${f}\n${(r.stderr || r.stdout).trim().split('\n').slice(-6).join('\n')}`); failed++; continue; }
       b = statSync(out).size;
       let res; try { res = await readModel(out); } catch (e) { console.log(`✗ ${f}: the output cannot be read back (${e.message})`); failed++; continue; }
       s1 = modelStats(res.doc, res.core);
       if (ktxParse) problems.push(...encodingProblems(res.doc, ktxParse));
       else if (hasTex && !readBackSkipped) { readBackSkipped = true; console.log('  ! KTX2 read-back check skipped: ktx-parse is not installed, so a texture encoded for the wrong slot would not be reported (npm i -D ktx-parse)'); }
-      names[name] = `/optimized/${name}.glb`; cache[f] = key; before += a; after += b; done++; gpuB += s0.textures.gpuBytes; gpuA += s1.textures.gpuBytes;
-      console.log(`✓ ${f}  ${KB(a)} → ${KB(b)} (${Math.round(b / a * 100)}%, ${Date.now() - t0} ms); textures ${s0.textures.count} × ${s1.textures.formats.join('+') || '-'}, GPU ≈ ${mem(s0.textures.gpuBytes)} → ${mem(s1.textures.gpuBytes)} (estimate)`);
+      dropLevels(OUT, name);
+      if (skip) lods = { skipped: skip };
+      else if (ratios) try { lods = await buildLevels(out, OUT, name, ratios); } catch (e) { console.log(`✗ ${f}: LOD levels failed (${e.message})`); failed++; continue; }
+      names[name] = packEntry(name, lods); cache[f] = key; before += a; after += b; done++; gpuB += s0.textures.gpuBytes; gpuA += s1.textures.gpuBytes;
+      console.log(`✓ ${f}  ${KB(a)} → ${KB(b)} (${Math.round(b / a * 100)}%, ${Date.now() - t0} ms${encMs ? `, ${encMs} ms of it encoding textures` : ''}); textures ${s0.textures.count} × ${s1.textures.formats.join('+') || '-'}, GPU ≈ ${mem(s0.textures.gpuBytes)} → ${mem(s1.textures.gpuBytes)} (estimate)`);
+      if (lods) console.log(lodLine(f, lods));
     }
     for (const p of problems) console.log(`  ! ${p.code}: ${p.msg}`);
     problemCount += problems.length;
-    report[f] = { sourceBytes: a, outputBytes: b, output: b ? `public/optimized/${name}.glb` : null, source: s0, optimized: s1, problems, dry: dry || undefined };
+    report[f] = { sourceBytes: a, outputBytes: b, output: b ? `public/optimized/${name}.glb` : null, source: s0, optimized: s1, lods: lods ?? undefined, problems, dry: dry || undefined };
   }
   if (!dry) {
     mkdirSync(STATE, { recursive: true });

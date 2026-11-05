@@ -64,4 +64,4 @@ hide `engine.sky.dome` and add your own background.
 
 ## Water and weather particles
 Water depth color, crest foam, wave / surface GLSL, reflections; rain and snow shape, size, density and shaders, the lightning picture, and
-particles for the game's own weather (`engine.weather.define`): `44-water-weather-hooks.md`.
+particles for the game's own weather (`engine.weather.defineField`): `44-water-weather-hooks.md`.

@@ -1,4 +1,4 @@
-// Rule R33 on fixture texts: startup calls that create something saved whole are errors, world.add initial anywhere is an error, code managing a
+// Rule R33 on fixture texts: startup calls that create something saved whole are warnings, world.add initial anywhere is the one error, code managing a
 // world model is a warning; startup engine.add / colliders / interactions (rebuilt by code every start) are fine.
 import { scanText } from '../rules/R33-authored-placement.mjs';
 
@@ -8,15 +8,18 @@ const found = (text, level) => scanText(text).filter(r => !level || r.level === 
 const flagged = (text, n = 1, level) => found(text, level) === n;
 
 export async function run({ check }) {
-  // errors: saved whole, so a load restores it and the startup code makes it again
-  check('top-level world.add is an error', flagged("engine.world.add({ kind: 'crate', position: [0, 0, 0] });\n", 1, 'error'));
-  check('level:loaded handler with world.add is an error', flagged("engine.events.once('level:loaded', () => engine.world.add({ kind: 'gate', position: p }));\n", 1, 'error'));
-  check('content.spawn at setup is an error (each call)', flagged("engine.content.spawn('chest', { x: 1, z: 2 });\nengine.content.spawn('chest', { x: 3, z: 4 });\n", 2, 'error'));
-  check('pickups.spawn / npcs.add / content.spawn in engine:ready are errors', flagged("engine.events.on('engine:ready', () => {\n  engine.pickups.spawn(p, { give: 'apple' });\n  engine.npcs.add(def);\n  engine.content.spawn('wolf', {});\n});\n", 3, 'error'));
-  check('a function called from setup is setup (one level)', flagged("function seed() { engine.content.spawn('chest', p); }\nseed();\n", 1, 'error'));
-  check('install method of a module is setup', flagged("const mod = { install(e) { e.world.add({ kind: 'a' }); } };\n", 1, 'error'));
-  check('forEach at top level keeps the setup context', flagged("[1, 2].forEach(i => engine.content.spawn('rock', { x: i, z: 0 }));\n", 1, 'error'));
+  // warnings: saved whole, so a load restores it and the startup code makes it again; the rule cannot see whether the game saves
+  check('top-level world.add warns', flagged("engine.world.add({ kind: 'crate', position: [0, 0, 0] });\n", 1, 'warn'));
+  check('level:loaded handler with world.add warns', flagged("engine.events.once('level:loaded', () => engine.world.add({ kind: 'gate', position: p }));\n", 1, 'warn'));
+  check('content.spawn at setup warns (each call)', flagged("engine.content.spawn('chest', { x: 1, z: 2 });\nengine.content.spawn('chest', { x: 3, z: 4 });\n", 2, 'warn'));
+  check('pickups.spawn / npcs.add / content.spawn in engine:ready warn', flagged("engine.events.on('engine:ready', () => {\n  engine.pickups.spawn(p, { give: 'apple' });\n  engine.npcs.add(def);\n  engine.content.spawn('wolf', {});\n});\n", 3, 'warn'));
+  check('a function called from setup is setup (one level)', flagged("function seed() { engine.content.spawn('chest', p); }\nseed();\n", 1, 'warn'));
+  check('install method of a module is setup', flagged("const mod = { install(e) { e.world.add({ kind: 'a' }); } };\n", 1, 'warn'));
+  check('forEach at top level keeps the setup context', flagged("[1, 2].forEach(i => engine.content.spawn('rock', { x: i, z: 0 }));\n", 1, 'warn'));
   check('world.add with initial: true is an error even inside an op', flagged("engine.ops.define('x', { run: e => e.world.add({ id: 'a', kind: 'a' }, { initial: true }) });\n", 1, 'error'));
+
+  check('[guard] only { initial: true } is an error: setup findings never fail a game', !scanText("engine.world.add({ kind: 'a' });\nengine.content.spawn('b', p);\n").some(r => r.level === 'error'));
+  check('[guard] the fix names the // runtime: tag', /\/\/ runtime: <reason>/.test(scanText("engine.content.spawn('b', p);\n")[0]?.fix ?? ''));
 
   // allowed: rebuilt by code every start
   check('startup engine.add / scene.add / colliders / rigid / interactions / rays / grids / stream are fine', flagged('engine.add(windmill, { id: \'windmill\' });\nengine.scene.add(sky);\n'

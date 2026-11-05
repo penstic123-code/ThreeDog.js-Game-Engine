@@ -7,6 +7,7 @@
 //   Entries after a spread (`...more`) or a value built by code (`Array.from(...)`, a loop) get the line of the export (it points at the generator).
 // The engine reads it at content load (modules/content/ids.js srcOf) and records id → 'file:line' (engine.world.origin).
 import { relative } from 'node:path';
+import { keyName } from '../lib/ast-value.mjs';
 
 // content/<kind>.js and the parts of a folder kind, content/<kind>/<part>.js (joined by the engine's contentParts)
 const CONTENT_RE = /[\\/]content[\\/](?:[^\\/]+[\\/])?[^\\/]+\.js$/;
@@ -32,7 +33,7 @@ function table(node, lineOf) {
   if (node?.type === 'ObjectExpression') {
     for (const p of node.properties) {
       if (p.type !== 'Property') continue;
-      const k = p.key.type === 'Identifier' && !p.computed ? p.key.name : p.key.type === 'Literal' ? String(p.key.value) : null;
+      const k = keyName(p);
       if (k != null) at[k] = lineOf(p.start);
     }
     return at;

@@ -1,0 +1,147 @@
+{
+ "versions": {
+  "stacks": 1,
+  "time": 2,
+  "vars": 1,
+  "random": 1,
+  "scene": 1,
+  "world": 5,
+  "content": 1,
+  "interactions": 1,
+  "inventory": 1,
+  "containers": 2,
+  "quests": 2
+ },
+ "save": {
+  "format": 1,
+  "savedAt": 1793855523996,
+  "versions": {
+   "stacks": 1,
+   "time": 2,
+   "vars": 1,
+   "random": 1,
+   "scene": 1,
+   "world": 5,
+   "content": 1,
+   "interactions": 1,
+   "inventory": 1,
+   "containers": 2,
+   "quests": 2
+  },
+  "parts": {
+   "stacks": {},
+   "time": {
+    "channels": {
+     "world": 0,
+     "player": 0,
+     "calendar": 0
+    },
+    "timers": []
+   },
+   "vars": {
+    "flags": {
+     "met": true,
+     "mood": "happy"
+    },
+    "counters": {
+     "coins": 7,
+     "steps": 3
+    }
+   },
+   "random": {
+    "seed": 1,
+    "state": 1
+   },
+   "scene": {
+    "set": {},
+    "removed": []
+   },
+   "world": {
+    "seq": 0,
+    "step": 0,
+    "time": 0,
+    "owed": {},
+    "records": {
+     "player": {
+      "kind": "player",
+      "position": {
+       "x": 1,
+       "y": 0,
+       "z": 2
+      },
+      "vehicle": null,
+      "vx": 0,
+      "vz": 0,
+      "vy": 0,
+      "facing": 0,
+      "amount": 0,
+      "grounded": true,
+      "swimming": false,
+      "jump": {
+       "coyote": 0,
+       "used": 0
+      },
+      "safe": [
+       1,
+       0,
+       2
+      ],
+      "support": null
+     },
+     "crate-1": {
+      "kind": "crate",
+      "position": {
+       "x": 3,
+       "y": 0,
+       "z": 4
+      }
+     }
+    },
+    "changed": {},
+    "removed": []
+   },
+   "content": {
+    "marks": []
+   },
+   "interactions": {
+    "spent": [
+     "shell-1"
+    ],
+    "counted": {
+     "shells": 1
+    }
+   },
+   "inventory": {
+    "seq": 0,
+    "items": [
+     {
+      "id": "apple",
+      "count": 3
+     },
+     {
+      "id": "sword",
+      "count": 1
+     }
+    ]
+   },
+   "containers": {
+    "chest": [
+     {
+      "id": "gem",
+      "count": 2
+     }
+    ]
+   },
+   "quests": {
+    "state": {
+     "visit": {
+      "step": "1",
+      "done": false
+     }
+    },
+    "checkIn": 0
+   }
+  }
+ },
+ "settings": "{\"v\":1,\"values\":{\"pixelRatio\":1,\"shadows\":true,\"antialias\":false,\"adaptive\":false,\"vol.master\":0.8,\"vol.music\":0.5,\"vol.sfx\":0.8,\"vol.ambience\":0.7,\"vol.ui\":0.8,\"quality\":\"custom\",\"masterVolume\":0.4},\"bindings\":{},\"locale\":\"zh-CN\"}"
+}

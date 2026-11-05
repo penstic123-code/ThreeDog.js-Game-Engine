@@ -10,9 +10,10 @@ const STRINGS = {
   actions: 'Can do (engine.ops): {list}',
   error: '[Error, gameplay frozen] {where}: {message}', errorAt: ' ({at})',
   errorHint: ' | Code: {code} | Fix: {fix} Read: {docs}', disabled: 'Disabled picture / ui modules (they threw): {list}',
-  paused: ', paused', headless: ', headless', notReady: ', still loading',
+  halted: ', halted', headless: ', headless', notReady: ', still loading',
   waiting: 'Loading: {waiting} ({pending} pending, {done}/{total} done)', loadFailed: 'Load failed{blocked}: {list}', blocked: ' (start blocked)',
   loadWarn: 'Loaded with missing references: {list}',
+  audio: 'Audio: {list}',
   time: 'Time: {clock}, day {day}{season}, {dayNight}',
   day: 'daytime', night: 'night',
   weather: 'Weather: {name}{changing} (rain {rain}, snow {snow}, fog {fog}){shown}',
@@ -59,7 +60,7 @@ const NEAR_SUMMARY = 5, LINE = 110;
 const tr = (table, k) => (k != null && STRINGS[table][k]) || (k ?? STRINGS.none);
 const n1 = v => (typeof v === 'number' ? r1(v) : v);
 // Standard fields get sentences above; data from other modules is squeezed into one JSON line
-const SHOWN = new Set(['nearbyRadius', 'ready', 'error', 'disabledModules', 'loading', 'time', 'player', 'camera', 'nearby', 'actions', 'ui', 'cutscene',
+const SHOWN = new Set(['nearbyRadius', 'ready', 'error', 'disabledModules', 'loading', 'audio', 'time', 'player', 'camera', 'nearby', 'actions', 'ui', 'cutscene',
   'modules', 'perf', 'weather', 'render', 'threePatches']);   // threePatches: page-wide, the same every call; describe() JSON carries it, the text stays short
 // engine bookkeeping in describe(): one count each in the summary, the content one describeText({ path }) away
 const TABLES = new Set(['holds', 'input', 'control', 'shared', 'wraps', 'slots', 'scene', 'owned', 'picture', 'renderer']);
@@ -90,7 +91,7 @@ function atPath(d, path) {
 export function describeText(d, { full = false, path, maxLines = 30, game = [] } = {}) {
   if (path) return atPath(d, path);
   const L = [], t = d.time;
-  const flags = (t.paused ? STRINGS.paused : '') + (t.headless ? STRINGS.headless : '') + (d.loading.done ? '' : STRINGS.notReady);
+  const flags = (t.halted ? STRINGS.halted : '') + (t.headless ? STRINGS.headless : '') + (d.loading.done ? '' : STRINGS.notReady);
   if (d.error) L.push(fmt(STRINGS.error, d.error) + (d.error.at ? fmt(STRINGS.errorAt, d.error) : '')
     + (d.error.fix ? fmt(STRINGS.errorHint, { code: d.error.code, fix: d.error.fix, docs: d.error.docs.join(', ') }) : ''));
   L.push(fmt(STRINGS.head, { s: t.real, flags }));
@@ -100,6 +101,10 @@ export function describeText(d, { full = false, path, maxLines = 30, game = [] }
     { blocked: ld.blocked ? STRINGS.blocked : '',
     list: ld.failed.map(f => `${f.kind} "${f.name}" ${f.error.url ?? ''} ${f.error.message}${f.fallback ? ` -> ${f.fallback}` : ''}`).join('; ') }));
   if (ld.warnings.length) L.push(fmt(STRINGS.loadWarn, { list: ld.warnings.map(w => `"${w.name}" missing ${w.missing.join(', ')}`).join('; ') }));
+  if (d.audio) {   // only present while a bus is ducked or a voice plays; ducks are the target level, so a fade in progress already shows its end
+    const low = Object.entries(d.audio.ducks).filter(([, v]) => v !== 1).map(([b, v]) => `${b} ducked to ${v}`), v = Object.entries(d.audio.voices).map(([k, n]) => `${k} x${n}`);
+    L.push(fmt(STRINGS.audio, { list: [...low, v.length ? 'playing ' + v.join(', ') : null].filter(Boolean).join('; ') }));
+  }
   if (d.disabledModules?.length) L.push(fmt(STRINGS.disabled, { list: d.disabledModules.join(', ') }));
   if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: t.season ? ', ' + tr('season', t.season) : '', dayNight: t.isDay ? STRINGS.day
     : STRINGS.night }));

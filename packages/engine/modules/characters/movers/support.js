@@ -1,5 +1,5 @@
 // What a character stands on (character.support), moving platforms that carry it, the last safe spot (character.safeGround) and falling out of the
-// level (fall: { belowY }). Shared by both movers (simple.js, rapier.js), so a platform feels the same with or without physics.
+// level (fall: { belowY }). Shared by the movers (simple.js, rapier.js, manual), so a platform feels the same with or without physics.
 //   const lift = engine.characters.support(liftMesh);          // a box / mesh the player can stand on and ride; move liftMesh any way you like
 // Why "record -> compare" and not "the platform tells the riders it moved": the rider remembers the platform's matrixWorld when it lands and, before
 // its own move, after every fixed step and once a frame, applies "recorded matrix -> current matrix" to itself and records again. Every bit of platform

@@ -18,9 +18,9 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, statSy
 import { resolve, relative, dirname, extname, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { isLocalRequest } from './local.js';
-import { ROOT as REPO, abs, rel, ENGINE_PKG, INDEX_JS_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, optionalEntry } from '../paths.mjs';
+import { ROOT as REPO, abs, rel, ENGINE_PKG, INDEX_JS_REL, BAKED_REL, ENGINE_CODE_DIRS_REL, optionalEntry, SKIP_DIRS as SKIP_DIR_NAMES } from '../paths.mjs';
 
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.threedog', 'public', 'shots', '.git']);
+const SKIP_DIRS = new Set(SKIP_DIR_NAMES);
 // When looking for generator source the engine source is not searched (generators live in the game, its picture/ folder included)
 const ENGINE_CODE = new Set(ENGINE_CODE_DIRS_REL.map(abs));
 const BARREL = abs(INDEX_JS_REL);

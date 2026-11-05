@@ -14,7 +14,7 @@ threedog.js is a web 3D game engine on top of three.js 0.187 (plain three.js, no
 1. **The engine provides mechanisms, never hard-coded art.** Colors, models, sky, lighting, particles and UI colors come from the game (its `picture/` code, names in `assets.js`, or plain three.js); without them the engine shows neutral gray. Engine modules build plain three.js through `render/neutral.js` and hand it out as `engine.<module>.material`.
 2. **Core never depends on modules.** `packages/engine/core` must not import `packages/engine/modules` or name one; module dependencies go in `requires` / `provides`, optional ones are used as `engine.xxx?.` and listed in `optional`.
 3. **Game content never enters the engine.** Dialogue, quests, items and map layout live in the game's `content/`; no game's name or data appears in the engine.
-4. **three.js stays fully writable.** A direct three.js write takes a value over and the engine yields; the engine does not wrap what three.js already does. Every change the engine makes to three.js itself is listed in `core/threePatches.js` (`describe().threePatches`).
+4. **three.js stays fully writable.** A direct three.js write takes a value over and the engine yields. The engine never hides three.js: it coordinates, provides tools, builds wheels, and offers only features that do not make games alike. Every change the engine makes to three.js itself is listed in `core/threePatches.js` (`describe().threePatches`).
 
 ## Repository layout
 ```

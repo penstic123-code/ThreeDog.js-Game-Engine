@@ -36,7 +36,7 @@ export const specs = [
       page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
       const r = await ev(src => { try {
         const { read, meanBox, changed } = (0, eval)(`(${src})`)(), { parts, picture, THREE } = window.webgpuTslTest, U = engine.uniforms;
-        engine.pause();
+        engine.haltLoop();
         engine.step(0.01);   // one real frame first: renderOnce skips onRender, so picture/'s lights and sky are unset until a frame has run
         const mats = [];
         engine.scene.traverse(o => { if (o.material) for (const m of [].concat(o.material)) mats.push({ o: o.name || o.type, type: m.type, node: !!m.isNodeMaterial }); });

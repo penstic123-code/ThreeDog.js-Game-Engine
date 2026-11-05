@@ -1,9 +1,9 @@
-// [guard] Module types and capabilities cannot be bypassed (core/moduleTypes.js, core/modules.js, docs/plans/done/2026-11-03-ownership-design.md section 6).
+// [guard] Module types warn and capabilities hold (core/moduleTypes.js, core/modules.js, docs/plans/done/2026-11-03-ownership-design.md section 6).
 // Why a guard: before types, "who may own what" lived only in the docs, so an AI's picture module defined ops and a ui module bound its own keys,
 // and a module that depended on 'inventory' broke when a game swapped the bag. One page (perf world: openWorld with world, sky, weather), six rules:
-//   1. a module without a type (or with an unknown one) is refused with the one-line fix
-//   2. a picture module defining an op or writing a world record, a ui module binding keys or registering a save part: refused with rule + fix,
-//      nothing half installed; the same calls from a rules module are fine; describe().modules lists name, type, provides, requires
+//   1. a module without a type is 'rules'; an unknown one (a typo) is refused with the list
+//   2. a picture module defining an op or writing a world record, a ui module binding keys or registering a save part: warned once with rule + fix, and it
+//      goes through (a game's own module may need it); the same calls from a rules module say nothing; describe().modules lists name, type, provides, requires
 //   3. requires names a capability; a missing one names both fixes (the engine's part, or your own provides)
 //   4. replaces of a capability keeps its dependents working: engine.<capability> is the new provider's API
 //   5. weather is two modules (state + drawing) from one weather() call: a save made mid-transition loads mid-transition, and removing the drawing
@@ -13,31 +13,34 @@
 
 export const specs = [
   {
-    name: '[guard] module types: missing type, picture / ui rules, requires by capability with both fixes, replaces keeps dependents, weather state + drawing save mid-transition',
+    name: '[guard] module types: default type, picture / ui warnings, requires by capability with both fixes, replaces keeps dependents, weather state + drawing save mid-transition',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const out = {}, err = f => { try { f(); return null; } catch (e) { return e; } };
-        // 1. type is required
+        // 1. no type is game logic
+        const said = [], warn = console.warn; console.warn = (...a) => { said.push(a.join(' ')); warn(...a); };
         const noType = err(() => engine.use({ name: 'mtNoType', install() {} }));
         const badType = err(() => engine.use({ name: 'mtBadType', type: 'logic', install() {} }));
-        out.noType = { code: noType?.code, msg: noType?.message, installed: engine.has('mtNoType') };
+        out.noType = { err: noType?.message, type: engine.modules.get('mtNoType')?.type };
+        engine._unuse('mtNoType');
         out.badType = { code: badType?.code, msg: badType?.message };
-        // 2. per-type rules: refused at the write, with the rule and the fix; the batch rolls back
+        // 2. per-type rules: a warning at the write, with the rule and the fix; the write goes through
         const pictureOp = err(() => engine.use({ name: 'mtPictureOp', type: 'picture', install(e) { e.ops.define('mt.buy', { run() {} }); } }));
         const pictureWorld = err(() => engine.use({ name: 'mtPictureWorld', type: 'picture', install(e) { e.world.add({ kind: 'mtThing', position: { x: 0, y: 0, z: 0 } }); } }));
         const uiKeys = err(() => engine.use({ name: 'mtUiKeys', type: 'ui', install(e, ctx) { ctx.input.action('mtOpen'); ctx.input.bind('mtOpen', ['KeyM']); } }));
         const uiSave = err(() => engine.use({ name: 'mtUiSave', type: 'ui', install(e) { e.saves.register('mtPanel', { save: () => 1, load() {} }); } }));
-        // a hook breaking the rule later is caught too (the frame hook runs as the module)
-        let hookErr = null;
-        engine.use({ name: 'mtPictureLater', type: 'picture', frame(dt, e) { if (!hookErr) hookErr = err(() => e.ops.define('mt.later', { run() {} })) ?? 'none'; } });
-        engine._resume(); await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res))); engine.pause();
+        // a hook going against the rule later is seen too (the frame hook runs as the module)
+        let hooked = false;
+        engine.use({ name: 'mtPictureLater', type: 'picture', frame(dt, e) { if (!hooked) { hooked = true; e.ops.define('mt.later', { run() {} }); } } });
+        engine._unhalt(); await new Promise(res => requestAnimationFrame(() => requestAnimationFrame(res))); engine.haltLoop();
         engine._unuse('mtPictureLater');
-        out.rules = [pictureOp, pictureWorld, uiKeys, uiSave].map(e => ({ code: e?.code, msg: e?.message }));
-        out.rolledBack = !engine.has('mtPictureOp') && !engine.ops.defs.has('mt.buy') && !engine.has('mtUiKeys') && !engine.saves.providers.has('mtPanel');
-        out.hook = { code: hookErr?.code, msg: hookErr?.message };
+        console.warn = warn;
+        out.thrown = [pictureOp, pictureWorld, uiKeys, uiSave].map(e => e?.message ?? null);
+        out.said = said.filter(s => s.includes('[module-type-rule]'));
+        out.wentThrough = engine.has('mtPictureOp') && engine.ops.defs.has('mt.buy') && engine.has('mtUiKeys') && engine.saves.providers.has('mtPanel');
         const fine = err(() => engine.use({ name: 'mtRules', type: 'rules', install(e) { e.ops.define('mt.ok', { run: () => 1 }); e.saves.register('mtRules', { save: () => 1, load() {} }); } }));
         out.rulesFine = !fine && engine.ops.defs.has('mt.ok');
         // 3. requires names a capability: both fixes
@@ -65,21 +68,21 @@ export const specs = [
         off.remove();
         engine.step(0.05);
         out.weather = { wet, mid, back: { t: W.t, rain: W.current.rain, name: W.name }, changes: changes.length,
-          lookReads: Math.abs(engine.uniforms.uCloud.value - W.current.cloud) < 1e-9, split: engine.modules.get('weather').type + '+' + engine.modules.get('weatherDraw').type };
+          lookReads: Math.abs(engine.uniforms.uWeatherCloud.value - W.current.cloud) < 1e-9, split: engine.modules.get('weather').type + '+' + engine.modules.get('weatherDraw').type };
         engine._unuse('weatherDraw'); engine.step(0.05);
         out.stateStays = engine.has('weather') && !engine.has('weatherDraw') && engine.saves.providers.has('weather');
-        engine._resume();
+        engine._unhalt();
         return out;
       });
-      check('1. no type: module-type error with the one-line fix, nothing installed', r.noType.code === 'module-type' && /add type: 'rules'/.test(r.noType.msg) && !r.noType.installed, JSON.stringify(r.noType));
+      check('1. no type: installs as rules', !r.noType.err && r.noType.type === 'rules', JSON.stringify(r.noType));
       check('1. unknown type: lists the types', r.badType.code === 'module-type' && /'world' \| 'picture'/.test(r.badType.msg), JSON.stringify(r.badType));
-      const [op, world, keys, save] = r.rules;
-      check('2. picture module defining an op: rule + fix', op.code === 'module-type-rule' && /mtPictureOp \(type 'picture'\) defined op mt\.buy/.test(op.msg) && /Fix: define the op in a rules/.test(op.msg), JSON.stringify(op));
-      check('2. picture module writing a world record: rule + fix', world.code === 'module-type-rule' && /world records are game state/.test(world.msg) && /ops\.run/.test(world.msg), JSON.stringify(world));
-      check('2. ui module binding keys: rule + fix', keys.code === 'module-type-rule' && /bound keys/.test(keys.msg) && /engine\.input\.bind/.test(keys.msg), JSON.stringify(keys));
-      check('2. ui module registering a save part: rule + fix', save.code === 'module-type-rule' && /registered save part 'mtPanel'/.test(save.msg), JSON.stringify(save));
-      check('2. refused installs roll back (no op, no save part, no module)', r.rolledBack);
-      check('2. a picture module breaking the rule in its frame hook is caught too', r.hook.code === 'module-type-rule' && /mtPictureLater/.test(r.hook.msg), JSON.stringify(r.hook));
+      const said = re => r.said.some(x => re.test(x));
+      check('2. nothing is refused: every write went through', r.thrown.every(x => x === null) && r.wentThrough, JSON.stringify(r.thrown));
+      check('2. picture module defining an op: warned with rule + fix', said(/mtPictureOp \(type 'picture'\) defined op mt\.buy.*Fix: define the op in a rules/s), JSON.stringify(r.said));
+      check('2. picture module writing a world record: warned', said(/world records are game state.*ops\.run/s), JSON.stringify(r.said));
+      check('2. ui module binding keys: warned', said(/bound keys.*engine\.input\.bind/s), JSON.stringify(r.said));
+      check('2. ui module registering a save part: warned', said(/registered save part 'mtPanel'/), JSON.stringify(r.said));
+      check('2. a picture module doing it in its frame hook is seen too', said(/mtPictureLater/), JSON.stringify(r.said));
       check('2. the same writes from a rules module are fine', r.rulesFine);
       check('3. missing capability: names both fixes (the engine part, or your own provides)', r.need.code === 'module-requires'
         && /engine\.use\(scoreboard\(\), mtNeedy/.test(r.need.msg) && /provides: \['scoreboard'\]/.test(r.need.msg), JSON.stringify(r.need));
@@ -105,7 +108,7 @@ export const specs = [
           let calls = 0;
           // no extra flag: the type alone decides how an error is handled
           E.use({ name: id, type, frame() { calls++; throw new Error(`${id}-boom`); } });
-          await E.start(); E.pause();
+          await E.start(); E.haltLoop();
           E.step(0.1);
           const t0 = E.clock.now; E.step(0.5);
           const out = { disabled: E.disabledModules.has(id), calls, error: E.error?.message ?? null, frozen: E.frozen, clockMoved: E.clock.now > t0 };

@@ -8,7 +8,7 @@
 // one-off costs that resolution cannot fix.
 //
 // shortcut: only the resolution is adjusted. A tier ladder (resolution -> shadows -> view distance -> vegetation) would hang off decide() below as
-// further steps once a game needs it; until then the other knobs stay the game's (settings / engine.view).
+// further steps once a game needs it; until then the other knobs stay the game's (settings / engine.autoView).
 import { DEV, warnOnce } from './validate.js';
 
 const GRACE = 3;          // s after ready that are not judged (warm-up compiles, first uploads, stream fill)
@@ -18,11 +18,18 @@ const LIGHT = 0.6;        // cost under this share = headroom (raise after RAISE
 const RAISE_AFTER = 4;
 const LOCK_TOL = 0.08;    // intervals within 8 % of the window median count as "clustered"
 
-/** The engine.adaptive state object: the public fields (on, paused, target, min, max, lowered, from) plus the controller's own counters */
+/** The engine.adaptive state object: the public fields (on, target, min, max, base, lowered, from; base is what this device or game starts at, the settings presets' base) plus the controller's own counters */
 export function createAdaptive({ on, target, max }) {
-  return { paused: false, on, target, min: 0.6, max, t: 0, good: 0, cooldown: 0, lowered: false, from: null,
+  return { on, target, min: 0.6, max, base: max, t: 0, good: 0, cooldown: 0, lowered: false, from: null,
     age: 0, costs: [], gaps: [], refresh: Infinity, reason: null };
 }
+
+/**
+ * The one engine write of the ratio; re-reading it after keeps this from counting as an outside write. Skips an equal value because three's
+ * setPixelRatio resizes the canvas, which clears the drawing buffer.
+ * @param {any} e @param {number} p
+ */
+export function writeRatio(e, p) { if (Math.abs(e.renderer.getPixelRatio() - p) > 0.001) e.renderer.setPixelRatio(p); e._oPixelRatio.mark(); }
 
 const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
 
@@ -32,12 +39,12 @@ const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length
  */
 export function adapt(e, dt, cost, compiled, gpuKnown) {
   const a = e.adaptive;
-  if (!a.on || !e.ready || a.paused) return;
+  if (!a.on || !e.ready) return;
   a.age += dt; a.t += dt; a.cooldown -= dt;
   if (!compiled) { a.costs.push(cost); a.gaps.push(dt * 1000); }
   if (a.t < WINDOW) return;
   const costs = a.costs, gaps = a.gaps; a.t = 0; a.costs = []; a.gaps = [];
-  // the game set renderer.setPixelRatio itself: adaptive resolution stops (core/owned.js); engine.view.manual('pixelRatio', false) resumes it
+  // the game set renderer.setPixelRatio itself: adaptive resolution stops (core/owned.js); engine.autoView.manual('pixelRatio', false) resumes it
   e._oPixelRatio.check(); if (!e._oPixelRatio.on) return;
   if (!gaps.length) return;
   const gap = median(gaps), clustered = gaps.filter(g => Math.abs(g - gap) <= gap * LOCK_TOL).length >= gaps.length * 0.7;
@@ -56,9 +63,9 @@ export function adapt(e, dt, cost, compiled, gpuKnown) {
     a.reason = heavy ? `frames cost ${c.toFixed(1)} ms of a ${budget.toFixed(1)} ms budget (target ${a.target} fps)` : `fps ${(1000 / gap).toFixed(0)} is under ${a.target}`;
     // never silent: the picture gets softer, and the game or an AI should know why (dev warning once; describe().render.scale keeps the facts)
     if (!a.lowered) { a.lowered = true; a.from = pr; if (DEV) warnOnce(`render scale ${pr} -> ${to} because ${a.reason}; adaptive resolution lowers it down to ${a.min}. Turn off with createEngine({ adaptiveResolution: false }) or engine.adaptive.on = false; see describe().render.scale`); }
-    e.setPixelRatio(to); a.good = 0; a.cooldown = 5;
+    writeRatio(e, to); a.good = 0; a.cooldown = 5;
   } else if (!overload && c < budget * LIGHT && pr < a.max - 0.01 && a.cooldown <= 0) {
-    if (++a.good >= RAISE_AFTER) { e.setPixelRatio(Math.min(a.max, +(pr + 0.05).toFixed(2))); a.good = 0; }
+    if (++a.good >= RAISE_AFTER) { writeRatio(e, Math.min(a.max, +(pr + 0.05).toFixed(2))); a.good = 0; }
   } else a.good = 0;
 }
 

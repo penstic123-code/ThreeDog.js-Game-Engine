@@ -48,7 +48,7 @@ Conditions are used in quest step done, dialogue option if and line variant if; 
   - `items.js` items (id -> name, icon, description); also export startItems for starting items
   - `pickups.js` pickups on the ground (list)
   - `containers.js` chests / shelves (container id -> { capacity, items: starting goods }; starting goods are placed only the first time, then saved)
-  - `npcs.js` NPCs (id -> name, schedule, dialogue)
+  - `npcs.js` NPCs (id -> name, schedule, interact)
   - `dialogues.js` dialogues (id -> speaker, nodes)
   - `quests.js` quests (id -> title, steps, reward; a step can have a target position)
   - `actions.js` own key actions of the game (action name -> default key, label)
@@ -62,5 +62,5 @@ Conditions are used in quest step done, dialogue option if and line variant if; 
   - `views.js` named fixed camera views (name -> { position: [x, y, z], target?: [x, y, z], fov? }); engine.views.show(name), ?view=name, npm run shot -- -w game --view name
   - `grids.js` placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved
   - `renames.js` renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id
-  - `rules.js` condition words added by the game ({ conditions }); actions are ops, not effect words
-  - any other `<name>.js` the game registers in content/rules.js as kinds: { name: { desc, load(e, data), check?, map? } } (enemies, recipes, loot tables…)
+  - `rules.js` condition words and data kinds added by the game ({ conditions, kinds }); actions are ops, not effect words
+  - any other `<name>.js` the game registers in content/rules.js as kinds: { name: { desc, load?(e, data), check?, map? } } (enemies, recipes, loot tables…)

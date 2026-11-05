@@ -60,7 +60,7 @@ export const specs = [
       check('the sky draws the calendar time (drawnTime, uTimeOfDay)', Math.abs(r.drawn - 0.6) < 0.01 && Math.abs(r.ctxTime - 0.6) < 0.01, JSON.stringify(r));
       check('sky alone: no calendar, the fixed time 18:00 is drawn and stays', r.fixed.cal && r.fixed.drawn === 0.75 && r.fixed.t === 0.75, JSON.stringify(r.fixed));
       check('sky({ dayLength }) throws and names calendar()', /calendar/.test(r.oldKey), r.oldKey);
-      check('calendar() + sky({ time }) throws (the sky time would be unused)', /calendar\(\{ time \}\)/.test(r.twice), r.twice);
+      check('[guard] calendar() + sky({ time }) does not stop the game: the time goes unused and a warning says so', !r.twice, r.twice);
     },
   },
   {

@@ -32,7 +32,7 @@ const engine = window.engine = createEngine({ canvas: document.getElementById('v
   ui: { loading: false }, saveKey: 'test-parity', urlState: false, ...(GPU && { renderer: 'webgpu' }) });
 build(engine.scene);
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 /** RGBA bytes of a canvas just drawn (same task, before the browser presents it); the one read for both sides of the WebGPU variant */
 function canvasPixels(c) {

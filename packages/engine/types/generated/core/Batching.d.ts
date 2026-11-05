@@ -3,14 +3,14 @@
 export class Batching {
     /** Same model at least this many times in one cell becomes a batch (default 8) @type {number} */
     minCount: number;
-    /** Geometries and materials a live batch draws (engine.remove does not dispose these) @type {Map<any, number>} */ held: Map<any, number>;
+    /** Geometries and materials a live batch draws (engine.remove does not dispose these) @type {Map<any, number>} @experimental */ held: Map<any, number>;
     /** Parent of every batch InstancedMesh (in the scene) @type {THREE.Group} */
     root: THREE.Group;
     set enabled(on: boolean);
     /** Global switch: false dissolves every batch and stops watching; true starts again (scans what is already in the scene) @type {boolean} */
     get enabled(): boolean;
     set cell(v: number);
-    /** Cell edge in meters (default engine.stream.cellSize) @type {number} */
+    /** Cell edge in meters (default four engine.stream cells, 256 m) @type {number} */
     get cell(): number;
     /** Every batch: { mesh: InstancedMesh, cell, count, items } (items[i] is the placed object drawn by instance i) @returns {BatchInfo[]} */
     get batches(): BatchInfo[];

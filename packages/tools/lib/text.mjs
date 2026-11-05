@@ -27,6 +27,10 @@ export function walk(d, { exts = /\.(js|mjs)$/, skip = [], skipDir, start = d } 
   return out;
 }
 
+/** A keyboard key's KeyboardEvent.code, as a regex source: what content actions bind and `threedog press` sends */
+export const KEYBOARD_CODE = 'Key[A-Z]|Digit\\d|Numpad\\w+|F\\d+|Arrow(Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|'
+  + 'Minus|Equal|Comma|Period|Slash|Semicolon|Quote|Backquote|BracketLeft|BracketRight|Backslash';
+
 /** The description at the top of a file: the first comment block, up to two lines (// or /** style) */
 export function summary(text) {
   const out = [];

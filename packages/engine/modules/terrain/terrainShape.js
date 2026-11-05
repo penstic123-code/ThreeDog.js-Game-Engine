@@ -7,15 +7,11 @@
 // A cell with all four corners > 0 is ground, all four <= 0 is void; a mixed cell is cut along straight lines whose ends sit where the mask
 // crosses 0 on the cell edges (linear interpolation). Two chunks compute a shared edge from the same two grid values, so the cut is seamless.
 import { compilePure } from '../../core/threadPure.js';
-import { grayAt } from '../../core/grayMap.js';
+import { grayWorld } from '../../core/grayMap.js';
 
 // corner loop a(0,0) b(1,0) d(1,1) c(0,1): counter-clockwise in (x, z); polygons keep that winding
 const LX = [0, 1, 1, 0], LZ = [0, 0, 1, 1];
 
-/**
- * @param {any} S the shape config (functions already source text or functions; an image mask carries data)
- * @param {{ CELL: number, NOISE: any, key: (i: number, j: number) => number, hash: Function, fbm: Function }} ctx
- */
 /**
  * Walk the edges of a cut-cell polygon P (flat [x, z, tag, x, z, tag, ...], closed): fn(ax, az, bx, bz, k) per edge a -> b, k = a's index.
  * fn returning true stops the walk; returns whether it stopped. The one edge loop inPoly (here) and the island builder's clip share.
@@ -26,6 +22,10 @@ export function forEdges(P, fn) {
   return false;
 }
 
+/**
+ * @param {any} S the shape config (functions already source text or functions; an image mask carries data)
+ * @param {{ CELL: number, NOISE: any, key: (i: number, j: number) => number, hash: Function, fbm: Function }} ctx
+ */
 export function makeShape(S, { CELL, NOISE, key, hash, fbm }) {
   const pure = (v, label) => (typeof v === 'function' || typeof v === 'string' ? compilePure(v, label).call : null);
   const userMask = pure(S.mask, 'terrain({ shape: { mask } })');
@@ -101,8 +101,6 @@ export function makeShape(S, { CELL, NOISE, key, hash, fbm }) {
 
 // gray image mask: value = gray - threshold (outside the image: no ground)
 function sample(M, x, z) {
-  const [sx, sz] = M.size, [cx0, cz0] = M.center || [0, 0], th = M.threshold ?? 0.5;
-  const u = (x - cx0) / sx + 0.5, v = (z - cz0) / sz + 0.5;
-  if (u < 0 || u > 1 || v < 0 || v > 1) return -th;
-  return grayAt(M, u, v) - th;
+  const th = M.threshold ?? 0.5;
+  return (grayWorld(M, x, z) ?? 0) - th;
 }

@@ -6,7 +6,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const cal = engine.calendar, out = {};
         let n18 = 0; const at18 = engine.calendar.at('18:00', () => n18++);
         cal.timeOfDay = (17 + 59 / 60) / 24; engine.step(0.05, { render: false });
@@ -27,7 +27,7 @@ export const specs = [
       check('step 3 days: daily fires 3 times', r.daily === 3, r.daily);
       const a = await ev(() => {
         let fired = 0; engine.events.on('d:due', () => fired++);
-        engine.clock.after(120, 'd:due', { x: 1 });
+        engine.clock.after(120, 'd:due', { data: { x: 1 } });
         engine.saves.save('d-after');
         engine.step(60, { render: false });
         engine.saves.load('d-after');
@@ -86,7 +86,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const tick = () => new Promise(r => setTimeout(r, 0));
-        engine.pause();
+        engine.haltLoop();
         const fade = () => +getComputedStyle(document.querySelector('.threedog-fade')).opacity;
         const events = []; engine.events.on('flow:transition', x => events.push(x.phase));
         let ran = false;
@@ -126,7 +126,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const tick = () => new Promise(r => setTimeout(r, 0));
-        engine.pause();
+        engine.haltLoop();
         const fade = () => +getComputedStyle(document.querySelector('.threedog-fade')).opacity;
         const p = engine.timeline.play([{ fade: 0.2 }, { wait: 5 }, { fade: 0.2, to: 0 }]);
         await tick(); engine.step(0.3, { render: false }); await tick();
@@ -150,7 +150,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.timeline.skip(); engine.pause(); engine.step(0.1);
+        engine.timeline.skip(); engine.haltLoop(); engine.step(0.1);
         const cam = engine.camera, dir = cam.getWorldDirection(new engine.THREE.Vector3());
         const behind = cam.position.clone().addScaledVector(dir, -30), front = cam.position.clone().addScaledVector(dir, 30);
         const m = engine.hud.marker(behind, { label: 'D 测试' });
@@ -192,7 +192,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const cal = engine.calendar;
         let on = null, calls = 0;
         cal.timeOfDay = 0.5; engine.step(0.05, { render: false });
@@ -219,7 +219,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const cal = engine.calendar, out = { moved: !engine.clock.at && !engine.clock.between && !engine.clock.daily && !engine.clock.onSeason };
         const dl = cal.dayLength;
         const run = scale => {
@@ -246,7 +246,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const d = engine.dialogue, ui = () => engine.describe().ui.dialogue;
         d.define('d-test', { start: { text: '一二三四五六七八九十', choices: [{ text: 'A', next: 'a' }, { text: 'B', next: 'b' }] }, a: { text: '选了A' }, b: { text: '选了B' } });
         d.start('d-test');
@@ -271,7 +271,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const d = engine.dialogue, lines = [];
         let typo = '';
         const { warns } = await __t.warns(() => {
@@ -325,7 +325,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const p = engine.player.position, ks = engine.world.query({ kind: 'pickup', where: k => k.item === 'berry' });
         const dist = k => Math.hypot(k.position.x - p.x, k.position.y - p.y, k.position.z - p.z);
         const best = ks.reduce((a, k) => (dist(k) < dist(a) ? k : a));
@@ -374,7 +374,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player.position, log = [];
         const sub = engine.events.on('trigger:exit', d => log.push(d.tag));
         const t = engine.triggers.add({ position: { x: p.x, z: p.z }, radius: 3, tag: 'dRemove' });
@@ -383,7 +383,7 @@ export const specs = [
         const inside = t.inside;
         t.remove(); t.remove();
         sub.remove();
-        engine._resume();   // fades follow real-time frames: while paused it would wait forever
+        engine._unhalt();   // fades follow real-time frames: while paused it would wait forever
         let threw = false;
         try { await engine.flow.transition(() => { throw new Error('d-test'); }, { fade: 0.01, autosave: false }); } catch { threw = true; }
         await new Promise(r => { const h = engine.onFixed(() => { h.remove(); r(); }); });   // context pops apply on the next fixed step
@@ -403,7 +403,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         engine.quests.define('dFrozen', { title: 'd', steps: [{ text: 'd', done: () => true }] });
         engine.quests.start('dFrozen');
         let ended = false;

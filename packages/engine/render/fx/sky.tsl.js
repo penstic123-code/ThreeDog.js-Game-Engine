@@ -3,7 +3,7 @@
 // threedog/tsl, i.e. only on the WebGPU route) registers itself (render/backend.js registerWebGPUPart) and the sky looks it up when the renderer is a
 // WebGPURenderer (same pattern as particles.tsl.js / patchNodes.tsl.js).
 // One copy of every value: the dome's uniforms stay the { value } objects frame.js and the game write (sky.uniforms, engine.uniforms); the nodes read them back
-// each render. The engine's own ones (uSunDir, uTime, uCloud) come from threedog/tsl uniforms(engine), the same cached nodes every other
+// each render. The engine's own ones (uSunDir, uTime, uWeatherCloud) come from threedog/tsl uniforms(engine), the same cached nodes every other
 // TSL shader of that engine reads, so the calendar / weather writing engine.uniforms moves this dome and a game's own TSL sky together.
 // Line for line the GLSL domeFragment: gradient, sun and moon discs, clouds ('plane' / 'cumulus'), stars, fog band, dome layers.
 // The two GLSL hooks of the sky each have a tsl form here, same contract as a shader patch's tsl field: (ctx) => node, ctx carrying the value
@@ -11,7 +11,8 @@
 // only GLSL throws [webgpu-needs-tsl] by name on this renderer; the GLSL form keeps drawing on WebGLRenderer unchanged.
 import * as TSL from 'three/tsl';
 import { MeshBasicNodeMaterial, BackSide } from 'three/webgpu';
-import { noise, hash } from './noise.tsl.js';
+import { noise } from './noise.tsl.js';
+import * as FX from './library.tsl.js';
 import { uniforms as engineUniforms, valueNode } from './uniforms.tsl.js';
 import { codedError } from '../../core/errorHints.js';
 import { registerWebGPUPart } from '../backend.js';
@@ -25,10 +26,10 @@ const { Fn, positionGeometry, varying, float, vec2, vec3, vec4, select, mix, pow
  * The dome's uniforms as nodes, by node type (makeSkyUniforms, clouds.js cloudUniforms, dome.js); a hook's own uniforms are the extra keys.
  * Colors are typed vec3 (what they are in the shader): @types/three's 'color' node type lacks the vec3 operators (addAssign ...)
  * @typedef {{ uTop: N<'vec3'>, uHorizon: N<'vec3'>, uSunColor: N<'vec3'>, uMoonColor: N<'vec3'>, uCloudColor: N<'vec3'>,
- *   uCloudShade: N<'vec3'>, uFogColor: N<'vec3'>, uSunDir: N<'vec3'>, uCloudWeights: N<'vec3'>, uCloudSpeed: N<'vec2'>, uCloudFade: N<'vec2'>,
- *   uCloudMul: N<'vec2'>, uNight: N<'float'>, uSunSize: N<'float'>, uSunGlow: N<'float'>, uSunPower: N<'float'>, uMoonPower: N<'float'>,
- *   uMoonSize: N<'float'>, uTime: N<'float'>, uCloud: N<'float'>, uCloudCover: N<'float'>, uCloudScale: N<'float'>, uStars: N<'float'>,
- *   uStarCloudDim: N<'float'>, uStarScale: N<'float'>, uCurve: N<'float'>, uCloudHorizon: N<'float'>, uCloudOpacity: N<'float'>,
+ *   uCloudShade: N<'vec3'>, uFogColor: N<'vec3'>, uSunDir: N<'vec3'>, uCloudWeights: N<'vec3'>, uSkyCloudSpeed: N<'vec2'>, uCloudFade: N<'vec2'>,
+ *   uCloudMul: N<'vec2'>, uNight: N<'float'>, uSunSize: N<'float'>, uSunGlow: N<'float'>, uSunBrightness: N<'float'>, uMoonBrightness: N<'float'>,
+ *   uMoonSize: N<'float'>, uTime: N<'float'>, uWeatherCloud: N<'float'>, uCloudCover: N<'float'>, uSkyCloudScale: N<'float'>, uStars: N<'float'>,
+ *   uStarCloudDim: N<'float'>, uStarScale: N<'float'>, uSkyCurve: N<'float'>, uCloudHorizon: N<'float'>, uCloudOpacity: N<'float'>,
  *   uCloudSoft: N<'float'>, uCloudRelief: N<'float'>, uFogBand: N<'float'>, [k: string]: any }} SkyNodes
  */
 
@@ -59,7 +60,7 @@ const nightDim = (/** @type {SkyNodes} */ U) => U.uNight.oneMinus().mul(1 - K.ni
 /** @type {Record<string, (U: SkyNodes, d: N<'vec3'>, cov: N<'float'>) => N<'vec4'>>} */
 const CLOUDS = {
   plane: (U, d, cov) => {
-    const cp = d.xz.div(d.y.add(U.uCloudHorizon)).mul(U.uCloudScale).add(U.uCloudSpeed.mul(U.uTime));
+    const cp = d.xz.div(d.y.add(U.uCloudHorizon)).mul(U.uSkyCloudScale).add(U.uSkyCloudSpeed.mul(U.uTime));
     const cn = noise(cp).mul(U.uCloudWeights.x).add(noise(cp.mul(U.uCloudMul.x).add(7)).mul(U.uCloudWeights.y)).add(noise(cp.mul(U.uCloudMul.y)).mul(U.uCloudWeights.z));
     const lo = cov.oneMinus();
     const cloud = smoothstep(lo, lo.add(U.uCloudSoft), cn).mul(smoothstep(U.uCloudFade.x, U.uCloudFade.y, d.y));
@@ -74,7 +75,7 @@ const CLOUDS = {
       for (let i = 0; i < 4; i++) { s = s.add(noise(p).mul(a)); p = p.mul(K.lacunarity).add(K.offset); a *= 0.5; }
       return s.div(K.norm);
     };
-    const cp = d.xz.div(d.y.add(U.uCloudHorizon)).mul(U.uCloudScale).add(U.uCloudSpeed.mul(U.uTime));
+    const cp = d.xz.div(d.y.add(U.uCloudHorizon)).mul(U.uSkyCloudScale).add(U.uSkyCloudSpeed.mul(U.uTime));
     const toSun = normalize(U.uSunDir.xz.add(vec2(0.0001, 0))).mul(K.toSun);
     const n0 = density(cp).toVar(), n1 = density(cp.add(toSun));
     const t = cov.mul(K.cover).oneMinus();
@@ -85,9 +86,6 @@ const CLOUDS = {
     return vec4(cc, body.mul(smoothstep(U.uCloudFade.x, U.uCloudFade.y, d.y)).mul(U.uCloudOpacity));
   },
 };
-
-/** What every sky hook's tsl code gets besides its inputs: the noise functions of the GLSL scope (threedogHash / threedogNoise) */
-const FX = Object.freeze({ noise, hash });
 
 /** Run a hook's tsl code; a throw or a non-node result is named after the hook, so the error points at the game's own code */
 function runHook(where, fn, ctx) {
@@ -127,13 +125,13 @@ function domeColor(U, kind, clouds, layers) {
   return Fn(() => {
     const d = normalize(vDir).toVar();
     const y = max(d.y, 0);
-    const col = select(d.y.lessThan(0), U.uHorizon, mix(U.uHorizon, U.uTop, pow(y, U.uCurve))).toVar();
+    const col = select(d.y.lessThan(0), U.uHorizon, mix(U.uHorizon, U.uTop, pow(y, U.uSkyCurve))).toVar();
     const sd = max(dot(d, U.uSunDir), 0);
-    col.addAssign(U.uSunColor.mul(pow(sd, U.uSunSize).mul(U.uSunPower).add(pow(sd, K.glowPower).mul(U.uSunGlow))).mul(step(0, U.uSunDir.y.add(K.sunCut))));
+    col.addAssign(U.uSunColor.mul(pow(sd, U.uSunSize).mul(U.uSunBrightness).add(pow(sd, K.glowPower).mul(U.uSunGlow))).mul(step(0, U.uSunDir.y.add(K.sunCut))));
     const md = max(dot(d, U.uSunDir.negate()), 0);
-    col.addAssign(U.uMoonColor.mul(pow(md, U.uMoonSize)).mul(U.uMoonPower).mul(U.uNight));
+    col.addAssign(U.uMoonColor.mul(pow(md, U.uMoonSize)).mul(U.uMoonBrightness).mul(U.uNight));
     const g = floor(d.mul(U.uStarScale));
-    const cov = U.uCloud.mul(U.uCloudCover), clA = float(0).toVar();
+    const cov = U.uWeatherCloud.mul(U.uCloudCover), clA = float(0).toVar();
     // what every hook gets: the arguments its GLSL function takes, the dome's uniforms as nodes, the noise functions and three/tsl
     const base = { dir: d, time: U.uTime, sunDir: U.uSunDir, night: U.uNight, uniforms: U, fx: FX, tsl: TSL };
     If(d.y.greaterThan(0).and(cov.greaterThan(0.01)), () => {
@@ -144,7 +142,7 @@ function domeColor(U, kind, clouds, layers) {
     });
     // stars behind the clouds, dimmed by the weather's cover (see the GLSL comment in shader.js)
     const star = step(U.uStars.oneMinus(), h3(g)).mul(U.uNight).mul(smoothstep(0, K.starFade, d.y)).mul(clA.oneMinus())
-      .mul(clamp(U.uCloud, 0, 1).mul(U.uStarCloudDim).oneMinus());
+      .mul(clamp(U.uWeatherCloud, 0, 1).mul(U.uStarCloudDim).oneMinus());
     col.addAssign(vec3(star));
     // fog band (fog.js DOME_FOG): always built, switched by uFogBand
     col.assign(mix(col, U.uFogColor, U.uFogBand.mul(smoothstep(-0.02, 0.15, d.y).oneMinus())));

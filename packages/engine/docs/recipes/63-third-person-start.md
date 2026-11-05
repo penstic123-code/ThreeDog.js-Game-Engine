@@ -20,7 +20,7 @@ engine.saves.autosave(0.5);                                                     
 const picture = createPicture(engine);
 engine.collision.addBlocked((x, z) => Math.abs(x) > 3 || Math.abs(z) > 20);         // the walkable shape: here a pier 6 m by 40 m
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: [0, 0, 0] });
-engine.content.load(data, { places: data.places });
+engine.content.load(data);
 
 const game = { score: 0 };                                                          // the game's own state: plain values
 engine.saves.register('game', { version: 1, save: () => ({ ...game }), load: d => { Object.assign(game, d); } });
@@ -65,7 +65,7 @@ engine.quests.define('pier', { title: 'The pier', steps: [
 engine.quests.start('pier');
 engine.hud.counter('coins', { label: 'Coins', value: 0 });   // call again with a new value to update it
 ```
-Dialogue flags, quest progress and what `once` and `counter` did are saved by the modules: no `register` for them. An interaction's `counter` adds 1 to the HUD counter of that name (`hud.add`); read the total with `engine.hud.value('coins')`, the one place it lives. A short popup message: `toast(engine, 'Picked up a shell')` (import `toast` from `threedog`; recipe 26 §3).
+Dialogue flags, quest progress and what `once` and `counter` did are saved by the modules: no `register` for them. An interaction's `counter` adds 1 to the HUD counter of that name (`hud.bump`); read the total with `engine.hud.value('coins')`, the one place it lives. A short popup message: `toast(engine, 'Picked up a shell')` (import `toast` from `threedog`; recipe 26 §3).
 
 A content prop with `collide` blocks the follow camera with its whole mesh; a hand-written mesh blocks it only after `engine.rays.addStatic(mesh, { occluder: true })` (recipe 21).
 
@@ -87,4 +87,4 @@ export default [{ name: 'starter', models: { marker } }];
 // content/props.js: placements, each with a stable id (saved with the game)
 export default [{ id: 'marker-1', model: 'marker', x: 0, z: -2 }, { id: 'marker-2', model: 'marker', x: 3, z: -5 }];
 ```
-Do not call `scene.add` or `world.add` for these at startup: `npm run check` rejects it, because the save would not know them. A `.glb` registered under the same name later replaces the generator with no other change (recipe 05). Before building a model or an effect from scratch, `threedog lib list` and `threedog how "<words>"` also search the library.
+`scene.add` at startup also works, but the model stays out of GAMEMAP and the save. `world.add` at startup makes a second copy after each load unless it has `{ save: false }`, and `npm run check` warns about that. A `.glb` registered under the same name later replaces the generator with no other change (recipe 05). Before building a model or an effect from scratch, `threedog lib list` and `threedog how "<words>"` also search the library.

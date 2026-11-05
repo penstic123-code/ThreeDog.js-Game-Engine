@@ -124,7 +124,7 @@ export async function run({ check }) {
   check(`${SPOKEN.length} whole-sentence / spoken queries: the first answer is the right recipe or row`, off.length === 0, off.map(([q, l]) => `"${q}" -> ${l}`).join('\n'));
   // say so when nothing fits: no entry covers enough of the query's weight -> weak, plus the words that appear nowhere in the docs; the CLI then says "not found, try these words / read AI.md line ..."
   const weak = search(docs, 'camera shake boss'), none = search(docs, 'qqzzxx');
-  check('a query the docs barely cover is marked weak and names the words the docs never use', weak.weak === true && weak.unknown.includes('boss'), JSON.stringify({ weak: weak.weak, unknown: weak.unknown }));
+  check('a query the docs barely cover is marked weak and names the words the docs never use', weak.weak === true && weak.unknown.includes('shake') && !weak.unknown.includes('boss'), JSON.stringify({ weak: weak.weak, unknown: weak.unknown }));
   check('a word only its synonym appears for is not reported as unknown (rainy, the docs say rain)', !search(docs, 'rainy street').unknown.includes('rainy'), JSON.stringify(search(docs, 'rainy street').unknown));
   check('a good hit is not marked weak (a long sentence with a right first answer)', SPOKEN.every(([q]) => !search(docs, q).weak), SPOKEN.filter(([q]) => search(docs, q).weak).map(([q]) => q).join(', '));
   // [guard] the weak verdict reads the list: a query spread over rows is answered even though no one row holds a third of it (judged on one row, rewording that row flipped the answer to "no match")
@@ -146,6 +146,25 @@ export async function run({ check }) {
   const mNone = await STATIC_TOOLS.how.run(ENGINE, { task: 'qqzzxx' }), mWeak = await STATIC_TOOLS.how.run(ENGINE, { task: 'camera shake boss' });
   check('[guard] MCP how: no match and a weak match carry the CLI hint (words the docs never use, 2-4 task words)',
     /2-4 English task words/.test(mNone.text) && /qqzzxx/.test(mNone.text) && /No good match/.test(mWeak.text) && /boss/.test(mWeak.text), mNone.text + ' | ' + mWeak.text.slice(0, 200));
+  // [guard] plain task words reach api pages and recipe/COMMANDS text, not only the AI.md rows; "never used" is said only after a search of every docs line.
+  // The queries are not the ones from the test reports: a word of an api line (jingle is not in it, victory is), a word that is only a form of a docs word, a word only in a body line
+  const at = (q, re, n = 5, o) => search(docs, q, n, o).some(h => re.test(h.line));
+  check('api names are found by task words: "victory jingle" -> music.stinger, "interrupt keys typo" does not fail, "wheel suspension" -> rigid',
+    at('victory jingle', /music\.stinger/) && at('wheel suspension', /rigid/), JSON.stringify(search(docs, 'victory jingle').map(h => h.line)));
+  check('a word only in a recipe body line is found ("dissolve" sits in recipe 09 under a heading about something else)', at('dissolve', /09-materials/),
+    JSON.stringify(search(docs, 'dissolve').map(h => h.line)));
+  const fakeDocs = mkdtempSync(join(tmpdir(), 'how-lines-'));
+  mkdirSync(join(fakeDocs, 'recipes'));
+  writeFileSync(join(fakeDocs, 'recipes', '01-a.md'), '# Alpha\n\n## 1. Basics\nStart here.\n\nThe zeppelin mooring is a body line, under no heading that names it.\n');
+  const zep = search(fakeDocs, 'zeppelin mooring'), nope = search(fakeDocs, 'zeppelin submarine');
+  rmSync(fakeDocs, { recursive: true });
+  check('a word only in a recipe body line is found, and a word in no line is the only one reported unused', zep.length > 0 && zep.unknown.length === 0 && nope.unknown.join() === 'submarine', JSON.stringify({ zep, unknown: nope.unknown }));
+  // renderer: in a TSL game the GLSL-only row is not the first answer for a shader task; in a GLSL game it still is a good answer
+  const own = search(docs, 'custom shader material', 5, { renderer: 'webgpu' }), ownGl = search(docs, 'custom shader material', 5, { renderer: 'webgl' });
+  check('the game\'s renderer orders shader answers: TSL game does not start with the GLSL-only row; the same row stays in the list', !/onBeforeCompile/.test(own[0]?.line ?? '') && /onBeforeCompile/.test(ownGl[0]?.line ?? '') && own.length > 0, JSON.stringify([own.map(h => h.line.slice(0, 80)), ownGl.map(h => h.line.slice(0, 80))]));
+  const shaderHits = ['custom sky shader', 'custom shader on a material'].flatMap(q => search(docs, q, 5, { renderer: 'webgpu' }));
+  check('[guard] a WebGPU game is not shown GLSL as the answer: no GLSL sample printed under a row, and no onBeforeCompile row first',
+    !shaderHits.some(h => /ShaderMaterial|onBeforeCompile/.test(h.para ?? '')) && !/onBeforeCompile/.test(search(docs, 'custom sky shader', 5, { renderer: 'webgpu' })[0]?.line ?? ''), JSON.stringify(shaderHits.map(h => h.para)));
   const wrong = TASKS.map(([q, want]) => [q, search(docs, q)[0]?.line ?? '(none)', want]).filter(([, first, want]) => !want.test(first) || /technique examples/.test(first));
   check(`${TASKS.length} common tasks: the first answer is the one recommended entry, never a technique example`, wrong.length === 0, wrong.map(([q, l]) => `"${q}" -> ${l}`).join('\n'));
 }

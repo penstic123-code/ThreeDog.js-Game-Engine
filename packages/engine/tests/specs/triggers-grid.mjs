@@ -6,7 +6,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.triggers, P = engine.player.position, own = T.list().length;   // the town page has zones of its own
         let seed = 7; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
         const log = [], offs = [
@@ -59,7 +59,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.triggers, P = engine.player.position, log = [], out = {};
         const offs = [engine.events.on('trigger:enter', d => log.push('+' + d.tag)), engine.events.on('trigger:exit', d => log.push('-' + d.tag + (d.who ? '' : '!')))];
         const go = (x, z, steps = 1) => { P.set(x, 0, z); for (let i = 0; i < steps; i++) T.update(0.1); };

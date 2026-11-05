@@ -28,7 +28,7 @@ export class NetHost {
 
   join(id) {
     const e = this.e, o = this.o;
-    const peer = { id, actor: o.actorFor(id), tokens: o.burst, results: [], posTick: e.tick };
+    const peer = { id, actor: o.actorFor(id), tokens: o.burst, results: [], posTick: e.time.tick };
     this.peers.set(id, peer);
     e.ops.allow(() => o.join(e, peer));   // setting up the peer's avatar / bag is host bookkeeping, not a gameplay action
     e.events.emit('net:join', { peer: id, actor: peer.actor });
@@ -44,7 +44,7 @@ export class NetHost {
   snapshot(peer) {
     this.keys ??= partKeys(this.e, this.o.sync);
     this.stats.snapshots++;
-    this.send({ t: 's', n: this.n, tick: this.e.tick, you: peer.actor, every: this.o.syncEvery, parts: snapshotParts(this.e, this.keys) }, peer);
+    this.send({ t: 's', n: this.n, tick: this.e.time.tick, you: peer.actor, every: this.o.syncEvery, parts: snapshotParts(this.e, this.keys) }, peer);
   }
 
   receive(m, from) {
@@ -67,7 +67,7 @@ export class NetHost {
 
   request(peer, m) {
     const e = this.e, seq = isNum(m.seq) ? m.seq : 0, name = typeof m.name === 'string' ? m.name : '';
-    const reply = (ok, code, value) => peer.results.push({ t: 'r', seq, name, ok, code: code ?? null, value: plain(value), tick: e.tick });
+    const reply = (ok, code, value) => peer.results.push({ t: 'r', seq, name, ok, code: code ?? null, value: plain(value), tick: e.time.tick });
     const d = e.ops.defs.get(name), args = m.args ?? {};
     const reason = this.gate(peer, d, args);
     if (reason) {
@@ -97,8 +97,8 @@ export class NetHost {
   position(peer, m) {
     const e = this.e, rec = e.world?.get(peer.actor), p = m.p;
     if (!rec || !Array.isArray(p) || p.length !== 3 || !p.every(isNum)) return;
-    const dt = Math.min(0.25, Math.max(STEP, (e.tick - peer.posTick) * STEP));   // idle time earns no long jump
-    peer.posTick = e.tick;
+    const dt = Math.min(0.25, Math.max(STEP, (e.time.tick - peer.posTick) * STEP));   // idle time earns no long jump
+    peer.posTick = e.time.tick;
     const c = rec.position, dx = p[0] - c.x, dy = p[1] - c.y, dz = p[2] - c.z, d = Math.hypot(dx, dy, dz), max = this.o.maxSpeed * dt + 0.5;
     const k = d > max ? max / d : 1;
     e.ops.allow(() => {
@@ -115,7 +115,7 @@ export class NetHost {
     if (++this.steps % o.syncEvery) return;
     this.keys ??= partKeys(this.e, o.sync);
     const parts = diffParts(this.e, this.keys, this.base);
-    if (parts) { this.n++; this.stats.diffs++; this.lastSent = this.steps; for (const p of this.peers.values()) this.send({ t: 'd', n: this.n, tick: this.e.tick, parts }, p); }
+    if (parts) { this.n++; this.stats.diffs++; this.lastSent = this.steps; for (const p of this.peers.values()) this.send({ t: 'd', n: this.n, tick: this.e.time.tick, parts }, p); }
     else if (this.steps - this.lastSent >= o.keepAlive) { this.lastSent = this.steps; for (const p of this.peers.values()) this.send({ t: 'k', n: this.n }, p); }   // lets a client notice a lost last diff
     for (const p of this.peers.values()) { for (const r of p.results) this.send(r, p); p.results.length = 0; }
   }

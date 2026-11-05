@@ -1,13 +1,13 @@
 // Batch 3, group C specs (same format as the other files here).
 // Covers budget, shadow options, HLOD, scenario option hooks, settings menu freezing gameplay, startup time (numbers only).
-// For detailed performance comparison see node packages/tools/perf.mjs and packages/engine/docs/PERF.md.
+// For detailed performance comparison see node packages/tools/perf.mjs and docs/testing/perf.md.
 export const specs = [
   {
     name: '性能预算（小城示例）',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const off = engine.budget.report();
         engine.budget.enable({ drawCalls: 1 });
         engine.step(0.1);
@@ -17,7 +17,7 @@ export const specs = [
         const none = engine.budget.report();
         const metric = engine.budget.metric('crates', () => 99, { limit: 10 });
         const custom = engine.budget.report().over.map(o => o.category);
-        metric.remove(); engine.budget.disable(); engine._resume();
+        metric.remove(); engine.budget.disable(); engine._unhalt();
         return { off, on, desc: !!desc, none, custom };
       });
       check('report() is null when budget is off', r.off === null);
@@ -32,7 +32,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const sm = engine.renderer.shadowMap, orig = sm.render.bind(sm), sun = engine.lights.sun, sh = sun.shadow;
         // counted once per engine frame: a post pass that draws the scene again (ao on a higher tier, e.g. on the GPU) calls render twice
         let n = 0, frame = 0, counted = -1;
@@ -50,7 +50,7 @@ export const specs = [
         for (let i = 0; i < 4; i++) step();
         const every1 = n;
         box.remove(); budget.remove();
-        sm.render = orig; engine._resume();
+        sm.render = orig; engine._unhalt();
         return { def, every4, every1, bias, back: sh.autoUpdate };
       });
       check('the placeholder sun updates every frame, bias -0.0001 (render/lights.js)', r.def.bias === -0.0001 && r.def.auto, JSON.stringify(r.def));
@@ -64,7 +64,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const sm = engine.renderer.shadowMap, T = engine.THREE, sun = engine.lights.sun, out = { def: sm.type === T.PCFShadowMap };
         const budget = engine.shadows.budget(sun, { every: 50 });
         engine.step(1 / 60); engine.step(1 / 60);
@@ -74,7 +74,7 @@ export const specs = [
         out.rebuilt = !!sun.shadow.map && sun.shadow.map !== map;   // three rebuilds only the maps it draws that frame: the budget must draw this one
         sm.type = T.PCFShadowMap;
         budget.remove(); engine.step(1 / 60);
-        engine._resume();
+        engine._unhalt();
         return out;
       });
       check('default is pcf', r.def);
@@ -88,19 +88,19 @@ export const specs = [
       const r = await ev(async () => {
         const h = engine.hlod;
         await new Promise(res => { const t = () => (h.cells.length && !engine.jobs.pending ? res() : setTimeout(t, 50)); t(); });
-        engine.pause();
+        engine.haltLoop();
         const calls = () => { engine.step(0.5); return engine.renderer.info.render.calls; };
         engine.focus.set(0, 0, 0); const near = calls();
         const nearVisible = engine.level.root.getObjectByName('b_3_3').visible;
         engine.focus.set(400, 0, 400); const far = calls();
-        const farState = { orig: engine.level.root.getObjectByName('b_3_3').visible, allFar: h.cells.every(c => c.far), proxies: h.cells.reduce((n, c) => n + c.proxy.length, 0) };
+        const farState = { orig: engine.level.root.getObjectByName('b_3_3').layers.test(engine.camera.layers), allFar: h.cells.every(c => c.far), proxies: h.cells.reduce((n, c) => n + c.proxy.length, 0) };
         engine.focus.set(0, 0, 0); const back = calls();
         const lod = engine.level.root.getObjectByName('b_0_0_LOD1').visible;
         // count source queries in one switch pass: one for all cells, not one per cell
         const S = engine.stream, orig = S.sources; let queries = 0;
         S.sources = function (...a) { queries++; return orig.apply(this, a); };
         try { h.update(); } finally { S.sources = orig; }
-        engine._resume();
+        engine._unhalt();
         return { near, far, back, nearVisible, ...farState, cells: h.cells.length, lod, queries, d: engine.describe().hlod };
       });
       check('merged cells were built', r.cells > 0 && r.proxies > 0, JSON.stringify(r));
@@ -172,7 +172,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const logs = [], orig = console.error; console.error = (...a) => logs.push(String(a[0]));   // expected errors must not count as console errors
         let after = 0;
         const bad1 = engine.onFrame(() => { throw new Error('坏 onFrame'); });
@@ -183,7 +183,7 @@ export const specs = [
         const cleared = !engine.input.justPressed.has('KeyE');
         engine.step(0.2);
         bad1.remove(); bad2.remove(); good.remove();
-        console.error = orig; engine._resume();
+        console.error = orig; engine._unhalt();
         return { after, cleared, reports: logs.length, error: engine.error, frozen: engine.frozen };
       });
       check('onFrame after a bad hook still runs', r.after >= 6, JSON.stringify(r));
@@ -199,13 +199,13 @@ export const specs = [
       const r = await ev(async () => {
         const h = engine.hlod;
         await new Promise(res => { const t = () => (h.cells.length && !engine.jobs.pending ? res() : setTimeout(t, 50)); t(); });
-        engine.pause();
+        engine.haltLoop();
         const b = engine.level.root.getObjectByName('b_3_3');
         const down = () => engine.raycast([b.position.x, 200, b.position.z], [0, -1, 0])?.object?.name ?? null;
         engine.focus.set(0, 0, 0); engine.step(0.5); const near = down();
-        engine.focus.set(400, 0, 400); engine.step(0.5); const far = down(), hidden = !b.visible;
+        engine.focus.set(400, 0, 400); engine.step(0.5); const far = down(), hidden = !b.layers.test(engine.camera.layers) && b.visible;
         engine.focus.set(0, 0, 0); engine.step(0.5);
-        engine._resume();
+        engine._unhalt();
         return { near, far, hidden };
       });
       check('ray hits the original when near', r.near === 'b_3_3', JSON.stringify(r));
@@ -219,7 +219,7 @@ export const specs = [
       const r = await ev(async () => {
         const h = engine.hlod;
         await new Promise(res => { const t = () => (h.cells.length && !engine.jobs.pending ? res() : setTimeout(t, 50)); t(); });
-        engine.pause();
+        engine.haltLoop();
         const a = engine.level.root.getObjectByName('b_3_3'), b = engine.level.root.getObjectByName('b_2_2');
         const down = o => engine.raycast([o.position.x, 200, o.position.z], [0, -1, 0])?.object?.name ?? null;
         engine.focus.set(0, 0, 0); engine.step(0.5);
@@ -231,12 +231,32 @@ export const specs = [
         const out = { aNear: a.visible, bNear: b.visible, farRayB };
         a.visible = true; b.visible = true; engine.step(0.5);
         out.shownAgain = a.visible && b.visible;
-        engine._resume();
+        engine._unhalt();
         return out;
       });
       check('a building the game hid near stays hidden after a far -> near switch', r.aNear === false, JSON.stringify(r));
       check('a building the game hid while far stays hidden when near, and rays miss it while far', r.bNear === false && r.farRayB !== 'b_2_2', JSON.stringify(r));
       check('showing them again works', r.shownAgain, JSON.stringify(r));
+    },
+  },
+  {
+    name: '[guard] HLOD: unloading the module takes its proxies out and gives the far originals back',
+    url: '/tests/perf/index.html?mode=city',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const h = engine.hlod;
+        await new Promise(res => { const t = () => (h.cells.length && !engine.jobs.pending ? res() : setTimeout(t, 50)); t(); });
+        engine.haltLoop();
+        engine.focus.set(400, 0, 400); engine.step(0.5);
+        const c = h.cells.find(x => x.far), m = c?.originals[0], drawn = () => m?.layers.isEnabled(0);
+        const out = { far: !!c, drawnFar: drawn(), proxy: !!c?.proxy[0]?.parent };
+        engine._unuse('hlod', true);
+        out.drawnAfter = drawn(); out.proxyAfter = !!c?.proxy[0]?.parent?.parent;
+        engine._unhalt();
+        return out;
+      });
+      check('a far original is off the drawn layer and its proxy is in the scene before', r.far && r.drawnFar === false && r.proxy, JSON.stringify(r));
+      check('after unloading it is drawn again and the proxy is gone', r.drawnAfter === true && r.proxyAfter === false, JSON.stringify(r));
     },
   },
   {
@@ -265,7 +285,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         let n = 0; engine.jobs.add(function* () { for (let i = 0; i < 200; i++) { n++; yield; } });
         engine.step(1 / 30); const jobsDone = n === 200 && engine.jobs.pending === 0;
         const h = engine.stream.add({ position: [engine.focus.x + 2, 0, engine.focus.z], build: () => new threedogTest.THREE.Object3D() });
@@ -278,7 +298,7 @@ export const specs = [
         const w1 = auto(), w2 = auto(); engine.weather.setAuto(false);
         engine.freeze('xtest'); const t0 = engine.time.now('real'), c0 = engine.clock.now; engine.step(1);
         const frozen = engine.time.now('real') === t0 && engine.clock.now === c0; engine.stacks.get('freeze').release('xtest');
-        engine._resume();
+        engine._unhalt();
         return { jobsDone, stream, same, resume: a === b, w1, w2, frozen };
       });
       check('generator jobs in step ignore real time and finish in one frame', r.jobsDone, JSON.stringify(r));
@@ -293,7 +313,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         let fired = 0; engine.clock.after(10, () => fired++);
         const d = engine.saves.collect(); d.parts.time.channels.calendar = engine.clock.now - 1000;
         engine.saves.apply(d); engine.step(5); const early = fired; engine.step(6); const late = fired;
@@ -307,7 +327,7 @@ export const specs = [
         const pad = { custom: engine.input.keysOf('xPad').includes('PadY'), noPhoto: !engine.input.keysOf('photo').length || engine.input.keysOf('photo').every(k => !k.startsWith('Pad') || k === 'PadRB') };
         engine.modules.get('weather').applyState(engine, { weather: 'rain' });
         const d2 = engine.describe(), label = d2.weather.label, text = engine.describeText();
-        engine._resume();
+        engine._unhalt();
         return { early, late, varsOk, shadows, pad, label, textHas: text.includes('Weather: rain'), isDay: engine.sky.isDay === engine.sky.daylight > 0 };
       });
       check('function-type after expires by remaining time after load', r.early === 0 && r.late === 1, JSON.stringify(r));

@@ -23,7 +23,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async (src) => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         const warns = [], warn = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); warn(...a); };
         const W = engine.world, { x, z } = (0, eval)(src)();
         const err = f => { try { f(); return null; } catch (e) { return e.message; } };
@@ -61,7 +61,7 @@ export const specs = [
     async run({ page, check, ev }) {
       const mid = await ev(async (src) => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         (0, eval)(src)();
         for (let i = 0; i < 40 && !engine.world.ready; i++) { engine.step(0.1); await new Promise(res => setTimeout(res, 0)); }
         engine.step(0.1);
@@ -82,7 +82,7 @@ export const specs = [
       await reload(page);
       const r = await ev(async (src) => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         const warns = [], warn = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); warn(...a); };
         (0, eval)(src)(['ss-a', 'ss-b', 'ss-c2']);
         const W = engine.world;
@@ -112,7 +112,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async (src) => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         const tick = () => new Promise(res => setTimeout(res, 0));
         const W = engine.world, B = engine.batching, cs = B.cell, p = engine.player.position;
         const { x, z } = (0, eval)(src)();
@@ -151,7 +151,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         const T = window.THREE, W = engine.world;
         engine.assets.manifest({ models: { lvbox: () => new T.Mesh(new T.BoxGeometry(1, 2, 0.2)) } });   // this page has no style
         if (!engine.content) engine.use(window.content());
@@ -206,7 +206,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async (src) => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         const warns = [], warn = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); warn(...a); };
         const W = engine.world, I = engine.inventory, { x, z } = (0, eval)(src)(['ss-a']), out = {};
         const err = f => { try { f(); return null; } catch (e) { return e.message; } };
@@ -266,7 +266,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         if (!engine.content) engine.use(window.content());
         if (!engine.grids) engine.use(window.grids());
         const out = {}, apply = async d => { await engine.saves.apply(d, '(test)'); };

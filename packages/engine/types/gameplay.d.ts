@@ -116,7 +116,7 @@ export interface Level {
   markers: Record<string, LevelMarker>;
   /** Spawn point position */
   spawn: Vector3;
-  /** Heightfield (for debugging) */
+  /** Heightfield (for debugging) @experimental */
   heightfield: any;
   /** Whether loading is finished */
   readonly ready: boolean;
@@ -237,7 +237,7 @@ export interface Triggers {
 
 /** Particle effect parameters (define(), and each entry of particles({ effects, default })). All optional */
 export interface ParticleOptions {
-  /** Maximum alive at once, default 120 (halved on low-end devices) */
+  /** Maximum alive at once, default 120 (60 on low-tier devices; a number the game gives stands) */
   max?: number;
   /** Seconds each particle lives [min, max] */
   lifetime?: Range;
@@ -332,7 +332,7 @@ export interface SwarmOptions {
   save?: boolean;
 }
 /** The columns of a swarm: d.x[row], d.vx[row]... and d.id[row], the handle of that row */
-export type SwarmData = { x: Float32Array; y: Float32Array; z: Float32Array; id: Float64Array } & Record<string, Float32Array>;
+export type SwarmData = { x: Float32Array; y: Float32Array; z: Float32Array; id: Float64Array } & Record<string, Float32Array | Float64Array>;
 /** Runs for each live row every fixed step; returning false removes the object, anything else keeps it */
 export type SwarmRowFn = (d: SwarmData, i: number, dt: number) => unknown;
 import type { Swarm } from './generated/modules/swarm/Swarm';
@@ -348,7 +348,7 @@ export type { Particles };
 // Settings menu settings()
 // ======================================================================
 
-/** Contents of a graphics quality preset */
+/** Contents of a graphics quality preset. pixelRatio is a share from 0 to 1 of the ratio the engine picked for this device, so one preset fits every screen */
 export interface QualityPreset { pixelRatio?: number; shadows?: boolean; antialias?: boolean; bloom?: boolean; ao?: boolean; viewChunks?: number; density?: number; [key: string]: any }
 /**
  * The tools a settings tab's render(tools, e, s) receives: escaping, translation and the control helpers (each returns HTML)
@@ -404,8 +404,8 @@ export interface SettingsOptions {
 
 /** engine.settings */
 export interface Settings {
-  /** All current setting values */
-  values: Record<string, any>;
+  /** All current setting values, read only (set() changes one). pixelRatio is the renderer's real ratio */
+  readonly values: Record<string, any>;
   /** Graphics presets */
   presets: Record<string, QualityPreset>;
   /** Tabs */
@@ -424,10 +424,11 @@ export interface Settings {
   define<T = any>(key: string, def: T, apply?: ((value: T, e: Engine) => void) | { apply?: (value: T, e: Engine) => void; limits?: string | string[] }): this;
   /** Add a tab of your own, or a built-in / optional one by name: addSection('camera') */
   addSection(id: string, section?: SettingsSection): this;
-  removeSection(id: string): void;
   open(): void;
   close(): void;
   toggle(on?: boolean): void;
+  /** Put one setting (or all, with no key) back to its default: the engine's start value, or the default the game gave define(). Keys: resetBindings */
+  reset(key?: string): void;
   /** Restore all keys to defaults */
   resetBindings(): void;
   /** Change the first key of an action to code */
@@ -596,10 +597,8 @@ export type CharacterState = 'idle' | 'walk' | 'run' | 'swim' | 'jump' | 'fall' 
 /** Character (player and NPCs) */
 export declare class Character {
   constructor(engine: Engine, opts?: CharacterOptions);
-  /** Root node (this is what gets added to the scene) */
+  /** Root node: add it to the scene with engine.add(character.root) when you built the Character yourself; add children, change visible and scale on it */
   root: Object3D;
-  /** Same as root: add children, change visible and scale on it */
-  readonly object: Object3D;
   /** Position (= root.position) */
   readonly position: Vector3;
   /** Horizontal velocity (x, y map to world x, z). Writable: a write is an impulse the mover steers back toward the input (lasting knockback: push(); full control: mover 'manual') */
@@ -609,7 +608,7 @@ export declare class Character {
    * root.rotation.y)
    */
   facing: number;
-  /** Vertical velocity (m/s). Writable: setting it is an impulse (launch() does the same and also leaves the ground cleanly) */
+  /** Vertical velocity (m/s), kept apart from velocity, which is horizontal only (velocity.y is world z, not this). Writable: setting it is an impulse (launch() does the same and also leaves the ground cleanly) */
   vy: number;
   /** Whether standing on the ground */
   grounded: boolean;
@@ -657,10 +656,6 @@ export declare class Character {
   readonly support: { kind: 'ground' | 'platform' | 'collider' | 'water' | null; object: any; id: string | null; safe: boolean; velocity: { x: number; y: number; z: number } };
   /** Last spot it stood still on safe ground (where a fall returns it); null until it first stands. Saved with the motion */
   safeGround: Vector3 | null;
-  /** Called when a foot lands (the argument is the ground type underfoot) */
-  onStep: ((groundType: string) => void) | null;
-  /** Called on landing (the argument is the landing speed) */
-  onLand: ((impact: number) => void) | null;
   /** How it walks now; name is 'simple' | 'rapier' | 'manual', controller is the native Rapier character controller (when rapier). Assign a name to switch: c.mover = 'manual' */
   get mover(): { name: 'simple' | 'rapier' | 'manual'; controller?: any; body?: any; collider?: any; move(dirX: number, dirZ: number, run: boolean, dt: number): void; dispose?(): void };
   set mover(name: 'simple' | 'rapier' | 'manual');
@@ -670,7 +665,7 @@ export declare class Character {
   ready: boolean;
   /**
    * Settles (never rejects) when a model named by asset is swapped in or has failed; already settled otherwise
-   * @example const npc = new Character(engine, { model: 'villager' }).addTo();   // import { Character } from 'threedog' await npc.whenReady;
+   * @example const npc = new Character(engine, { model: 'villager' }); engine.add(npc.root);   // import { Character } from 'threedog' await npc.whenReady;
    * npc.playAction('Wave');
    */
   readonly whenReady: Promise<void>;
@@ -699,8 +694,6 @@ export declare class Character {
    * @example createPlayer({ ...presets.player.thirdPerson, maxJumps: 2 })   // double jump
    */
   jump(opts?: { air?: boolean }): this;
-  /** Add to the scene */
-  addTo(scene?: any): this;
   /** Put it on the ground at position (Vector3 / object / [x, y, z] / { x, z }) */
   placeAt(position: PositionLike): this;
   /**
@@ -728,9 +721,10 @@ export declare class Character {
   /**
    * Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after
    * the model is rebuilt or a save is loaded, loadMotion continues from it with identical results
+   * @experimental
    */
   saveMotion(out?: CharacterMotion): CharacterMotion;
-  /** Restore the motion state from the plain object of saveMotion */
+  /** Restore the motion state from the plain object of saveMotion @experimental */
   loadMotion(m: CharacterMotion | null | undefined): this;
 }
 /** Result of Character.saveMotion (plain values, can be saved); facing is the same as Character.facing: 0 = +Z, forward (sin f, cos f) */
@@ -971,6 +965,34 @@ export interface FindPathOptions { step?: number; maxNodes?: number; radius?: nu
 // Interactions interactions()
 // ======================================================================
 
+/** One live interaction, as interactions.get(id) and interactions.items give it */
+export interface Interaction {
+  id: string;
+  /** What it follows; a fixed position is an empty Object3D placed there */
+  object: Object3D;
+  label: string | ((object: Object3D, ctx: { actor: string }) => string);
+  radius: number;
+  action: string;
+  onUse?: (object: Object3D, ctx: { actor: string }) => any;
+  enabled: (object: Object3D, ctx: { actor: string }) => boolean;
+  height?: number;
+  hold: number;
+  approach: boolean;
+  once: boolean;
+  counter?: string;
+}
+/** inventory.add: what went in, or why nothing did */
+export interface ItemAddResult {
+  ok: boolean;
+  /** The entry they went into ('arrow', 'sword#3'); set when ok */
+  key?: string;
+  /** How many fit (a partial fit places what fits); set when ok */
+  added?: number;
+  /** 'full' when none fit */
+  code?: 'full';
+  facts?: { id: string; n: number };
+  nextActions?: any[];
+}
 export interface InteractionOptions {
   /** Stable id for the op interaction.use { id } (default: the world record id it was built for, else a running number) */
   id?: string;
@@ -1001,7 +1023,7 @@ export interface InteractionOptions {
   approach?: boolean;
   /** Hide the object after a use and allow no second one (onUse returning { ok: false } leaves it). Saved under id, else the object's name; development throws when it has neither */
   once?: boolean;
-  /** Name of a HUD counter each use adds 1 to (hud.add; nothing without hud()). Saved; read the total with hud.value(name) */
+  /** Name of a HUD counter each use adds 1 to (hud.bump; nothing without hud()). Saved; read the total with hud.value(name) */
   counter?: string;
 }
 /** engine.interactions */
@@ -1009,7 +1031,7 @@ export interface Interactions {
   /** How high the prompt floats (meters) */
   promptHeight: number;
   /** All interactions in the order added (a fresh array each read; get(id) finds one without it) */
-  readonly items: any[];
+  readonly items: Interaction[];
   /** Default reach of add() in meters (2.5) */
   radius: number;
   /** How the one in front of the actor is chosen; can be changed at runtime */
@@ -1025,8 +1047,8 @@ export interface Interactions {
    * Returns a handle { remove() }
    */
   add(target: Object3D | PositionLike, opts?: InteractionOptions): Handle;
-  /** The interaction with this id, or null. Using one is the op: engine.ops.run('interaction.use', { id }) (no id = the one the actor would pick) */
-  get(id: string): any;
+  /** The interaction with this id, or undefined. Using one is the op: engine.ops.run('interaction.use', { id }) (no id = the one the actor would pick) */
+  get(id: string): Interaction | undefined;
 }
 /**
  * What the 'prompt' UI part receives in update(view) every frame while an interaction is in reach (hide() when none). Call use() on click: it runs the
@@ -1143,7 +1165,7 @@ export interface Dialogue {
   /** The script the main dialogue is playing */
   readonly speaking: string | null;
   /** Typing speed (characters/second) */
-  cps: number;
+  charsPerSecond: number;
   /** Define a dialogue (the name is usually the speaker) */
   define(speaker: string, nodes: DialogueScript): void;
   /**
@@ -1365,7 +1387,7 @@ export interface Container {
   /** Whether there are at least n (default 1) */
   has(x: string, n?: number): boolean;
   /** One entry by key, or null */
-  get(key: string): ItemEntry | null;
+  get(key: string): ItemEntry | undefined;
   /** Slots used */
   readonly slotsUsed: number;
   /** Total weight */
@@ -1374,8 +1396,8 @@ export interface Container {
   list(): ItemEntry[];
   /** How many more fit (Infinity = no limit), for an item without data, with this data, or like an existing entry key */
   room(x: string, data?: Record<string, any>): number;
-  /** Add n (default 1), optionally with data; returns the entry key, false if none fit; silent suppresses the toast (only the bag of engine.actor shows one) */
-  add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): string | false;
+  /** Add n (default 1), optionally with data; returns { ok: true, key, added } (added: how many fit), or { ok: false, code: 'full' } when none fit; silent suppresses the toast (only the bag of engine.actor shows one) */
+  add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): ItemAddResult;
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
   /**
@@ -1415,10 +1437,10 @@ export interface Inventory {
   readonly slotsUsed: number;
   /** Player inventory entries (for custom UI) */
   list(): ItemEntry[];
-  /** One player inventory entry by key, or null */
-  get(key: string): ItemEntry | null;
-  /** Add n to the player inventory (default 1), opts { data, silent }; returns the entry key, false if it does not fit */
-  add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): string | false;
+  /** One player inventory entry by key, or undefined */
+  get(key: string): ItemEntry | undefined;
+  /** Add n to the player inventory (default 1), opts { data, silent }; returns { ok: true, key, added }, or { ok: false, code: 'full' } when none fit */
+  add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): ItemAddResult;
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
   /**
@@ -1707,7 +1729,7 @@ export interface Clock {
    * Call fn after seconds calendar seconds; if an event name is passed, the event is emitted when due (with data, can be saved).
    * { channel } counts that time channel's seconds instead (a poison tick that slows down in bullet time)
    */
-  after(seconds: number, fnOrEvent: (() => void) | string, data?: any, opts?: { channel?: string }): Handle;
+  after(seconds: number, fnOrEvent: (() => void) | string, opts?: { data?: any; channel?: string }): Handle;
   /** Call once every seconds calendar seconds ({ channel }: 'real' or a time channel's seconds instead) */
   every(seconds: number, fn: () => void, opts?: { channel?: string }): Handle;
 }
@@ -1756,7 +1778,7 @@ export interface Stack {
   /** End owner's entry; false when it held none */
   release(owner: string, opts?: { id?: string }): boolean;
 }
-/** engine.stacks: every shared point by name ('time.<channel>', 'time.local', 'clock.rate', 'freeze', 'pause', 'camera', 'debug.view', slots, your own) */
+/** engine.stacks: every shared point by name ('time.<channel>', 'time.local', 'clock.rate', 'freeze', 'halt', 'camera', 'debug.view', slots, your own) */
 export interface Stacks {
   /**
    * Define your own point: kind 'number' (default, base 1), 'value' (any data, set only), 'any' (true while held), 'top' (latest holder wins),
@@ -1779,7 +1801,7 @@ export interface Time {
   channels(): string[];
   /** Effective speed: parent x the channel's stack (x the record's 'time.local' stack when id is given) */
   scale(name: string, id?: string): number;
-  /** Fixed steps run this playthrough: the one time counter (= engine.tick); every other time is a read-only view of it */
+  /** Fixed steps run this playthrough: the one time counter; every other time is a read-only view of it */
   readonly tick: number;
   /**
    * Seconds on a view: 'real' (tick / 60, no scale, stops while frozen), 'ambient' (= uniforms.uTime, keeps moving while frozen),
@@ -1849,6 +1871,8 @@ export interface PropDef {
   static?: boolean;
   /** false: never drawn through engine.batching (default: repeated props batch automatically) */
   batch?: boolean;
+  /** true: lower-detail levels far away (`threedog assets optimize --lod`), or rising distances in meters. Collision, rays and saves keep the full model; such a copy is never batched @experimental */
+  lod?: boolean | number[];
 }
 /** engine.content: loads the plain data of the game's content/*.js into the engine */
 export interface Content {
@@ -1923,6 +1947,8 @@ export interface ContentTemplate {
   collide?: 'box' | 'circle' | false | { circle: number; occluder?: boolean };
   /** false = not registered for rays */
   static?: boolean;
+  /** true: lower-detail levels far away (`threedog assets optimize --lod`), or rising distances in meters; such copies are never batched @experimental */
+  lod?: boolean | number[];
   /** Interaction: using an instance runs op with { id } */
   interact?: { op: string; label?: string | ((rec: WorldRecord, e: Engine) => string); radius?: number; height?: number; action?: string; enabled?: (rec: WorldRecord, e: Engine) => boolean };
   /** Each instance gets a container with its record id; items = starting goods (placed once) */
@@ -2056,7 +2082,7 @@ export interface Hud {
   /** Counter or text status (calling again with the same id = update; calling every frame is fine): counter('fish', { label: '鱼', value: 2, max: 5 }), counter('clock', { value: '08:30' }); no value = the label alone */
   counter(id: string, opts: { label?: string; icon?: string; value?: number | string; max?: number; anchor?: HudAnchor }): void;
   /** Add n (default 1) to a number counter, return the new value; one not declared yet starts at 0 with its id as the label */
-  add(id: string, n?: number): number;
+  bump(id: string, n?: number): number;
   /** Current value of a counter or bar (number or text), undefined when there is none; reads what interactions.add({ counter }) has added up */
   value(id: string): number | string | undefined;
   /** Progress bar (calling again with the same id = update; calling every frame is fine, the DOM is untouched when the value is unchanged),

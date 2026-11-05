@@ -1,10 +1,12 @@
 # Performance investigation (F3, budget, profile, describe().perf)
 
+**In this recipe**: 1. Where things stand · 2. Set a budget · 3. Whose CPU is slow · 4. Common fixes · 4a. Less detail far away · 4b. Render scale · 5. Verify
+
 Order: first use numbers to decide which category is over (frame rate? draw calls? CPU? startup?), then find who takes the most, and after changing,
 compare before/after with the same method.
 Which renderer measures: tests that compare pixels run on software rendering (SwiftShader; numbers only for relative comparison), the others on the GPU when headless can reach it. `threedog shot`, `perf`, `stress` and
 `gallery --shots` use the hardware GPU when headless can reach it (`threedog doctor` says whether it can; `--gpu` / `--software` or
-`THREEDOG_RENDER=gpu|software` force one). On a machine without one, ask the user to press F3 in the browser (bound by `createEngine({ bindings: { ...presets.bindings.debug } })`; the templates do). Method and reference data: `../PERF.md`.
+`THREEDOG_RENDER=gpu|software` force one). On a machine without one, ask the user to press F3 in the browser (bound by `createEngine({ bindings: { ...presets.bindings.debug } })`; the templates do).
 - **What this machine can carry**: `threedog stress [--only lights,skinned] [--json]` ramps one load at a time (triangles, draw calls, instances, lights,
   shadow lights, shadow map size, overlapping transparency, particles, post effects, skinned characters) on a neutral scene until the frame passes 33 ms,
   and prints where 16.7 / 33 ms are crossed, with CPU and GPU ms. Turn the row for your target machine into `engine.budget` limits (section 2).
@@ -24,12 +26,11 @@ Which renderer measures: tests that compare pixels run on software rendering (Sw
   and `engine.debug.viewModes()` lists every mode. `engine.debug.panel` is the F3 panel (dev builds; null without the `debug()` module).
 - **F3 panel** (`debug()` module, included in openWorld, collapsed by default; the action `debugPanel` opens it, `presets.bindings.debug` binds F3): frame rate, CPU ms/frame, draw calls, triangles,
   chunks visible/loaded, vegetation instances, chunk upload ms, pending generation, time of day;
-  with a budget set it also shows over-limit items and startup time; the "20-second stress test" makes the player run forward fast automatically and
-  reports the average frame rate and the worst frame at the end.
+  with a budget set it also shows over-limit items and startup time. A load test on the real GPU is `threedog stress`.
 - **Text**: `engine.describe().perf` =
   `{ fps, cpuMs, cpu, apply, drawCalls, triangles, pixelRatio, budget, startup, stream, batching, jobs, commits, chunks?, vegetation? }`;
   the perf line of `npm run shot -- / --describe-only` (in headless mode fps/cpu are `-`; look at draw calls and triangles).
-- **CPU time of a frame**: `engine.cpuMs` is the main-thread time from input to the end of the afterRender hooks; `engine.cpuPhases` splits it into
+- **CPU time of a frame**: `engine.inspect.perf().cpuMs` is the main-thread time from input to the end of the afterRender hooks; its `cpuPhases` splits it into
   `fixed` (input + fixed steps), `frame` (frame hooks, stream, jobs), `render` (draw submission, upload of new objects, shader compiles) and `afterRender`.
   GPU time is not in it. With `npm run perf -- --only=stream` the stream-in numbers below are measured for you.
 - **Applying background results** (`engine.budget.cost.report()`, also `describe().perf.apply` and the budget categories `applyBuildMs` ...): terrain
@@ -91,17 +92,53 @@ false = all on the main thread, same results.
 - `engine.threads.pure(fn)` / `world.simulate(..., { worker: true })`: the function is recompiled from its source, so it cannot capture outside
   variables or imports; put constants inside it. A bad outside variable is reported by name on the first call.
 
+## 4a. Less detail far away: which tool for which job
+
+Four tools lower the cost of distant things, and each owns a different case. Pick by what is actually over budget: triangles or draw calls.
+
+| You have | Use | Saves | Costs |
+|---|---|---|---|
+| A few heavy models (a statue, a vehicle, a tower) | `engine.assets.lod` or `lod: true` | Triangles | Each copy stays its own draw calls |
+| Many copies of a light model (crates, fences) | `engine.batching`, on by default | Draw calls | Every copy keeps full triangles |
+| A static level seen from far off | `engine.hlod` | Draw calls, by merging per cell | Same triangles unless a node `xxx_LOD1` exists |
+| Plants by the thousand | `engine.vegetation` with `lodGeometry` | Both, per chunk ring | Plants only |
+
+```js
+// 1. once: writes public/optimized/tower.lod1.glb, .lod2.glb and lists them in assets.optimized.js
+// threedog assets optimize --lod            (--lod-shares 0.5,0.2 sets the triangle share of each level)
+// 2. one line in the game; without it no level is ever downloaded
+const tower = await engine.assets.lod('tower');                                  // distances follow the model's size
+const gate = await engine.assets.lod('gate', { distances: [40, 120] });          // or your own, in meters
+// content/props.js: { model: 'tower', x: 10, z: 4, collide: 'box', lod: true }  // or lod: [40, 120]; also on a template
+tower.levels[1].object;   // a plain THREE.LOD: read, replace, tower.addLevel(...), tower.autoUpdate = false
+```
+
+- **Batching:** instances share one geometry, so a copy cannot change level alone. A LOD object is never batched, which means `lod` on a model placed many times can
+  cost more than it saves. Compare `describe().perf` with and without it; dev warns at 32 copies.
+- **What stays on the full model:** `engine.raycast`, `engine.rays`, your own `THREE.Raycaster`, `collision` and saves. A level draws with the full mesh's material, so swap
+  materials on `tower.levels[0].object` and on each level.
+- **Asking what is drawn:** far off the full model waits on the batch layer with `visible` true, so read `tower.getCurrentLevel()`, not `tower.levels[0].object.visible`.
+- **Skipped by the tool, with the reason in its report:** skinned, morphing and animated models, and models under 1000 triangles. `assets.lod` still works on them: one level, and a
+  dev warning.
+- **The level follows `engine.camera`** only. Without this, WebGPU's shadow pass would push every model to its lowest level. `delete tower.update`, while level 0 shows, restores the plain method; far rays then miss the full model.
+- **A narrow lens:** `camera.zoom` counts towards the distance, `camera.fov` does not. A sniper scope that narrows `fov` shows the far level up close, so use `zoom` or set
+  `tower.autoUpdate = false` while scoped.
+- **Check the last level up close once:** at 20% of the triangles a real model lost round details (a dial, a dome), unseen at its real distance of a few dozen pixels but plain through a scope. If it shows, raise `--lod-shares` or move the distance out.
+- **Popping:** levels switch at once, softened by a hysteresis of 0.1 of the distance (`hysteresis` changes it). There is no crossfade; if a switch shows, move the distance out.
+- **Scale:** default distances follow a prop's `scale`. On `assets.lod` they follow the model as loaded, so give `distances` when you scale it yourself.
+
 ## 4b. Render scale (resolution) is never lowered silently
 - Default render scale: `min(devicePixelRatio, 1.5)`; the low tier uses at least 0.75 x devicePixelRatio (a 2x laptop screen gets 1.5, not 1), never above 1.5.
 - Adaptive resolution (`createEngine({ adaptiveResolution, targetFps })`, default on, floor 0.6) lowers the scale by 0.1 per second while frames cost more
   than the target allows (main-thread time, plus GPU time where the browser has the timer query; without it, a low fps that is not just the display's own
   refresh). The first 3 s after ready and frames that compile shaders are not judged, and a display or power mode locked at 30 Hz is not overload. The first
   time it lowers, dev builds warn once: `render scale X -> Y because frames cost N ms ...; turn off with adaptiveResolution: false`. It is the only thing
-  lowered automatically (shadows and post are never traded first).
+  lowered automatically (shadows and post are never traded first). `engine.setPixelRatio(p)` sets the top it climbs back to, so a ratio the game chose stays; a direct
+  `renderer.setPixelRatio` stops it altogether.
 - `describe().render.scale`: `{ current, devicePixelRatio, upscaled, autoLowered, adaptive, floor, max }`. `upscaled: true` means current < devicePixelRatio, the picture
   is softer than the screen: if that looks wrong in a screenshot, check this before the style. Fixed quality: `pixelRatio: n` plus `adaptiveResolution: false`.
 
 ## 5. Verify (once before and once after, under the same conditions)
-- `npm run perf` (native vs engine vs per-module cost of openWorld), compared with the tables in `../PERF.md`; differences under 10-30% are noise.
+- `npm run perf` (native vs engine vs per-module cost of openWorld), run before and after on the same machine; differences under 10-30% are noise.
 - Compare a specific scenario: `npm run shot -- / --pos x,z --time 12:00 --describe-only` to see draw calls and triangles.
-- Related tests: `npm test -- 性能预算`, `npm test -- 阴影`, `npm test -- startup time`. Attach the before/after numbers when reporting.
+- Related tests: `threedog test 性能预算`, `threedog test 阴影`, `threedog test startup time`. Attach the before/after numbers when reporting.

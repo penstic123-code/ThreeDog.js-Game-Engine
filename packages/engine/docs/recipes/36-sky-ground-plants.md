@@ -40,7 +40,7 @@ vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, ve
 // lit / shade: clouds.color / clouds.shade. cover: weather cloud amount * clouds.coverage.
 // return: rgb = final cloud color (dim it at night yourself), a = opacity (apply your own horizon fade).
 ```
-In scope: the GLSL noise helpers `float threedogHash(vec2 p)` and `float threedogNoise(vec2 p)`, the built-in cloud uniforms (`uCloudScale`, `uCloudSpeed`, `uCloudHorizon`, `uCloudFade`...) and
+In scope: the GLSL noise helpers `float threedogHash(vec2 p)` and `float threedogNoise(vec2 p)`, the built-in cloud uniforms (`uSkyCloudScale`, `uSkyCloudSpeed`, `uCloudHorizon`, `uCloudFade`...) and
 the patch's `uniforms` (declared for you; number, `THREE.Color`, `THREE.Vector2/3/4`, array of 2-4 numbers, or `THREE.Texture`). Change one later
 with `engine.sky.dome.material.uniforms.uEdge.value = 0.1`. A bad `kind`, GLSL without the function, or an unsupported uniform value throws with the fix.
 Flat painted cloud blobs with a hard edge, multiplied by a texture:
@@ -110,6 +110,8 @@ The lighter alternative, with no material of your own: `terrain({ detail })`, or
 `engine.terrain.uniforms.uDetailStrength.value = 0.2`. Which to pick: recipe 53.
 
 ## Plants and wind
+`vegetation.define` works at any time after `engine.use`, before or after `content.load` and `engine.start`. A species named by a model (`model: 'oak'`) appears when its promise settles, so `vegetation.list()` right after
+that call does not show it yet. To keep plants off a road or a yard, give the species a `densityMap: (x, z) => 0..1`, or a ground type of its own that the species' `biomes` leave out.
 ```js
 engine.vegetation.define('oak', { model: await engine.assets.model('oak'), wind: 0.02 });            // per species: its own material, wind, fade
 engine.vegetation.define('fern', { geometry, material: new THREE.MeshToonMaterial({ vertexColors: true }), wind: 0.08 });
@@ -155,4 +157,4 @@ Reduce grass cost with `rule.perChunk`, `maxRing` and `nearOnly`, not the wind.
 
 ## What is still fixed
 Cloud *shadows* on the ground (`threedog_clouds_pars_fragment`) keep their two-noise shape; strength, scale and speed are the signals
-`engine.uniforms.uCloudShadow`, `uCloudScale`, `uCloudSpeed`. Grass has no billboard or blade-shape setting: give `vegetation.define` your own `geometry` or `model`.
+`engine.uniforms.uCloudShadow`, `uCloudShadowScale`, `uCloudShadowSpeed`. Grass has no billboard or blade-shape setting: give `vegetation.define` your own `geometry` or `model`.

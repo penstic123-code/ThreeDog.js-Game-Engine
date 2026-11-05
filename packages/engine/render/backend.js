@@ -3,10 +3,13 @@
 // read directly in every caller, each one would need its own WebGPU branch and the next renderer change would miss some of them.
 // Plain three.js equivalent: renderer.info.render / .memory / .programs, renderer.shadowMap.autoUpdate / needsUpdate (WebGL) or
 // light.shadow.autoUpdate / needsUpdate (WebGPU), WEBGL_debug_renderer_info (WebGL) or GPUDevice.adapterInfo (WebGPU).
-// Imports nothing from three (only the engine's error codes): threedog/tsl (render/fx) registers the WebGPU classes here, so WebGL games never load three/webgpu.
+// Imports nothing from three (only engine files that do not either): threedog/tsl (render/fx) registers the WebGPU classes here, so WebGL games never load three/webgpu.
 
 import { codedError } from '../core/errorHints.js';
 import { notePatch, patchOn } from '../core/threePatches.js';
+
+/** Samples of the MSAA the post chain's targets use, on both renderers */
+export const MSAA_SAMPLES = 4;
 
 /** Whether this is three's WebGPURenderer (either of its backends) @param {any} r */
 export const isWebGPU = r => !!r?.isWebGPURenderer;
@@ -140,9 +143,9 @@ export function useSceneVisitor(fn) { VISITOR.fn = fn; }
 
 /**
  * Stop shadow redraws until the returned release() puts the switch back. For renders that draw the scene again within one frame (a post
- * effect's own scene render: ao normals, outline depth): three redraws every shadow map in each render() while autoUpdate is on, so on
+ * effect's own scene render: ao normals, outline's normals and mask): three redraws every shadow map in each render() while autoUpdate is on, so on
  * WebGL ao drew them twice a frame (tests/specs/shadow-passes.mjs). A redraw already requested (needsUpdate) still happens on the next render;
- * the scene pass before this has used it up in the usual case. WebGPURenderer: a no-op (its post pipeline renders the scene once).
+ * the scene pass before this has used it up in the usual case. WebGPURenderer: a no-op (three draws a shadow there once per camera and frame by itself, however many passes render the scene).
  * @param {any} r @param {any} scene @returns {() => void}
  */
 export function holdShadowRedraw(r, scene) {
@@ -202,7 +205,7 @@ export function shadowMaps(r, scene) {
  * (known only after init(); '' before). WebGPURenderer on its WebGL2 backend: that backend's context, read like WebGL.
  * @param {any} r @returns {string}
  */
-export function gpuName(r) {
+function gpuName(r) {
   if (isWebGPU(r) && r.backend?.isWebGPUBackend) {
     const a = r.backend.device?.adapterInfo;
     return a ? [a.vendor, a.architecture, a.device, a.description].filter(Boolean).join(' ') : '';
@@ -323,17 +326,6 @@ export function compileThrough(r, draw) {
 }
 
 /**
- * A cube render target for a CubeCamera on r. Why here: WebGPURenderer draws into three/webgpu's CubeRenderTarget; given a
- * WebGLCubeRenderTarget it renders without a word and every face reads back black (a probe bake of all zeros). The caller passes three's
- * namespace (THREE) so this file keeps importing nothing from three.
- * @param {any} r @param {any} THREE the 'three' module @param {number} size @param {object} [opts] render target options
- */
-export function cubeTarget(r, THREE, size, opts) {
-  if (!isWebGPU(r)) return new THREE.WebGLCubeRenderTarget(size, opts);
-  return new (webgpuPart('classes', 'a cube render').CubeRenderTarget)(size, opts);
-}
-
-/**
  * The pixels of one layer of a 3D render target, RGBA, row 0 first as the target's writer meant it. Float32Array on WebGLRenderer; on WebGPURenderer
  * whatever its readback gives for the target's type, with rows padded to its copy alignment (use length / h as the row stride).
  * Why the flip: WebGPURenderer's node shaders count rows from the top, and on its WebGL2 backend readPixels counts from the bottom, so without
@@ -355,8 +347,11 @@ export async function readLayer(r, rt, w, h, layer) {
   return px;
 }
 
-/** A CubeCamera's six faces (three's CubeCamera.update, which handles both renderers) as one fresh frame, like renderOnce @param {any} r @param {any} scene @param {any} cubeCamera */
-export function cubeRender(r, scene, cubeCamera) { freshFrame(r); cubeCamera.update(r, scene); }
+/** Make three's light node drop the shadow it cached (AnalyticLightNode listens for the light's 'dispose'; its version bump recompiles) @param {any} light */
+export function rebuildShadow(light) { light.dispatchEvent({ type: 'dispose' }); }
+
+/** A text that changes when the camera's projection does, for "did it change" checks @param {any} cam @returns {string} */
+export const projectionKey = cam => (cam.isPerspectiveCamera ? `${cam.fov},${cam.aspect},${cam.near},${cam.far},${cam.zoom}` : `${cam.left},${cam.right},${cam.near},${cam.far},${cam.zoom}`);
 
 // ---------- the WebGPU route (createEngine({ renderer: 'webgpu' }); docs/plans/2026-11-03-webgpu-phase2.md section 1) ----------
 
@@ -365,7 +360,7 @@ export function cubeRender(r, scene, cubeCamera) { freshFrame(r); cubeCamera.upd
 // a sixth part had nothing to copy. Now a .tsl.js file calls registerWebGPUPart(name, impl) once at load, and every user asks
 // webgpuPart(name, who): the same error code and the same fix line wherever threedog/tsl is missing.
 // Module scope, not a page global: the .tsl.js files import this file, so they always fill the table the engine copy using them reads.
-/** @typedef {'classes' | 'nodePatches' | 'particles' | 'post' | 'sky' | 'cascades'} WebGPUPartName */
+/** @typedef {'classes' | 'nodePatches' | 'particles' | 'post' | 'sky' | 'cascades' | 'shadowCache'} WebGPUPartName */
 /** @type {Map<string, any>} */
 const PARTS = new Map();
 /**

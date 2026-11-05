@@ -1,5 +1,5 @@
 // The scan behind `threedog art board`: every art resource of one game, read from the game's own files only (assets.js, public/, art/, picture/, content/,
-// code), never from style/, look.* or makeMaterial, so it means the same thing with or without an engine appearance layer.
+// code), never from anything the engine owns, so it means the same thing in any game.
 // One rule decides every status, because a check must not lie:
 //   used        at least one reference whose meaning is certain (a path that resolves, a name in a model / sound / texture slot, a material variable)
 //   not-traced  no certain reference, but something could reach it: a name built at run time, or the same text in a place that may mean something else
@@ -91,7 +91,7 @@ function scanFiles(b) {
   const files = [...walk(join(b.dir, 'public'), { exts: ART_FILE }), ...walk(b.dir, { exts: ART_FILE, skip: NOT_ART })];
   for (const f of files) {
     const rel = slash(relative(b.dir, f));
-    // art/models/x.glb is the source of public/optimized/x.glb (threedog assets): one resource with two files, not two with one "unused"
+    // art/models/x.glb is the source of public/optimized/x.glb (threedog assets optimize): one resource with two files, not two with one "unused"
     const built = rel.startsWith('art/models/') ? 'public/optimized/' + rel.slice('art/models/'.length) : null;
     if (built && b.byFile.has(built)) { b.byFile.get(built).source = rel; continue; }
     const it = b.add({ kind: kindOf(rel), name: basename(rel, extname(rel)), file: rel, size: statSync(f).size });

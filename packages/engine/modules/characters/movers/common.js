@@ -4,7 +4,7 @@
 //   engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 });   // haste on the player; without id: every character (mud, wind)
 // The character's own field is the base and belongs to the game (player.speed = 6 is always fine); stacks hold only the modifiers, so stamina's
 // "run speed = walk speed", haste x1.2 and mud x0.6 combine and end in any order (stacks.js rules).
-import { xzOf } from '../../../core/math.js';
+import { xzOf, wrapAngle } from '../../../core/math.js';
 import { groundAt, stateOf } from './support.js';
 import { warnOnce } from '../../../core/validate.js';
 
@@ -19,9 +19,12 @@ const STACK_OF = Object.fromEntries(MOVE_STATS.map(k => [k, 'move.' + k]));
 
 /** @internal define the move.* stacks once per engine: the characters module install does it (so engine.mod works in setup); the Character constructor calls it too for a character made without the module */
 export function moveStacks(e) {
-  if (!e.stacks || e.stacks.has('move.speed')) return;
+  if (e.stacks.has('move.speed')) return;
   for (const k of MOVE_STATS) e.stacks.define(STACK_OF[k], { per: 'optional', ...(k === 'gravity' ? {} : { min: 0 }) });
 }
+
+/** The steepest ground a walker climbs (rise over run): the collision module's, else the engine's own */
+export const climbLimit = e => e.collision?.maxClimb ?? e.movement.slopeRatio;
 
 /**
  * The value a mover uses now: the character's own field (the base) with every engine.mod entry on 'move.<name>' applied. canJump reads 1 / 0.
@@ -30,7 +33,7 @@ export function moveStacks(e) {
 export function stat(c, name, base) {
   const b = base ?? (name === 'canJump' ? (c.canJump ? 1 : 0) : c[name]);
   const s = c.engine.stacks, key = STACK_OF[name] ?? 'move.' + name;
-  if (!s?.has(key)) return b;
+  if (!s.has(key)) return b;
   return s.get(key).value(c.modId, b);
 }
 
@@ -109,7 +112,7 @@ export function tryJump(c) {
 /** Landing: impact is the landing speed; jumps refill */
 export function land(c, impact) {
   c.vy = 0; c.grounded = true; jumpOf(c).used = 0;
-  c.onLand?.(impact); c.engine.events.emit('character:land', { character: c, impact });
+  c.engine.events.emit('character:land', { character: c, impact });
 }
 
 /** Extra horizontal speed carried from a platform the character left, as a Vector2 (x, z), until it lands */
@@ -127,8 +130,7 @@ function faceAngle(c, sp) {
 export function finish(c, dt) {
   const sp = c.velocity.length(), want = faceAngle(c, sp);
   if (want != null) {
-    let d = want - c.facing; d = Math.atan2(Math.sin(d), Math.cos(d));
-    c.facing += d * Math.min(1, dt * c.turnSpeed);
+    c.facing += wrapAngle(want - c.facing) * Math.min(1, dt * c.turnSpeed);
     c.root.rotation.y = c.facing;
   }
   c.moveAmount = sp;

@@ -8,9 +8,9 @@
 // sits beside it. Growth is counted in game seconds (clock.now), so a far record, a loaded save or a time skip all catch up in one pass.
 // Node-safe (no three): content-check imports this file directly, so the engine and the check accept the same stages.
 import { closest } from '../../core/validate.js';
+import { isModelName } from '../../core/util.js';
 
 const STAGE_KEYS = ['name', 'duration', 'scale', 'model'];
-const isModel = m => typeof m === 'string' || (Array.isArray(m) && typeof m[0] === 'string');
 
 /**
  * Problems of a template's stages list (empty list = fine). Every stage but the last needs a duration (game seconds spent there); the last may omit it
@@ -42,7 +42,7 @@ export function stagesProblems(where, stages) {
     if (s.scale !== undefined && (!Number.isFinite(s.scale) || s.scale <= 0)) {
       out.push(`${at}: scale must be a positive number (multiplies the instance scale), got ${JSON.stringify(s.scale)}`);
     }
-    if (s.model !== undefined && !isModel(s.model)) out.push(`${at}: model must be a model name (like the template's model), got ${JSON.stringify(s.model)}`);
+    if (s.model !== undefined && !isModelName(s.model)) out.push(`${at}: model must be a model name (like the template's model), got ${JSON.stringify(s.model)}`);
   });
   return out;
 }

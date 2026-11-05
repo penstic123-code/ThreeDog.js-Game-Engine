@@ -111,7 +111,7 @@ export interface TerrainConfig {
   /**
    * How the ground gets its color: 'smooth' (default) blended per grid point | 'flat' one color and normal per triangle (low poly) |
    * 'texture' per-chunk color map sampled per pixel, so color borders (a river bank) are not confined to triangle edges and the mesh can stay coarse.
-   * See recipes/37-terrain-draw-hooks.md.
+   * See recipes/37-terrain-hooks.md.
    */
   shading: 'flat' | 'smooth' | 'texture';
   /** Texture shading: color map pixels per chunk edge (default 128, 64 on low-tier devices; independent of `resolution`) */
@@ -221,7 +221,7 @@ export interface TerrainChunk {
 /** One species' placement in one chunk: n plants, m = 16 floats per plant (chunk-local matrix), c = 3 colors per plant, ids = stable ids */
 export interface VegetationPlants { n: number; m: Float32Array; c: Float32Array; ids?: Uint32Array; k?: Float32Array }
 
-/** engine.terrainDraw: draws the terrain chunks (slot 'terrain-draw'; engine.use(mine, { replaces: 'terrain-draw' }) swaps it) */
+/** engine.terrainDraw: draws the terrain chunks (slot 'terrain-draw'; engine.use(mine, { replaces: 'terrain-draw' }) swaps it) @experimental */
 export interface TerrainDraw {
   /** The ground material every chunk draws with; setting swaps it on every loaded chunk as given (same as engine.terrain.material). Nothing is regenerated, collision is untouched */
   material: Material;
@@ -235,7 +235,7 @@ export interface TerrainDraw {
   meshes: Map<TerrainChunk, { group: Object3D; mesh: Mesh; colorTex: any; colorMat: any }>;
 }
 
-/** engine.vegetationDraw: draws the plants (slot 'vegetation-draw'; engine.use(mine, { replaces: 'vegetation-draw' }) swaps it) */
+/** engine.vegetationDraw: draws the plants (slot 'vegetation-draw'; engine.use(mine, { replaces: 'vegetation-draw' }) swaps it) @experimental */
 export interface VegetationDraw {
   /** The InstancedMesh drawing one species in one chunk, null when none */
   mesh(c: TerrainChunk, name: string): InstancedMesh | null;
@@ -247,8 +247,8 @@ export interface VegetationDraw {
 
 /** engine.terrain: the terrain data part (chunks, heights, edits, collision); engine.terrainDraw draws it */
 export interface Terrain {
-  /** Pure-computation terrain (height, landform) */
-  T: TerrainGen;
+  /** Pure-computation terrain (height, landform), what createTerrain() returns */
+  generator: TerrainGen;
   /**
    * The plain three.js material every chunk draws with (null under a draw part that replaced 'terrain-draw'). The neutral one takes direct writes; setting one swaps it on every
    * loaded chunk and draws it as given. Nothing is regenerated, collision is untouched. Chunks carry position, normal, color and uv (world xz / chunk size)
@@ -265,8 +265,8 @@ export interface Terrain {
    * @example engine.terrain.recolor({ colors: { grass: 0x6a8a3a }, biomeColors: { meadow: ['grass'] } });
    */
   recolor(o?: TerrainRecolor): void;
-  /** Chunk edge length (meters) */
-  readonly CHUNK: number;
+  /** Chunk edge length (meters), the same value as the chunkSize option and ground.chunkSize */
+  readonly chunkSize: number;
   /**
    * terrain({ shape }) only: below this height the player or a moving rigid body has fallen out of the world (one terrain:void per fall).
    * shape.voidY, else 50 m under the lowest island chunk loaded so far; -Infinity without a shape
@@ -275,9 +275,9 @@ export interface Terrain {
   readonly voidY: number;
   /** Loaded chunks: 'cx,cz' → chunk */
   chunks: Map<string, TerrainChunk>;
-  /** View distance (in chunks) */
+  /** View distance (in chunks); writing it takes effect like setViewChunks */
   viewChunks: number;
-  /** Vegetation density multiplier */
+  /** Vegetation density multiplier; writing it takes effect like setDensity */
   density: number;
   /** Time budget (milliseconds) for uploading chunks per frame */
   applyBudgetMs: number;
@@ -309,8 +309,6 @@ export interface Terrain {
    * @experimental
    */
   edit(position: PositionLike, opts: TerrainEditOptions): { heights: number; cells: number };
-  /** Whether the chunks within rings rings (default 1) around position are all loaded */
-  isReadyAround(position: PositionLike, opts?: { rings?: number }): boolean;
 }
 
 // ======================================================================
@@ -490,7 +488,7 @@ export interface SkyEnvironmentInfo { source: string, intensity: number, rotatio
 
 /** Parameters of sky({...}). The sky computes signals and draws the dome; lights and fog are the game's (sky({ sun | hemisphere | fog }) throw naming what to write). Picture values are start values here:
  *  after install the numbers are engine.uniforms (write .value), the rest engine.sky fields and calls (keyframes, clouds, layer, replace, backdrop, top, horizon, orbit, dim) */
-export interface SkyOptions extends Pick<SkyPictureOptions, 'clouds' | 'backdrop' | 'keyframes' | 'sunSize' | 'sunGlow' | 'sunBrightness' | 'moonSize' | 'moonColor' | 'moonBrightness' | 'starDensity' | 'starScale' | 'gradientCurve' | 'orbitTilt' | 'orbitSway' | 'dim'> {
+export interface SkyOptions extends Pick<SkyPictureOptions, 'clouds' | 'backdrop' | 'keyframes' | 'sunSize' | 'sunGlow' | 'sunBrightness' | 'moonColor' | 'moonBrightness' | 'starDensity' | 'dim'> {
   /**
    * The fixed time of day drawn while no calendar() is installed: 'HH:MM' or 0–1 (0.5 noon), default 0.33 (a sunset arena: sky({ time: '18:30' })).
    * With calendar() the sky draws engine.calendar.timeOfDay and this option throws (start the day with calendar({ time }))
@@ -534,18 +532,10 @@ export interface SkyPictureOptions {
   sunGlow?: number;
   /** Sun brightness, default 6 */
   sunBrightness?: number;
-  /** Larger means a smaller moon */
-  moonSize?: number;
   moonColor?: ColorLike;
   moonBrightness?: number;
-  /** North-south tilt of the sun path */
-  orbitTilt?: number;
-  /** East-west swing of the sun path */
-  orbitSway?: number;
-  /** Share of the sky grid cells (0-1) that hold a star at night, default 0.0025 (0 = no stars). A probability, not a brightness: near 1 every cell is lit and the upper sky turns into a white sheet. The cell size is starScale */
+  /** Share of the sky grid cells (0-1) that hold a star at night, default 0.0025 (0 = no stars). A probability, not a brightness: near 1 every cell is lit and the upper sky turns into a white sheet. */
   starDensity?: number;
-  /** Star grid resolution (cells per unit of view direction), default 260: larger means smaller and more numerous stars */
-  starScale?: number;
   /**
    * What the sky dims for every game unless the style says no (each default true; false turns that one off, the rest stay). The one place these
    * picture decisions are switched:
@@ -555,14 +545,6 @@ export interface SkyPictureOptions {
    * @example sky({ dim: { stars: false } })   // live: engine.sky.dim.tint = false
    */
   dim?: { tint?: boolean; stars?: boolean };
-  /**
-   * Gradient curve from horizon to zenith, default 0.55 (color = mix(horizon, zenith, elevation^curve), mixed in linear light, then tone mapped
-   * and exposed like the scene). The keyframe zenith shows only high up: a level camera (55 deg fov) sees the lowest ~25 deg, where a warm
-   * horizon and a deep-blue zenith mix to a gray-lavender (desert R4: e8d4a8 / 1858c8 read as #9b99bd at the frame's top). Lower curve = more
-   * zenith color near the horizon; or bring the horizon color closer to the zenith hue. toneMapping 'aces' also turns a saturated blue toward
-   * violet ('agx' / 'neutral' keep the hue closer). Check with threedog shot
-   */
-  gradientCurve?: number;
   /** Clouds in the sky (cloud cover follows the weather); see SkyCloudOptions */
   clouds?: SkyCloudOptions;
   /** Panorama (equirectangular) replacing the gradient sky, asset name or path (at run time engine.sky.replace(name)) */
@@ -792,7 +774,7 @@ export interface SnowCover {
   strength?: number;
 }
 
-/** Falling weather particles: weather({ rain, snow }) and engine.weather.define(field, spec). See recipes/44-water-weather-hooks.md */
+/** Falling weather particles: weather({ rain, snow }) and engine.weather.defineField(field, spec). See recipes/44-water-weather-hooks.md */
 export interface WeatherParticles {
   /** 'line' streaks slant with the wind; 'round' | 'soft' | 'square' sprites drift (sway) */
   shape?: Loose<'line' | 'round' | 'soft' | 'square'>;
@@ -811,7 +793,7 @@ export interface WeatherParticles {
   slant?: number;
   /** Sprite drift (meters) */
   sway?: number;
-  /** Particle count (default weather({ particles }); halved on low-tier devices) */
+  /** Particle count (default weather({ particles }), else 6000, 3000 on low-tier devices; a number the game gives stands) */
   count?: number;
   /** Weather amount 0..1 -> share of particles drawn (rain default a => min(1, a * 1.2), snow () => 1; opacity follows the amount too) */
   density?: (amount: number) => number;
@@ -822,7 +804,7 @@ export interface WeatherParticles {
   glsl?: { vertex?: string; fragment?: string };
   /** Uniforms for your glsl: numbers, colors, [x, y(, z, w)] arrays, textures; live in engine.weather.particles[field].uniforms */
   uniforms?: Record<string, any>;
-  /** A system of your own instead (engine.weather.define only): the engine adds object, shows it while the amount is above 0.02, calls update */
+  /** A system of your own instead (engine.weather.defineField only): the engine adds object, shows it while the amount is above 0.02, calls update */
   create?: (engine: Engine, ctx: { area: number; count: number }) => {
     object: Object3D; update?: (amount: number, ctx: { camera: any; time: number; wind: number }) => void };
 }
@@ -996,7 +978,7 @@ export interface LightPoolOptions {
 }
 /** Options of lightPool.add(position, opts): one light source (a torch, lamp, campfire, muzzle flash...) */
 export interface LightSourceOptions {
-  /** Name shown in lightPool.usage() */
+  /** Name shown in describe().lightPool */
   name?: string;
   /** 'point' (default) or 'spot' (needs lightPool({ spot: n })) */
   type?: 'point' | 'spot';
@@ -1059,15 +1041,6 @@ export interface LightSource {
   /** Unregister: its light fades out and moves on, the stand-in is put back (safe to call twice) */
   remove(): void;
 }
-/** lightPool.usage(): what the pool is doing now */
-export interface LightPoolUsage {
-  /** Registered sources */
-  sources: number;
-  /** Real lights lighting a source now */
-  lit: number;
-  /** One per real light: its kind, whether it casts shadows, the source it holds (name or number, null = idle) and its fade 0-1 */
-  slots: { type: 'point' | 'spot'; shadow: boolean; source: string | number | null; weight: number }[];
-}
 /** engine.lightPool: register any number of light sources; a fixed set of real lights moves to the most relevant ones */
 export interface LightPool {
   /** The real three.js lights, created once at install and never added, removed or hidden (the pool sets their position, color, intensity) */
@@ -1081,8 +1054,6 @@ export interface LightPool {
    * torch.set({ intensity: 0 });   // put out: its light goes to another torch
    */
   add(position: PositionLike, opts?: LightSourceOptions): LightSource;
-  /** What the pool is doing now (also in describe().lightPool) */
-  usage(): LightPoolUsage;
 }
 
 // ======================================================================

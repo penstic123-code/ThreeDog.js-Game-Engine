@@ -37,6 +37,9 @@ export const specs = [
         !f.error && f.cloudHook && f.nodeMats.length === 0, JSON.stringify(f));
       check("fallback 'webgl': particles and rain / snow rebuilt as WebGL points / lines, rain drawn; exp fog moved from the scene fog node to the patch; cascades are lights",
         !f.error && f.particles === 'Points ShaderMaterial' && f.rain === 'ShaderMaterial' && f.snow === 'ShaderMaterial' && f.rainShown && f.csm === 'lights', JSON.stringify(f));
+      const tb = await ev(() => window.textureBeforeStart());
+      console.log('  texture before start numbers:', JSON.stringify(tb));
+      check('assets.texture() before start() on the WebGPU route loads, and the texture draws (it once threw "initTexture() called before the backend is initialized")', !tb.error && tb.red > 0.9, JSON.stringify(tb));
       const ps = await ev(() => window.programSharing());
       console.log('  program sharing numbers:', JSON.stringify(ps));
       check(`${ps.materials} materials of one setup (lighting + detail) share their patch objects on WebGPU: one node key, at most 2 node builds (was one per material)`,

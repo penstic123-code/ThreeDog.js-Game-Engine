@@ -7,7 +7,7 @@ const MAKE = `
   const { THREE, createEngine, terrain, applyEffects, materialPatches } = threedogTest;
   const patched = m => !!Object.getOwnPropertyDescriptor(m, 'onBeforeCompile')?.get;
   const err = f => { try { f(); return ''; } catch (x) { return x.message; } };
-  const ready = async E => { for (let i = 0; i < 600 && !E.terrain.isReadyAround({ x: 0, z: 0 }); i++) { E.step(1 / 60); await new Promise(res => setTimeout(res, 5)); } return E; };
+  const ready = async E => { for (let i = 0; i < 600 && !E.terrain.readyAt({ x: 0, z: 0 }); i++) { E.step(1 / 60); await new Promise(res => setTimeout(res, 5)); } return E; };
   const make = async (opts, key) => {
     const E = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, urlState: false, saveKey: 'terrain-mat-' + key });
     E.use(terrain({ seed: 7, viewChunks: 1, ...opts })); await E.start();
@@ -115,18 +115,18 @@ export const specs = [
         const colors = { a: 0xff0000 }, biomeColors = { default: ['a'] };
         const out = {}, E = await make({ colors, biomeColors, shading: 'flat', normals: 'flat', variation: { jitter: { size: 1 } } }, 'rc'), T = E.terrain;
         const red = () => { const c = chunk(E).data.col; return [c[0] > c[1], c[1] > c[0]]; };
-        out.cfg = (() => { try { structuredClone({ ...T.T.config, height: null, groundType: null, normalFn: null }); return true; } catch { return false; } })();
-        out.start = [red()[0], T.T.config.shading, T.T.config.normals];
+        out.cfg = (() => { try { structuredClone({ ...T.generator.config, height: null, groundType: null, normalFn: null }); return true; } catch { return false; } })();
+        out.start = [red()[0], T.generator.config.shading, T.generator.config.normals];
         T.edit({ x: 8, z: 8 }, { radius: 3, raise: 2 });
         const h = E.surface(8, 8);
         T.recolor({ colors: { a: 0x00ff00 } });
         await ready(E); for (let i = 0; i < 300 && !chunk(E)?.data; i++) { E.step(1 / 60); await new Promise(res => setTimeout(res, 5)); }
         out.green = red()[1];
         out.edit = Math.abs(E.surface(8, 8) - h) < 1e-6;
-        T.recolor({ shading: 'smooth' }); out.smooth = T.T.config.shading;
-        T.recolor({ shading: null }); out.back = T.T.config.shading;
+        T.recolor({ shading: 'smooth' }); out.smooth = T.generator.config.shading;
+        T.recolor({ shading: null }); out.back = T.generator.config.shading;
         T.recolor({ normals: null, variation: null });
-        out.cleared = [T.T.config.normals, T.T.config.variation ?? null];
+        out.cleared = [T.generator.config.normals, T.generator.config.variation ?? null];
         out.bad = [err(() => T.recolor({ shading: 'fancy' })), err(() => T.recolor({ colors: 5 })), err(() => T.recolor({ colours: {} })), err(() => T.recolor({ variation: { jiter: {} } })), err(() => terrain({ shading: 'fancy' }))];
         out.detail = err(() => terrain({ detail: 4 }));
         E.dispose();

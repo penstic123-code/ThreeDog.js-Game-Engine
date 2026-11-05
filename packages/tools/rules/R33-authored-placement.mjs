@@ -2,8 +2,10 @@
 // Why only these: a startup engine.add / collision.addBox / interactions.add is rebuilt by code on every start, so it never needs saving and is fine
 // (engine.thing says what each object keeps). What breaks is a startup call that creates something saved whole: the save restores it and the code
 // makes it again (a duplicate after every load, or a dupId error). That, and code moving a model world places every frame, are what this rule reports.
-// Detection (TypeScript AST, not regex), each fix names content or an op:
-//   error: world.add (without { save: false }), content.spawn, pickups.spawn, npcs.add made at setup time:
+// Detection (TypeScript AST, not regex), each fix names content or an op and the `// runtime:` tag:
+//   warn: world.add (without { save: false }), content.spawn, pickups.spawn, npcs.add made at setup time. A warning because the rule cannot see whether the game
+//     saves at all, or whether a session:start listener already checks kind === 'new'; a roguelike spawning its run is right. The run-time checks catch real duplicates.
+//     Setup time is:
 //     module top level, a callback of events.on/once('engine:ready' | 'level:loaded' | 'session:start'), an install / init method, or a same-file
 //     function called from one of those (one level of call graph). Array callbacks (forEach, map…) and IIFEs take the context around them.
 //   error: world.add(…, { initial: true }) anywhere: authored records come only from content loaders (saves diff against that baseline).
@@ -14,7 +16,7 @@
 //   The runtime checks (engine.thing registry, recipe 40) cover what a static pass cannot: whether an id is stable, whether an object will be saved,
 //   deeper call graphs and helper modules that take engine as an argument.
 // Scope: game code (.js/.mjs) of the engine examples, the new-game templates and games/*; content/ folders, tests/, dist/ and bake.js are skipped.
-// Level: the same everywhere (examples, templates and games/*): error for the saved-whole and initial findings, warn for world models.
+// Level: the same everywhere (examples, templates and games/*): error for { initial: true } only (it really corrupts the save baseline), warn for the rest.
 import { walk, read, ts, P, rel, lineOf } from './_lib.mjs';
 
 // Paths skipped with the reason
@@ -26,7 +28,8 @@ const SKIP = [
 const SETUP_EVENTS = new Set(['engine:ready', 'level:loaded', 'session:start']);
 const PASS_THROUGH = new Set(['forEach', 'map', 'flatMap', 'filter', 'reduce', 'some', 'every', 'find']);
 const CONTENT_HINT = 'it is saved whole, so the save restores it and this code makes it again after every load. Put it in content '
-  + '(a template in content/templates.js plus a placement { id, template, place, x, z } in content/props.js), or create it inside an op during play';
+  + '(a template in content/templates.js plus a placement { id, template, place, x, z } in content/props.js), or create it inside an op during play. '
+  + 'This game has no saves, or the code runs only for a new run? Tag the line // runtime: <reason> and this stops';
 
 // The first exit for world.add: most startup records are rebuilt by code anyway and need no save at all. Leading with it keeps a game that
 // just spawns things at startup from being pushed into content files it does not need.
@@ -128,7 +131,7 @@ export function scan(sf) {
       const text = calleeText(n), hit = CALLEES.find(([re]) => re.test(text));
       const worldAdd = /\bworld\.add$/.test(text), initial = worldAdd && objArg(n, 'initial');
       if (hit && (initial || (!(worldAdd && saveFalse(n)) && contextOf(n, sf) === 'setup'))) out.push({
-        line: lineOf(n), level: 'error',
+        line: lineOf(n), level: initial ? 'error' : 'warn',
         msg: initial ? `${text}(…, { initial: true }) in game code: authored records come only from content loaders (saves diff against them)`
           : `${text}() creates ${hit[1]} at setup (module top level or a startup event)`,
         fix: initial ? 'write the record in content (content/props.js with an id); content.load adds it as authored' : `${worldAdd ? SAVE_FALSE : ''}${CONTENT_HINT}; ${hit[2]}`,

@@ -1,10 +1,11 @@
 // @ts-check
 // __NAME__: blank start — an empty scene and a camera (plus the starting picture in picture/: a gray sun and ambient light, written by this game). No gameplay yet: build what DESIGN.md describes.
-// main.js holds rules only (modules, ops, state, presentation). Everything placed in the level is content: content/templates.js + content/props.js (rule R33).
+// main.js holds rules by default (modules, ops, state, presentation), and things placed in the level default to content (content/templates.js + content/props.js),
+// because saves and GAMEMAP read it. Plain three.js objects work just as well. The one fact to keep: what a save stores whole must not be made again at startup (rule R33).
 // Nothing here assumes a genre: add the modules your design needs (terrain, sky, a camera rig, characters...), or plain three.js objects to engine.scene.
 // Wired already, because nearly every game needs them and they cost one line each: start screen (ui.title: Continue / Start), autosave, Esc = pause + settings menu.
 // Why they are here: nearly every game needs a start screen, a save and a pause menu, and writing them by hand costs far more code and leaves them out of
-// saves and tests. Delete a line only if the design truly has no such thing; then you write that part yourself. CLAUDE.md "Already here" lists the rest.
+// saves and tests. Keep it, replace it (engine.ui.set), or delete it; a hand-written one needs its own save and test hooks. CLAUDE.md "Already here" lists the rest.
 // Want a ready open world instead (generated ground, day/night sky, follow camera, a player)? threedog new-game name --open-world
 __TSL_IMPORT__
 import { createEngine, presets, world, content, settings /*, THREE, characters, collision, followCamera, hud, interactions, dialogue, quests, vegetation */ } from 'threedog';
@@ -27,7 +28,7 @@ engine.assets.manifest(packs);   // assets.js: the models / sounds / textures co
 // const guide = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1, 4, 8), new THREE.MeshStandardMaterial({ color: 0xc89a5a })); guide.position.set(4, 0.9, -3); engine.scene.add(guide);   // any three.js object
 // engine.dialogue.define('guide', { start: { text: 'Hello! Visit the well.', choices: [{ text: 'On my way', do: s => { s.flags.met = true; } }, { text: 'Later' }] } });   // flags are saved
 // const shell = new THREE.Mesh(new THREE.SphereGeometry(0.25), new THREE.MeshStandardMaterial({ color: 0xd8c8a8 })); shell.name = 'shell'; shell.position.set(-3, 0.25, -2); engine.scene.add(shell);
-// engine.interactions.add(shell, { id: 'shell-1', label: 'Pick up', once: true, counter: 'coins' });   // E (presets.bindings.interact above) near any mesh: hides it, counts it, both saved
+// engine.interactions.add(shell, { id: 'shell-1', label: 'Pick up', once: true, counter: 'coins' });   /* counter: the HUD's count (describe hud), not engine.vars */   // E (presets.bindings.interact above) near any mesh: hides it, counts it, both saved
 // engine.interactions.add(guide, { label: 'Talk', onUse: () => engine.dialogue.start('guide') });   // E near it; works on any mesh, "Talk" can as well be "Open" or "Pick up"
 // engine.hud.counter('coins', { label: 'Coins', value: 0 });   // update: call it again with the new value
 // engine.input.action('use', { label: 'Use', keys: ['KeyE'] });   // your own key: read it with engine.input.pressed('use') in onFixed; every key the game needs must be bound
@@ -39,7 +40,7 @@ engine.assets.manifest(packs);   // assets.js: the models / sounds / textures co
 // The camera is a plain THREE.PerspectiveCamera: place it yourself, or add a camera module (followCamera, rtsCamera...; recipe 21)
 engine.camera.position.set(0, 6, 12);
 engine.camera.lookAt(0, 0, 0);
-engine.content.load(data, { places: data.places });   // the places of content/places.js get their coordinates here (a place computed at startup: { ...data.places, home })
+engine.content.load(data);   // content/places.js comes with data; a place computed at startup goes on top: engine.content.load(data, { places: { home } })
 
 Object.assign(window, { engine, picture });   // tests, screenshots and the console all rely on it (before start, so the dev bridge can wait for it)
 await engine.start();      // when start returns the modules are ready

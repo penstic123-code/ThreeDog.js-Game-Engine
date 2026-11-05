@@ -59,7 +59,7 @@ Everything is imported from `three/tsl`; a name you do not find here is almost a
 - Your own function and branches: `Fn`, `If`, `Loop`.
 
 ## The engine's values as nodes: `uniforms(engine)`
-`uniforms(engine)` returns `engine.uniforms` as TSL nodes with the same names: `uTime`, `uWind`, `uCloud`, `uSunDir`, `uSunColor`, `uDaylight`
+`uniforms(engine)` returns `engine.uniforms` as TSL nodes with the same names: `uTime`, `uWind`, `uWeatherCloud`, `uSunDir`, `uSunColor`, `uDaylight`
 (0 at night, 1 at noon), `uTimeOfDay`, `uFoliageTint`, `uGroundTint` ... (the list: `uniforms` in [the engine API](../api/engine.md)). The node reads the
 engine's value each render, so weather, the calendar and the sky move your material with no per-frame code.
 ```js
@@ -84,6 +84,8 @@ in the package's `types/tsl.d.ts`. Call them on nodes, put the result where it b
 |---|---|---|
 | `wind(positionGeometry, objectOrigin(), amplitude)` | object-space offset (vec3) | `positionNode = positionLocal.add(...)`: grass, leaves, flags, hanging cloth |
 | `objectOrigin()` | world origin of the object or instance (vec3) | a per-object phase or random seed |
+| `instanceOffset(offset)` | the offset turned and scaled by the drawn instance (vec3) | `wind` on an `InstancedMesh` with rotated instances |
+| `noise(p)`, `hash(p)` | smooth value noise / a random number, 0-1 | your own patterns; the same ones the engine's clouds use |
 | `cloudShadow(positionWorld)` | 0-1 light factor under drifting clouds | multiply into the color or the direct light |
 | `season(color, 0 \| 1)` | the color moved by the calendar's tint (0 foliage, 1 ground) | `colorNode` |
 | `detailNoise(p, kind, octaves)` / `detailBump(...)` | gray noise + height / a bumped normal | breaking up flat color; `normalNode` |

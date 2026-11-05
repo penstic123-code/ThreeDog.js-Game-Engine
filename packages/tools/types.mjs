@@ -26,8 +26,19 @@ const STRICT_DOM = !!OPT['strict-dom'];
 const SCOPE = checkScope(SCOPE_DIR), ENG = SCOPE?.notEngine;
 // --project <tsconfig>: another config instead of the root one (the types guard test uses a probe file)
 // A game in its own repo without a tsconfig.json gets a default one in .threedog/ (all game .js and .d.ts, engine types through 'threedog')
-const PROJECT = OPT.project ?? (existsSync(join(ROOT, 'tsconfig.json')) ? join(ROOT, 'tsconfig.json') : defaultConfig());
+const PROJECT = OPT.project ?? (existsSync(join(ROOT, 'tsconfig.json')) ? scopedConfig() ?? join(ROOT, 'tsconfig.json') : defaultConfig());
 const rel = p => relative(ROOT, p).split(sep).join('/');
+// check -w <game> in the monorepo: tsc over this game and the engine's declarations, not every game and example, whose errors it only counted. skipLibCheck: three's and
+// the engine's .d.ts are the root check's to read, and they were most of the time. A game not under games/ keeps the root config, whose include has no pattern for it
+function scopedConfig() {
+  if (P.MODE !== 'monorepo' || !ENG || !SCOPE.rel.startsWith('games/')) return null;
+  const root = ts.readConfigFile(join(ROOT, 'tsconfig.json'), ts.sys.readFile).config, up = p => '../' + p;
+  const include = root.include.flatMap(p => p.startsWith('games/*/') ? [up(p.replace('games/*', SCOPE.rel))] : p.startsWith(P.ENGINE_REL + '/examples') ? [] : [up(p)]);
+  const f = join(ROOT, '.threedog', `tsconfig.${SCOPE.rel.replaceAll('/', '-')}.json`);
+  mkdirSync(dirname(f), { recursive: true });
+  writeFileSync(f, JSON.stringify({ extends: '../tsconfig.json', compilerOptions: { skipLibCheck: true }, include, exclude: root.exclude.map(up) }, null, 2));
+  return f;
+}
 function defaultConfig() {
   const f = join(ROOT, '.threedog', 'tsconfig.types.json');
   mkdirSync(dirname(f), { recursive: true });
@@ -49,10 +60,9 @@ if (run.error) { jsonItems.push(item({ code: 'tsc', message: 'failed to run tsc:
 const out = (run.stdout || '') + (run.stderr || '');
 
 // Generated declarations (types/generated/) must match the source, or games see the wrong types (monorepo only)
-if (P.MODE === 'monorepo') {
+if (P.MODE === 'monorepo' && !ENG) {
   const g = spawnSync(process.execPath, [join(P.TOOLS, 'gentypes.mjs'), '--check'], { encoding: 'utf8' });
-  if (g.status && ENG) SCOPE.engine(1);
-  else if (g.status) { jsonItems.push(item({ code: 'generated-declarations', message: (g.stdout + g.stderr).trim().slice(0, 500) })); (OPT.json ? process.stderr : process.stdout).write(g.stdout + g.stderr); process.exit(1); }
+  if (g.status) { jsonItems.push(item({ code: 'generated-declarations', message: (g.stdout + g.stderr).trim().slice(0, 500) })); (OPT.json ? process.stderr : process.stdout).write(g.stdout + g.stderr); process.exit(1); }
 }
 
 // Game files checked (the project .js files listed by --listFiles)
@@ -202,6 +212,14 @@ function fnCallOnLine(d) {
   const names = [...(srcCache.get(d.file) ?? []).join('\n').matchAll(/\b(?:const|let|var)\s+([\w$]+)\s*=\s*Fn\(/g)].map(m => m[1].replace(/\$/g, '\\$'));
   return names.some(n => new RegExp('(?<![\\w$.])' + n + '\\(').test(srcLine(d.file, d.line)));
 }
+/** TSL node types (three/tsl): Node<"float">, ConstNode<"vec3", Vector3>, UniformArrayElementNode<any>, Number<"float">, NodeBuilder (what a Fn callback's destructuring sees) */
+const tslType = text => /\b(?:\w*Node<|Number<"|NodeBuilder\b)/.test(text);
+/**
+ * A swizzle or method on a TSL node (p.xy, data.x, element.mul) in a game's own code. Three's declarations list only part of what a node takes,
+ * so valid shader code lands here. It stays a hint with its own wording: a misspelled name fails when the shader builds, so "does not affect
+ * running" would be untrue here.
+ */
+const isTslMember = d => d.code === 2339 && tslType(d.msg + ' ' + d.more.join(' ')) && isPlainJs(d);
 /**
  * Plain JS that TypeScript cannot follow, in a game's own code: a field added to the game's own object after it was made (fx.density = …),
  * a property read on a union the game's own ternary built (gpu ? nodeMaterial : shaderMaterial), a default `{}` parameter, a call that leaves
@@ -214,8 +232,7 @@ function isPlainJs(d) {
   if (d.file.startsWith('packages/')) return false;
   const all = d.msg + ' ' + d.more.join(' ');
   for (const w of all.matchAll(/\b[A-Z]\w+/g)) if (engineTypes.has(w[0])) return false;
-  // TSL node types (three/tsl): Node<"float">, ConstNode<"vec3", Vector3>, Number<"float">, NodeBuilder (what a Fn callback's destructuring sees)
-  const tsl = /\b(?:\w*Node<"|Number<"|NodeBuilder\b)/.test(all);
+  const tsl = tslType(all);
   // two sibling three.js classes where inference fixed the first one's type (let g = new IcosahedronGeometry(); g = new BoxGeometry()): only `parameters` differs
   const siblingGeometry = (d.code === 2322 || d.code === 2345) && /\b\w+Geometry\b/.test(d.msg) && d.more.some(l => /^Types of property 'parameters' are incompatible/.test(l));
   // a function made with Fn(...) is typed as taking no arguments although it takes the ones its callback destructures
@@ -227,12 +244,14 @@ function isPlainJs(d) {
   return ownParam || siblingGeometry || ((d.code === 2322 || d.code === 2345 || d.code === 2769) && tsl) || (d.code === 2488 && /\bNodeBuilder\b/.test(all));
 }
 
+const RUNS_ANYWAY = ', not a misuse of the engine API, does not affect running';
+const TSL_MEMBER = "TSL name three's declarations leave out, not a misuse of the engine API: valid swizzles and methods run, a misspelled one fails when the shader builds";
 const errors = [], hints = [];
 for (const d of diags) {
   if (d.line && P.notGameSource(resolve(P.ROOT, d.file), P.ROOT, false)) continue;   // an error inside a dependency is not the game's
   const at = d.line ? `${d.file}:${d.line}` : d.file;
   const text = d.code ? translate(d) : d.msg;
-  const hint = !d.code ? null : !STRICT_DOM && isDom(d) ? 'web (DOM) type hint' : isPlainJs(d) ? 'plain JS TypeScript cannot follow' : null;
+  const hint = !d.code ? null : !STRICT_DOM && isDom(d) ? 'web (DOM) type hint' + RUNS_ANYWAY : isTslMember(d) ? TSL_MEMBER : isPlainJs(d) ? 'plain JS TypeScript cannot follow' + RUNS_ANYWAY : null;
   if (SCOPE?.mine(d.file) === false) SCOPE.other(d.line && d.file, hint ? 'warn' : 'error');
   else if (hint) { hints.push(`${at}  ${text}  ← ${hint}`); jsonItems.push(item({ code: d.code ? 'TS' + d.code : undefined, level: 'warn', file: d.file, line: d.line, message: `${text}  ← ${hint}` })); }
   else { errors.push(`${at}  ${text}`); jsonItems.push(item({ code: d.code ? 'TS' + d.code : undefined, file: d.file, line: d.line, message: text })); }
@@ -291,11 +310,11 @@ const shown = SCOPE ? checked.filter(SCOPE.mine) : checked;
 console.log(`Type check: ${shown.length} game files (${[...new Set(shown.map(group))].join(', ') || 'none'})`);
 for (const e of errors) console.log('  ✗ ' + e);
 for (const c of coverage) console.log('  ✗ ' + c);
-for (const h of hints) console.log('  ! ' + h + ', not a misuse of the engine API, does not affect running');
+for (const h of hints) console.log('  ! ' + h);
 SCOPE?.report();
 const n = errors.length + coverage.length;
 if (n) {
-  console.log(`\n${n} error${n === 1 ? '' : 's'}. ✗ means the engine API is misused (or the declarations are stale); fix the code, then run npm run types again.`);
+  console.log(`\n${n} error${n === 1 ? '' : 's'}. ✗ means the declarations reject this line: usually a real mistake (a wrong name, argument or option), sometimes declarations that lag the code; fix the code, then run npm run types again.`);
   process.exit(1);
 }
-console.log(`\n✓ No misuse of the engine API found${hints.length ? ` (plus ${hints.length} hints that do not affect running)` : ''}.`);
+console.log(`\n✓ No misuse of the engine API found${hints.length ? ` (plus ${hints.length} hints, listed above)` : ''}.`);

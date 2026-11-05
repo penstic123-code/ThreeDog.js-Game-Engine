@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, symlinkSync } from 
 import { join, dirname, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { npm } from './lib/proc.mjs';
-import { parseArgs, applyDeps, copyTemplates } from './lib/scaffold.mjs';
+import { parseArgs, applyDeps, copyTemplates, writeMcp } from './lib/scaffold.mjs';
 import { ROOT, TOOLS, GAMES, rel, workspaces } from './paths.mjs';
 
 // npm swallows flags in npm run new-game name --open-world (they become npm config and never reach argv): use `npm run new-game -- name --open-world`; the npm_config_* env vars are read as a fallback (parseArgs)
@@ -31,7 +31,7 @@ pkg.dependencies = applyDeps(pkg.dependencies, opts);
 writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 // MCP for Claude Code opened in the game folder: plain node on this repo's tools (npx costs ~2.5 s and needs `cmd /c` on Windows); the path is relative so the repo can move
 const mcpBin = relative(dir, join(TOOLS, 'bin', 'threedog.mjs')).replaceAll('\\', '/');
-writeFileSync(join(dir, '.mcp.json'), JSON.stringify({ mcpServers: { threedog: { command: 'node', args: [mcpBin, 'mcp'] } } }, null, 2) + '\n');
+writeMcp(join(dir, '.mcp.json'), mcpBin);
 console.log(`✓ created ${rel(dir)} (${opts.openWorld ? 'open world' : 'blank'}, ${opts.webgl ? 'WebGL, GLSL shaders' : 'WebGPU, TSL shaders'})`);
 
 // Workspace link node_modules/<name> → the game directory: the path npm itself gives a workspace whose package.json name is <name> (the template's
@@ -55,7 +55,7 @@ if (missing.length) {
   if (!run('npm', ['install', '--no-audit', '--no-fund'], `npm install (not installed yet: ${missing.join(', ')}; this also records the game in package-lock.json)`))
     console.warn(`! npm install failed: install ${missing.join(', ')} by hand (npm install in the repo root)`);
 } else console.log('– package-lock.json not touched: every dependency is installed and the game runs through the link; the next npm install in the repo root records it in the lock');
-// Scoped to the new game (-w): another game's errors are summed into one line and do not fail this one (check.mjs, lib/scope.mjs)
+// Scoped to the new game (-w): another game's errors do not fail this one (check.mjs, lib/scope.mjs)
 const ws = `games/${name}`;
 const steps = [[['map', '-w', ws], 'generate GAMEMAP.md'], [['check', '-w', ws], 'rule checks']];
 for (const [args, label] of steps) {

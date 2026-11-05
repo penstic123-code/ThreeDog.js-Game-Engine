@@ -1,5 +1,7 @@
 # Adding an NPC (schedule + dialogue)
 
+**In this recipe**: 1. Write data · 2. Add in code · NPC data and model · Custom behavior · Avoidance · A guard you build yourself · Dialogue choices · 3. Verify · Bubbles
+
 Modules needed: `characters()` (NPCs on by default), `interactions({ ...presets.interactions.nearest })`, `dialogue()`; clock-time schedules need
 `sky()` with a day cycle (`dayLength`, e.g. `presets.calendar.cycle`: without one the clock never moves and the NPC keeps to one stop). The
 `openWorld()` preset already installs `characters()` and `sky()` but not `interactions({ ...presets.interactions.nearest })` or `dialogue()`, so add
@@ -12,7 +14,7 @@ dialogue(), content())`.
 export default {
   guard: {
     name: 'Gate guard',
-    colors: { body: 0xc89a5a, legs: 0x5b4a3a, hair: 0x3a2a1a },   // omit to use the style's default colors
+    colors: { body: 0xc89a5a, legs: 0x5b4a3a, hair: 0x3a2a1a },   // omit to use the default colors
     start: { place: 'home', x: 6, z: -3 },                         // starting position; omitted = the first stop of the schedule
     schedule: [                                                    // at is a clock time 'HH:MM'; at that time the NPC walks there (pathfinding is automatic)
       { at: '07:00', place: 'home', x: 6, z: -3 },
@@ -52,10 +54,10 @@ export default {
   },
 };
 ```
-The words usable in conditions / effects are in the comment at the top of `modules/content/rules.js` (flag notFlag has lacks counter can / setFlag
+The words usable in conditions / effects are in the last section of `../api/content.md` (flag notFlag has lacks counter can / setFlag
 give take bump startQuest toast particles marker clearMarker op). A game's own action is an op, always written as a pair `[name, args]` (a bare
 name string is rejected): `do: { op: ['delivery.done', { parcel: 'p1' }] }` (`23-ops.md`).
-The items used (coin, pass) must be defined in `items.js`, otherwise validation fails. A `place` name comes from `content.load(data, { places })` or
+The items used (coin, pass) must be defined in `items.js`, otherwise validation fails. A `place` name comes from `content/places.js`, `content.load(data, { places })` or
 from a level marker (such as `npc_guard`). Add a new content file to `content/index.js`.
 
 ## 2. Add in code (temporary NPCs, dynamic schedules)
@@ -119,7 +121,7 @@ engine.npcs.behavior('chase', {
 npc.setBehavior('chase');
 ```
 To path around obstacles, use `engine.characters.findPath(from, to)` to get waypoints and walk them one by one (the schedule behavior does exactly
-this, see `goTo` in `modules/characters/npcSim.js`).
+this).
 
 ## Avoidance (NPCs don't clump or pass through each other)
 NPCs with models nearby avoid each other by default: when closer than the sum of two radii (`engine.movement.radius` x 2, about 0.8 meters) they push
@@ -146,7 +148,7 @@ engine.npcs.avoid.set(false);                           // turn off (ghosts, cro
 ## A guard you build yourself (`Character` + `walkTo`)
 
 For a one-off (guard, pet, follower) that `schedule` / `wander` do not cover: `new Character(engine, { rig })` takes a ready body
-(`{ root, body?, head?, limbs?, joints? }`), or `{ model: 'humanoid' }` picks a body asset like any character ([13-animation](13-animation.md)); call `character.animate(dt)` each frame.
+(`{ root, body?, head?, limbs?, joints? }`), or `{ model: 'villager' }` / `{ model: ['villager', 0xcc8844] }` names a body your own asset pack registers (none ships with the engine; `humanoid` in other pages is such a name) like any character ([13-animation](13-animation.md)); call `character.animate(dt)` each frame.
 `character.walkTo(target, { speed, arrive, turnRate, run })` follows `characters.findPath` on fixed steps (turns at `turnRate` rad/s, skips passed
 points, re-plans when it makes no progress for `stuckSeconds`, up to `maxRepaths`). It returns a promise of `{ status }`: `'arrived'` | `'noPath'` |
 `'stuck'` | `'cancelled'` (never rejects), with `remove()` to cancel.
@@ -155,7 +157,8 @@ walk, and an escort quest that wants the same NPC takes control itself (`engine.
 editing its record.
 
 ```js
-const guard = new Character(engine, { rig: { root: myGuardMesh } }).addTo();
+const guard = new Character(engine, { rig: { root: myGuardMesh } });
+engine.add(guard.root);
 guard.placeAt(post);
 const walk = guard.walkTo(player.position, { arrive: 1.5 });
 if ((await walk).status === 'noPath') guard.face(player);   // walk.remove() cancels
@@ -172,12 +175,11 @@ The dialogue's keys go through two ops, so code, tests and the dev bridge drive 
   `npm run map` it shows up in the NPC table and dialogue graph of GAMEMAP.md.
 - State: `npm run shot -- / --time 13:10 --wait 20 --describe-only`; the "nearby" list has an entry for `Gate guard` tagged as an NPC with its distance in
   meters (only listed within 30 meters; add `--pos x,z` to stand by the tower).
-- Console / tests: `engine.npcs.get('guard').position`, `.currentStop()`; during a dialogue `engine.describe().ui.dialogue` = `{ speaker, text, typing, choices: [labels], lock }` (absent when no dialogue runs; the text version prints it as a `Dialogue:` line). `describe` does NOT expose the node id or the NPC id: `speaker` is the display name; to inspect the node, read the content file or listen to `engine.events.on("dialogue:line", ({ script, node, speaker, text }) => ...)` (also `dialogue:start` / `dialogue:end`).
+- Console / tests: `engine.npcs.get('guard').position`, `.currentStop()`; during a dialogue `engine.describe().ui.dialogue` = `{ speaker, text, typing, choices: [labels], selected, advance }` (absent when no dialogue runs; the text version prints it as a `Dialogue:` line). `describe` does NOT expose the node id or the NPC id: `speaker` is the display name; to inspect the node, read the content file or listen to `engine.events.on("dialogue:line", ({ script, node, speaker, text }) => ...)` (also `dialogue:start` / `dialogue:end`).
+- E opens a conversation; only confirm (Space / Enter) advances it, unless `dialogue({ advanceActions })` adds a key. `describe().ui.dialogue.advance` names the keys. While it is open game input is locked, so E on anything else does nothing: the press is logged as a refused `interaction.use` (`inputLocked`) in `engine.ops.recent()` and `threedog test` prints it under a failed spec.
 - Advancing a dialogue in a headless test (typing and "keys ignored right after opening" both run on game time): press E when near -> `engine.step(1)`
   to finish typing -> press a number key or run `engine.ops.run('dialogue.choose', { index: i })` (while typing it completes the sentence first) ->
   `engine.step(0.3)`. No real-time waiting.
-- Related tests: `npm test -- 小城` (the shopkeeper's schedule and dialogue), `npm test -- "S1 NPC"` (far-away simulation, changing level, saving,
-  identical results after loading).
 
 ## Talking in a bubble instead of a conversation
 `interact: { op: 'npc.talk', args: { channel: 'bubble' } }` (code or content) makes the interact key play the NPC's script as bubble lines over its head while the player keeps

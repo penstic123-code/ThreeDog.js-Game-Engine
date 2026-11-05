@@ -22,9 +22,8 @@ export const specs = [
         r.engine.isGPU && r.engine.dome === 'MeshBasicNodeMaterial' && near(r.engine), JSON.stringify(r.engine));
       check('engine.sky.environment builds on WebGPURenderer and writes into; remove takes it off', r.env?.written && r.env?.off, JSON.stringify(r.env));
       const mv = r.engine.moved;
-      check('[guard] engine.uniforms .value writes move the node dome (uCurve, uCloudCover, uSkyCloudScale); writing back restores it', mv.uCurve > 0.5 && mv.uCloudCover > 0.1 && mv.uSkyCloudScale > 0.5 && mv.back < 0.01, JSON.stringify(mv));
+      check('[guard] engine.uniforms .value writes move the node dome (uSkyCurve, uCloudCover, uSkyCloudScale); writing back restores it', mv.uSkyCurve > 0.5 && mv.uCloudCover > 0.1 && mv.uSkyCloudScale > 0.5 && mv.back < 0.01, JSON.stringify(mv));
       const e = r.errors, named = (m, what) => new RegExp(what).test(m) && /\[webgpu-needs-tsl\]/.test(m);
-      check('a dome layer on WebGPU throws [webgpu-needs-tsl], naming it', named(e.layersGpu, 'dome layer 0'), e.layersGpu);
       check("engine.sky.clouds() on a WebGPU dome throws [webgpu-needs-tsl], naming it", named(e.cloudsHookGpu, "sky\\.clouds\\(\\)"), e.cloudsHookGpu);
       check("without threedog/tsl, the dome on WebGPU says import 'threedog/tsl' [webgpu-needs-tsl]", named(e.noTslDome, "import 'threedog/tsl'"), e.noTslDome);
       check('the same dome still builds on WebGL', e.glDome === 'no error', e.glDome);

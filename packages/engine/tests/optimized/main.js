@@ -12,7 +12,7 @@ engine.scene.background = new THREE.Color(0x203040);
 engine.scene.add(new THREE.AmbientLight(0xffffff, 2.5));
 
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 /** Load the model, draw it, and report the textures plus the average color of the middle of the picture */
 window.optimizedRun = async () => {

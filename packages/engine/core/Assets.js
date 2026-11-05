@@ -4,7 +4,7 @@
 //   3. Cache and reuse: one file downloads once; models return independent copies (geometry and materials shared), so you can place many.
 // 4. Release: models count usage per copy; release(name) frees only when the last copy is removed, trim() frees every model with no copy in use (see their docs
 // below).
-//   5. Compression: Draco / Meshopt models and .ktx2 textures load as-is; the decoder downloads on first use (npm run assets produces compressed files in public/optimized/).
+//   5. Compression: Draco / Meshopt models and .ktx2 textures load as-is; the decoder downloads on first use (npm run assets -- optimize produces compressed files in public/optimized/).
 //   6. Made in code: a model / texture / sound may be a function in the manifest instead of a file, used by name exactly like a file (content, model(),
 //      pickups, vegetation, audio.sounds). Models are built on demand and cached automatically (baked file -> dev cache -> build, the internal cached()).
 //   7. Observable: every load is a task in engine.loading. A registered file that fails falls back (gray placeholder / silence / the entry's fallback)
@@ -24,7 +24,7 @@
 // engine.assets.manifest({ name: 'forest', base: '/packs/forest/', models: { oak: 'oak.glb' } });   // -> /packs/forest/oak.glb
 // await engine.assets.preload(p => console.log(p));     // p: 0-1 (code-generated models are built ahead only if marked preload)
 // const house = await engine.assets.model('house');      // get by name
-import { reportGltf, reportText } from './assetReport.js';
+import { reportGltf } from './assetReport.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/addons/libs/meshopt_decoder.module.js';
@@ -35,6 +35,7 @@ import { Animator } from './Animator.js';
 import { fetchEntry, freeEntry, retireEntry, dropCopy, disposeEntries, preloadEntries, shadowDefaults } from './assetEntry.js';
 import { registerManifest, paramValues } from './assetManifest.js';
 import { setParams } from './assetHot.js';
+import { wrapLod } from './assetLod.js';
 import { schemaInfo } from './params.js';
 import { loadGrid } from './gridLoad.js';
 import { memory } from '../render/backend.js';
@@ -180,6 +181,16 @@ export class Assets {
     return this._with(e, () => this._copy(e, opts));
   }
   /**
+   * A model copy as a plain THREE.LOD: the full model near, the levels of `threedog assets optimize --lod` far away (assetLod.js). Off unless called: model() never
+   * downloads a level. Default distances follow the model's size. Rays, collision and saves keep using the full model; a LOD object is never batched.
+   * @example const tower = await engine.assets.lod('tower', { distances: [40, 120] }); engine.add(tower); tower.levels[1].object;
+   * @experimental
+   */
+  async lod(nameOrUrl, opts = {}) {
+    const { distances, hysteresis, ...copy } = opts;
+    return wrapLod(this, nameOrUrl, await this.model(nameOrUrl, copy), { distances, hysteresis });
+  }
+  /**
    * A model copy right now if that model has already loaded, else null (never starts a load, never waits). For code that rebuilds often,
    * such as a character coming back into view, so it skips the frame of placeholder an await would cost. Same options as model()
    * @example const m = engine.assets.modelNow('villager') ?? await engine.assets.model('villager');
@@ -209,7 +220,7 @@ export class Assets {
   /**
    * Import report of a loaded model: materials, textures with their colorSpace, normal maps, clips, nodes, template / id nodes and col_ colliders,
    * with issues for what the file has but the scene lost (normal map, material replaced by an engine one, clip not loaded, clip mapping that names
-   * no clip) and for wrong color spaces. Pass a name (the loaded template) or a copy from model() (what the game shows). Text: assets.reportText(name)
+   * no clip) and for wrong color spaces. Pass a name (the loaded template) or a copy from model() (what the game shows).
    * @example console.table(engine.assets.report('hero').issues);
    * @param {string | any} nameOrRoot
    */
@@ -220,7 +231,6 @@ export class Assets {
     return reportGltf(gltf, e, root ?? gltf.scene, this.engine.renderer);
   }
   /** assets.report as text for the console / describe */
-  reportText(nameOrRoot) { return reportText(this.report(nameOrRoot)); }
   /** Get the geometry of the first mesh in a model (for vegetation and bulk placement) */
   async geometry(nameOrUrl) {
     return this._with(this._resolve(nameOrUrl, 'model'), (gltf, load) => {
@@ -299,7 +309,7 @@ export class Assets {
    * How many copies of this model are in use (taken by model() and not yet engine.remove'd); these are what keep its data in memory. A model that failed
    * and fell back: users('shrub') is the copies asked for as 'shrub', and users('rock') counts those too, since they show rock's data; 0 means it can be freed
    */
-  users(name) { return this.entries.get(name)?.users ?? 0; }
+  _users(name) { return this.entries.get(name)?.users ?? 0; }
   /** Called when an object is fully removed (engine.remove calls it): decrements the usage count of model copies beneath it and stops their animators */
   forget(obj) {
     obj.traverse(o => {

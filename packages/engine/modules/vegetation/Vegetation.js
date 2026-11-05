@@ -2,7 +2,8 @@
 // (c.plants[name]: matrices, colors, stable ids), tree collision circles (c.colliders), felled-tree records (saved) and instanceAt.
 // Data only: this file makes no mesh and touches no material. Draw parts subscribe with view({ species, change, ring, show, drop })
 // (vegetation/draw.js is the engine's own, slot 'vegetation-draw'); the models and materials given to define() are read there.
-import { isModelName, vegetationModel } from '../../core/namedModel.js';
+import { vegetationModel } from '../../core/namedModel.js';
+import { isModelName } from '../../core/util.js';
 import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { reportError } from '../../core/errors.js';
@@ -48,14 +49,16 @@ function slotOf(r, id) {
   return m.get(id);
 }
 
+const REMOVE_KEYS = ['regrowSeconds'];
+
 export class Vegetation {
   constructor(engine, opts = {}) {
     this.engine = engine; this.species = new Map();
     // where it grows: on terrain chunks when the terrain module is installed (placed in its workers), else on vegetation's own chunks over
     // whatever provides the ground (a level, a code-built ground, flat). Both hosts keep chunks of one shape, so everything below is shared
     if (engine.terrain && Object.keys(opts).length) throw codedError('vegetation-option', `vegetation({ ${Object.keys(opts).join(', ')} }): with terrain() installed vegetation grows on the terrain chunks, and density / view distance are terrain options (terrain({ density, viewChunks })). The vegetation() options are for ground without terrain (a level, a code-built ground)`);
-    /** @internal the chunk table vegetation lives in: engine.terrain, or its own GroundChunks */
     /** @internal the draw parts drawing the plants (view()) */ this.views = new Set();
+    /** @internal the chunk table vegetation lives in: engine.terrain, or its own GroundChunks */
     this.host = engine.terrain ?? new GroundChunks(engine, this, opts);
     // on terrain: this is the terrain's planter (it calls mount / unmount / drop / ring; terrain never reads engine.vegetation); a chunk's
     // visibility comes from the terrain data part, so a game that replaces the terrain drawing keeps its trees
@@ -141,7 +144,7 @@ export class Vegetation {
       // reaches the placer (terrain worker or ground chunks), and a list of numbers travels as plain data
       rule: { salt: hashName(name), ...(o.rule || {}), ...(o.positions != null ? { positions: o.positions } : {}) },
       density,   // densityMap sampler (main thread only: a function may read game state), applied in mount()
-      nearOnly: !!o.nearOnly, maxRing, lodRing: o.lodRing ?? 1, fade: o.effects === false ? null : fadeBand(o.fade, !!o.nearOnly, maxRing, this.host.CHUNK),
+      nearOnly: !!o.nearOnly, maxRing, lodRing: o.lodRing ?? 1, fade: o.effects === false ? null : fadeBand(o.fade, !!o.nearOnly, maxRing, this.host.chunkSize),
       castShadow: o.castShadow ?? !o.nearOnly, shadowRing: o.shadowRing ?? 1, receiveShadow: o.receiveShadow ?? true,
     };
     sp.source = o;   // what it was made from: the draw part reads geometry / model / material / wind from it, a hot swap adds it again (_swapped)
@@ -198,7 +201,7 @@ export class Vegetation {
   list() { return [...this.species.values()]; }
   /**
    * Change at runtime how far a vegetation kind casts shadows: within `ring` chunk rings of the player (0 = only the chunk you stand in, 1 = the default,
-   * larger = further and dearer). Takes effect at once; the add() option shadowRing is only the starting value. An unknown name warns with the known ones
+   * larger = further and dearer). Takes effect at once; the define() option shadowRing is only the starting value. An unknown name warns with the known ones
    * @example engine.vegetation.setShadowRing('tree', 0);   // graphics setting "shadows: low": trees shadow only the nearest chunk
    * @param {string} name species name given to vegetation.define
    * @param {number} ring chunk rings, 0 or more
@@ -284,7 +287,8 @@ export class Vegetation {
   key(species, cx, cz, id) { return `veg:${species}:${cx},${cz}:${id}`; }
   isRemoved(species, cx, cz, id) { return !!this._removed.get(`${species}:${cx},${cz}`)?.has(id); }
   /** Remove one instance (regrowSeconds: game seconds until it grows back, 0/omitted = permanent). The record is saved with the save */
-  removeInstance(species, cx, cz, id, { regrowSeconds = 0 } = {}) {
+  removeInstance(species, cx, cz, id, opts) {
+    const { regrowSeconds = 0 } = readParams('vegetation.removeInstance()', keysSchema(REMOVE_KEYS), opts);
     const ck = `${species}:${cx},${cz}`;
     if (!this._removed.has(ck)) this._removed.set(ck, new Map());
     this._removed.get(ck).set(id, regrowSeconds > 0 ? this.engine.clock.now + regrowSeconds : null);
@@ -318,7 +322,7 @@ export class Vegetation {
   instanceAt(position, opts = {}) {
     readParams('vegetation.instanceAt()', keysSchema(['radius', 'species']), opts);
     const [x, z] = xzOf(position), { radius = 2, species = null } = typeof opts === 'object' && opts ? opts : {};
-    const T = this.host, CH = T.CHUNK;
+    const T = this.host, CH = T.chunkSize;
     let best = null, bestD = radius * radius;
     for (let cz = Math.floor((z - radius) / CH); cz <= Math.floor((z + radius) / CH); cz++)
       for (let cx = Math.floor((x - radius) / CH); cx <= Math.floor((x + radius) / CH); cx++) {
@@ -341,7 +345,7 @@ export class Vegetation {
   mount(c, name, r) {
     const sp = this.species.get(name);
     // densityMap thins here, before the colliders are taken, so a dropped plant blocks nothing; survivors keep their stable ids
-    if (sp?.density) r = thin(r, c.cx * this.host.CHUNK, c.cz * this.host.CHUNK, sp.density.at, sp.rule.salt);
+    if (sp?.density) r = thin(r, c.cx * this.host.chunkSize, c.cz * this.host.chunkSize, sp.density.at, sp.rule.salt);
     c.plants ||= {}; c.colliders ||= {}; c.collidersAll ||= {};
     // none left (terrain dug, densityMap thinned all): drop the record, so the draw part tears its mesh down too and collision matches what is drawn
     if (r.n === 0) delete c.plants[name]; else c.plants[name] = r;

@@ -151,9 +151,9 @@ export class Pickups {
     let value;
     if (rec.item) {
       if (!e.inventory) return failure('noInventory');
-      const key = e.inventory.of(actor).add(rec.item, rec.count, rec.data && { data: rec.data });
-      if (!key) return failure('full');
-      value = key;
+      const put = e.inventory.of(actor).add(rec.item, rec.count, rec.data && { data: rec.data });
+      if (!put.ok) return put;
+      value = put.key;
     } else {
       const fn = this._live.get(rec.id)?.give;
       if (!fn) { warnOnce(`pickups: '${rec.id}' gives with a function, which is not saved data; spawn it again with the same id after a load (content and setup code do)`); return failure('noGive'); }

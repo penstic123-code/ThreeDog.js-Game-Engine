@@ -42,6 +42,8 @@ const enabled = () => live === 0 || quiet < live;
 // @ts-ignore Vite's import.meta.env (undefined outside Vite)
 const ENV = import.meta.env;
 export const DEV = !!(ENV?.DEV || ENV?.THREEDOG_TEST);
+/** Whether a position can be written: [x, y, z], or { x, z } with y left out or a number. The one answer; thing.set asks it in can, world's putPos before it writes @param {any} p @returns {boolean} @internal */
+export const goodPos = p => Array.isArray(p) ? p.length === 3 && p.every(Number.isFinite) : Number.isFinite(p?.x) && Number.isFinite(p?.z) && (p.y === undefined || Number.isFinite(p.y));
 /** The Vite dev server itself (npm run dev, not the test bundle): only it serves /__threedog endpoints and the dev bridge. The other spelling of "dev", named so nothing reads import.meta.env.DEV on its own. */
 export const DEV_SERVER = !!ENV?.DEV;
 /** Vite's base URL ('/' outside Vite) */
@@ -120,7 +122,7 @@ export function missingText(kind, name, list) {
 /** A name does not exist: warn once */
 export function warnMissing(kind, name, list) {
   // may be called every frame: keyed by the name, so the list text is built only the first time
-  if (!enabled || warned.has(kind + '\0' + name)) return;
+  if (!enabled() || warned.has(kind + '\0' + name)) return;
   warnOnce(coded('unknown-name', missingText(kind, name, list)), kind + '\0' + name);
 }
 

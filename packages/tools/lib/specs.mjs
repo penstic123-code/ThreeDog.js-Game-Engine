@@ -6,6 +6,18 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { rel } from '../paths.mjs';
 
+/** Pixel reads in a run() body: a test that has any compares what the renderer drew, so it stays on software rendering (same pixels on every machine) */
+const PIXEL_SRC = /page\.screenshot|readPixels|readRenderTargetPixels|getImageData|toDataURL|toBlob/;
+/** spec.software: true / false decides; unset: looked up in the source of run() (helpers defined elsewhere are not seen there, so specs that use them set it) */
+export const needsSoftware = spec => spec.software ?? PIXEL_SRC.test(String(spec.run));
+/**
+ * Why a spec is on software rendering although it never asked, or null. Software is many times slower, so a spec that was fine on the GPU can time
+ * out the moment it gains a screenshot, and the timeout alone does not say why (14 minutes lost in a real game).
+ */
+export const softwareWhy = spec => spec.software === undefined && needsSoftware(spec)
+  ? `its run() reads pixels (${String(spec.run).match(PIXEL_SRC)[0]}), so it runs on software rendering, which is much slower: set software: false on the spec for a real GPU picture (pixels then differ per machine), or take the picture with threedog shot --gpu`
+  : null;
+
 /** Throw when names repeat. `where(item)` names the file an item came from, for the message */
 export function noDuplicateNames(items, where, what) {
   const seen = new Map(), dup = [];
@@ -20,8 +32,6 @@ export function noDuplicateNames(items, where, what) {
  */
 export async function workspaceSpecs(dir) {
   const specDir = join(dir, 'tests', 'specs');
-  // the old single file is not read any more; one left behind would silently never run
-  if (existsSync(join(dir, 'tests', 'specs.mjs'))) throw new Error(`${rel(join(dir, 'tests', 'specs.mjs'))} is not read: test files live in tests/specs/*.mjs, each exporting \`specs\` (move it there)`);
   const out = [];
   for (const file of existsSync(specDir) ? readdirSync(specDir).filter(f => f.endsWith('.mjs')).sort() : []) {
     const path = join(specDir, file), mod = await import(pathToFileURL(path).href);

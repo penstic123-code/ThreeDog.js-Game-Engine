@@ -1,4 +1,4 @@
-// Performance panel + time/weather debugging + stress test. Collapsed by default; the action 'debugPanel' shows/hides it (presets.bindings.debug binds F3; debug({ open: true }) shows it at start). Quality, view distance and density are in the settings menu. Do not install this module in a release.
+// Performance panel + time/weather debugging. Collapsed by default; the action 'debugPanel' shows/hides it (presets.bindings.debug binds F3; debug({ open: true }) shows it at start). Quality, view distance and density are in the settings menu. Do not install this module in a release.
 import { readParams, keysSchema } from '../../core/params.js';
 import { esc } from '../../ui/UI.js';
 import { stats } from '../../render/backend.js';
@@ -11,9 +11,6 @@ export class DebugPanel {
   /** @internal */
   constructor(engine, { open = false } = {}) {
     /** @internal */ this.engine = engine;
-    /** @internal */ this.bench = null;
-    /** Stress test running (player auto-runs fast) @type {boolean} */
-    this.benchmarking = false;
     /** Panel root element @type {HTMLElement} */
     this.el = document.createElement('div');
     const el = this.el;
@@ -55,13 +52,11 @@ export class DebugPanel {
       <div class="r"><label>Time</label><input data-i="tod" type="range" min="0" max="1" step="0.005"><output data-o="tod"></output></div>
       <div class="r"><label>Weather</label><select data-s="weather" style="grid-column:span 2;font:inherit;background:#222;color:#eee;border:1px solid #444;border-radius:6px;padding:3px">
 </select></div>
-      <button type="button" data-b="bench">20 s stress test</button>
-      <div class="res" data-k="bench"></div>
     </div></details>`;
     this.engine.uiRoot.appendChild(el);
     const q = s => el.querySelector(s);
     /** @internal */ this.out = {}; el.querySelectorAll('[data-k]').forEach(n => this.out[n.dataset.k] = n);
-    const e = engine, w = e.terrain;
+    const e = engine;
     // controls for modules that are not installed are hidden
     const hideRow = k => { const i = q(`[data-i="${k}"]`); if (i) i.closest('.r').hidden = true; };
     // time rows follow the calendar, not the sky: an indoor game without a sky still scrubs its clock
@@ -70,8 +65,7 @@ export class DebugPanel {
     const bind = (k, get, set, fmt) => {
       const i = q(`[data-i="${k}"]`), o = q(`[data-o="${k}"]`);
       i.value = get(); o.textContent = fmt(get());
-      i.addEventListener('input', () => { o.textContent = fmt(+i.value); if (k !== 'dens') set(+i.value); });
-      if (k === 'dens') i.addEventListener('change', () => set(+i.value));
+      i.addEventListener('input', () => { o.textContent = fmt(+i.value); set(+i.value); });
       return i;
     };
     if (e.calendar) {
@@ -85,34 +79,7 @@ export class DebugPanel {
       ws.value = e.weather.name;
     }
     ws.onchange = () => { if (ws.value === 'auto') e.weather.setAuto(true); else { e.weather.setAuto(false); e.weather.set(ws.value, { seconds: 8 }); } };
-    q('[data-b="bench"]').onclick = () => this.startBench();
     engine.i18n.add({ 'zh-CN': { 'debug.toggle': '调试面板' }, en: { 'debug.toggle': 'Debug panel' } });   // the settings menu's rebind page shows this name
-  }
-
-  /**
-   * Start the stress test (seconds, default 20): the character auto-runs fast, continuously loading new chunks, and a report is shown in the panel at the end
-   * @param {number} [seconds]
-   * @returns {void}
-   */
-  startBench(seconds = 20) {
-    if (this.bench) return;
-    this.bench = { t: 0, dur: seconds, dts: [], built: 0 };
-    this.out.bench.textContent = 'Testing: character runs straight at 32 m/s, continuously loading new chunks...';
-    this.benchmarking = true; this.engine.input.autopilot = { x: 0, y: 1, speed: 32 }; this.engine.adaptive.paused = true;
-  }
-
-  /** @internal */
-  frame(dt, built) {
-    if (!this.bench) return;
-    const b = this.bench; b.t += dt; b.dts.push(dt); b.built += built;
-    if (b.t < b.dur) return;
-    this.benchmarking = false; this.bench = null; this.engine.input.autopilot = null; this.engine.adaptive.paused = false;
-    const d = b.dts.slice().sort((x, y) => y - x), sum = b.dts.reduce((x, y) => x + y, 0);
-    const n1 = Math.max(1, Math.floor(d.length * 0.01)), worst = d.slice(0, n1).reduce((x, y) => x + y, 0) / n1;
-    const avg = b.dts.length / sum, low = 1 / worst, L = this.limits();
-    const cls = (v, lim) => lim == null ? '' : v >= lim ? 'ok' : v >= lim * 0.6 ? 'mid' : 'bad';
-    const w = this.engine.terrain;
-    this.out.bench.innerHTML = `${w ? `View distance ${w.viewChunks * w.CHUNK}m · Density ${w.density}×` : ''}\nAvg FPS <b class="${cls(avg, L.fps)}">${avg.toFixed(1)}</b>\n1% low FPS <b class="${cls(low, L.low1)}">${low.toFixed(1)}</b>\nLongest frame ${(d[0] * 1000).toFixed(1)} ms\nChunks built: ${b.built}`;
   }
 
   /** Budget limits (empty object if budget is off: numbers are not colored) @internal */
@@ -150,7 +117,7 @@ export class DebugPanel {
 const DEBUG_PANEL_PARAMS = keysSchema(['open']);
 
 /**
- * Debug panel -> engine.debug.panel: performance panel, settings, stress test. Collapsed by default; the action 'debugPanel' shows/hides it (presets.bindings.debug: F3); open: true shows it at start. Just do not install it in a release
+ * Debug panel -> engine.debug.panel: performance panel, time and weather debugging. Collapsed by default; the action 'debugPanel' shows/hides it (presets.bindings.debug: F3); open: true shows it at start. Just do not install it in a release
  * @param {{ open?: boolean }} [opts]
  * @returns {ModuleDef<DebugPanel>}
  */
@@ -167,11 +134,10 @@ export function debug(opts = {}) {
     },
     dispose(e) { if (e.debug.panel === d) e.debug.panel = null; d?.el.remove(); },
     frame(dt, e) { if (e.input.pressedRaw('debugPanel')) d.el.hidden = !d.el.hidden; },
-    // open matters to a screenshot (the panel covers a corner); benchmarking matters to perf numbers (autopilot drives the player, adaptive resolution paused)
-    describe() { return { open: !d.el.hidden, benchmarking: d.benchmarking }; },
+    // open matters to a screenshot (the panel covers a corner)
+    describe() { return { open: !d.el.hidden }; },
     afterRender(dt, e) {
-      d.frame(dt, e.terrain?.stats.builtThisFrame || 0);
-      prof.n++; prof.t += dt; prof.cpu += e.cpuMs || 0;
+      prof.n++; prof.t += dt; prof.cpu += e._cpuMs || 0;
       if (prof.t < 0.5) return;
       const s = e.terrain?.stats || {}, info = stats(e.renderer);
       d.stats({ fps: prof.n / prof.t, cpu: prof.cpu / prof.n, calls: info.drawCalls, tris: info.triangles, visible: s.visible ?? 0, loaded: s.loaded ?? 0, instances: s.instances ?? 0, apply: s.applyMs ?? 0, queued: s.queued ?? 0 });

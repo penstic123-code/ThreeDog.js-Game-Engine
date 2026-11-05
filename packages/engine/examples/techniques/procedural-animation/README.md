@@ -69,7 +69,7 @@ Rules (correctness):
 - **Leave the character root alone.** The engine owns `ch.root` position and facing; the animator moves only parts under it.
 - The engine's own rig code still bobs `rig.body` before `onPose` runs; writing `body.position.y` and `rotation.x` in `onPose` replaces that.
 
-Verify: `npm test -- "procedural animation"` (tests/specs/procedural-animation.mjs): legs swing while moving and cycle faster at a higher
+Verify: `threedog test "procedural animation"` (tests/specs/procedural-animation.mjs): legs swing while moving and cycle faster at a higher
 speed, they return to rest at idle, the body returns to its rest height, the character does not creep, and the `states` hook's `sit` reaches the pose.
 
 Sources: written for this example; no code copied. Background: distance-driven gait cycles, springs for secondary motion and squash and

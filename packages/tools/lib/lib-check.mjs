@@ -1,12 +1,12 @@
 // threedog lib check: do the things this game pulled from a library fit together?
-//   problems (exit 1): a need nothing in the game gives, two entries writing the same three.js value.
+//   problems (exit 1): a need nothing in the game gives, two entries writing the same three.js value, code that cannot draw on the game's renderer.
 //   notes (exit 0): sizes and styles that do not fit. A giant or a mix of styles may be exactly what the game wants, so these never fail.
 // Why it reads the game's copies and not the library: a pull belongs to the game. Once the game has removed the fog line from one of two skies the
 //   clash is gone, and only the file in the game can say so. Style tags cannot be read from code, so they come from the pull record.
 // What it cannot see: a value set through a helper, a module named differently from its factory, what a composite such as openWorld() installs.
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { cardOf, sizeNotes } from './lib-card.mjs';
+import { backendsOf, cardOf, noComments, sizeNotes } from './lib-card.mjs';
 import { readRecords } from './lib-records.mjs';
 
 /** A composite module installs others under its own call, so a static read cannot say what is missing */
@@ -18,6 +18,41 @@ const SCALE_GAP = 100;
 function gameCode(game) {
   const top = readdirSync(game).filter(f => /\.m?js$/.test(f) && !f.startsWith('vite.')).map(f => join(game, f));
   return top.map(f => readFileSync(f, 'utf8')).join('\n');
+}
+
+/**
+ * The renderer this game asks for, read from its code the way createEngine reads its option: 'webgpu', 'webgl' (no renderer option means WebGLRenderer), or null when the
+ * code does not say (no createEngine in a top-level file, a renderer held in a variable, or options that are not written in the call: createEngine(cfg), { ...cfg }).
+ * Null lets a pull through: stopping on a guess costs more than a note.
+ * @param {string} game @returns {'webgpu' | 'webgl' | null}
+ */
+export function rendererOf(game) {
+  const code = noComments(gameCode(game));
+  if (/\brenderer\s*:\s*['"]webgpu['"]|\bnew\s+(?:\w+\.)?WebGPURenderer\b/.test(code)) return 'webgpu';
+  if (/\brenderer\s*:\s*['"]webgl['"]|\bnew\s+(?:\w+\.)?WebGLRenderer\b/.test(code)) return 'webgl';
+  // only a call whose options are all in sight can mean "no renderer option": createEngine(cfg) or { ...cfg } may name one in another file
+  const calls = [...code.matchAll(/\bcreateEngine\s*\(\s*/g)];
+  return calls.length && calls.every(m => optionsInSight(code, m.index + m[0].length)) && !/\brenderer\s*[:,}]/.test(code) ? 'webgl' : null;
+}
+
+/** Is the argument at i nothing, or an object literal with no spread of its own? (a spread inside a nested value, bindings: { ...x }, names no engine option) */
+function optionsInSight(code, i) {
+  if (code[i] === ')') return true;
+  if (code[i] !== '{') return false;
+  for (let depth = 0; i < code.length; i++) {
+    if (code[i] === '{') depth++;
+    else if (code[i] === '}' && --depth === 0) return true;
+    else if (depth === 1 && code.startsWith('...', i)) return false;
+  }
+  return false;
+}
+
+const SAY = { webgl: 'WebGL', webgpu: 'WebGPU' };
+/** Why this entry cannot draw in this game, with the way out, or null when it fits. One wording for lib pull and lib check */
+export function misfit(name, backends, renderer) {
+  if (!renderer || !backends?.length || backends.includes(renderer)) return null;
+  const fix = renderer === 'webgpu' ? 'port it to TSL (recipe 56, "GLSL to TSL")' : "move this game to renderer: 'webgpu' (recipe 56)";
+  return `${name} draws only on ${backends.map(b => SAY[b] ?? b).join(', ')} and this game runs on ${SAY[renderer]}, so it would stop the game at start: ${fix}, or use an entry that fits (threedog lib list ${renderer})`;
 }
 
 /** Names the game's package.json lists */
@@ -34,12 +69,15 @@ function packagesOf(game) {
 export function checkGame(game) {
   const cards = readRecords(game).map(r => {
     const files = Object.keys(r.files).map(f => join(game, f)).filter(existsSync);
-    return { name: r.entry, ...cardOf(files, { tags: r.style, entries: r.needs ?? [], packages: r.packages ?? [] }) };
+    return { name: r.entry, backends: backendsOf(files), ...cardOf(files, { tags: r.style, entries: r.needs ?? [], packages: r.packages ?? [] }) };
   });
-  const problems = [], notes = [], code = gameCode(game), packages = packagesOf(game), composite = COMPOSITE.test(code);
+  const problems = [], notes = [], code = gameCode(game), packages = packagesOf(game), composite = COMPOSITE.test(code), renderer = rendererOf(game);
   const given = new Set(cards.flatMap(c => c.provides.modules));
 
+  if (!renderer && cards.length) notes.push("this game's renderer could not be read from its code, so entries were not checked against it: say renderer: 'webgpu' or 'webgl' in createEngine in a top-level file");
   for (const c of cards) {
+    const wrong = misfit(c.name, c.backends, renderer);
+    if (wrong) problems.push(wrong);
     for (const m of c.needs.modules) {
       if (given.has(m) || new RegExp(`\\b${m}\\s*\\(`).test(code)) continue;
       if (composite) notes.push(`${c.name} needs module "${m}": openWorld() may install it; describe().modules in the running game tells`);

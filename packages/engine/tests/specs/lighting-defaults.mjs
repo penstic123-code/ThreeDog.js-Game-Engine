@@ -58,10 +58,10 @@ export const specs = [
           E.step(1 / 30); E.step(1 / 30);
           const top = lum(E.sky.uniforms.uTop.value);
           m.remove(); E.step(1 / 30);
-          // stars: look straight up at the night dome, sum the brightness, clear sky against full cloud cover (uCloud is the weather's value)
+          // stars: look straight up at the night dome, sum the brightness, clear sky against full cloud cover (uWeatherCloud is the weather's value)
           const R = E.renderer, S = 32, rt = new THREE.WebGLRenderTarget(S, S), px = new Uint8Array(S * S * 4);
           const cam = new THREE.PerspectiveCamera(60, 1, 0.1, 5000); cam.position.set(0, 2, 0); cam.up.set(0, 0, 1); cam.lookAt(0, 100, 0);
-          const shot = cloud => { E.uniforms.uCloud.value = cloud; R.setRenderTarget(rt); R.render(E.scene, cam); R.readRenderTargetPixels(rt, 0, 0, S, S, px); R.setRenderTarget(null);
+          const shot = cloud => { E.uniforms.uWeatherCloud.value = cloud; R.setRenderTarget(rt); R.render(E.scene, cam); R.readRenderTargetPixels(rt, 0, 0, S, S, px); R.setRenderTarget(null);
             let n = 0; for (let i = 0; i < S * S; i++) if (px[i * 4] + px[i * 4 + 1] + px[i * 4 + 2] > 400) n++; return n; };
           const clear = shot(0), cloudy = shot(1);
           rt.dispose(); E.dispose();

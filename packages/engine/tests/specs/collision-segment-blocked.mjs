@@ -6,7 +6,7 @@ export const specs = [
     url: '/tests/nav/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player, col = engine.collision;
         const h = engine.control.take(p, { owner: 'test', layer: 'script' });   // the test drives the player (its keys pause): core/control.js
         const walk = (x, z, dx, dz, n = 60) => { p.placeAt([x, 0, z]); for (let i = 0; i < n; i++) h.move(dx, dz, false, 0.05); return [p.position.x, p.position.z]; };

@@ -10,6 +10,7 @@ export function fakeCamera({ heading = 0, distance = 8, height = 5 } = {}) {
     right: () => ({ x: -f.z, z: f.x }),
     follow(obj) { target = obj ?? null; },
     get target() { return target; },
+    get target() { return target; },
     focusPoint() { return target ? target.position : e.camera?.position ?? { x: 0, y: 0, z: 0 }; },
     screenToGround(ndcX, ndcY) {
       const cam = e.camera; if (!cam) return null;

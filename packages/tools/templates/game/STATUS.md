@@ -19,5 +19,5 @@ this version": the playable, shot-checked state where this version stops.
 - None yet.
 
 **Next**
-1. Offer three minimal versions of the game (CLAUDE.md "First session"); record the pick in DESIGN.md.
+1. Build the smallest playable version of what was asked (CLAUDE.md "First session").
 2. Build the first system (docs/design/<system>.md).

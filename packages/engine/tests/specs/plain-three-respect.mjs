@@ -11,7 +11,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const { THREE, ShaderPass, CopyShader } = window.threedogTest, out = {}, R = engine.renderer;
         let draws = 0; const real = engine.post.render.bind(engine.post);
         engine.post.render = (...a) => { draws++; return real(...a); };
@@ -47,7 +47,7 @@ export const specs = [
         R.setPixelRatio(pr0 * 0.5); R.setSize(w0 - 20, h0 - 10, false); engine.step(0.05);
         const db = R.getDrawingBufferSize(new THREE.Vector2()), rt = engine.post.object().renderTarget1;
         out.size = { db: [db.x, db.y], rt: [rt.width, rt.height] };
-        R.setPixelRatio(pr0); R.setSize(w0, h0, false); engine.view.manual('pixelRatio', false); hp.remove(); engine.step(0.05);
+        R.setPixelRatio(pr0); R.setSize(w0, h0, false); engine.autoView.manual('pixelRatio', false); hp.remove(); engine.step(0.05);
         // 4. scene.add / scene.remove of temporary objects: the registry lets them go; an id'd object and a same-line re-add keep theirs
         const T = engine._things, n0 = T.byId.size, geo = new THREE.BoxGeometry(), mat = new THREE.MeshBasicMaterial();
         for (let i = 0; i < 50; i++) { const b = new THREE.Mesh(geo, mat); engine.scene.add(b); engine.scene.remove(b); }
@@ -86,14 +86,14 @@ export const specs = [
       check('a casting game light at intensity 0 is idled and describe says shadowIdled; userData.idleShadow = false opts out', r.light.idled === false && r.light.shown && r.light.opt === true, JSON.stringify(r.light));
       check('the game writing shadow.autoUpdate while idled gets the light back: the engine never switches it again', r.light.handed === true && r.light.staysGame === true, JSON.stringify(r.light));
       const ids = r.patches.map(p => p.id);
-      const want = ['shadow-accessors', 'scene-add-hook', 'mesh-material-accessor', 'material-compile-accessor', 'renderer-render', 'shader-chunks', 'light-idle-shadow', 'hlod-visible', 'post-shadow-hold', 'post-background-tone', 'node-twin-dress', 'node-builder-hook', 'device-lost-hook', 'webgpu-record-sweep'];
+      const want = ['shadow-accessors', 'scene-add-hook', 'mesh-material-accessor', 'material-compile-accessor', 'renderer-render', 'shader-chunks', 'light-idle-shadow', 'post-shadow-hold', 'post-background-tone', 'node-twin-dress', 'node-builder-hook', 'device-lost-hook', 'webgpu-record-sweep', 'batching-draw-walk'];
       check('threePatches lists every change (class, objects, renderer) with scope and what is lost', want.every(id => ids.includes(id)) && r.patches.every(p => p.scope && p.lost),
         JSON.stringify(r.patches.map(p => [p.id, p.scope, p.offable])));
-      check('the three that cannot be undone say so (offable false): shader-chunks, hlod-visible, node-twin-dress', r.patches.filter(p => !p.offable).map(p => p.id).sort().join() === 'hlod-visible,node-twin-dress,shader-chunks', JSON.stringify(r.patches.filter(p => !p.offable)));
+      check('the two that cannot be undone say so (offable false): shader-chunks, node-twin-dress', r.patches.filter(p => !p.offable).map(p => p.id).sort().join() === 'node-twin-dress,shader-chunks', JSON.stringify(r.patches.filter(p => !p.offable)));
     },
   },
   {
-    name: '[guard] plain three.js adoption, hlod: the game\'s visible on an xxx_LOD1 node is kept while hidden and handed back by remove()',
+    name: '[guard] plain three.js adoption, hlod: an xxx_LOD1 node is hidden with plain visible, a game\'s write stands, remove() gives the old value back',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -105,13 +105,14 @@ export const specs = [
         const h = engine.hlod.add(root);
         for (let i = 0; i < 20 && !h.ready; i++) engine.step(1 / 30, { render: false });
         const hidden = lod.visible;
-        lod.visible = false;   // the game's own choice while hlod holds it
+        lod.visible = true;   // a direct write wins while hlod holds it (hard rule 4)
+        const written = lod.visible; lod.visible = false;
         h.remove();
-        const out = { hidden, afterRemove: lod.visible, plain: !Object.getOwnPropertyDescriptor(lod, 'visible')?.get };
+        const out = { hidden, written, afterRemove: lod.visible, plain: !Object.getOwnPropertyDescriptor(lod, 'visible')?.get };
         engine.remove(root);
         return out;
       });
-      check('LOD1 node reads hidden while registered, keeps the game\'s write, and remove() hands back a plain visible', r.hidden === false && r.afterRemove === false && r.plain, JSON.stringify(r));
+      check('LOD1 node reads hidden while registered, a direct write stands, and remove() gives back what it had', r.hidden === false && r.written === true && r.afterRemove === true && r.plain, JSON.stringify(r));
     },
   },
 ];

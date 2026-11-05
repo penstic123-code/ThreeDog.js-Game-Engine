@@ -151,12 +151,16 @@ export const TIME_FLAT = 0.15;
 const FOG_MUCH = 0.25;
 /** Shadowed pixels this much darker than lit, with the fill adding under this share of the lit brightness there: 'shadow-black' (hint thresholds, no goals) */
 const SHADOW_BLACK = { depth: 0.85, fill: 0.05 };
-/** Shares of the picture from which shadow stripes / stepped edges are worth a line, and the screen pixels a shadow map pixel must span to show as a step (hint thresholds, no goals) */
-const SHADOW_EDGE = { stripes: 0.01, jag: 0.005, texelPx: 3 };
+/** Shares of the picture from which shadow stripes / stepped edges are worth a line, the screen pixels a shadow map pixel must span to show as a step, the share that may change by itself before edges are not read (hint thresholds, no goals) */
+const SHADOW_EDGE = { stripes: 0.01, jag: 0.005, texelPx: 3, noise: 0.02 };
 /** What each budget category counts and the next step when it is over. Usage lines quote the real API: lightPool (recipe 09 1b), a light's own shadow fields */
 const BUDGET_WORDS = {
   lights: 'real point / spot lights lit', shadowLights: 'shadow-casting point / spot lights lit',
   shadowMaps: 'shadow maps drawn each frame (a point light is six)', shadowMapSize: 'pixels on the side of the largest shadow map',
+};
+/** Why each default limit is there: "lights 10 over 8" read as a rule with no reason. A limit is a guide for what to measure, nothing is cut at it */
+const BUDGET_WHY = {
+  lights: 'each adds work per lit pixel', shadowLights: 'each draws the scene again', shadowMaps: 'each is one more pass over the scene', shadowMapSize: 'memory grows with its square',
 };
 const budgetNext = (cat, b) => {
   if (cat === 'lights') return b.pool ? 'lightPool is installed: lightPool({ point }) sets how many real lights it keeps, its other sources wait'
@@ -300,7 +304,9 @@ export function pictureHints({ numbers: N, probe, intent = [], isDay = null, ref
   }
   // stripes and stepped edges of the shadow map (shadowEdges), measured on the shadow alone. Facts: a pixel-art or hard-edged look may want the blocks
   const ed = sh?.edges;
-  if (ed) {
+  if (sh?.edgeNoise >= SHADOW_EDGE.noise) add('fact', 'shadow-edges-unread', `shadow stripes and stepped edges not measured: ${pc(sh.edgeNoise)} of the picture changes between two identical renders (film grain or animated post), which reads as stripes that are not there.`, 0,
+    `shadow edges not measured: ${pc(sh.edgeNoise)} of the picture changes by itself (grain or animated post).`);
+  else if (ed) {
     const values = `${list(sh.settings ?? [])}, shadow depth range ${r2(sh.depthRange)} m`;
     if (ed.stripes >= SHADOW_EDGE.stripes)
       add('fact', 'shadow-stripes', `shadow stripes on ${pc(ed.stripes)} of the picture (thin lit / shadowed bands on surfaces, read at canvas pixels): a surface shadowing itself, or many thin casters such as leaves or a fence. In play: ${values}.`, ed.stripes,
@@ -314,10 +320,10 @@ export function pictureHints({ numbers: N, probe, intent = [], isDay = null, ref
   // engine's default line for lights is a fact. Tier is printed because a game picks its limits from it: engine.budget.enable(engine.tier === 'low' ? {...} : {...})
   const bg = probe?.budget;
   for (const o of bg?.over ?? []) {
-    const whose = o.own ? `your engine.budget limit ${o.limit}` : `the engine's default limit ${o.limit} (engine.budget.enable({ ${o.category}: n }) sets yours)`;
+    const whose = o.own ? `your engine.budget limit ${o.limit}` : `the engine's default guide ${o.limit} (${BUDGET_WHY[o.category]}; nothing is cut at it, measure with threedog perf; engine.budget.enable({ ${o.category}: n }) sets yours)`;
     // brief: value, limit and the way out; the full sentence runs past LINE_MAX and clipLine would cut the usage first
     add(o.own ? 'intent' : 'fact', 'over-budget', `${o.value} ${BUDGET_WORDS[o.category]}, over ${whose}; tier ${bg.tier}. ${budgetNext(o.category, bg)}.`, Math.min(1, o.value / o.limit - 1),
-      `${o.category} ${o.value} over ${o.limit} (tier ${bg.tier}): ${budgetNext(o.category, bg)}.`);
+      `${o.category} ${o.value} over ${o.own ? `${o.limit} (tier ${bg.tier})` : `default ${o.limit} (a guide: ${BUDGET_WHY[o.category]}; tier ${bg.tier})`}: ${budgetNext(o.category, bg)}.`);
   }
   // key against fill (probePicture out.key): what the sun / key light and the fill each add to the mean brightness (each turned off once) and how
   // much darker the shadowed areas are. Why a fact on every lit shot: whether a picture reads as lit is mostly this ratio (and warm / cool
@@ -391,7 +397,7 @@ export function pictureHints({ numbers: N, probe, intent = [], isDay = null, ref
   // large near-black areas: a fact (a horror night or a silhouette look may want them), a contradiction only under a DESIGN.md no-pitch-black
   const noBlack = intent.find(a => a.want === 'noBlack');
   if (N.dark >= 0.4 && !bk)
-    add(noBlack ? 'contradiction' : 'fact', 'crushed', `${wrote(noBlack)}${pc(N.dark)} of the picture is near black (all channels <= 20): no detail is left there${isDay === false ? ' (a night shot)' : ''}. ` +
+    add(noBlack ? 'contradiction' : 'fact', 'crushed', `${wrote(noBlack)}${pc(N.dark)} of the picture is near black (all channels <= 20): little detail shows there${isDay === false ? ' (a night shot)' : ''}. ` +
       `Set by: ${list([P.exposure, P.sun, P.hemi, P.env]) || 'exposure / light intensities'}.`, N.dark);
   for (const a of intent) if (a.want === 'unknown')
     add('fact', 'intent-word', `DESIGN.md "Picture intent" has '${a.word}', which the picture check does not read; the words it reads: ${Object.keys(INTENT_WORDS).join(', ')}.`, 0.01);
@@ -760,11 +766,18 @@ export async function probePicture(e, { time = 'auto', flat = 0.15, size = [240,
         const cv = R.domElement, mw = Math.min(cv.width, 960), mh = Math.min(cv.height, 540), c3 = document.createElement('canvas'); c3.width = mw; c3.height = mh;
         const g3 = c3.getContext('2d', { willReadFrequently: true }), sx = (cv.width - mw) >> 1, sy = (cv.height - mh) >> 1;
         const full = () => { e._render(0, false); g3.drawImage(cv, sx, sy, mw, mh, 0, 0, mw, mh); const d = g3.getImageData(0, 0, mw, mh).data, L = new Float32Array(mw * mh); for (let i = 0; i < L.length; i++) L[i] = (0.2126 * d[i * 4] + 0.7152 * d[i * 4 + 1] + 0.0722 * d[i * 4 + 2]) / 255; return L; };
-        const on = full();
+        const on = full(), again = full();
         casters.forEach(l => { l.shadow.intensity = 0; });
         let off; try { off = full(); } finally { casters.forEach((l, i) => { l.shadow.intensity = was[i]; }); }
+        // two identical renders that differ: moving film grain or any animated post. On / off then differs by itself in a speckle the stripe test
+        // reads as bands (82-97% on a picture with none), so what changes by itself is taken out of the mask, and a picture mostly that gets no verdict
         const bits = new Uint8Array(Math.ceil(mw * mh / 8));
-        for (let i = 0; i < on.length; i++) if (isShadowed(on[i], off[i])) bits[i >> 3] |= 1 << (i & 7);
+        let moving = 0;
+        for (let i = 0; i < on.length; i++) {
+          if (Math.abs(on[i] - again[i]) > 0.015) moving++;
+          else if (isShadowed(on[i], off[i])) bits[i >> 3] |= 1 << (i & 7);
+        }
+        s.edgeNoise = moving / on.length;
         let b64 = ''; for (let i = 0; i < bits.length; i += 8192) b64 += String.fromCharCode.apply(null, bits.subarray(i, i + 8192));
         s.edgeMask = { w: mw, h: mh, b64: btoa(b64) };
         grab();   // raw back to the shot's own frame for the probes below

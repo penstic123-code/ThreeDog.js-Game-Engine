@@ -6,7 +6,7 @@ export const specs = [
     url: '/tests/nav/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause(); engine.nav?.dispose();   // force the A* fallback
+        engine.haltLoop(); engine.nav?.dispose();   // force the A* fallback
         const col = engine.collision, hs = [];
         hs.push(col.addBox([0, 0, -10], { halfWidth: 4, halfDepth: 0.1, height: 1, y: 0 }));   // 1 m high thin wall along x
         hs.push(col.addCircle([15, 0, -10], { radius: 0.5, height: 3 }));
@@ -21,8 +21,14 @@ export const specs = [
         const path = engine.characters.findPath([0.37, 0, -16.4], [0.2, 0, -13.5], { radius: 0.4 });
         const startOk = !!path && Math.abs(path[0].x - 0.37) < 1e-6 && Math.abs(path[0].z + 16.4) < 1e-6;
         const straight = !!path && path.length === 2;
+        // a target inside a wall is unreachable (noPath), and no leg of a route clips a wall corner (checked every 5 cm)
+        hs.push(col.addBox([10, 0, -12], { halfWidth: 2, halfDepth: 2, height: 2, y: 0 }));
+        const inWall = engine.characters.findPath([6, 0, -12], [10, 0, -12], { radius: 0.4, detailed: true });
+        const around2 = engine.characters.findPath([7.3, 0, -9.1], [12.7, 0, -14.9], { radius: 0.4 });
+        let clip = 0;
+        for (let i = 0; around2 && i + 1 < around2.length; i++) { const a = around2[i], b = around2[i + 1], n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 0.05); for (let k = 0; k <= n; k++) if (!col.walkableAt(a.x + (b.x - a.x) * k / n, a.z + (b.z - a.z) * k / n, 0.4)) clip++; }
         hs.forEach(h => h.remove());
-        return { low, high, slope, around, fat, pillarLow, pillarHigh, startOk, straight, path };
+        return { inWall: String(inWall.path), routed: !!around2, clip, low, high, slope, around, fat, pillarLow, pillarHigh, startOk, straight, path };
       });
       check('low sight line through 1 m wall is blocked', r.low === false);
       check('sight line 3 m above the wall is clear', r.high === true);
@@ -32,6 +38,8 @@ export const specs = [
       check('circle blocks at 1 m, not at 4 m', r.pillarLow === false && r.pillarHigh === true);
       check('A* path starts at the real position', r.startOk === true, JSON.stringify(r.path));
       check('A* did not smooth straight through the fence', r.straight === false, JSON.stringify(r.path));
+      check('a target inside a wall is noPath', r.inWall === "null", r.inWall);
+      check('a route around a box has no leg inside a wall', r.routed && r.clip === 0, 'samples in wall: ' + r.clip);
     },
   },
 ];

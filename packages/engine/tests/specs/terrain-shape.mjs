@@ -54,7 +54,7 @@ export const specs = [
           E.vegetation.define('tree', { geometry: new THREE.ConeGeometry(1, 3, 5), rule: { perChunk: 400, minHeight: -99, maxHeight: 999, maxSlope: 99 } });
           await E.start();
           E.focus.set(0, 0, 0);
-          for (let i = 0; i < 600 && !E.terrain.isReadyAround({ x: 0, z: 0 }); i++) { E.step(1 / 60, { render: false }); await wait(); }
+          for (let i = 0; i < 600 && !E.terrain.readyAt({ x: 0, z: 0 }); i++) { E.step(1 / 60, { render: false }); await wait(); }
           return E;
         };
         const snap = (E, key) => { const c = E.terrain.chunks.get(key), g = E.terrainDraw.meshes.get(c).mesh.geometry.attributes; return JSON.stringify([Array.from(g.position.array), Array.from(g.color.array), Array.from(E.vegetationDraw.mesh(c, 'tree')?.instanceMatrix.array ?? [])]); };
@@ -67,7 +67,7 @@ export const specs = [
         out.q = { s0: A.surface(0, 0), sv: A.surface(120, 0), has0: A.ground.has(0, 0), hasV: A.ground.has(120, 0), slopeV: A.slope(120, 0), typeV: A.groundType(120, 0) };
         let worst = 0, offTop = 0, trees = 0, treesOff = 0, groups = 0, alpha = new Set(), solidLess = true;
         for (const k of keys) {
-          const c = A.terrain.chunks.get(k), p = c.data.pos, CH = A.terrain.CHUNK;
+          const c = A.terrain.chunks.get(k), p = c.data.pos, CH = A.terrain.chunkSize;
           const top = A.terrainDraw.meshes.get(c).mesh.geometry.groups[0]?.count ?? 0;
           for (let i = 0; i < top * 3; i += 9) {
             const x = c.cx * CH + (p[i] + p[i + 3] + p[i + 6]) / 3, z = c.cz * CH + (p[i + 2] + p[i + 5] + p[i + 8]) / 3, y = (p[i + 1] + p[i + 4] + p[i + 7]) / 3;
@@ -111,7 +111,7 @@ export const specs = [
           if (i % 60 === 0) await wait();
         }
         out.voids = voids; out.fellAt = fellAt; out.voidY = A.terrain.voidY; out.py = P.position.y;
-        try { A.snapToGround(new THREE.Object3D().translateX(120)); out.snap = 'no error'; } catch (e) { out.snap = e.message; }
+        try { const o = new THREE.Object3D().translateX(120); o.position.y = 7; A.snapToGround(o); out.snap = o.position.y; } catch (e) { out.snap = e.message; }
         A.dispose();
         return out;
       }, { ISLAND_SRC, DEFAULT_HASH });
@@ -128,7 +128,7 @@ export const specs = [
       check('the side wall stops a rigid body thrown at it from the void', r.wall.minX > r.wall.rimX - 0.5, JSON.stringify(r.wall));
       check('the player stands on the island, walks off the rim and falls', Math.abs(r.standY - 5) < 0.05 && r.fellAt != null && r.fellAt > r.wall.rimX - 1, `${r.standY}, fell at x ${r.fellAt}`);
       check('terrain:void fires once each for the player and the ball, no respawn', r.voids.filter(v => v === 'player').length === 1 && r.voids.includes('ball') && r.py < r.voidY, JSON.stringify([r.voids, r.voidY, r.py]));
-      check('snapToGround over the void throws (dev) instead of writing -Infinity', /no ground/.test(r.snap), r.snap);
+      check('snapToGround over the void warns and leaves the object where it is (never -Infinity)', r.snap === 7, String(r.snap));
     },
   },
   {

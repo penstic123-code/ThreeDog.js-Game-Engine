@@ -39,6 +39,10 @@ export async function run({ check }) {
   check('errors.log: every wording of the WebGPU fallback warning merges into one line', k1 === k2);
   check('errors.log: an error about WebGPU and any other warning stay apart', mergeKey({ type: 'error', msg: 'WebGPU unavailable' }, '') !== k1 && mergeKey(warn('other'), '') !== k1);
 
+  // the bridge commands read their options through the one parser: a typo fails before anything reaches the page
+  const { run: bridgeRun } = await import('../threedog/commands.mjs'), typo = (cmd, ...a) => bridgeRun({ evaluate: () => { throw new Error('reached the page'); } }, cmd, a).then(() => '', e => e.message);
+  check('[guard] a mistyped bridge option fails naming the closest one', /did you mean --full/.test(await typo('describe', '--fulll')) && /unknown option --foo/.test(await typo('ops', '--foo')) && /unknown option --fast/.test(await typo('step', '2', '--fast')));
+
   // a snap that times out says what the page was doing; here the page answers nothing, so it says the main thread is busy
   const { run: runCommand } = await import('../threedog/commands.mjs');
   let calls = 0; const alive = setInterval(() => {}, 500);   // readRuntime's timer is unref'd: a real bridge call keeps the process up, this fake does not
@@ -82,7 +86,6 @@ export async function run({ check }) {
   // [guard] one reading of options and -w: a tool that looks up its own switches in argv (argv.includes('--x')) or its own -w
   // (=== '-w') silently ignores a typo again. The allowed few read a switch that crosses process boundaries, each with its reason
   const HAND_OK = {
-    'browser.mjs': '--gpu / --software are read where the browser starts, under every command that declared them',
     'lib/scope.mjs': '--tally-json is passed by check to types, which declares it',
     'rules/R10-duplicates.mjs': '--r10-anon is passed through check, which declares it',
     'rules/R18-doc-refs.mjs': 'reads -w inside command lines quoted in docs, not its own arguments',
@@ -128,7 +131,7 @@ export async function run({ check }) {
       const R1 = (await import('../rules/R01-file-size.mjs')).default.run().filter(r => r.file.startsWith('games/zz-size/'));
       const at = f => R1.find(r => r.file === `games/zz-size/${f}`);
       check('a 21 KB art.js gets no size warning; the same size in a gameplay file still does', !at('art.js') && at('logic.js')?.level === 'warn', JSON.stringify(R1));
-      check('art code over 48 KB is still an error', at('assets.js')?.level === 'error', JSON.stringify(R1));
+      check('[guard] game code over 48 KB is a warning, never an error', at('assets.js')?.level === 'warn' && !R1.some(r => r.level === 'error'), JSON.stringify(R1));
     } finally {
       rmSync(d, { recursive: true, force: true });
       if (!hadGames && existsSync(gamesDir) && !readdirSync(gamesDir).length) rmSync(gamesDir, { recursive: true });
@@ -178,5 +181,10 @@ export async function run({ check }) {
   try { oldCodes = ['dev', 'build', 'test', 'shot', 'perf'].map(c => main([c])); } finally { console.error = err; Object.defineProperty(process.versions, 'node', { value: realNode, configurable: true }); }
   check('faked Node 20.11: dev / build / test / shot / perf exit 1 before starting anything, naming the version, the range and the fix',
     oldCodes.every(c => c === 1) && errs.length === 5 && errs.every(e => e.includes('Node 20.11.0') && e.includes(NODE_RANGE) && e.includes('nodejs.org')), errs[0]);
+  // the usage line promises -w on these; perf once answered "unknown option -w" and a game went without a frame time
+  for (const c of ['shot', 'perf', 'bake', 'assets']) {
+    const r = spawnSync(process.execPath, [join(TOOLS, 'bin/threedog.mjs'), c, ...(c === 'assets' ? ['report'] : []), '-w', 'no-such-game'], { encoding: 'utf8', cwd: ROOT });
+    check(`[guard] ${c} takes the -w its usage line lists: an unknown game is named, the option is not refused`, /no-such-game/.test(r.stdout + r.stderr) && !/unknown option/.test(r.stdout + r.stderr), (r.stdout + r.stderr).slice(0, 200));
+  }
   check('doctor reports the Node version through the same check', /nodeProblem\(\)/.test(readFileSync(join(TOOLS, 'doctor.mjs'), 'utf8')));
 }

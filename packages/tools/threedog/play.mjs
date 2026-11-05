@@ -1,7 +1,7 @@
 // threedog play | status | play --stop: start the game for the AI and answer "is it up, is it ready" in one call.
 //   play     finds the workspace (cwd or -w), starts the dev server if none runs (detached, output in .threedog/dev.log), waits until the dev bridge
 //            answers and the engine is ready, then says the page address and whether a headless or a live browser page is connected
-//   status   ready / loading / page errors / paused state in two lines; when it cannot answer, which of four causes it is (diagnose.mjs)
+//   status   ready / loading / page errors / halted state in two lines; when it cannot answer, which of five causes it is (diagnose.mjs)
 //   play --stop   stops the server that play started (a server started by hand is closed in its own terminal)
 import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, openSync, closeSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
@@ -10,7 +10,7 @@ import { TOOLS } from '../paths.mjs';
 import { bridgeDriver } from './connect.mjs';
 import { probe, diagnose } from './diagnose.mjs';
 import { readRuntime } from './runtime.mjs';
-import { allErrors, isError } from './errorlog.mjs';
+import { currentErrors, isError } from './errorlog.mjs';
 import { oneLine } from '../lib/oneline.mjs';
 import { devServerInfo, pidAlive } from '../devinfo.mjs';
 
@@ -70,13 +70,13 @@ export async function status(dir, { page } = {}) {
   if (p.state !== 'ok') return { ok: false, ...await diagnose(dir) };
   const { runtime, raw } = await readRuntime(bridgeDriver(dir, { page }), 25000);
   if (!raw?.attached) return { ok: false, ...(await diagnose(dir, new Error('timed out waiting for the engine'))) };
-  const errs = allErrors(dir).filter(isError), last = errs.at(-1), lv = raw.loading;
+  const errs = currentErrors(dir).filter(isError), last = errs.at(-1), lv = raw.loading;
   const loading = !lv ? 'no loading info' : lv.blocked ? 'startup BLOCKED by a failed asset' : lv.done ? `loading done${lv.failed ? `, ${lv.failed} asset${lv.failed === 1 ? '' : 's'} fell back` : ''}`
     : `still loading (waiting: ${lv.waiting})`;
   const bad = !runtime.ready || lv?.blocked || errs.length > 0;
   const head = `${bad ? '✗' : '✓'} ${runtime.ready ? 'Ready' : 'Not ready'}: ${loading}, ${errs.length ? `${errs.length} page error${errs.length === 1 ? '' : 's'}` : 'no page errors'}`;
   const rs = raw.run, run = rs ? `
-Run state: ${rs.state === 'paused' ? `paused(by ${rs.owners.join(', ')})` : rs.state}` : '';
+Run state: ${rs.state === 'frozen' ? `frozen(by ${rs.owners.join(', ')})` : rs.state}` : '';
   return { ok: !bad, runtime, data: { port: p.port, loading: lv, run: rs, errors: { count: errs.length, latest: last ?? null } },
     text: `${head}${last ? ` (latest E${last.id}: ${oneLine(last.message)}; threedog errors latest)` : ''}${run}` };
 }
@@ -91,7 +91,13 @@ export async function stopServer(dir) {
       + 'the dev server was not started by threedog play, so it keeps running.\nNext: to stop it, close the terminal where you ran npm run dev.' };
   }
   // Kill only a process the dev bridge itself vouches for (it answers with the token in dev.json): a recorded pid alone may have been reused by an unrelated program
-  const live = (await probe(dir)).state === 'ok', pids = live ? [own, devServerInfo(dir).pid] : [];
+  // A busy server (page load, software rendering) can miss one probe: ask again before calling it gone. Still silent but dev.json names a live pid
+  // (the server wrote that file itself, so it is this workspace's server, not a reused pid): it is stuck, not stopped, so stop it anyway.
+  let live = (await probe(dir)).state === 'ok';
+  for (let i = 0; !live && i < 2; i++) { await new Promise(r => setTimeout(r, 1500)); live = (await probe(dir)).state === 'ok'; }
+  const devPid = devServerInfo(dir).pid, stuck = !live && !!devPid && pidAlive(devPid);
+  const pids = live || stuck ? [own, devPid] : [];
+  if (stuck) live = true;
   if (!live) {
     for (const f of [playFile(dir), join(dir, '.threedog/dev.json')]) rmSync(f, { force: true });
     return { ok: true, text: `✓ No dev server of this workspace answers any more (the record was removed${pidAlive(own) ? `; pid ${own} is alive but is not confirmed as the dev server, so it was left alone` : ''}).` };

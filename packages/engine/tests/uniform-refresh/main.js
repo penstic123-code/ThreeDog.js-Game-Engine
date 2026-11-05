@@ -20,7 +20,7 @@ const engine = window.engine = createEngine({ canvas: document.getElementById('v
   ui: { loading: false }, saveKey: 'test-uniform-refresh', urlState: false });
 engine.use(sky({ time: 0.4 }));
 await engine.start();
-engine.pause();
+engine.haltLoop();
 const U = engine.uniforms;
 
 const canvas = () => Object.assign(document.createElement('canvas'), { width: W, height: H });
@@ -51,9 +51,9 @@ const CASES = {
   ownNumber: { set: v => { own.value = v; }, from: 1, to: 0.3,
     patch: { name: 'k', slot: 'color', uniforms: { uRefreshK: own }, pars: 'uniform float uRefreshK;', glsl: 'diffuseColor.rgb *= uRefreshK;',
       tsl: c => c.tsl.vec4(c.color.rgb.mul(c.fx.patchUniform(own)), c.color.a) } },
-  engineNumber: { set: v => { U.uCloud.value = v; }, from: 1, to: 0.25,
-    patch: { name: 'cloud', slot: 'color', uniforms: { uCloud: U.uCloud }, pars: 'uniform float uCloud;', glsl: 'diffuseColor.rgb *= uCloud;',
-      tsl: c => c.tsl.vec4(c.color.rgb.mul(c.fx.uniform('uCloud')), c.color.a) } },
+  engineNumber: { set: v => { U.uWeatherCloud.value = v; }, from: 1, to: 0.25,
+    patch: { name: 'cloud', slot: 'color', uniforms: { uWeatherCloud: U.uWeatherCloud }, pars: 'uniform float uWeatherCloud;', glsl: 'diffuseColor.rgb *= uWeatherCloud;',
+      tsl: c => c.tsl.vec4(c.color.rgb.mul(c.fx.uniform('uWeatherCloud')), c.color.a) } },
   engineColor: { set: v => { U.uFoliageTint.value.setScalar(v); }, from: 1, to: 0.2,
     patch: { name: 'tint', slot: 'color', uniforms: { uFoliageTint: U.uFoliageTint }, pars: 'uniform vec3 uFoliageTint;', glsl: 'diffuseColor.rgb *= uFoliageTint;',
       tsl: c => c.tsl.vec4(c.color.rgb.mul(c.fx.uniform('uFoliageTint')), c.color.a) } },

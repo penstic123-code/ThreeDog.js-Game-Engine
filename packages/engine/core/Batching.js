@@ -5,12 +5,13 @@
 //   writable without surprises (your own Raycaster, scene walks, material swaps see exactly the meshes you made). Opt in per object with
 //   obj.userData.batch = true on the root you add to the scene. Dev: when many identical game meshes draw one by one, stats.hint (describe().perf.batching)
 //   and one console line say so with that opt-in.
-//   Rule: once at least minCount meshes with the same geometry, material and shadow flags sit in one cell (cell meters, default engine.stream.cellSize),
+//   Rule: once at least minCount meshes with the same geometry, material and shadow flags sit in one cell (cell meters, default four engine.stream cells),
 //   they become instances of one InstancedMesh; below that they stay plain meshes. A batch dissolves when it drops under half of minCount.
 //   The placed object stays in the scene as it was (its userData, record, colliders, interactions are untouched): only its meshes are hidden and marked
 //   moved to layer 31 (BATCH_LAYER: not drawn, not in shadows; visible stays the game's). engine.raycast / pick / photo still hit the original and
 //   return it, never an instance index (engine.rays tests layer 31 too). Your own THREE.Raycaster: batching.item(hit.object, hit.instanceId).
 //   Moving / hiding / removing the object updates its instance next frame (checked each frame on the object's own transform); recolor with tint().
+//   Ownership with BundleGroup: a mesh under a three BundleGroup is the bundle's. Batching leaves it alone, so each mesh has one owner; userData.batch = true on such a root warns once.
 //   Never batched: skinned / instanced / morphing meshes, objects with animations, multi-material, transparent, ShaderMaterial, custom renderOrder /
 //   layers / onBeforeRender, meshes with children, anything hlod registered (userData.hlod), and anything marked userData.batch = false (itself or a
 //   parent; a world record says batch: false).
@@ -22,8 +23,10 @@
 /** @import { BatchingOptions, BatchingStats, BatchInfo } from '../types/core' */
 import * as THREE from 'three';
 import { warnOnce, DEV, note } from './validate.js';
-import { BATCH_LAYER, build, join, leave, dissolve, color, localTint, bounds, snap, same, stored, under } from './batchGroups.js';
+import { BATCH_LAYER, build, join, leave, dissolve, color, localTint, bounds, snap, same, stored, inBundle } from './batchGroups.js';
+import { isUnder } from './util.js';
 import { codedError } from './errorHints.js';
+import { notePatch, patchOn } from './threePatches.js';
 
 const OPTS = ['minCount', 'cell'];
 // Thing-registry owners whose roots are engine-placed content (things.js add). Engine modules' own helpers ('engine:grid' tiles, 'engine:rigid'
@@ -31,6 +34,14 @@ const OPTS = ['minCount', 'cell'];
 const CONTENT = new Set(['world', 'stream', 'level']);
 // Round-robin visits in a row that found an unbatched root moved: it is moving, not placed, and stops being a batch candidate until it rests
 const MOVING = 3;
+// Default batch cell, in stream cells. Why wider than one stream cell: a root lands in one batch cell, so a cell no wider than a streamed block batches nothing across
+// blocks. A model used a few times per block (six facades over 16 buildings) never reached minCount and every copy drew alone. Measured on the city run: 64 m 18.9 ms a frame,
+// 256 m 9.9 ms. The price is coarser culling, about 13-25% more triangles drawn there; a game with heavy props and little CPU load can set a smaller cell.
+const CELL_SPAN = 4;
+const VERIFY_MESHES = 256;   // meshes the round robin looks at per frame; one root is always finished, so a single huge root goes over once per lap
+const PATCH = 'batching-draw-walk';
+notePatch(PATCH, "children of a parent holding batched meshes: those meshes are out of the array during the engine's own draw, back right after (core/Batching.js)", () => {},
+  { scope: 'objects in the scene', lost: 'three walks every batched original twice a frame again; a district of blocks pays about a third of its frame for meshes that do not draw' });
 const STRINGS = {
   evicted: '[batching] a batched copy of "{name}" changed after batching ({why}); it is drawn on its own from now on. Mark models that animate parts or swap materials with batch: false on the record (userData.batch = false on the object)',
   opts: 'createEngine({ batching }) takes false or { minCount, cell }; unknown key "{key}"',
@@ -39,6 +50,7 @@ const STRINGS = {
   note: 'repeated static meshes the engine placed (world records, stream builds, level files) are drawn as InstancedMesh batches (originals stay in the ' +
     'scene on layer 31; your own scene.add meshes only with userData.batch = true). Your own THREE.Raycaster: engine.batching.item(hit.object, hit.instanceId); ' +
     'keep a model as plain meshes: batch: false on its record (userData.batch = false on the object); off: createEngine({ batching: false })',
+  bundled: '[batching] userData.batch = true on "{name}" has no effect: it is a BundleGroup, which draws its own meshes. Keep one: a BundleGroup, or a plain Group with batching',
   // Game meshes are not batched by default (see the header); when that costs many draw calls the game should hear the one-line way in.
   hint: '{n} copies of "{name}" added by the game draw one by one (engine.batching only batches what the engine places). If they stay static, set ' +
     'obj.userData.batch = true on each before adding it to batch them as one InstancedMesh per cell',
@@ -65,13 +77,16 @@ export class Batching {
     /** @internal mesh -> tint color */ this.tints = new WeakMap();
     /** @internal geometries evicted once (never batched again) */ this.banned = new WeakSet();
     /** @internal batch InstancedMesh -> group */ this.byMesh = new WeakMap();
-    /** Geometries and materials a live batch draws (engine.remove does not dispose these) @type {Map<any, number>} */ this.held = new Map();
+    /** Geometries and materials a live batch draws (engine.remove does not dispose these) @type {Map<any, number>} @experimental */ this.held = new Map();
     /** Parent of every batch InstancedMesh (in the scene) @type {THREE.Group} */
     this.root = new THREE.Group();
     this.root.name = 'batching'; this.root.matrixAutoUpdate = false; this.root.userData.batch = false;
     /** @internal dev: 'geometry.id|material.id' -> how many unbatched game meshes draw it (the opt-in hint) */ this.plain = new Map();
     /** @internal dev: game root -> the plain keys it counted (taken back when it leaves the scene) */ this.counted = new Map();
     /** @internal dev: the key the hint is about (null until some key reached minCount) */ this._hintKey = null; /** @internal the hint console line was printed */ this._hinted = false;
+    /** @internal parent -> { parent, all, count, drawn }: parents whose batched children skip the draw walk */ this.skips = new Map();
+    /** @internal parents with a join, leave or child change since skips was listed */ this.skipsStale = new Set();
+    /** @internal the children are swapped right now */ this.skipping = false;
     /** @internal */ this._on = false;
     /** @internal */ this._add = ev => { if (ev.child !== this.root) this.incoming.add(ev.child); };
     /** @internal */ this._rem = ev => { this.incoming.delete(ev.child); this._untrack(ev.child); this._uncount(ev.child); };
@@ -95,8 +110,8 @@ export class Batching {
       this.plain.clear(); this.counted.clear(); this._hintKey = null;   // switching on again recounts every root
     }
   }
-  /** Cell edge in meters (default engine.stream.cellSize) @type {number} */
-  get cell() { return this._cell ?? this.engine.stream.cellSize; }
+  /** Cell edge in meters (default four engine.stream cells, 256 m) @type {number} */
+  get cell() { return this._cell ?? this.engine.stream.cellSize * CELL_SPAN; }
   set cell(v) { this._cell = v; this._rescan(); }
 
   /** Every batch: { mesh: InstancedMesh, cell, count, items } (items[i] is the placed object drawn by instance i) @returns {BatchInfo[]} */
@@ -170,10 +185,47 @@ export class Batching {
     if (!this._on) return;
     if (this.incoming.size) { for (const r of this.incoming) if (r.parent === this.engine.scene) this._track(r); this.incoming.clear(); }
     for (const info of this.live) this._check(info);
-    // round robin: look for parts changed behind our back (bounded per frame)
-    const L = this.list, n = Math.min(L.length, 256);
-    for (let i = 0; i < n; i++) { if (this.cursor >= L.length) this.cursor = 0; this._verify(L[this.cursor++]); }
+    // round robin: look for parts changed behind our back. Bounded in meshes, not roots: a streamed city block is one root with hundreds of meshes,
+    // and 256 roots a frame checked every mesh of a district every frame (a quarter of the frame in the city stress run)
+    const L = this.list;
+    for (let seen = 0, left = VERIFY_MESHES; seen < L.length && left > 0; seen++) {
+      if (this.cursor >= L.length) this.cursor = 0;
+      const info = L[this.cursor++]; left -= info.entries.length; this._verify(info);
+    }
     for (const g of this.groups.values()) if (g.dirty) { g.dirty = false; bounds(g); }
+  }
+  /**
+   * @internal Called right before the frame's draw: batched originals leave their parent's children until unskip(), so three's two whole-scene walks
+   * (updateMatrixWorld, the draw list) do not visit meshes that never draw. They cost more than the draws themselves in a district of blocks. Only this
+   * window: game code, raycasts and scene.traverse always see the scene as it was built. Scene changes made during a render are lost here (three itself
+   * walks these arrays then, so that was never safe). A root that is itself the batched mesh stays: it sits in the scene's own children.
+   */
+  skip() {
+    if (!this._on || !patchOn(PATCH)) return;
+    for (const s of this.skips.values()) if (s.parent.children.length !== s.count) this.skipsStale.add(s.parent);
+    if (this.skipsStale.size) this._listSkips();
+    for (const s of this.skips.values()) { s.all = s.parent.children; s.parent.children = s.drawn; }
+    this.skipping = true;
+  }
+  /** @internal Right after the draw: every parent gets its real children back */
+  unskip() {
+    if (!this.skipping) return;
+    this.skipping = false;
+    for (const s of this.skips.values()) s.parent.children = s.all;
+  }
+  /** @internal A mesh joined or left a batch: its parent is listed again before the next draw. A root that is itself the mesh sits in the scene's children, which are never skipped */
+  _skipChanged(e) { if (e.mesh !== e.info.root && e.mesh.parent) this.skipsStale.add(e.mesh.parent); }
+  /**
+   * @internal What is left of the changed parents' children without their batched meshes. Only those parents: listing every parent went through every batched mesh of the district
+   * each time a block came or went. A child hung on a batched mesh still draws until the round robin evicts it, so a mesh with children is not skipped.
+   */
+  _listSkips() {
+    for (const parent of this.skipsStale) {
+      const drawn = parent.children.filter(c => !c.userData.batched || c.children.length);
+      if (drawn.length === parent.children.length) this.skips.delete(parent);
+      else this.skips.set(parent, { parent, all: null, count: parent.children.length, drawn });
+    }
+    this.skipsStale.clear();
   }
   /** @internal */
   dispose() { this.enabled = false; this.groups.clear(); }
@@ -186,6 +238,7 @@ export class Batching {
     const u = root.userData, owner = this.engine._things?.byObj.get(root)?.owner, mine = u.batch === true || CONTENT.has(owner);
     // the opt-in hint counts only the game's own roots: an engine module's helpers ('engine:grid' tiles, 'engine:rigid' bodies) are not the game's to mark
     if (!mine || u.batch === false || root.animations?.length) { this._plain(root, !mine && u.batch !== false && (owner == null || owner === 'game')); return; }
+    if (u.batch === true && root.isBundleGroup) warnOnce(STRINGS.bundled.replace('{name}', root.name || 'a group'));
     const meshes = [];
     let ok = true;
     const walk = (o, top) => {
@@ -210,7 +263,7 @@ export class Batching {
     const mat = this.orig.get(m) ?? m.material;
     return !m.children.length && !Array.isArray(mat) && mat && !mat.transparent && !mat.isShaderMaterial && m.geometry?.attributes.position
       && !m.morphTargetInfluences && !Object.keys(m.geometry.morphAttributes).length && !m.userData.hlod && !this.banned.has(m.geometry)
-      && m.renderOrder === 0 && m.layers.mask === 1 && m.frustumCulled && m.onBeforeRender === PROTO_BEFORE;
+      && m.renderOrder === 0 && m.layers.mask === 1 && m.frustumCulled && m.onBeforeRender === PROTO_BEFORE && !inBundle(m);
   }
   /** @internal */
   _untrack(root) {
@@ -317,7 +370,7 @@ export class Batching {
       if (e.slot < 0) continue;
       const m = e.mesh, g = e.group;
       let why = m.layers.mask !== HIDDEN ? 'layers' : !m.visible ? 'hidden' : m.material !== g.material ? 'material' : m.geometry !== g.geometry ? 'geometry' : m.children.length ? 'children'
-        : m.castShadow !== g.cast || m.receiveShadow !== g.receive ? 'shadow flags' : !under(m, r) ? 're-parented' : '';
+        : m.castShadow !== g.cast || m.receiveShadow !== g.receive ? 'shadow flags' : !isUnder(m, r) ? 're-parented' : '';
       if (!why) {
         m.updateWorldMatrix(true, false);
         if (!stored(g.mesh.instanceMatrix.array, e.slot, m.matrixWorld) && same(r, info.snap)) why = 'a part moved';

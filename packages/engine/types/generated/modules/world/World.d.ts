@@ -239,7 +239,7 @@ export class World {
     pauseSimulation(): {
         remove(): void;
     };
-    /** Number of fixed steps simulated */ get steps(): number;
+    /** Number of fixed steps simulated @experimental */ get steps(): number;
 }
 /**
  * One world record: id, kind and position are fixed fields, the rest are yours (plain values only)

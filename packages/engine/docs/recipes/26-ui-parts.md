@@ -168,12 +168,26 @@ engine.ui.open('title');                             // show it again (the setti
 ```
 While the title is open gameplay is frozen, input is locked, and Esc goes to it (the settings menu does not open).
 
+**A custom item closes the title itself.** The built-in `continue` / `start` call `e.ui.close('title')` after they load; an item you write does not, so `flow` can reach `playing` with the title still on top and no warning. End every item that leaves the title with `e.ui.close('title')`:
+```js fragment
+{ label: 'Tutorial', run: async e => { await e.session.newGame(); e.ui.close('title'); } }
+```
+
+### Photo mode: the picture without the interface, and hiding the interface
+`engine.photo.take()` (op `photo.take`) draws one frame of the game canvas at a higher pixel ratio and reads it back, so the picture never contains DOM: HUD, toasts and windows are not in it (a HUD drawn into the canvas by your own render code is). To hide the interface on screen for a photo mode, hide the engine's UI root, one element that holds every part:
+```js
+const photoMode = on => { engine.uiRoot.style.display = on ? 'none' : ''; };   // engine ui: hud, toasts, windows, title
+engine.photo.take();                                                          // shot.url is the picture, the album keeps it; the DOM was never in it
+photoMode(true);                                                              // the player's screen without interface, e.g. while a photo mode is framing
+```
+Plain three.js (no engine ui): hide your own DOM overlay the same way (`overlay.style.display = 'none'`), then `renderer.render(scene, camera)` and `renderer.domElement.toDataURL('image/jpeg', 0.92)` in the same frame, before the browser repaints, and show the overlay again after.
+HUD text follows the engine locale (`createEngine({ locale })`, default `'auto'` = the browser language): a game written in English sets `locale: 'en'`, or distance labels read `50 米` on a Chinese browser.
+
 ## 6. Settings menu: only the tabs the game needs
 ```js
 engine.use(settings({ sections: ['game', 'graphics', 'audio', 'controls', 'camera'] }));   // default: graphics, audio, controls, language, saves
 // optional built-ins by name: 'game' (resume / load / back to title), 'camera' (sensitivity, invert Y, field of view; re-applied on 'camera:change')
 engine.settings.addSection('camera');
-engine.settings.removeSection('saves');
 
 // a tab of your own: render gets tools with the control helpers (row / toggle / range / segmented) already bound
 engine.settings.define('subtitles', true, on => { document.body.dataset.subtitles = String(on); });
@@ -185,12 +199,13 @@ engine.settings.addSection('gameplay', {
 ```
 A row that switches off an effect of your own (a post effect, a picture value): name the shared value it limits, and it works like the
 built-in shadows row. Off holds the value off on the settings layer, so a later scene, weather or cutscene cannot turn it back on; on
-allows whatever the scene chose. A number row from 0 to 1 is a factor on a number value. Define the row after the effect exists.
+allows whatever the scene chose. A number row from 0 to 1 is a factor on a number value. Define the row after the effect exists. `bloom` and `ao` already have rows of their own (limiting `post.bloom.enabled` / `post.ao.enabled`), so `settings.define('bloom', ...)` throws: switch them with `engine.settings.set('bloom', false)`, or in a preset.
 ```js
 engine.post.add(volFog);                                                     // post.volFog.enabled now exists
 engine.settings.define('volFog', true, { limits: 'post.volFog.enabled' });   // add apply: v => ... too if the game reacts in code
 engine.settings.define('flashCap', 1, { limits: 'sky.flash' });                   // 0.5 = half of any lightning flash
 settings({ presets: { low: { volFog: false } } });                                // a preset can switch the row like any other key
+settings({ presets: { low: { pixelRatio: 0.5 } } });                              // pixelRatio in a preset: a share (0 to 1) of the ratio the engine picked for this device
 ```
 `engine.describe().shared['post.volFog.enabled']` shows the settings entry and what the scene wanted underneath.
 

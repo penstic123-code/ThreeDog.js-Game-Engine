@@ -9,9 +9,9 @@ Shells on a beach, four kinds of flowers, letters to collect: things the player 
 engine.hud.counter('shells', { label: 'Shells', value: 0, max: 4 });        // at setup, not on session:start
 shells.forEach((shell, i) => engine.interactions.add(shell, { id: `shell-${i}`, label: 'Pick up', once: true, counter: 'shells', onUse: () => engine.audio.sfx('pick') }));
 ```
-`once` hides the mesh after a use (`onUse` returning `{ ok: false }` leaves it); `counter` adds 1 through `engine.hud.add(name, n)`, and does nothing without
+`once` hides the mesh after a use (`onUse` returning `{ ok: false }` leaves it); `counter` adds 1 through `engine.hud.bump(name, n)`, and does nothing without
 `hud()`. Both are saved and go back on a new game. The save knows a thing by `id`, else `mesh.name`: development throws when it has neither, or shares one with another once item.
-A hidden mesh is only hidden: a collider it had is yours to remove in `onUse`. To add up without a thing to take, call `engine.hud.add('score', 10)` yourself.
+A hidden mesh is only hidden: a collider it had is yours to remove in `onUse`. To add up without a thing to take, call `engine.hud.bump('score', 10)` yourself.
 
 | Use | When |
 |---|---|
@@ -66,7 +66,7 @@ changing level and coming back they are still picked up.
 engine.inventory.define('gem', { name: 'Gem', icon: '💎', color: 0x66ccff });   // shape: model: 'gemModel' (an asset name), else an asset named 'pickup:gem' / 'pickup', else a gray box (spawn { mesh } puts one object of the game's own down instead)
 const gem = engine.pickups.spawn(engine.player.position, { give: 'gem', count: 1 });   // returns a handle; gem.remove() deletes data and model together
 // handle: { id: id in world, give, object: current model (null when far), remove() }; opts.id lets you write a stable id (spawning again with the same id reuses the existing one)
-engine.inventory.add('coin', 2);                // give directly to the local bag; returns the entry key ('coin'), false if it doesn't fit
+engine.inventory.add('coin', 2);                // give directly to the local bag; returns { ok: true, key: 'coin', added: 2 }, or { ok: false, code: 'full' } if none fit
 engine.inventory.remove('coin', 1);             // returns false if there isn't enough
 engine.inventory.has('coin', 2);                // at least 2?
 engine.pickups.spawn([8, 0, 2], { give: 'ammo', count: 30, auto: true, radius: 1.2 });   // taken on touch by whoever touches it (pickups.takers), no key, no prompt
@@ -85,7 +85,7 @@ also takes a key.
 ```js
 const I = engine.inventory;
 I.define('sword', { name: 'Sword', stack: 1 });
-const key = /** @type {string} */ (I.add('sword', 1, { data: { durability: 80, level: 3 } }));   // 'sword#7' (add returns false when it does not fit)
+const { key } = I.add('sword', 1, { data: { durability: 80, level: 3 } });   // 'sword#7' (add returns { ok: false, code: 'full' } when it does not fit)
 I.count('sword');                               // every sword, with or without data
 I.get(key);                                     // { key, id: 'sword', count: 1, data: { durability: 80, level: 3 }, def }
 I.list();                                       // every entry: [{ key, id, count, data, def }] for your own UI
@@ -160,7 +160,7 @@ get or create one (calling again with the same id returns the same one); limits 
 ```js
 const I = engine.inventory;
 const chest = I.container('chest-1', { capacity: 8 });
-chest.add('bandage', 2);                      // returns false if it doesn't fit (if part fits, that part is added)
+chest.add('bandage', 2);                      // { ok: false, code: 'full' } if none fit; if part fits, that part goes in and `added` says how many
 I.transfer(chest, 'player', 'bandage', 1);    // a container or a container id both work; returns how many were actually moved (fewer / 0 if the inventory is full)
 I.transfer('player', chest, 'coin', 5);       // shelves and money boxes work the same way
 chest.on('remove', ({ id, count, actor }) => console.log(actor, 'took', id, count));   // every container emits item:add / item:remove with { container, actor, id, key, count, total }

@@ -16,7 +16,7 @@
 // (core/time.js); a calendar that added its own dt drifted from clock timers, and skip had to advance both. Writing timeOfDay or day moves the
 // origin. day:start / season:change and the clock timers fire right after the channel moves (engine.time.onMove), on a step and on a skip alike.
 import { parseSeasons, seasonIndexOf, dayOfSeasonOf, seasonProgressOf } from './seasons.js';
-import { formatClock, parseClock } from '../../core/dayTime.js';
+import { formatClock, parseClock, sunHeightAt } from '../../core/dayTime.js';
 import { Schedule } from './schedule.js';
 import { codedError } from '../../core/errorHints.js';
 /** @import { CalendarOptions, CalendarAtOptions, CalendarBetweenOptions } from '../../types/world' */
@@ -81,7 +81,7 @@ export class Calendar {
   /** Clock text, e.g. "18:00" */
   get clock() { return formatClock(this.timeOfDay, this.hoursPerDay); }
   /** Daylight from the clock 0-1 (0 from 18:00 to 06:00, 1 at noon; a sine over the day). Audio rules { daylight }, ambience and the sky's default sun read it */
-  get daylight() { return Math.max(0, Math.sin((this.timeOfDay - 0.25) * Math.PI * 2)); }
+  get daylight() { return Math.max(0, sunHeightAt(this.timeOfDay)); }
   /** Whether it is daytime by the clock (06:00-18:00 of the day's hours) */
   get isDay() { return this.daylight > 0; }
   /** Current season index, -1 without seasons */

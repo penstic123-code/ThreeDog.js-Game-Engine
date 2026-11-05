@@ -4,12 +4,11 @@
 // (an object literal with name: '...' and install) carries `describe`, a compact state the AI needs to verify behaviour (core/Describe.js header).
 // Error, not warning: a new module without one is caught at once instead of piling up like the old list did.
 // Allowlist: a module that genuinely holds no state of its own, with the reason (ALLOW below). Keep it short; "it is small" is not a reason.
-import { ts, parse, visit, engineFiles, lineOf, P } from './_lib.mjs';
+import { ts, parse, visit, engineFiles, lineOf, P, hasProp } from './_lib.mjs';
 
 // [module name, reason]: modules that hold nothing an AI would check
 const ALLOW = [];
 
-const hasProp = (obj, name) => obj.properties.some(p => p.name?.getText() === name);
 const nameOf = obj => obj.properties.find(p => p.name?.getText() === 'name' && ts.isPropertyAssignment(p) && ts.isStringLiteralLike(p.initializer))?.initializer.text;
 /** Module definitions in one source file without describe: [{ name, node }] (exported so the rule test runs on fixture text) */
 export function missingDescribe(sf) {

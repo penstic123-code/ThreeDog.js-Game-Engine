@@ -1,8 +1,8 @@
 // Weather particle systems (recipes/44). Built-in rain and snow are two specs of one falling-particle system; a game draws a field of its
-// own table (ash, petals, sparks) with engine.weather.define(field, spec), and the same call replaces rain or snow. The amount each frame is
+// own table (ash, petals, sparks) with engine.weather.defineField(field, spec), and the same call replaces rain or snow. The amount each frame is
 // weather.current[field], so the table's smooth blending drives particles too.
 //
-// spec (weather({ rain, snow }), or define): shape 'line' (streaks that slant with the wind) | 'round' | 'soft' | 'square' (point sprites
+// spec (weather({ rain, snow }), or defineField): shape 'line' (streaks that slant with the wind) | 'round' | 'soft' | 'square' (point sprites
 // that drift), texture (asset name, sprites only), color, opacity, size / maxSize (sprite size and pixel cap), length (line meters),
 // speed (fall m/s), slant (line lean per unit of wind), sway (sprite drift meters), count, density (amount 0..1 -> share of particles drawn),
 // glsl: { vertex, fragment } (whole shader text; copy from shaders.js), uniforms (for your glsl);
@@ -36,7 +36,7 @@ export function makeSystem(engine, field, spec, { area, count, base = DRIFT }) {
   const where = `weather particles '${field}'`;
   readParams(where, keysSchema(SPEC_KEYS), spec);
   const s = { ...base, ...spec, shape: spec.shape ?? (spec.texture ? 'round' : base.shape) };
-  const n = Math.max(1, Math.round(spec.count ? (engine.tier === 'low' ? spec.count / 2 : spec.count) : count));
+  const n = Math.max(1, Math.round(spec.count || count));
   if (s.create) {
     const own = s.create(engine, { area, count: n });
     if (!own?.object?.isObject3D) throw codedError('weather-option', `${where}: create must return { object: THREE.Object3D, update?(amount, { camera, time, wind }) }`);

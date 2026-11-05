@@ -99,7 +99,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async (src) => {
         const G = await (0, eval)(src)();
-        engine.pause();
+        engine.haltLoop();
         const ramp = G.add('ramp', { cell: 1, origin: [2, -3], size: [6, 6] });
         const soil = ramp.layer('soil', { tiles: { color: d => (d.watered ? 0x334455 : 0x886644) } });
         // a misspelled tiles key would quietly draw the fallback color
@@ -128,7 +128,7 @@ export const specs = [
         const pv2 = G.preview({ grid: 'farm', item: 'bed', rotate: 'unboundRot', from: () => null }); engine.step(1 / 30, { render: false });
         const unbound = engine.input.actions.has('unboundRot') && !engine.input.keysOf('unboundRot').length; pv2.remove();
         const declGone = !engine.input.actions.has('unboundRot');
-        engine._resume();
+        engine._unhalt();
         return { badTiles, unbound, declGone, tiles: mesh.userData.tiles, worst, ys, okColor, first, turned, size, placed, after, at: farm.at([3, 4]), st: { ok: st.ok, bad: st.bad }, gone: !engine.scene.getObjectByName('grid:preview') };
       }, setup.toString());
       check('[guard] an unknown tiles key throws (the old look is color now)', /look/.test(r.badTiles), r.badTiles);

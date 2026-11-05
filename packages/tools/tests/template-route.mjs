@@ -5,6 +5,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { copyTemplates, parseArgs } from '../lib/scaffold.mjs';
+import { TOOLS } from '../paths.mjs';
 
 export const name = 'template route: new games start on WebGPU with TSL, --webgl on WebGL with GLSL; no placeholder survives';
 
@@ -39,5 +40,8 @@ export async function run({ check }) {
         check(`${label}: the notes name TSL and where to read the backend`, /describe\(\)\.renderer/.test(notes) && /slot, node \}/.test(notes) && !/\bslot, create \}/.test(notes));
       }
     }
+    const tpl = f => readFileSync(join(TOOLS, 'templates/game', f), 'utf8');
+    check('[guard] the game\'s own notes name threedog play, and STATUS.md does not contradict "build it, no confirmation round"',
+      tpl('CLAUDE.md').includes('`threedog play`') && !/three minimal versions/i.test(tpl('STATUS.md')) && /build it, no confirmation round/.test(tpl('CLAUDE.md')));
   } finally { rmSync(tmp, { recursive: true, force: true }); }
 }

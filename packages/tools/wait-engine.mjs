@@ -79,8 +79,11 @@ export async function waitEngine(page, { field = 'stateApplied', timeout = 90000
   if (err && !(await page.evaluate(() => !!window.engine).catch(() => false))) throw new Error(fatalText(err, 'before window.engine existed'));
   // Stage 2. A critical asset that failed stops start() for good: stop waiting at once and say which file (engine.loading, core/Loading.js).
   // A new uncaught error here (start() rejected, a module threw while starting) also ends the wait, after one second's look whether the engine got ready anyway
+  // Errors already seen count on a page not ready yet: the dev bridge calls this before every command, so an error from before the call (the page died at start)
+  // was never "new", and each command sat out the whole timeout. On a ready page an old error means nothing, so only a new one is looked at
   err = null;
-  try { err = await race(page.waitForFunction(f => window.engine?.[f] || window.engine?.loading?.view().blocked, field, { timeout }), seen.length); }
+  const from = await has(field) ? seen.length : 0;
+  try { err = await race(page.waitForFunction(f => window.engine?.[f] || window.engine?.loading?.view().blocked, field, { timeout }), from); }
   catch { await fail(`window.engine exists, but ${field} stayed falsy for ${Math.round(timeout / 1000)} s, and the page threw no error`,
     'engine.start() did not finish or is stuck: not calling await engine.start() has this effect' + (field === 'stateApplied' ? '; a very large wait= in the URL also waits long' : '')); }
   if (err) {
@@ -100,6 +103,15 @@ export const sceneCounts = page => page.evaluate(() => {
   window.engine.scene.traverse(o => { objects++; if (o.isLight) lights++; if (o.material) for (const m of [].concat(o.material)) mats.add(m); });
   return { objects, lights, materials: mats.size };
 });
+/**
+ * Stop when the page refused a value this tool put in its URL (--weather rian): a URL has no caller to answer, and the page goes on in the game's default.
+ * @param {import('playwright').Page} page @param {string[]} asked  the keys the user named: the tool's own (cutscene) are not theirs to hear about
+ */
+export async function refuseState(page, asked) {
+  const refused = (await page.evaluate(() => engine.stateRefused)).filter(r => asked.includes(r.key));
+  if (refused.length) throw new Error(`the page did not take ${refused.map(r => `${r.key}=${r.value} (${r.reason})`).join('; ')}: this would be a picture of something else`);
+}
+
 /**
  * After waitEngine: step (no render) until engine.loading.view().done, so a shot never shows a half-built world (terrain chunks, models still arriving).
  * Headless pages only advance on step, so waiting without stepping would never finish. Past timeout (wall ms) it throws naming what is still pending.

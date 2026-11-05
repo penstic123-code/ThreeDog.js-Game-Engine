@@ -237,7 +237,7 @@ export const STRUCTS = {
   swarm: ['SwarmOptions', 'Swarm'],
   interactions: ['InteractionOptions'], rigid: ['RigidBodyOptions', 'RigidEntry', 'VehicleOptions', 'VehicleWheel', 'Vehicle'],
   flow: ['FlowStateDef', 'FlowTransitionOptions'], content: ['ContentConditionDef'], hud: ['HudMarkerOptions', 'HudMarker', 'HudAnchor'],
-  hlod: ['HlodAddOptions', 'HlodCell', 'HlodHandle'], lightPool: ['LightSourceOptions', 'LightSourcePatch', 'LightSource', 'LightPoolUsage'], water: ['WaterBodyOptions', 'WaterBody'],
+  hlod: ['HlodAddOptions', 'HlodCell', 'HlodHandle'], lightPool: ['LightSourceOptions', 'LightSourcePatch', 'LightSource'], water: ['WaterBodyOptions', 'WaterBody'],
     vegetation: ['VegetationOptions', 'VegetationRule'], terrain: ['FlattenZone'],
   cameraRig: ['CameraShot'], music: ['MusicRule'], settings: ['SettingsSection'], level: ['LevelMarker'],
   timeline: ['TimelinePlayOptions', 'CameraPose'], tools: ['WindowOptions', 'UIWindow', 'ScreenPoint'],

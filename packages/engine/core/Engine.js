@@ -102,12 +102,6 @@ export class Engine {
     /** This engine's dev checks (createEngine({ validate })); another engine on the page does not change it @type {boolean} */
     this.validate = opts.validate !== false;
     /** @internal */ this._untrackValidate = trackValidate(opts.validate);
-    // createEngine({ post }) read as "turn bloom on" when nothing had added a bloom. Said here, because an unknown key would only be ignored
-    if (opts.post !== undefined) throw codedError('post-effect', 'createEngine({ post }) is gone. The engine ships no effects: add one with engine.post.add(bloom()) ' +
-      `(@threedog/post-effects), or as a file in the plugins folder; switch it with its handle: engine.post.get('bloom').enabled = false`);
-    // said before the unknown-option check for the same reason: a picture given here has one place to go, and the generic message does not name it
-    if (opts.style !== undefined) throw codedError('engine-misuse', "createEngine({ style }) is gone: there is no style table. Write the picture as plain three.js in the game's picture/ code " +
-      "(scene.background, scene.fog, renderer.toneMapping, engine.<module>.material, engine.uniforms), and the screen UI's colors and CSS with createEngine({ ui }). recipes/62-picture-code.md");
     const o = readParams('createEngine()', ENGINE_PARAMS, opts);
     /** @internal createEngine options as read (engine.catalog('core').params shows them with the schema) */ this._createParams = o;
     const { canvas: canvasIn, renderer: rendererName, antialias, pixelRatio, adaptiveResolution, targetFps, ui = {}, audio = {},
@@ -122,7 +116,8 @@ export class Engine {
     const canvas = canvasIn ?? (gpuWanted ? undefined : rendererIn?.domElement);
     this.movement = createMovement(movement);   // character radius / height / slope / step height: the single copy shared by collision, physics and nav
     if (opts.lights !== false) warnOnce(NO_PICTURE);
-    // a game-supplied renderer is used as is: the engine configures (pixel ratio, size, tone mapping, shadows) only a renderer it created itself
+    // a game-supplied renderer keeps its settings: the engine configures pixel ratio, size, tone mapping and shadows only on a renderer it created itself.
+    // One write on every renderer: info.autoReset = false below, because the frame stats count a whole frame, not each render call
     const owned = !rendererIn || gpuWanted;
     this._ownsRenderer = owned;               // dispose() releases the WebGL context only of a renderer the engine built
     if (owned) checkCanvasUsable(canvas);
@@ -147,6 +142,7 @@ export class Engine {
 
     this.scene = new THREE.Scene();
     /** @internal the neutral background a scene starts with: describe().render.defaults, and the reference a sky compares with @type {any} */ this.baseBackground = new THREE.Color(0x8c8c8c);
+    /** @internal */ this.baseBackgroundHex = this.baseBackground.getHex();
     this.scene.background = this.baseBackground;
     /** Placeholder lights { sun: DirectionalLight, hemi: HemisphereLight }: neutral and still; createEngine({ lights: false }) leaves them out of the scene @type {{ sun: any, hemi: any }} */
     this.lights = createDefaultLights(this, { add: lights !== false });
@@ -186,13 +182,13 @@ export class Engine {
     this.uiRoot.className = 'threedog-root';
     if (r.domElement.parentElement) r.domElement.after(this.uiRoot); else document.body.appendChild(this.uiRoot);
     this.headless = headless;
-    this.paused = headless;                    // while paused the real-time loop does not advance; only step() does
+    this.halted = headless;                    // while halted the real-time loop does not advance; only step() does
     this.fps = 0;
     /** How far the drawn frame is from the last fixed step to the next, 0-1 (real loop); 1 after step(). Holds still while frozen. For drawing fixed-step state smoothly: prev + (now - prev) * stepBlend */
     this.stepBlend = 1;
-    this.cpuMs = 0;                            // main-thread ms of the last real-time frame; cpuPhases splits it (loop.js)
-    this.cpuPhases = { fixed: 0, frame: 0, render: 0, afterRender: 0 };
-    this.openWindows = new Set();              // ids of open windows (for describe)
+    /** @internal */ this._cpuMs = 0;                            // main-thread ms of the last real-time frame; _cpuPhases splits it (loop.js); read through engine.inspect.perf() and engine.budget
+    /** @internal */ this._cpuPhases = { fixed: 0, frame: 0, render: 0, afterRender: 0 };
+    this._openWindows = new Set();              // ids of open windows (for describe)
     this.modules = new Map();
     this._modState = new Map();                // module name -> registered | initializing | running | failed | disposed (modules.js)
     this.waterBodies = [];
@@ -201,13 +197,13 @@ export class Engine {
     this.error = null;                         // gameplay error in dev/test: { where, message, cause?, docs? }; gameplay is frozen (see errors.js)
     this.disabledModules = new Set();          // picture / ui modules disabled after they threw
     /**
-     * This engine's shader uniforms (uTime, uWind, uCloud, season tints...); share these objects in your own ShaderMaterial or patch @type
+     * This engine's shader uniforms (uTime, uWind, uWeatherCloud, season tints...); share these objects in your own ShaderMaterial or patch @type
      * {import('../types/core').EngineUniforms}
      */
     this.uniforms = createUniforms();
     bindUniforms(r, this.uniforms);             // built-in shader effects read this engine's uniforms when compiled by this renderer
-    defineView(this);                           // engine.view: manual() for camera.far / fov / pixel ratio / camera pose the engine changes on its own (core/view.js)
-    defineTerms(this);                          // engine.terms: the game's own cloud shadow or season tint in place of the engine's (render/terms.js)
+    defineView(this);                           // engine.autoView: manual() for camera.far / fov / pixel ratio / camera pose the engine changes on its own (core/view.js)
+    defineTerms(this);                          // engine.shaderTerms: the game's own cloud shadow or season tint in place of the engine's (render/terms.js)
     this._materials = registerEngine(this);    // applyEffects without an engine option uses the first live engine
 
     createServices(this, { canvas, validate, locale, strings, saveKey, joystick, bindings, audio, decoders, budget, seed, headless, urlState, threads, batching });
@@ -247,16 +243,11 @@ export class Engine {
 
   // ---------- common ----------
   /** Get a UI string (i18n) */
-  t(key, params) { return this.i18n.t(key, params); }
-  /**
-   * Fixed steps run (= engine.time.tick, the one time counter, core/time.js). Read-only; starts again from 0 on session.newGame / load / quit.
-   * Seconds are views of it: engine.time.now('real' | 'ambient' | 'calendar' | channel)
-   */
-  get tick() { return this.time.tick; }
+  t(key, params) { return this.i18n._t(key, params); }
   /** Ray cast: the nearest hit or null, see Rays.js */
-  raycast(origin, dir, opts) { return this.rays.cast(origin, dir, opts); }
+  raycast(origin, dir, opts) { return this.rays._ray(origin, dir, opts); }
   /** Cast a ray from screen coordinates (-1..1) */
-  pick(ndcX, ndcY, opts) { return this.rays.pick(ndcX, ndcY, opts); }
+  pick(ndcX, ndcY, opts) { return this.rays._rayAt(ndcX, ndcY, opts); }
   /** Set up a scenario: { time, weather, pos, at, save, wait, cutscene, state }, see UrlState.js */
   applyState(params) { return this._urlState.apply(params); }
   /**
@@ -264,6 +255,8 @@ export class Engine {
    * (tests and screenshots wait for it; core/headlessLoad.js)
    */
   get stateApplied() { return this.ready && this._urlState.applied && headlessSettled(this); }
+  /** What the URL parameters or the latest applyState could not do: [{ key, value, reason }], e.g. ?weather=typo. Read it after stateApplied @type {{ key: string, value: any, reason: string }[]} */
+  get stateRefused() { return this._urlState.refused; }
   /**
    * Name a set of scenario parameters, then use applyState({ state: name }) or the URL ?state=name. Returns a handle: remove() forgets the name
    * @param {string} name @param {import('../types/core').StateParams} params @param {{ owner?: string }} [opts]
@@ -286,6 +279,9 @@ export class Engine {
   }
   /** Once per frame: animation, camera, UI. Returns a handle { remove() } */
   onFrame(fn) { const h = ownHook(this, fn); this._frame.push(h); return { remove: () => { this._frame = this._frame.filter(f => f !== h); } }; }
+  /** @internal An animator's per-frame update: runs after the whole onFrame list (loop.js), so what onFrame asked of it shows the same frame. Returns a handle { remove() } */
+  _onAnimate(fn) { const h = ownHook(this, fn); this._animate.push(h); return { remove: () => { this._animate = this._animate.filter(f => f !== h); } }; }
+
   /**
    * Around the main render, after the camera update and batching: fn({ renderer, scene, camera, dt }). when 'before' (default) runs just before the
    * engine's frame render: render to your own target there (mirror, minimap, portal, picking); the render target is reset afterwards. 'after' runs
@@ -318,8 +314,3 @@ export class Engine {
 // Mix in by property descriptor (Object.assign would evaluate getters on the spot and lose them)
 for (const part of [loopMethods, holdMethods, startupMethods, groundMethods, actorMethods, moduleMethods, lifecycleMethods, skipMethods, checkMethods, resizeMethods, sceneMethods, probeMethods, lightmapMethods])
   Object.defineProperties(Engine.prototype, Object.getOwnPropertyDescriptors(part));
-// engine.elapsed was a second counter beside engine.time (review 0.4, B): removed. In dev a read throws with the new form instead of giving
-// undefined (NaN in every Math.sin(engine.elapsed) animation, silently)
-if (DEV) Object.defineProperty(Engine.prototype, 'elapsed', { configurable: true, get() {
-  throw codedError('renamed-field', "engine.elapsed was removed: read engine.time.now('real') (fixed seconds, no scale) or engine.time.now('ambient') (keeps moving while frozen)");
-} });

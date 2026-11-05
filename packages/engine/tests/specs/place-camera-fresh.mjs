@@ -39,7 +39,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE, P = engine.player, p = P.position, x = Math.round(p.x) + 40, z = Math.round(p.z), g = engine.surface(x, z), out = {};
         const slab = (dx, opts) => {
           const m = new T.Mesh(new T.BoxGeometry(4, 1, 4)); m.position.set(x + dx, g + 5, z); engine.scene.add(m); engine.characters.support(m, opts); return m;
@@ -79,7 +79,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE, out = {}, p = engine.player.position, x = Math.round(p.x), z = Math.round(p.z);
         const plain = new T.Mesh(new T.BoxGeometry(1, 1, 1)); plain.position.set(x, 50, z); engine.scene.add(plain); plain.updateMatrixWorld(true);
         const h = engine.rays.addStatic(plain);

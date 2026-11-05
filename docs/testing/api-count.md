@@ -1,6 +1,5 @@
 # 引擎对外接口有多少（AI 看得见的部分）
 
-<!-- api-count total: 1782 -->
 
 0.5 的第一步是先数清楚：一个 AI 用这个引擎做游戏时，能看见、可能会去用的东西一共有多少个，其中哪些在仓库里根本没人用。0.4.0 那次只计数和列候选；之后做了两类不改游戏行为的清理（见"0.5 清理之后"）；第三类（把模块选项里的外观值挪进 `look.*`）主人同意后也做了（见"第三类：外观值只走 look.*"）。
 
@@ -97,7 +96,7 @@
 ## 0.7 删冗余接口（cleanup/unused-api）
 
 - 总数 1765 → 1759；原来 108 个没人用的名字：删 1（`level.object`，等于 `level.root` 的别名）、转内部 5（从公开类型和文档拿掉、代码留着：`triggers.action`、`settings.action`、`interactions.action` 是选项的复制，`inventory.defs`、`quests.defs` 被 `inventory.item(id)`、`quests.list()` 盖住）、留 98（每个在 `packages/tools/api-count.mjs` 的 `KEPT_API` 里写了理由：调试/界面用的只读事实、成对接口的另一半、运行时调参、配方正文里教过的、可替换绘制模块的契约）。
-- 剩 5 个 `sky.*` 外观参数仍是候选，等主人定外观参数的去向（上面的提案）。
+- 剩 5 个 `sky.*` 外观参数（`moonSize`、`starScale`、`gradientCurve`、`orbitTilt`、`orbitSway`）：2026-11-05 定为删除。它们只是 `engine.uniforms.uMoonSize` 等和 `engine.sky.orbit.tilt/sway` 的起始值，运行时本来就能写，保留就是同一个值两个入口；`look.sky` 已经没有了，不搬。传入会报 `sky-option` 并指出该写哪里。
 - 方法：没人用不等于多余，只有“别名”和“选项复制”这两类才删；成对的、存档会读的一概不动。
 
 ## "有人用"是怎么判断的

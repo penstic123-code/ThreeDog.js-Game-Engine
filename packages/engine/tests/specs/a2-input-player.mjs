@@ -7,7 +7,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const inp = engine.input, fx = [], fr = [];
         inp.bind('a2k', ['KeyK']);
         const h1 = engine.onFixed(() => fx.push([inp.pressed('a2k'), inp.pressed('a2k'), inp.down('a2k'), inp.released('a2k')].map(Number).join('')));
@@ -32,7 +32,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const inp = engine.input, cv = engine.renderer.domElement, counts = [];
         inp.bind('a2atk', ['KeyJ', 'Mouse0']);
         const ptr = (type, button, pointerType = 'mouse') => cv.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType, button, clientX: 5, clientY: 5 }));
@@ -58,7 +58,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const inp = engine.input, P = engine.player, W = engine.world;
         engine.step(0.5);
         engine.saves.save('a2-keys');
@@ -86,7 +86,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, P = engine.player, rec = () => W.get('player'), xz = o => [o.x, o.z].map(v => +v.toFixed(3)).join();
         engine.step(0.2);
         const kind = rec()?.kind, synced = xz(rec().position) === xz(P.position);
@@ -125,7 +125,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, p = engine.player.position;
         // every near-field step reads and writes the same pool, so the result depends on simulation order
         W.add({ id: 'a2-pool', kind: 'a2pool', position: [p.x + 300, p.y, p.z], x: 1 });

@@ -2,7 +2,7 @@
 // Seven temperate ones are an opt-in preset: weather(presets.weather.temperate), extend with types: { ...presets.weather.temperate.types, dust: {...} }.
 // All fields blend smoothly on change.
 // Affects: cloud shadows, sky color, wind (plants sway), rain/snow particles, lightning, ambience; light and fog are the game's, which reads uWeatherLight / uWeatherFog.
-// Particle and lightning pictures: weather({ rain, snow, lightning }), engine.weather.define(field, spec), engine.weather.particles (particles.js, recipes/44).
+// Particle and lightning pictures: weather({ rain, snow, lightning }), engine.weather.defineField(field, spec), engine.weather.particles (particles.js, recipes/44).
 // weather() installs two modules: this state (current / target / progress, auto weather, lightning timing, events, save) and the drawing half
 // (weatherDraw.js: particles, sky effects, thunder). Why split: the state is game data that saves and skips; the picture only reads it,
 // so a game can swap the picture without touching the weather a save restores.
@@ -16,6 +16,7 @@ import { warnMissing } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { STRINGS, ERR } from './strings.js';
 import { codedError } from '../../core/errorHints.js';
+import { STEP } from '../../core/time.js';
 import { weatherDrawModule } from './weatherDraw.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { WeatherName, WeatherPreset, WeatherOptions, WeatherParticles, WeatherParticleSystem } from '../../types/world' */
@@ -66,8 +67,7 @@ export class Weather {
     /** @internal */ this.dur = 1;
     /** Current weather name @type {string} */
     this.name = start;
-    /** Automatic weather on/off @type {boolean} */
-    this.auto = false;
+    /** @internal */ this._auto = false;
     /** @internal */ this.autoTimer = 0;
     /** Candidates for automatic weather (repeat a name to make it likelier) @type {string[]} */
     this.autoPool = [...(autoPool || Object.keys(this.types))];
@@ -90,7 +90,7 @@ export class Weather {
   }
 
   /**
-   * The particle systems drawn now, by field: rain and snow when the table has them, plus what define() added. Each has material (the plain three.js
+   * The particle systems drawn now, by field: rain and snow when the table has them, plus what defineField() added. Each has material (the plain three.js
    * material: read it, or set your own, drawn as given; null gives the engine's back), uniforms ({ value } objects the engine writes each frame, a
    * ShaderMaterial of yours shares them; uColor, uLen, uPx, uMaxPx, uSwayAmp are yours to write), spec (opacity, speed, slant, density are read each
    * frame, plain writes), object (the three.js object). Empty when a game replaced the weather drawing
@@ -105,23 +105,29 @@ export class Weather {
    * frame is weather.current[field], so they fade with the weather. spec takes the keys of weather({ rain }), or
    * { create(engine, { area, count }) => { object, update?(amount, { camera, time, wind }) } } for a system of your own; null gives rain / snow back
    * to weather({ rain, snow }) and removes any other field. Defining a field again replaces it. A field no type has throws with the table's fields
-   * @example engine.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
+   * @example engine.weather.defineField('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
    * @param {string} field
    * @param {WeatherParticles | null} spec
    * @returns {WeatherParticleSystem | null}
    */
-  define(field, spec) {
+  defineField(field, spec) {
     const drawPart = this.engine.weatherDraw;
-    if (!drawPart) throw codedError('weather-option', "weather.define(): the weather is drawn by a game module (replaces: 'weatherDraw'); draw this field there, reading engine.weather.current");
-    return drawPart.define(field, spec);
+    if (!drawPart) throw codedError('weather-option', "weather.defineField(): the weather is drawn by a game module (replaces: 'weatherDraw'); draw this field there, reading engine.weather.current");
+    return drawPart.defineField(field, spec);
   }
 
+  /**
+   * Automatic weather on/off. Writing it takes effect like setAuto.
+   * @type {boolean}
+   */
+  get auto() { return this._auto; }
+  set auto(on) { this._auto = on; if (on) this.autoTimer = 0; }
   /**
    * Automatic weather on/off
    * @param {boolean} on
    * @returns {void}
    */
-  setAuto(on) { this.auto = on; if (on) this.autoTimer = 0; }
+  setAuto(on) { this.auto = on; }
 
   /**
    * Switch weather. seconds: transition seconds, default 15; 0 switches at once (current is the new weather before the next step, so a
@@ -166,7 +172,7 @@ export class Weather {
       this.t = Math.min(1, this.t + dt / this.dur);
       const k = this.t * this.t * (3 - 2 * this.t);
       // a finished blend lands on `to` exactly: from + (to - from) * 1 is off by a rounding error that depends on where the blend started, so a load
-      // or session.newGame (set(name, 0.01) from whatever the last playthrough left) would not give the same weather twice
+      // or session.newGame (set(name, { seconds: 0.01 }) from whatever the last playthrough left) would not give the same weather twice
       for (const key in this.to) this.current[key] = this.t >= 1 ? this.to[key] : this.from[key] + (this.to[key] - this.from[key]) * k;
     }
     if (this.auto) {
@@ -185,7 +191,7 @@ export class Weather {
 }
 
 /**
- * Weather: two modules for one engine.use: the state (engine.weather, type 'world') and its picture (engine.weatherDraw, type 'picture'; needs sky)
+ * Weather: two modules for one engine.use: the state (engine.weather, type 'world') and its picture (engine.weatherDraw, type 'picture'; sky optional)
  * @param {WeatherOptions} [opts]
  * @returns {[ModuleDef<Weather>, ModuleDef<import('./weatherDraw.js').WeatherDraw>]}
  * @example engine.use(sky(), weather({ types: presets.weather.temperate.types, start: 'clear' }))
@@ -214,16 +220,19 @@ export function weather(opts = {}) {
     },
     fixed(dt) { w.tick(dt); },
     // the weather as signals (engine.uniforms) every frame, from the state and not its picture: a game that draws its own rain still reads them
-    frame(_dt, e) { const U = e.uniforms, c = w.current; U.uCloud.value = c.cloud; U.uWind.value = c.wind; U.uRain.value = c.rain; U.uSnow.value = c.snow; U.uWeatherLight.value = c.sun; U.uWeatherFog.value = c.fog; },
+    frame(_dt, e) { const U = e.uniforms, c = w.current; U.uWeatherCloud.value = c.cloud; U.uWind.value = c.wind; U.uRain.value = c.rain; U.uSnow.value = c.snow; U.uWeatherLight.value = c.sun; U.uWeatherFog.value = c.fog; },
     // engine.skip: fixed hooks do not run, so the skipped fixed steps are replayed here without events (a bolt nobody saw)
     skip(dt) {   // replay the fixed steps (same random draws, same order as stepping, so checkSkip matches); nothing pending = nothing to replay
       if (w.t >= 1 && !w.auto && !(w.current.lightning > 0.5)) return;
-      for (let n = Math.round(dt * 60); n > 0; n--) w.tick(1 / 60, true);   // 60 = the engine's fixed steps per second
+      for (let n = Math.round(dt / STEP); n > 0; n--) w.tick(STEP, true);
     },
     // scenario param weather: switch to this weather at once (no transition) and turn off automatic weather, so the scene is reproducible
+    stateKeys: ['weather'],
     applyState(e, { weather: name }) {
       if (!name) return;
-      w.set(name, { seconds: 0 }); w.auto = false;
+      w.set(name, { seconds: 0 });   // an unknown name warns and changes nothing, so the name is read back
+      if (w.name !== name) return { refused: { weather: `no weather named "${name}"; this game has ${Object.keys(w.types).join(', ')} (types in weather({ types }), e.g. presets.weather.temperate)` } };
+      w.auto = false;
     },
     describe() {
       const c = w.current, r = v => Math.round(v * 100) / 100;

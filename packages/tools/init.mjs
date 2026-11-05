@@ -4,8 +4,9 @@
 // and writes .mcp.json so Claude Code opened in this folder finds the threedog MCP server by itself (plain node: no npx start-up, no `cmd /c`).
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, basename, resolve, relative, sep } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { TOOLS } from './paths.mjs';
-import { parseArgs, applyDeps, copyTemplates } from './lib/scaffold.mjs';
+import { parseArgs, applyDeps, copyTemplates, writeMcp } from './lib/scaffold.mjs';
 
 const USAGE = 'Usage: threedog init [folder] [--open-world] [--webgl]   (folder: where the game goes, default the current folder)';
 const parsed = parseArgs(process.argv.slice(2), process.env);
@@ -30,7 +31,9 @@ const tpl = JSON.parse(readFileSync(join(TOOLS, 'templates', 'game', 'package.js
 const out = pkg ?? { name, version: '0.1.0', private: true };
 out.type ??= 'module';
 out.scripts = { ...tpl.scripts, ...out.scripts };
-out.dependencies = { ...applyDeps(tpl.dependencies, opts), ...out.dependencies };
+// a package the folder already lists under devDependencies stays there: `npm install -D @threedog/tools` before init left it in both
+const wanted = Object.entries(applyDeps(tpl.dependencies, opts)).filter(([n]) => !out.devDependencies?.[n]);
+out.dependencies = { ...Object.fromEntries(wanted), ...out.dependencies };
 writeFileSync(pkgPath, JSON.stringify(out, null, 2) + '\n');
 
 const mcp = join(dir, '.mcp.json');
@@ -40,11 +43,15 @@ if (!existsSync(mcp)) {
   const nmParent = resolve(TOOLS, '..', '..', '..');
   const bin = TOOLS.split(sep).includes('node_modules') && (dir === nmParent || dir.startsWith(nmParent + sep))
     ? relative(dir, join(TOOLS, 'bin', 'threedog.mjs')).replaceAll('\\', '/') : 'node_modules/@threedog/tools/bin/threedog.mjs';
-  writeFileSync(mcp, JSON.stringify({ mcpServers: { threedog: { command: 'node', args: [bin, 'mcp'] } } }, null, 2) + '\n');
+  writeMcp(mcp, bin);
   made.push(mcp);
 } else kept.push(mcp);
+
+// GAMEMAP.md belongs to a finished game: without it the very first threedog check failed. It needs the engine installed, so before npm install it cannot be written yet
+const map = spawnSync(process.execPath, [join(TOOLS, 'gamemap.mjs')], { cwd: dir, encoding: 'utf8' });
+if (map.status === 0) made.push(join(dir, 'GAMEMAP.md'));
 
 const short = p => p.slice(dir.length + 1).replaceAll('\\', '/');
 const where = relative(process.cwd(), dir).replaceAll('\\', '/');
 console.log(`✓ threedog init${where ? ' ' + where : ''}: ${made.length} files written, package.json ${pkg ? 'merged' : 'created'}${kept.length ? `, ${kept.length} existing files kept (${kept.slice(0, 5).map(short).join(', ')}${kept.length > 5 ? ', …' : ''})` : ''}`);
-console.log(`Next: ${where ? `cd ${where}  →  ` : ''}npm install  →  npm run dev  →  open Claude Code in this folder (it asks once to trust the threedog MCP server in .mcp.json)`);
+console.log(`Next: ${where ? `cd ${where}  →  ` : ''}npm install  →  ${map.status === 0 ? '' : 'npx threedog map  →  '}npm run dev  →  open Claude Code in this folder (it asks once to trust the threedog MCP server in .mcp.json)`);

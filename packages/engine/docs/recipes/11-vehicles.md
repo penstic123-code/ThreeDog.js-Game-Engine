@@ -27,7 +27,7 @@ function makeCar() {
 engine.events.on('engine:ready', () => {
   const { car, wheels } = makeCar();
   car.position.set(10, engine.surface(10, 0) + 1.5, 0);                // place it slightly above the ground and let it drop
-  const v = engine.rigid.addWheeled(car, { wheels, mass: 600, engineForce: 1200, camera: { distance: 14, height: 2 } });
+  const v = engine.rigid.addWheeled(car, { wheels, mass: 600, engineForce: 3000, camera: { distance: 14, height: 2 } });
   window.car = v;                                                     // handy for tests and the console
 });
 ```
@@ -57,7 +57,7 @@ This section covers every `engine.rigid` body (crates, balls, hulls, vehicles), 
 ahead. The mover leaves dynamic bodies out of its own collision, so a body is pushed instead of stopping the player; how hard it resists is
 its `mass` and friction. A body that should stop the player is `{ fixed: true }` with `mover: 'rapier'` (that mover collides with fixed bodies).
 A puzzle reads the result from the body (`entry.body.translation()` in `onFixed`, or a trigger zone) and gives the body an `id`, so a save keeps
-where it was pushed. Test: `npm test -- "rigid push"` (both movers).
+where it was pushed. Test: `threedog test "rigid push"` (both movers).
 
 **Saves.** A body added with an `id` (`rigid.addBox(mesh, { id: rec.id })`; vehicles always have one) is saved with its pose, rotation,
 velocities and sleep, and a load gives that state back to the body with the same id, also when it is built after the load (a world presenter's
@@ -65,7 +65,7 @@ velocities and sleep, and a load gives that state back to the body with the same
 
 **Joints** (hinges, doors, ropes, chains) are plain Rapier on engine bodies; the engine has no wrapper:
 ```js
-const R = engine.rigid, J = R.R.JointData;
+const R = engine.rigid, J = R.rapier.JointData;
 const post = R.addBox(postMesh, { fixed: true }), door = R.addBox(doorMesh, { mass: 8 });
 // hinge on the post's right edge, turning around Y; anchors are in each body's local space
 const hinge = R.world.createImpulseJoint(J.revolute({ x: 0.5, y: 0, z: 0 }, { x: -0.5, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }), post.body, door.body, true);
@@ -93,7 +93,7 @@ stay). Removing a body removes its joints (Rapier does that).
 
 **Determinism**, the one place this is stated (replay, `engine.step`, saves and net link here):
 - Same build, same machine, same inputs and the same number of fixed steps give bit-identical bodies, in a fresh page and at any frame rate.
-  Physics only advances in fixed steps. Test: `npm test -- "rigid determinism"`: stacked boxes knocked over, a rolling ball, a driving car, the
+  Physics only advances in fixed steps. Test: `threedog test "rigid determinism"`: stacked boxes knocked over, a rolling ball, a driving car, the
   `mover: 'rapier'` player, two fresh pages, `frameEvery` 1 / 2 / 4.
 - A load restores each saved body exactly. Rapier's contact and warm-start caches and its solver order are not saved, so the run after a load
   is not bit-identical to the run that went on without the load. A toppling stack can end some centimetres away (measured: 0.24 m after 1.5 s).
@@ -103,10 +103,25 @@ stay). Removing a body removes its joints (Rapier does that).
   separate `rapier3d-deterministic` build). Two machines can drift apart. The net module does not depend on matching physics: the host owns the
   state, and physics is not synced (each machine simulates its own bodies).
 
+## 3b. Ragdoll (experimental)
+
+```js
+const rd = engine.rigid.ragdoll(enemy, { impulse: [0, 150, -400], position: hit.point });   // a Character, NPC handle, id or skinned Object3D
+engine.clock.after(4, () => rd.remove());   // back to animation where the body lies; a get-up clip is yours to play
+```
+- **Skeletons.** Mixamo, Blender, Unreal, Bip01, VRM and Quaternius names are read by themselves. Otherwise name the parts: `{ bones: { lowerLegL: 'Shin_01' } }`; an unreadable skeleton throws, naming the missing parts.
+  Parts: `hips chest head upperArmL lowerArmL upperArmR lowerArmR upperLegL lowerLegL upperLegR lowerLegR`.
+- **Limits** are `[min, max]` radians from the bind pose, per part or kind: `{ limits: { lowerLeg: { bend: [0, 2] } } }`. `bend` is forward (a knee: backward), then `side` and `twist`.
+- **The bones stay plain three.js.** Each fixed step writes rotations, and hips' position only, so bones keep their length. Attach things with `character.onPose`. Once `rd.settled`, nothing is written and your bone writes stay. Hands, feet and bones between parts keep their pose.
+- **One owner.** While limp, control is held on the layer `physics` (recipe 57), the animator writes nothing, the capsule is off, the camera follows the hips, `state` is `'ragdoll'` and `root` follows the body. `remove()` gives each back; a camera you moved stays moved. In a vehicle it throws: `exit()` first. `remove()` before `placeAt`. A mixer you made yourself is yours to stop.
+- **Physics.** One rigid body per part (`rd.parts.head.body`; ray hits carry the bone in `object`), so buoyancy and ground freezing apply. Parts do not collide with each other, nor ragdolls with one another.
+- **Not saved.** A load or new game ends it. A world rebuild without a load keeps it and re-creates its joints on `rigid:rebuilt`. Deleting the character frees everything.
+- **Left out:** partial or blended ragdoll (an arm thrown by a hit while the rest animates); `remove()` cuts to the animation.
+
 ## 4. Verify
 - In a test (no real key presses): `engine.player.enter(car); engine.input.autopilot = { x: 0, y: 1 }; engine.step(3)`,
   then `describe().player.vehicle.speed` is above 0 and the car has moved; after `engine.player.exit()`, `engine.player.vehicle` is null and the
   player stands outside the door.
 - Vehicle speed is only in the object form `engine.describe().player.vehicle` (the player line of describeText does not show it);
   `describe().player.mover` and `grounded` are there too.
-- Related test: `npm test -- 载具` (test page in the engine repository: `packages/engine/tests/vehicle/`, with a complete car and steps).
+- Related test: `threedog test 载具` (test page in the engine repository: `packages/engine/tests/vehicle/`, with a complete car and steps).

@@ -1,7 +1,7 @@
 // Who holds input, in one place (docs/plans/done/2026-11-02-gameplay-architecture.md §2.6, §7 step 9):
 //   - input.push(name, { owner }) records the owner; input.holders lists [{ context, owner, pass }]; runState.blockedBy reads it (public API)
 //   - input.gate(action, owner) closes one action while anyone holds it (the 'input.gate' stack: only the owner opens it, { for } ends it)
-//   - describe().holds lists pause / freeze / camera / input / gates / other stacks with their owners
+//   - describe().holds lists halt / freeze / camera / input / gates / other stacks with their owners
 // The "no way around it" checks: nothing outside the input files reads input._stack; describe has no second "held by" list (time.heldBy, ui.inputContexts).
 import { join } from 'node:path';
 import { readFileSync, readdirSync } from 'node:fs';
@@ -19,7 +19,7 @@ const { describeHolds: holds } = await imp('core/holds.js');   // the function d
 export const name = 'input holds: push({ owner }), input.gate, describe().holds lists every holder';
 
 function fake() {
-  const e = Object.defineProperties({ paused: false, disposed: false, ready: true, _loop() {}, saves: { register() {} }, clock: { rate: 1, _advance() {} },
+  const e = Object.defineProperties({ halted: false, disposed: false, ready: true, _loop() {}, saves: { register() {} }, clock: { rate: 1, _advance() {} },
     events: { emit() {}, on: () => ({ remove() {} }) } }, Object.getOwnPropertyDescriptors(holdMethods));
   e.stacks = new Stacks(e); e.mod = (n, o) => e.stacks.mod(n, o); e.time = new Time(e); defineHoldStacks(e);
   e.stacks.define('input.gate', { kind: 'any', per: true });   // as services.js does

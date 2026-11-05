@@ -111,5 +111,5 @@ using the default `range` (it expects 0-1 values; `min`/`max` scale them). Use `
 a picture the terrain's bilinear read does not give (terraces: `nearest`), bake it into the data first or write the step in a `height` function.
 
 ## Whole replacement
-Anything beyond this: `terrain({ material })` (or `engine.terrain.material = m`) swaps the ground material and `engine.terrain.T.buildChunk(cx, cz)` returns the
+Anything beyond this: `terrain({ material })` (or `engine.terrain.material = m`) swaps the ground material and `engine.terrain.generator.buildChunk(cx, cz)` returns the
 raw arrays (`pos`, `nor`, `col`, `uv`, and `tex: { data, size }` in texture mode) if you build chunk meshes yourself.

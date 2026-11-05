@@ -1,6 +1,6 @@
 // What state the running game is in, as data (runtime) and as one plain sentence (trailer). Every bridge command result carries it, so an AI that
-// just pressed a key knows at once whether the game now runs, is paused (and how to resume) or is frozen by a menu, without a second command.
-//   runtime = { ready, mode: 'running' | 'paused' | 'frozen' | null, tick, headless, blockedBy: string[], run: { state, by, blockedBy } }
+// just pressed a key knows at once whether the game now runs, is halted (and how to resume) or is frozen by a menu, without a second command.
+//   runtime = { ready, mode: 'running' | 'halted' | 'frozen' | null, tick, headless, blockedBy: string[], run: { state, by, blockedBy } }
 //   mode null = no engine could be read (server down, page still loading). run and blockedBy are copied as-is from engine.runState (core/holds.js), the
 //   one source for "why is it not advancing" (before, this file rebuilt its own list with other names): blockedBy entries are the opaque input contexts
 //   ('win-settings', 'ui-title', 'dialogue', 'cutscene'...), 'error' and 'loading'.
@@ -12,7 +12,7 @@ export const RUNTIME_FN = () => {
   let run = null;
   try { run = e.runState ?? null; } catch { /* runState can throw before start() finishes */ }
   const lv = e.loading?.view?.();
-  return { attached: true, ready: !!e.stateApplied, paused: !!e.paused, frozen: !!e.frozen, headless: !!e.headless, tick: e.tick ?? null, blockedBy: run?.blockedBy ?? [], run,
+  return { attached: true, ready: !!e.stateApplied, halted: !!e.halted, frozen: !!e.frozen, headless: !!e.headless, tick: e.time?.tick ?? null, blockedBy: run?.blockedBy ?? [], run,
     loading: lv ? { done: lv.done, waiting: lv.waiting, failed: lv.failed.length, blocked: !!lv.blocked } : null, page: location.pathname + location.search };
 };
 
@@ -22,7 +22,7 @@ export const NONE = Object.freeze({ ready: false, mode: null, tick: null, headle
 /** Raw page reading → runtime. Without an engine: ready false, mode null */
 export function toRuntime(raw) {
   if (!raw?.attached) return { ...NONE, blockedBy: [] };
-  return { ready: raw.ready, mode: raw.frozen ? 'frozen' : raw.paused ? 'paused' : 'running', tick: raw.tick, headless: raw.headless, blockedBy: raw.blockedBy, run: raw.run ?? null };
+  return { ready: raw.ready, mode: raw.frozen ? 'frozen' : raw.halted ? 'halted' : 'running', tick: raw.tick, headless: raw.headless, blockedBy: raw.blockedBy, run: raw.run ?? null };
 }
 
 /** Read it through a driver; a driver that cannot answer (page reloading, bridge down) gives the empty runtime, never an exception */
@@ -48,9 +48,9 @@ export function trailer(rt) {
   if (!rt.ready) return `Engine still starting${at}: assets are loading or state is being applied (threedog loading shows what it waits for).`;
   if (rt.mode === 'frozen') return `Gameplay frozen${at}: game time and movement stop while the picture keeps rendering${why.length ? '; ' + why.join('; ') : ''}.`;
   const open = why.length ? ` Open: ${why.join('; ')}.` : '';
-  if (rt.mode === 'paused') return (rt.headless ? `Headless page paused${at}: time moves only on step / press / hold, no resume needed.`
-    : `Game paused${at}: threedog resume restores real-time running.`) + open;
-  return `Game running in real time${at}: step / press / hold pause it first.` + open;
+  if (rt.mode === 'halted') return (rt.headless ? `Headless page${at}: time moves only on step / press / hold, no resume needed.`
+    : `Game loop halted${at}: threedog resume restores real-time running.`) + open;
+  return `Game running in real time${at}: step / press / hold halt it first.` + open;
 }
 
 /**

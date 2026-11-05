@@ -7,7 +7,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const C = engine.collision, g = engine.ground;
         const saved = g.forEachCollider; g.forEachCollider = undefined;   // compare only the manual-collider part
         let seed = 12345; const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
@@ -17,8 +17,8 @@ export const specs = [
         handles.push(C.addBox([0, 0, 0], { halfWidth: 150, halfDepth: 3 }));   // oversized: takes the separate linear "big collider" path
         const linear = (x, z, range) => {
           const out = [];
-          for (const c of C.circles) { const dx = c.x - x, dz = c.z - z, rr = range + c.r; if (dx * dx + dz * dz < rr * rr) out.push(c); }
-          for (const b of C.boxes) { const dx = b.x - x, dz = b.z - z, rr = range + b.r; if (dx * dx + dz * dz < rr * rr) out.push(b); }
+          // collision.circles / boxes are private now: the public walk is forEachStatic (boxes first), so two passes keep the old circles-then-boxes order
+          for (const want of ['circle', 'box']) C.forEachStatic((type, c) => { if (type !== want) return; const dx = c.x - x, dz = c.z - z, rr = range + c.r; if (dx * dx + dz * dz < rr * rr) out.push(c); });
           return out;
         };
         const qs = Array.from({ length: 300 }, () => [rnd() * 440 - 220, rnd() * 440 - 220, 1 + rnd() * 12]);
@@ -47,7 +47,7 @@ export const specs = [
         const p = { x: 3, z: 0 }; C.resolve(p, 0.4);
         g.forEachCollider = saved;
         for (const h of handles) h.remove();
-        return { first, afterRemove, msLinear: Math.round(msLinear * 10) / 10, msGrid: Math.round(msGrid * 10) / 10, total: C.circles.size + C.boxes.size };
+        return { first, afterRemove, msLinear: Math.round(msLinear * 10) / 10, msGrid: Math.round(msGrid * 10) / 10, total: (() => { let n = 0; C.forEachStatic(() => n++); return n; })() };
       });
       check('4500 colliders: callback sequence of 300 random queries matches the linear scan', r.first.bad === 0 && r.first.hits > 100, JSON.stringify(r.first));
       check('Still identical after removing a third', r.afterRemove.bad === 0, JSON.stringify(r.afterRemove));
@@ -84,7 +84,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         engine.world.add({ id: 's1p-a', kind: 's1p', position: [5, 0, 5], n: 1 });
         const round = async () => { engine.saves.save('s1p'); await engine.saves.flush(); const ret = engine.saves.load('s1p'); if (ret?.then) await ret; engine.step(0.2); };
         await round();

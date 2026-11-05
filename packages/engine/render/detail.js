@@ -122,7 +122,7 @@ export function detailPatch(o, engine, label = 'detail') {
     uDetailBump: { value: o.normal ?? 0 }, uDetailRough: { value: o.roughness ?? 0 }, uDetailFade: { value: o.fade === false ? 0 : 1 },
   });
   let decl = '';
-  if (o.texture || o.glsl) {
+  if (o.texture) {
     let tex;
     if (o.texture?.isTexture) tex = o.texture;
     else {
@@ -138,7 +138,7 @@ export function detailPatch(o, engine, label = 'detail') {
         }, { where: `${label}.texture`, instead: 'the neutral gray detail stays' });
       }
     }
-    if (o.texture) { tex.wrapS = tex.wrapT = THREE.RepeatWrapping; u.uDetail = { value: tex }; decl = 'uniform sampler2D uDetail;'; }
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping; u.uDetail = { value: tex }; decl = 'uniform sampler2D uDetail;';
   }
   const own = declareUniforms(label + '.uniforms', o.uniforms);
   Object.assign(u, own.uniforms); decl += '\n' + own.decl;

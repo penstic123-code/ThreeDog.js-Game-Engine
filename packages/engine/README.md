@@ -3,13 +3,13 @@
 A web 3D game engine on three.js 0.187: **core** (rendering, main loop, input, audio, saving, UI) -> **modules** (terrain, sky and weather, physics, characters, dialogue, inventory, quests... installed on demand); all art is the game's own (`picture/` folder, `assets.js`).
 
 ## Install
-This README describes threedog 0.7.1 (older releases on npm do not match it; upgrade steps are in `docs/MIGRATING-0.7.md`). To work on the engine itself, clone the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine), run `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
+This README describes threedog 0.7.1 (older releases on npm do not match it; upgrade steps are in `docs/MIGRATING-0.8.md`). To work on the engine itself, clone the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine), run `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
 ```sh
 npm install threedog@0.7 three@~0.187.0
 npm install @threedog/terrain-noise@0.7      # optional: the noise terrain generator terrainPreset() (without one the ground is flat)
 npm install -D vite @threedog/tools@0.7      # optional: the vite preset and the threedog command line
 ```
-Then let it set up the folder: `node node_modules/@threedog/tools/bin/threedog.mjs init` (flags: `--open-world` for generated ground, sky, follow camera and a player; the default is a blank scene with a camera and a gray starter picture in `picture/`) writes index.html, main.js, vite.config.js, content/, CLAUDE.md and `.mcp.json` (Claude Code then starts the threedog MCP server by itself), never overwriting a file you have.
+Then let it set up the folder: `npx threedog init` (flags: `--open-world` for generated ground, sky, follow camera and a player; the default is a blank scene with a camera and a gray starter picture in `picture/`) writes index.html, main.js, vite.config.js, content/, CLAUDE.md and `.mcp.json` (Claude Code then starts the threedog MCP server by itself), never overwriting a file you have. Finish with `npm install` (for what the new files need) and `npm run dev`.
 `three` is a peer dependency: your game and the engine share one copy. Types for three come with the engine (`@types/three`, same version), so `// @ts-check` JS and TypeScript both see real three.js types.
 
 ## Minimal usage
@@ -38,10 +38,7 @@ The picture is the game's own: plain three.js in its `picture/` folder (what `th
 Nothing else is a public path; files under `core/`, `modules/` etc. may move between versions.
 
 ## Changes to three.js
-The engine changes three.js in a few places, because three.js has no per-object hook for what it needs. `describe().threePatches` lists every one at run time, `threePatches.off(id)` turns off the ones that can be turned off, and `docs/THREE.md` says what each does to your code. Importing the engine does these page-wide:
-- `Object3D.prototype.add` / `remove` are wrapped once, so `scene.add` is adopted like `engine.add`.
-- `Mesh.prototype.customDepthMaterial` and `customDistanceMaterial` become accessors: when nothing was assigned, a mesh whose material has engine vertex patches (wind sway) returns a matching depth material, so its shadow moves with it. Assigning a value still wins; assigning `undefined` restores the default.
-- `THREE.ShaderChunk` gains `threedog_*` entries (new names, none of three's replaced).
+The engine changes three.js in a few places, because three.js has no per-object hook for what it needs. `describe().threePatches` lists every one at run time, `threePatches.off(id)` turns off the ones that can be turned off, and `docs/THREE.md` is the full list, with what each does to your code.
 
 Raycasting is not a global change: a mesh registered as static gets its own bounds tree and its own `raycast`; `Mesh.prototype.raycast` is untouched.
 

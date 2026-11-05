@@ -37,14 +37,16 @@ that should not see it. It is page-wide: every engine on the page loses the chan
 | `renderer-render` | `engine.renderer.render` (that instance only) wrapped | Counts your full-canvas draws so the engine yields the frame; a scissored / smaller-viewport / `autoClear = false` layer (minimap, HUD) does not count | yes |
 | `shader-chunks` | `THREE.ShaderChunk.threedog_*` added (new names, nothing replaced) | None until you `#include` one | no (the engine's patches include them) |
 | `light-idle-shadow` | `shadow.autoUpdate` of your shadow-casting point / spot lights: off while intensity is 0, back on when lit | Only lights whose autoUpdate was on; writing autoUpdate yourself hands the light back; `light.userData.idleShadow = false` opts one out; `describe().render.lights` shows `shadowIdled` | yes |
+| `shadow-cache` | `light.shadow.shadowNode` of a light handed to `engine.shadows.cache`: a `ShadowNode` subclass with float depth, a second depth map and a draw filter | Only that light, only after the call; the handle's `remove()` puts three's node back |
+| `batching-draw-walk` | `children` of a parent holding batched meshes: those meshes leave the array during the engine's own draw and come back right after | None outside the draw: your code, raycasts and `scene.traverse` see the scene as built. A scene change made inside a render (`onBeforeRender`) on such a parent is lost | yes (three walks every batched original twice a frame again) |
 | `picture-writers` | Dev server only (absent from bundles and release builds): an own get / set on the picture values of objects in the engine's scene (light intensity / color / position, `scene.fog` and its values, tone and exposure, environment, background, material color / emissive / opacity), and on the `r g b` / `x y z` of those colors and positions | Every read and write goes through unchanged; in devtools these show as accessors. A write records who made it for `describe('picture').writers` and `engine.explain({ picture })` | yes: `threePatches.off('picture-writers')`, accessors stay and only pass values through |
 | `post-shadow-hold` | `render` of the first pass of the WebGL post chain wrapped (it may be your own Pass) | None to what the pass draws; shadow maps redraw once a frame | yes |
 | `post-background-tone` | `onBeforeRender` of three's own background mesh, while the engine draws straight to the canvas | A texture background is tone-mapped as it is through the post chain; your own `renderer.render` keeps three's rule | yes |
 | `node-twin-dress` | `renderer.library.fromMaterial` of a WebGPURenderer wrapped | WebGPU only: the node twin of a classic material gets its patches | no (patched materials would lose their picture on WebGPU) |
 | `node-builder-hook` | `renderer.debug.onNodeBuilderCreated` of a WebGPURenderer wrapped | WebGPU only: your own hook still runs; a later write of yours replaces the engine's | yes |
 | `device-lost-hook` | `renderer.onDeviceLost` of a WebGPURenderer wrapped | WebGPU only: three's hook still runs; a later write of yours replaces the engine's | yes |
+| `lod-view-camera` | `update` and `clone` of the `THREE.LOD` objects `assets.lod` and a prop's `lod` make | Only the engine camera moves the level, and far off the full model waits on the batch layer with `visible` still true, so rays reach it | yes |
 | `webgpu-record-sweep` | A `'dispose'` event sent to objects drawn earlier that have left every Scene for a few seconds, found through WebGPURenderer's private record list | WebGPU only: your `'dispose'` listener on such an object runs; drawing it again rebuilds its record | yes |
-| `hlod-visible` | `visible` on meshes registered with `engine.hlod.add` (and their `xxx_LOD1` nodes): an own get / set | Reads "your value and not hidden far"; your writes keep your value | per handle: `remove()` |
 
 
 ## Getting three.js objects from the engine
@@ -53,7 +55,7 @@ that should not see it. It is page-wide: every engine on the page loses the chan
 |---|---|
 | THREE itself | `import { THREE } from 'threedog'` or `engine.THREE` (the same copy the engine uses) |
 | Scene / camera / renderer | `engine.scene`, `engine.camera` (PerspectiveCamera), `engine.renderer` (WebGLRenderer) |
-| Player, NPCs | `engine.player.object`, `engine.npcs.get('name').object` (Group); position `.position` (Vector3) |
+| Player, NPCs | `engine.player.root`, `engine.npcs.get('name').root` (Group); position `.position` (Vector3) |
 | Pickups, template instances | `pickups.spawn(...)` returns a handle with `.object` (Mesh); a template instance's model is `engine.world.view(id)` (exists only near) |
 | Level | `engine.level.root`; markers `engine.level.marker('spawn').object / .position` |
 | Sun, ambient light, sky dome, fog | `engine.lights.sun` (DirectionalLight), `engine.lights.hemi` (HemisphereLight), `engine.sky.dome`, `engine.scene.fog` |
@@ -86,7 +88,7 @@ Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x
    be lit N times; a lit `ShaderMaterial` of yours joins with `engine.shadows.include(mat)` (recipe 45).
 2. **Adding to the scene**: `engine.scene.add(obj)` is all it takes: every root under the scene is registered (`engine.thing(obj)` says what it
    is and what a save keeps). `engine.add(obj, { id })` is only for a stable id, so `thing.set` changes to it are saved. Plain three.js and
-   templates (`engine.content.spawn`, content props) are two doors into one scene (`recipes/40-scene.md`). To attach to a character use `player.object.add(hat)`.
+   templates (`engine.content.spawn`, content props) are two doors into one scene (`recipes/40-scene.md`). To attach to a character use `player.root.add(hat)`.
 3. **Per-frame logic goes in `engine.onFrame(dt => ...)`** (movement and timing use `engine.onFixed`); it returns a handle, cancel with `h.remove()`.
    Don't start your own `requestAnimationFrame` loop: the engine owns pausing, fast-forward in tests and ordering. Rendering the canvas
    yourself (own `EffectComposer`) takes the frame over: the engine stops drawing it and its post chain, adaptive resolution and photo mode stop applying. Rendering into your own render target is fine (mirror, minimap, portal, picking): do it in

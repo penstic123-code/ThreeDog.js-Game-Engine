@@ -7,6 +7,7 @@ const STRINGS = { position: 'A position must be passed as one argument: Vector3 
 const POS_ERR = STRINGS.position;
 // A horizontal position missing x or z (a 2-element [x, z] array reads z as undefined; { x, y } has no z) would become 0 silently
 // (player.placeAt([10, 20]) at z = 0): say which part is missing and how to write it
+const MAX_COORD = 1e9;
 const XZ_ERR = 'A horizontal position needs finite x and z: pass [x, y, z] (a 2-element [x, z] array does not work) or { x, z }; got ';
 
 /** Round to one decimal (describe, budget reports) @param {number} v @returns {number} */
@@ -19,6 +20,9 @@ export const r1 = v => Math.round(v * 10) / 10;
  * @param {number} v @returns {number}
  */
 export const rv = v => (Number.isFinite(v) && v !== 0 ? Number(v.toPrecision(Math.max(4, Math.floor(Math.log10(Math.abs(v))) + 1))) : v);
+
+/** An angle in radians as the same turn in -PI..PI; of a difference, the short way round @param {number} a @returns {number} */
+export const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** Normalize a Vector3 / Object3D / [x, y, z] / { x, y, z } into a Vector3 */
 export function vec3(v, out = new THREE.Vector3()) {
@@ -43,6 +47,8 @@ export function xzOf(v) {
   if (v.isObject3D) v = v.position;
   const x = Array.isArray(v) ? v[0] : v.x, z = Array.isArray(v) ? v[2] : v.z;
   if (!Number.isFinite(x) || !Number.isFinite(z)) throw codedError('options-object', XZ_ERR + JSON.stringify(v), TypeError);
+  // Far past float precision (render coordinates are 32-bit): not a place. Worse, the chunk loops (`for (cx = floor(x / size); ...; cx++)`) never advance once x / size passes 2^53, a silent freeze (found by fuzz: pos z = -3.6e178)
+  if (Math.abs(x) > MAX_COORD || Math.abs(z) > MAX_COORD) throw codedError('options-object', `A horizontal position must lie within ±${MAX_COORD} (far past that nothing renders or streams correctly, and chunk loops stop advancing); got ` + JSON.stringify(v), RangeError);
   return [x, z];
 }
 

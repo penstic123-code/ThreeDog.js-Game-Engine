@@ -22,7 +22,8 @@ import { contentExplain } from './explain.js';
 import { warnMissing, missingText } from '../../core/validate.js';
 import { reportError } from '../../core/errors.js';
 import { parseClock } from '../../core/dayTime.js';
-import { CONDITIONS, EFFECTS, list } from './rules.js';
+import { CONDITIONS, EFFECTS } from './rules.js';
+import { list } from '../../core/util.js';
 import { loadContent, BUILTIN_TESTS, BUILTIN_RUNS } from './loader.js';
 import { templateOf, spawnTemplate, placeTemplate } from './templates.js';
 import { packsOf } from './packs.js';
@@ -71,16 +72,20 @@ export function content() {
     /**
      * Load content data: one pack (the object of content/index.js) or a list of packs loaded together in order, where an id defined by two packs is an error
      * (packs.js).
-     * Models are asset names (engine.assets.manifest / an asset pack), never paths. places: place name -> position, plus rot (radians about Y).
+     * Models are asset names (engine.assets.manifest / an asset pack), never paths. Places: a pack's own places file, then the places option on top (a place
+     * computed at startup: { places: { home } }); a place is a position, plus rot (radians about Y), and a place file's text entry waits for the option.
      * Loading again with a place moved or turned moves what stands there, models and collision too, unless play moved that record (world.add).
      * @example engine.content.load([baseContent, forestDlc], { places: { home: { x: 0, z: 0 } } })
      * @param {any} data
      * @param {{ places?: Record<string, any> }} [opts]
      */
-    load(data, { places: pl = {} } = {}) {
+    load(data, { places: given = {} } = {}) {
+      const packs = packsOf(data), ids = new IdCheck();   // one IdCheck for the whole call: an id used in two packs' props / pickups is an error too
+      const pl = {};
+      for (const p of packs) for (const [name, at] of Object.entries(p.places ?? {})) if (at && typeof at === 'object') pl[name] = at;
+      Object.assign(pl, given);
       for (const [name, p] of Object.entries(pl)) if (p?.rot !== undefined && !Number.isFinite(p.rot)) throw codedError('content-place', `Place "${name}": rot must be a number of radians about Y, got ${JSON.stringify(p.rot)}`);
       Object.assign(places, pl);
-      const packs = packsOf(data), ids = new IdCheck();   // one IdCheck for the whole call: an id used in two packs' props / pickups is an error too
       e.ops.allow(() => { for (const p of packs) loadContent(e, api, p, st, ids); });   // loading data is setup, not a gameplay action (ops guard)
       ids.done();
       st.checkOps?.();
@@ -115,11 +120,14 @@ export function content() {
       if (!a) return;
       const ctx = { actor };
       if (typeof a === 'function') return a(e, ctx);
+      // One failing effect must not drop the ones after it (a reward with give + spawn would be half given): run them all, then rethrow the first error
+      let first = null, failed = 0;
       for (const x of list(a)) for (const [k, v] of Object.entries(x)) {
         const d = effects.get(k);
         if (!d) { warnMissing('effect', k, [...effects.keys()]); continue; }
-        d.run(e, norm(d.ref, v), v, ctx);
+        try { d.run(e, norm(d.ref, v), v, ctx); } catch (err) { first ??= err; failed++; }
       }
+      if (first) { if (failed > 1) first.message += ` (${failed} effects failed; the others ran)`; throw first; }
     },
     /**
      * The shared definition of a content template (content/templates.js), frozen: instance state lives on the world record, never here.
@@ -181,6 +189,11 @@ export function content() {
       const p = places[name] ?? e.level?.marker(name)?.position;
       return p ? { x: p.x, z: p.z, ...(p.y !== undefined && { y: p.y }), ...(p.rot !== undefined && { rot: p.rot }) } : null;
     },
+    /** @internal a world x, z as the offset content writes from this place (null: no place), the inverse of where: the editor saves a drag through it */
+    offset(place, x, z) {
+      const base = place ? api.place(place) : null, dx = x - (base?.x ?? 0), dz = z - (base?.z ?? 0), c = Math.cos(base?.rot ?? 0), s = Math.sin(base?.rot ?? 0);
+      return { x: dx * c - dz * s, z: dx * s + dz * c };
+    },
     /**
      * Position notation in content { place?, x?, z?, floor?, y? } -> world coordinates { x, z }, plus y when the notation pins a height.
      * floor: reference height for multi-layer ground (second storey, bridge deck, lower dungeon level): it stands on the highest layer not above floor;
@@ -224,6 +237,7 @@ export function content() {
     isReady() { return api.ready; },
     // ?at=<place> / applyState({ at }): this module owns the names, core does the placing with what it gets back. An unknown name stops here: a picture of the
     // spawn point taken for "the pier" would look fine and be wrong
+    stateKeys: ['at'],
     applyState(e, { at }) {
       if (at == null) return;
       const p = api.place(at);

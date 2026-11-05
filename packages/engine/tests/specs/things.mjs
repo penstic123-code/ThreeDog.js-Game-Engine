@@ -23,7 +23,7 @@ export const specs = [
     async run({ page, check, ev }) {
       const r = await ev(async (src) => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         const warns = [], warn = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); warn(...a); };
         const err = f => { try { f(); return null; } catch (e) { return e.message; } };
         const p = engine.player.position, x = Math.round(p.x), z = Math.round(p.z);
@@ -97,7 +97,7 @@ export const specs = [
 
       await reload(page);
       const r2 = await ev(async ([src, x, z]) => {
-        engine.pause();
+        engine.haltLoop();
         // load before the native windmill exists: its override waits (pending), then applies when it registers
         await engine.saves.load('things');
         const pendingBefore = Object.keys(engine._things.pending.set);
@@ -116,7 +116,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const O = engine.THREE.Object3D, N = 1000, T = engine._things;
         const mk = () => Array.from({ length: N }, () => new O());
         const time = (list, f) => { const t0 = performance.now(); for (const o of list) f(o); return performance.now() - t0; };

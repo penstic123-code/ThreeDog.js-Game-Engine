@@ -15,9 +15,9 @@ if (hot && !new URLSearchParams(location.search).has('threedog-headless')) {
     }
   });
   hot.on('threedog:shot', ({ id }) => {
-    // capture the canvas only (no HTML UI): render one frame first, because only then does the WebGL buffer have content
+    // capture the canvas only (no HTML UI): draw one frame first, because only then does the WebGL buffer have content. A draw, not a step: snap moves no game time
     try {
-      window.engine?.step(1 / 60, { render: true });
+      window.engine?._render(1 / 60);
       hot.send('threedog:result', { id, ok: true, value: document.querySelector('canvas').toDataURL('image/png').split(',')[1] });
     } catch (e) { hot.send('threedog:result', { id, ok: false, error: String(e && e.message || e) }); }
   });

@@ -7,7 +7,7 @@ export const specs = [
     async run({ check, ev }) {
       await ev(() => __t.until(() => engine.nav.ready, 10000).catch(() => {}));   // the page's own navmesh first
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE;
         // a wall at x=0 splits the 40x40 ground in two, with a door in the middle: gap is the door width
         const make = gap => () => {
@@ -40,7 +40,7 @@ export const specs = [
     async run({ check, ev }) {
       await ev(() => __t.until(() => engine.nav.ready, 10000).catch(() => {}));   // the page's own navmesh first
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE;
         engine.assets.manifest({ models: { 's1m-open': () => {
           const g = new T.Group(), floor = new T.Mesh(new T.BoxGeometry(40, 1, 40), new T.MeshBasicMaterial());

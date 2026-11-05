@@ -88,7 +88,12 @@ for (const t of torches) engine.lightPool.add(t, {   // an Object3D is followed;
 const flash = engine.lightPool.add(gun.muzzle, { intensity: 0, priority: 5, distance: 6 });
 flash.set({ intensity: 8 }); /* next frame */ flash.set({ intensity: 0 });   // muzzle flash: no light is created
 ```
-`engine.lightPool.usage()` (and `describe().lightPool`) lists which source each real light holds; `focus` measures from the player instead of the
+Pool lights cast no shadow unless you ask (`shadows`), and the pool picks by distance, brightness and `priority`: it knows nothing of rooms, so indoors a lamp shines through the wall into the next room.
+Three ways out, by how much of the picture depends on it: turn off the sources the player cannot see from where they are with `set({ intensity: 0 })` (the game knows its rooms; near a door keep both sides on, and a
+source's `glow` stand-in keeps the far room reading as lit); give the few lights that matter a shadow with `lightPool({ shadows })`, which costs a shadow map each and is worth measuring first; or use `distance` short
+enough that the light dies before the next room. Plain three.js lights of your own with a shadow map work beside the pool.
+
+`describe().lightPool` lists which source each real light holds; `focus` measures from the player instead of the
 camera. Options and handle: `../api/lightPool.md`. Windows and signs that light up at night need no real light each: see below.
 
 ### Night glow: emissive that follows daylight
@@ -174,8 +179,8 @@ For engine developers. Hard rule 1: a module shows neutral gray until the game w
 one plain method when it can change at run time. There is no table of picture values to add to. A value that changes the world (a level, a size, a seed) is a module option only.
 
 ## 4. Verify
-- `npm run check`: R14 reports "creates a material directly" in engine code (games and examples are plain three.js and not checked), R35 a reach into the old look
-  table, R39 a "non-gray fallback color".
+- `npm run check`: R14 reports "creates a material directly" in engine code (games and examples are plain three.js and not checked),
+  R39 a "non-gray fallback color".
 - Take screenshots only when the picture changed, and compare two times of day: `npm run shot -- / --time 12:00`, `npm run shot -- / --time 18:30`
   (images go to .threedog/shots/). Against a reference picture: `threedog picture compare` (recipe 60).
 - It must still run with no picture code: start once with `createEngine({ canvas })` (gray placeholders, one console note per missing piece).

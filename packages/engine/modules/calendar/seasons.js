@@ -1,4 +1,4 @@
-// Calendar arithmetic (helpers of Calendar.js): seasons, day of season, one fixed step of the calendar, and the audio rule condition `time`.
+// Calendar arithmetic (helpers of Calendar.js): seasons, day of season, and the audio rule condition `time`.
 // Why here and not in the sky: day, season and clock time are gameplay (an indoor shop sim or a dungeon has no sky but has opening hours and
 // a day counter); the sky only reads them to draw (modules/sky/season.js tints by season, frame.js places the sun by the time of day).
 import { warnOnce } from '../../core/validate.js';

@@ -18,7 +18,7 @@ export const specs = [
         const err = f => { try { f(); return null; } catch (x) { return { code: x.code, msg: x.message }; } };
         const E = mk(T.createEngine, 'ctl-a');
         E.use(T.world(), T.collision(), T.characters(), T.timeline());
-        await E.start(); E.pause();
+        await E.start(); E.haltLoop();
         const steps = n => { for (let i = 0; i < n; i++) E.step(1 / 60, { render: false, describe: false }); };
         const settle = async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); };   // let a finished cutscene's promise chain run
         const P = E.characters.createPlayer({ control: () => ({ x: 1, z: 0 }), spawn: { x: 0, z: 0 } });
@@ -96,7 +96,7 @@ export const specs = [
         const H = mk(T.createEngine, 'ctl-host'), C = mk(T.createEngine, 'ctl-client');
         H.use(T.world(), T.characters(), T.net({ role: 'host', transport: wire.host() }));
         C.use(T.world(), T.characters(), T.net({ role: 'client', transport: wire.connect() }));
-        await H.start(); await C.start(); H.pause(); C.pause();
+        await H.start(); await C.start(); H.haltLoop(); C.haltLoop();
         H.characters.createPlayer({ control: () => null, spawn: { x: 0, z: 0 } });
         C.characters.createPlayer({ control: () => null, spawn: { x: 2, z: 0 } });
         for (let t = 0; t < 600; t += 1000 / 60) { wire.advance(1000 / 60); for (const e of [H, C]) e.step(1 / 60, { render: false, describe: false }); }
@@ -110,7 +110,7 @@ export const specs = [
         // removing the cutscene module hands back what it held
         const E = mk(T.createEngine, 'ctl-swap');
         E.use(T.world(), T.characters(), { ...T.timeline(), provides: ['cutscenes'] });
-        await E.start(); E.pause();
+        await E.start(); E.haltLoop();
         const P = E.characters.createPlayer({ control: () => null, spawn: { x: 0, z: 0 } });
         E.timeline.play([{ wait: 30 }]);
         E.step(1 / 60, { render: false, describe: false });

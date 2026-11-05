@@ -24,28 +24,28 @@ export const specs = [
         const make = clouds => {
           const e = createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'appearance-sky' });
           try { e.use(sky({ clouds: { coverage: 1, ...clouds } })); } catch (err) { e.dispose(); return { error: err.message }; }
-          e.uniforms.uCloud.value = 0.6; e.uniforms.uTime.value = 40; e.sky.uniforms.uNight.value = 0.2;
+          e.uniforms.uWeatherCloud.value = 0.6; e.uniforms.uTime.value = 40; e.sky.uniforms.uNight.value = 0.2;
           return { e, mat: e.sky.dome.material };
         };
         // the original dome fragment shader, kept here as the oracle for "default picture unchanged"
         const OLD = `uniform vec3 uTop; uniform vec3 uHorizon; uniform vec3 uSunDir; uniform vec3 uSunColor; uniform float uNight;
-uniform float uSunSize; uniform float uSunGlow; uniform float uSunPower; uniform float uMoonPower; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarScale; uniform float uCurve;
-uniform float uTime; uniform float uCloud; uniform float uCloudCover; uniform float uCloudScale; uniform vec2 uCloudSpeed; uniform vec3 uCloudColor; uniform vec3 uCloudShade;
+uniform float uSunSize; uniform float uSunGlow; uniform float uSunBrightness; uniform float uMoonBrightness; uniform float uMoonSize; uniform vec3 uMoonColor; uniform float uStars; uniform float uStarScale; uniform float uSkyCurve;
+uniform float uTime; uniform float uWeatherCloud; uniform float uCloudCover; uniform float uSkyCloudScale; uniform vec2 uSkyCloudSpeed; uniform vec3 uCloudColor; uniform vec3 uCloudShade;
 varying vec3 vDir;
 float h3(vec3 p){ p = fract(p*0.3183099+.1); p*=17.0; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
 ${NOISE_GLSL}
 void main(){
   vec3 d = normalize(vDir);
   float y = max(d.y, 0.0);
-  vec3 col = d.y < 0.0 ? uHorizon : mix(uHorizon, uTop, pow(y, uCurve));
+  vec3 col = d.y < 0.0 ? uHorizon : mix(uHorizon, uTop, pow(y, uSkyCurve));
   float sd = max(dot(d, uSunDir), 0.0);
-  col += uSunColor * (pow(sd, uSunSize) * uSunPower + pow(sd, 12.0) * uSunGlow) * step(0.0, uSunDir.y + 0.05);
+  col += uSunColor * (pow(sd, uSunSize) * uSunBrightness + pow(sd, 12.0) * uSunGlow) * step(0.0, uSunDir.y + 0.05);
   float md = max(dot(d, -uSunDir), 0.0);
-  col += uMoonColor * pow(md, uMoonSize) * uMoonPower * uNight;
+  col += uMoonColor * pow(md, uMoonSize) * uMoonBrightness * uNight;
   vec3 g = floor(d * uStarScale);
-  float cov = uCloud * uCloudCover;
+  float cov = uWeatherCloud * uCloudCover;
   if (d.y > 0.0 && cov > 0.01) {
-    vec2 cp = d.xz / (d.y + 0.08) * uCloudScale + uCloudSpeed * uTime;
+    vec2 cp = d.xz / (d.y + 0.08) * uSkyCloudScale + uSkyCloudSpeed * uTime;
     float cn = threedogNoise(cp) * 0.6 + threedogNoise(cp * 2.7 + 7.0) * 0.3 + threedogNoise(cp * 6.1) * 0.1;
     float cloud = smoothstep(1.0 - cov, 1.0 - cov + 0.3, cn) * smoothstep(0.0, 0.18, d.y);
     vec3 cc = mix(uCloudShade, uCloudColor, smoothstep(0.3, 0.8, cn)) * (0.35 + 0.65 * (1.0 - uNight));
@@ -61,7 +61,7 @@ void main(){
         const pitches = [0.5, 0.9, 1.3];
         out.same = pitches.every(p => { const a = shot(oldMat, p), b = shot(base.mat, p); out.err0 = a.err + b.err; return a.px === b.px; });
         const cloudy = shot(base.mat, 0.5).px;
-        out.hasClouds = cloudy !== (() => { base.e.uniforms.uCloud.value = 0; const z = shot(base.mat, 0.5).px; base.e.uniforms.uCloud.value = 0.6; return z; })();
+        out.hasClouds = cloudy !== (() => { base.e.uniforms.uWeatherCloud.value = 0; const z = shot(base.mat, 0.5).px; base.e.uniforms.uWeatherCloud.value = 0.6; return z; })();
         out.defaults = ['uCloudHorizon', 'uCloudOpacity', 'uCloudSoft', 'uCloudRelief'].map(k => base.e.sky.uniforms[k].value).join() + '|' + base.e.sky.uniforms.uCloudFade.value.toArray() + '|' + base.e.sky.uniforms.uCloudMul.value.toArray() + '|' + base.e.sky.uniforms.uCloudWeights.value.toArray();
         // parameters take effect, shown by a different picture with the same coverage and no compile error
         const param = (clouds) => { const m = make(clouds), s = shot(m.mat, 0.9); m.e.dispose(); return s; };

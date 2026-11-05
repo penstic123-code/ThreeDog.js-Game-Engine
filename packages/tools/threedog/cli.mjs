@@ -1,4 +1,4 @@
-// Dev bridge command line: the BRIDGE commands of bin/threedog.mjs (forwarded from there; the list lives in COMMANDS of commands.mjs and EXTRA of dispatch.mjs).
+// Dev bridge command line: the BRIDGE commands of bin/threedog.mjs (forwarded from there; the list lives in command-table.mjs).
 // Finds the running dev server (vite-threedog-bridge.js) through <workspace>/.threedog/dev.json and forwards the primitives to it; the commands themselves are in
 // commands.mjs, the entry shared with the MCP server (result shape, state line, play / status / verify) in dispatch.mjs.
 //   threedog describe                   on the engine package example
@@ -28,7 +28,7 @@ else {
   if (cmd !== 'play') { const { viaSession } = await import('./session.mjs'); r = await viaSession(dir, cmd, args, pagePath); }
   if (!r) {
     const { execute } = await import('./dispatch.mjs');
-    // execute() does not throw: a failure comes back as ok false with its explanation in text (the matching one of four causes when the bridge is unreachable; an unknown command name is answered there too)
+    // execute() does not throw: a failure comes back as ok false with its explanation in text (the matching one of five causes when the bridge is unreachable; an unknown command name is answered there too)
     r = await execute(dir, cmd, args, { page: pagePath });
   }
 }

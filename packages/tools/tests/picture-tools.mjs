@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { deflateSync } from 'node:zlib';
 import * as P from '../paths.mjs';
-import { EXTRA } from '../threedog/dispatch.mjs';
+import { EXTRA } from '../threedog/command-table.mjs';
 import { SCRIPTS } from '../bin/threedog.mjs';
 import { paletteOf } from '../picture/palette.mjs';
 

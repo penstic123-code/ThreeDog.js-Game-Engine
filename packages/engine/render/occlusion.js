@@ -20,6 +20,21 @@ const HIDE_AFTER = 2;
 const DELAY = 3;                  // frames between a box being drawn and its result being read, at worst
 const LIGHT_WALK = 60;            // frames between looks for new shadow lights
 
+/** The mask bit of the batch layer, where a far original waits (hlod, assets.lod); three keeps layer masks unsigned */
+export const FAR_BIT = (1 << RESERVED_LAYERS.batched) >>> 0;
+/** For the raycast slot of an object rays must pass through: a batch, a proxy, an occlusion box */
+export const noRaycast = () => {};
+
+/**
+ * The mask a mesh goes back to after the engine hid it on one layer. A game's write while hidden stands (hard rule 4): layers.set took the hidden layer
+ * away, so the mask is the game's; layers.enable added to it, so the game's bit joins what was there before.
+ * @param {number} now the mask now @param {number} bit the hiding layer's bit @param {number} before the mask before hiding @returns {number}
+ */
+export function unhideMask(now, bit, before) {
+  if (now === bit) return before;
+  return now & bit ? ((now & ~bit) | before) >>> 0 : now;
+}
+
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 const size = new THREE.Vector3(), center = new THREE.Vector3(), here = new THREE.Vector3(), grown = new THREE.Box3();
 const trianglesOf = m => (m.geometry.index?.count ?? m.geometry.attributes.position.count) / 3 * (m.isInstancedMesh ? m.count : 1);
@@ -82,7 +97,7 @@ export class Occlusion {
   _box(it) {
     if (!it.read) it.box ??= it.meshes.reduce((b, m) => b.expandByObject(m), new THREE.Box3());
     const p = it.proxy = new THREE.Mesh(unitBox, this._material);
-    p.name = 'occlusion box'; p.layers.set(BOX_LAYER); p.renderOrder = Number.MAX_SAFE_INTEGER; p.matrixAutoUpdate = false; p.raycast = () => {};
+    p.name = 'occlusion box'; p.layers.set(BOX_LAYER); p.renderOrder = Number.MAX_SAFE_INTEGER; p.matrixAutoUpdate = false; p.raycast = noRaycast;
     p.userData.batch = false;
     if (isWebGPU(this.engine.renderer)) {
       p.occlusionTest = true;
@@ -137,7 +152,7 @@ export class Occlusion {
   }
   _show(it) {
     if (!it.hidden) return;
-    it.meshes.forEach((m, i) => { m.layers.mask = it.masks[i]; });
+    it.meshes.forEach((m, i) => { m.layers.mask = unhideMask(m.layers.mask, 1 << HIDDEN_LAYER, it.masks[i]); });
     it.hidden = false; it.masks = null;
   }
   /** Shadow cameras see HIDDEN_LAYER plus what the view camera sees, the boxes apart. A cascade's own lights hang off its shadow node, not the scene */

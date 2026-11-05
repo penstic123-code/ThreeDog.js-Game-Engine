@@ -43,6 +43,9 @@ Fn(b => { const [q] = b; return q; });
 const [notList] = float(1);
 import { vec3, mix } from 'three/tsl'; vec3(new Map());
 mix(float(1), 'x', 2);
+import { uniformArray, instancedBufferAttribute } from 'three/tsl';
+const el = uniformArray([new THREE.Vector4()]).element(0); console.log(el.xy, el.mul(2));
+console.log(instancedBufferAttribute(new THREE.InstancedBufferAttribute(new Float32Array(2), 2)).x);
 `;
 
 export async function run({ check }) {
@@ -76,6 +79,8 @@ export async function run({ check }) {
     check('2769 with a TSL node in the message is a hint (33); without one it stays an error (34)', hints.some(l => /probe\.js:33 /.test(l)) && errs.some(l => /probe\.js:34 /.test(l)), errs.concat(hints).join(' | '));
     check('a Fn(...) call and two sibling geometries in one variable: hints (27, 28); a geometry given as a material and a plain function with too many arguments stay errors (29, 30)',
       [27, 28].every(n => hints.some(l => l.includes(`probe.js:${n} `)) && !errs.some(l => l.includes(`probe.js:${n} `))) && [29, 30].every(n => errs.some(l => l.includes(`probe.js:${n} `))), errs.join(' | '));
+    check('[guard] valid TSL is no error: a swizzle or method three\'s declarations leave out (36, 37) is a hint that does not claim every name runs',
+      [36, 37].every(n => hints.some(l => l.includes(`probe.js:${n} `) && /TSL name/.test(l) && !/does not affect running/.test(l)) && !errs.some(l => l.includes(`probe.js:${n} `))), errs.concat(hints).join(' | '));
     check('no other errors (declarations themselves are clean)', errs.length === 11, errs.join(' | '));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

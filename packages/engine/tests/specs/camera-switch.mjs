@@ -6,7 +6,7 @@ export const specs = [
     url: '/tests/cameras/index.html?cam=follow',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const P = engine.player, meshes = [];
         P.root.traverse(o => { if (o.isMesh) meshes.push(o); });
         const visible = () => meshes.length > 0 && meshes.every(m => engine.camera.layers.test(m.layers));
@@ -45,7 +45,7 @@ export const specs = [
     url: '/tests/cameras/index.html?cam=follow',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         engine.setGround({ height: x => x > 1000 ? -Infinity : 0, has: x => x <= 1000 });
         let err = null; try { engine.setCamera('rts', { start: { x: 2000, z: 0 } }); engine.step(0.1); } catch (e) { err = e.message; }
         const f = engine.camera.position;
@@ -59,7 +59,7 @@ export const specs = [
     url: '/tests/cameras/index.html?cam=follow',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const errs = []; const oe = console.error; console.error = (...a) => { errs.push(a.join(' ')); oe(...a); };
         const cam = engine.camera, V = cam.position.constructor, out = {};
         const ndc = (x, y, z) => { cam.updateMatrixWorld(); return new V(x, y, z).applyMatrix4(cam.matrixWorldInverse).applyMatrix4(cam.projectionMatrix); };

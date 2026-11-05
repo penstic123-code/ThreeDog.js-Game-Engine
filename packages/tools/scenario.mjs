@@ -10,7 +10,7 @@
 //       { "press": "interact" },                                                                 // the one key test: key -> op
 //       { "expect": { "inventory.items.berry": 1, "ui.dialogue": null } },                      // describe() paths
 //       { "snapshot": "after-barter", "only": ["inventory"] } ] }                                // describe snapshot (tests/snapshots)
-// state is engine.applyState params; "pos": "@id" stands next to world record id. The page is paused first: time moves only in step / press.
+// state is engine.applyState params; "pos": "@id" stands next to world record id. The page is halted first: time moves only in step / press.
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { closest } from './lib/text.mjs';
@@ -25,14 +25,17 @@ const TOL = 0.01;
 // ── Functions executed in the page (sent as source, so self-contained) ──
 // the wait for the engine is pageFns READY (one poll for the commands and the scenarios)
 async function pagePrepare(a, e) {
-  e.pause();
+  e.haltLoop();
   const s = { ...a.state };
   if (typeof s.pos === 'string' && s.pos.startsWith('@')) {
     const rec = e.world?.get(s.pos.slice(1));
     if (!rec) throw new Error(`state.pos "${s.pos}": no world record with this id`);
     s.pos = { x: rec.position.x + 1, z: rec.position.z };   // 1 m beside it: inside a typical interaction radius
   }
-  if (Object.keys(s).length) await e.applyState(s);
+  if (Object.keys(s).length) {
+    const r = await e.applyState(s);
+    if (!r.ok) throw new Error('scenario state not applied: ' + r.refused.map(x => `${x.key}=${x.value} (${x.reason})`).join('; '));
+  }
   e.step(1 / 60, { render: false });
   return [...e.ops.defs.keys()];
 }
@@ -42,8 +45,10 @@ function pageOp(a) {
   let value; try { value = JSON.parse(JSON.stringify(r.value ?? null)); } catch { value = String(r.value); }
   return { ok: r.ok, code: r.code ?? null, value, why };
 }
-const pageStep = a => { window.engine.step(a.seconds, { render: false }); };
-const pageState = async a => { await window.engine.applyState(a.state); };
+const pageStep = a => { const e = window.engine; e.step(a.seconds, { render: false }); return e.error ? `the engine stopped on an error: ${e.error.message}` : null; };
+const pageState = async a => (await window.engine.applyState(a.state)).refused;
+/** A scenario on a state that was not reached proves nothing, so a refused key stops it */
+const refusedText = (where, refused) => `${where}: state not applied: ` + refused.map(x => `${x.key}=${x.value} (${x.reason})`).join('; ');
 const pageDescribe = () => JSON.parse(JSON.stringify(window.engine.describe()));
 
 function same(got, want) {
@@ -95,9 +100,9 @@ export async function runScenario(driver, sc, { check, file = sc.name, snapDir, 
       const want = s.expect ?? 'ok', r = await ev(pageOp, s), got = r.ok ? 'ok' : r.code;
       ok = got === want;
       check(`${n}${s.op} ${JSON.stringify(s.args ?? {})} -> ${want}`, ok, `got ${got}${r.why ? ': ' + r.why : ''}`);
-    } else if ('step' in s) await ev(pageStep, { seconds: s.step });
+    } else if ('step' in s) { const why = await ev(pageStep, { seconds: s.step }); ok = !why; if (!ok) check(`${n}step ${s.step}`, false, why); }
     else if ('press' in s) { const r = await command(driver, 'press', [String(s.press)]); ok = r.ok; if (!ok) check(`${n}press ${s.press}`, false, r.text); }
-    else if ('state' in s) await ev(pageState, { state: s.state });
+    else if ('state' in s) { const refused = await ev(pageState, { state: s.state }); ok = !refused.length; if (!ok) check(`${n}state`, false, refusedText('state', refused)); }
     else if ('expect' in s) {
       const d = await ev(pageDescribe);
       for (const [path, want] of Object.entries(s.expect)) {

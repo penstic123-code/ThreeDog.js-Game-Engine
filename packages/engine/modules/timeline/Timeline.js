@@ -107,7 +107,7 @@ export class Timeline {
     const { skippable = true, letterbox = false } = opts, e = this.engine;
     const actors = opts.actors ?? (e.player ? [e.player] : []);
     if (!Array.isArray(actors)) throw codedError('module-params', `timeline.play(steps, { actors }): actors is a list of characters (or ids) the cutscene drives, e.g. [engine.player, guard]; [] drives nobody. Got ${typeof actors}`);
-    const run = { id: ++this._runSeq, skippable, letterbox, skipping: false, cancels: new Set(), cam: null, actors: new Set(), ctx: null };
+    const run = { id: ++this._runSeq, skippable, letterbox, skipping: false, cancels: new Set(), cam: null, actors: new Set(), ctx: null, line: false };
     for (const a of actors) this._take(run, a);
     // enter the UI focus stack: skippable cutscenes skip on Esc, unskippable ones swallow Esc (so it does not open the settings menu)
     run.focus = uiFocus(e).push('timeline', { cancel: skippable ? () => this.skip(run) : null });
@@ -151,12 +151,16 @@ export class Timeline {
    * @internal
    */
   frame(dt) {
-    if (!this.engine.frozen) this._tweener.update(dt);   // wait and tweens do not advance while frozen
+    if (this.engine.frozen) return;   // wait and tweens do not advance while frozen, and a key pressed there is not for the cutscene
+    this._tweener.update(dt);
     const inp = this.engine.input;
-    // skip keys other than Esc (e.g. Backspace): Esc is already dispatched by the UI focus stack, so do not handle it twice; the first frame of a run does not
-    // count
+    // skip keys other than Esc (e.g. Backspace): Esc is already dispatched by the UI focus stack, so do not handle it twice
     if (!this.runs.size || !inp.pressedRaw('skip') || inp.pressedRaw('cancel')) return;
-    for (const r of this.runs) if (r.skippable && !r.focus.fresh) this.skip(r);
+    // same reach as Esc: the top of the UI focus stack only (the newest run, or the run whose line is showing), so a key typed in a window above the
+    // cutscene stays in that window; the first frame of a run does not count
+    const top = uiFocus(this.engine).top, runs = [...this.runs];
+    const r = top === 'timeline' ? runs.at(-1) : top === 'dialogue' ? runs.findLast(x => x.line) : null;
+    if (r?.skippable && !r.focus.fresh) this.skip(r);
   }
 
   // ---------- Control of the characters in the cutscene ----------
@@ -218,7 +222,7 @@ export class Timeline {
     if (run.skipping || !(seconds > 0)) return Promise.resolve();
     return new Promise(res => {
       const done = () => { h.remove(); run.cancels.delete(done); res(); };
-      const h = this.engine.clock.after(seconds, done, undefined, { channel: 'real' });
+      const h = this.engine.clock.after(seconds, done, { channel: 'real' });
       run.cancels.add(done);
     });
   }
@@ -235,7 +239,7 @@ export class Timeline {
       const done = () => { if (over) return; over = true; sub.remove(); timer?.remove(); run.cancels.delete(done); res(); };
       const sub = this.engine.events.once(name, done);
       run.cancels.add(done);
-      if (timeout) timer = this.engine.clock.after(timeout, done, undefined, { channel: 'real' });   // real seconds, ends in a fixed step like { wait }
+      if (timeout) timer = this.engine.clock.after(timeout, done, { channel: 'real' });   // real seconds, ends in a fixed step like { wait }
     });
   }
 
@@ -246,11 +250,12 @@ export class Timeline {
     if (run.skipping) return Promise.resolve();
     // the line is on top of the focus stack: Esc still skips the whole cutscene
     const said = d.say(s.nodes || s.text, { speaker: s.speaker, node: s.node || 'start', channel: s.channel, at: s.at, seconds: s.seconds, onCancel: run.skippable ? () => this.skip(run) : null });
+    run.line = s.channel !== 'bubble';   // a main line sits above the run in the focus stack; a bubble takes no focus
     return new Promise(done => {
       // skipping the cutscene closes this line; it also settles the step when the line was dropped without ending (a new playthrough)
-      const cancel = () => { said.remove(); done(); };   // remove(): the say() handle of the dialogue contract, either channel
+      const cancel = () => { said.remove(); run.line = false; done(); };   // remove(): the say() handle of the dialogue contract, either channel
       run.cancels.add(cancel);
-      said.then(() => { run.cancels.delete(cancel); done(); });
+      said.then(() => { run.cancels.delete(cancel); run.line = false; done(); });
     });
   }
 
@@ -292,6 +297,7 @@ export function timeline(opts = {}) {
     },
     frame(dt) { t.frame(dt); },
     // scenario param cutscene: 'skip' | 'keep'
+    stateKeys: ['cutscene'],
     applyState(e, p) {
       if (p.cutscene === undefined) return;
       t.skipAll = p.cutscene === 'skip';

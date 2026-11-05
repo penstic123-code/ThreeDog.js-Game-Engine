@@ -22,7 +22,7 @@ const [{ Events }, { Ops }, { Stacks }, { defineHoldStacks, holdMethods }, { Wra
 export function contractEngine() {
   const saved = new Map();
   const e = Object.defineProperties({
-    headless: true, ready: true, disposed: false, paused: false, tick: 0, actor: 'player', modules: new Map(), _loop() {},
+    headless: true, ready: true, disposed: false, halted: false, tick: 0, actor: 'player', modules: new Map(), _loop() {},
     events: new Events(),
     i18n: { add() {}, t: k => k, has: () => false },
     audio: { register() {}, sfx() {}, condition() {}, measure() {} },

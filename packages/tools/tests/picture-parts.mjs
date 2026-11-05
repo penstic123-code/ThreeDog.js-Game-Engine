@@ -23,7 +23,7 @@ export async function run({ check }) {
     await page.goto(`${server.resolvedUrls.local[0]}tests/picture-parts/index.html?case=${which}`);
     await page.waitForFunction(() => window.engine?.ready, null, { timeout: 90000 });
     await page.evaluate(() => {
-      window.engine.pause();
+      window.engine.haltLoop();
       window.step = n => { for (let i = 0; i < n; i++) window.engine.step(1 / 60, { describe: false }); };
       window.writers = () => window.engine.describe('picture').picture.writers;
       // what a part could leave: the scene, the lights, the post chain, the hooks

@@ -18,7 +18,6 @@
 // A Material or a ShaderPatch is no plugin: it says nothing about which mesh it belongs to, so it goes on that mesh or module in plain code.
 // Places: a post effect keeps the place it first got (its name is reserved in plugin order), so off / on never reorders the chain.
 import { codedError } from './errorHints.js';
-import { MODULE_TYPES } from './moduleTypes.js';
 
 const SHAPES = 'an Object3D (goes in the scene), a three.js Pass with render() (post chain), a post effect { name, create: ctx => pass, node: (input, ctx) => node } or { name, fuse } (post chain, both renderers), ' +
   "a module { name, type, install / init } (engine.use), or an array of these. Export it as default (export default new THREE.Mesh(...))";
@@ -29,7 +28,7 @@ function shapeOf(v) {
   if (v?.isMaterial) return null;   // it has name, type and dispose(), so the module test below would take it for a module
   if (v && typeof v === 'object') {
     if (typeof v.render === 'function' && 'needsSwap' in v) return 'post';   // three's Pass base class sets needsSwap: a Pass, not a module with render()
-    if (typeof v.name === 'string' && v.type && (v.install || v.init || v.fixed || v.frame || v.dispose)) return 'module';
+    if (typeof v.name === 'string' && (v.install || v.init || v.fixed || v.frame || v.dispose)) return 'module';
     if (typeof v.name === 'string' && (typeof v.create === 'function' || typeof v.node === 'function' || (v.fuse && typeof v.fuse === 'object'))) return 'post';
   }
   return null;
@@ -188,8 +187,6 @@ function notAPlugin(file, key, v) {
   if (v && typeof v === 'object') {
     const keys = Object.keys(v).slice(0, 8).join(', ') || '(none)';
     const hooks = ['install', 'init', 'fixed', 'frame', 'dispose'].filter(h => typeof v[h] === 'function');
-    if (typeof v.name === 'string' && hooks.length && !v.type)
-      return `${file}: ${what} is a module '${v.name}' (${hooks.join(', ')}) with no type. Fix: add type to it: { name: '${v.name}', type: 'rules', ${hooks[0]}(...) { ... } }; types: ${Object.keys(MODULE_TYPES).map(t => `'${t}'`).join(' | ')}`;
     if (typeof v.name === 'string' && v.type && !hooks.length)
       return `${file}: ${what} is a module '${v.name}' (type '${v.type}') with no install / init / fixed / frame hook (keys: ${keys}). Fix: add the hook that sets it up: { name: '${v.name}', type: '${v.type}', install(engine, ctx) { ... } }`;
     if (typeof v.name !== 'string' && (typeof v.create === 'function' || typeof v.node === 'function' || v.fuse))

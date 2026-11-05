@@ -69,7 +69,7 @@ Anything undeclared falls to a development tool that records which line wrote a 
 1. Three.js can always be written directly, and what is written takes effect.
 2. Engine objects are real three.js objects. Every change the engine makes to three.js is listed in `describe().threePatches`.
 3. Nothing limits what an agent can draw. Every picture path ends in "replace it with your own".
-4. What three.js already does, the engine does not redo.
+4. The engine does not hide three.js. It coordinates, provides tools, builds wheels, and offers only features that do not make games alike.
 5. The engine ships no art: no default style, character or terrain look, only neutral gray placeholders.
 6. Defaults fit no single genre.
 7. Errors are never silent. An error states the rule that was broken and the line to copy.

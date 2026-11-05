@@ -5,6 +5,8 @@
 //   size     model { box, up, origin } · texture { pixels, map, colorSpace } · null for code. 1 unit = 1 meter
 //   style    { tags, colors }                          tags come from the person (--style); colors are measured
 //   usage    up to 10 lines of how to use it           the file's own header comment plus the use line, or --usage
+// Beside the card an entry says its backends: 'webgl' = WebGLRenderer, 'webgpu' = WebGPURenderer on either of its backends (a node material draws on its WebGL2
+//   fallback too, GLSL does not). backendsOf reads them from the code.
 // Why it is read from the files and not asked for: an AI skips a form, and the same scan must run again on a game's edited copy (lib check), where
 //   it tells what the code does now, not what the library entry said when it was stored.
 // Why plain regular expressions: an entry is one person's readable three.js, not arbitrary code. A value set through a helper is not seen; the card
@@ -15,7 +17,10 @@ import { basename } from 'node:path';
 const CODE = /\.m?js$/, MODEL = /\.(glb|gltf)$/i, TEXTURE = /\.(png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr)$/i;
 /** File names that hold numbers, not colors: decoding them as sRGB shifts every value */
 const DATA_MAP = /(^|[-_. ])(normal|nrm|nor|rough(ness)?|metal(lic|ness)?|ao|occlusion|height|disp(lacement)?|bump|orm|arm|mask)([-_. ]|$)/i;
-const noComments = t => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
+/** Code only WebGLRenderer can run (WebGPURenderer stops at it by name), and code only WebGPURenderer can run: node materials and TSL */
+const GLSL_ONLY = /\b(?:ShaderMaterial|RawShaderMaterial|onBeforeCompile|customProgramCacheKey|gl_FragColor|WebGLRenderTarget|EffectComposer|ShaderPass)\b|\bglsl\b/;
+const NODE_ONLY = /\b\w*NodeMaterial\b|\bwgsl\b|\bStorageBufferAttribute\b|\brenderer\.compute\b|['"](?:three\/tsl|three\/webgpu|threedog\/tsl)['"]/;
+export const noComments = t => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
 const uniq = l => [...new Set(l)].sort();
 const quoted = s => [...s.matchAll(/['"]([\w.-]+)['"]/g)].map(m => m[1]);
 const hex = (r, g, b) => '#' + [r, g, b].map(v => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0')).join('');
@@ -106,6 +111,17 @@ function readCode(text) {
     exports: all(/export\s+(?:async\s+)?(?:function\s*\*?|const|class)\s+([A-Za-z_$][\w$]*)/g),
     colors: [...all(/\b0x([0-9a-fA-F]{6})\b/g), ...all(/['"]#([0-9a-fA-F]{6})['"]/g)].map(c => '#' + c.toLowerCase()),
   };
+}
+
+/**
+ * The renderers a set of files can draw on, read from the code: one name when only that renderer's code shows, both when neither shows (plain three.js, a model, a
+ * texture) and when both show (code that branches on the renderer). One scan for lib add and lib check, so a game that ports its copy passes the test the entry failed.
+ * @param {string[]} files absolute paths @returns {('webgl' | 'webgpu')[]}
+ */
+export function backendsOf(files) {
+  const text = files.filter(f => CODE.test(f)).map(f => noComments(readFileSync(f, 'utf8'))).join('\n');
+  const gl = files.some(f => f.endsWith('.glsl')) || GLSL_ONLY.test(text), node = NODE_ONLY.test(text);
+  return gl && !node ? ['webgl'] : node && !gl ? ['webgpu'] : ['webgl', 'webgpu'];
 }
 
 /** The first comment block of a file, without its markers (the "how to use me" an entry already has) */

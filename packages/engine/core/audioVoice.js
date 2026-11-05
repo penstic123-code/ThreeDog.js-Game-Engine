@@ -33,7 +33,7 @@ export function soundDef(name, v) {
 }
 
 /** The synth behind a sound asset name: { fn, params, bus, builtIn } for a manifest sound whose value is a function, else null (a file or unknown) @internal */
-export function synthOf(audio, src) {
+function synthOf(audio, src) {
   const a = typeof src === 'string' ? audio.engine.assets.entries.get(src) : null;
   return a?.type === 'sound' && a.opts.build ? { fn: a.opts.build, params: a.opts.params || {}, bus: a.opts.bus, builtIn: !!a.builtIn } : null;
 }
@@ -95,7 +95,6 @@ export class SoundHandle {
     /** @internal */ this.endsAt = Infinity;
     /** @internal */ this.loop = null;   // a synth loop's { stop(t) }
     /** @internal */ this.follow = null;
-    /** @internal */ this.startedAt = ctx.currentTime;
     if (at) {
       const p = this.panner = ctx.createPanner();
       p.panningModel = 'equalpower'; p.distanceModel = 'inverse';

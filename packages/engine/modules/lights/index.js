@@ -194,8 +194,8 @@ export function lightPool(opts = {}) {
       };
       return h;
     },
-    /** How the pool is used now: lights per kind, how many are lighting something, and which source each holds */
-    usage() {
+    /** @internal How the pool is used now: lights per kind, how many are lighting something, and which source each holds; describe().lightPool is the public read */
+    get stats() {
       const out = { sources: sources.length, lit: 0, slots: [] };
       for (const g of groups) for (const s of g.slots) {
         if (s.src && s.w > 0) out.lit++;
@@ -248,7 +248,7 @@ export function lightPool(opts = {}) {
     },
     dispose() { offCut?.remove(); for (const L of api.lights) { L.removeFromParent(); L.target?.removeFromParent(); L.dispose(); } },
     describe() {
-      const u = api.usage();
+      const u = api.stats;
       return { lights: api.lights.length, lit: u.lit, sources: u.sources, shadows: Math.max(0, Math.min(shadows, point)) };
     },
   };

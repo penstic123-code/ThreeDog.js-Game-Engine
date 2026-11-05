@@ -4,7 +4,7 @@
 /** Load the test props and wait until their models are built (prop models are async) */
 async function setup() {
   const tick = () => new Promise(r => setTimeout(r, 0));
-  engine.pause();
+  engine.haltLoop();
   const W = engine.world, B = engine.batching, cs = B.cell, p = engine.player.position;
   const ox = Math.floor(p.x / cs) * cs, oz = Math.floor(p.z / cs) * cs, cell = `${ox / cs},${oz / cs}`;
   const props = [];
@@ -18,6 +18,155 @@ async function setup() {
 }
 
 export const specs = [
+  {
+    // 不许绕开: unloading one block must not dispose the kit other blocks still draw (the renderer rebuilds all their state), and the last user must still free it
+    name: '[guard] engine.remove: a geometry or material another object uses stays; it goes with its last user (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => { try {
+        engine.haltLoop();
+        const T = engine.THREE, g = new T.BoxGeometry(), m = new T.MeshStandardMaterial(), solo = new T.BoxGeometry(), soloM = new T.MeshStandardMaterial();
+        const seen = { g: 0, m: 0, solo: 0, soloM: 0 };
+        g.addEventListener('dispose', () => seen.g++); m.addEventListener('dispose', () => seen.m++); solo.addEventListener('dispose', () => seen.solo++); soloM.addEventListener('dispose', () => seen.soloM++);
+        const block = extra => { const b = new T.Group(); b.add(new T.Mesh(g, m), new T.Mesh(g, m)); if (extra) b.add(new T.Mesh(solo, soloM)); engine.add(b); return b; };
+        const a = block(true), b = block(), c = block(), d = block();
+        engine.remove(a);
+        const first = { ...seen };
+        await new Promise(r => setTimeout(r, 0));   // a new task: the count is made again
+        engine.remove(b);
+        const second = { ...seen };
+        engine.remove(c, d);   // same call, the last users of the kit
+        const last = { ...seen };
+        const loose = new T.Mesh(new T.BoxGeometry(), new T.MeshBasicMaterial()); let looseFreed = 0; loose.geometry.addEventListener('dispose', () => looseFreed++);
+        engine.remove(loose);   // never in the scene: disposed as before
+        return { first, second, last, looseFreed };
+      } catch (err) { return { err: String(err.stack) }; } });
+      if (r.err) { check('runs without error', false, r.err); return; }
+      check('removing a block keeps the shared kit and frees only what was its own', r.first.g === 0 && r.first.m === 0 && r.first.solo === 1 && r.first.soloM === 1, JSON.stringify(r.first));
+      check('the same in a later task', r.second.g === 0 && r.second.m === 0, JSON.stringify(r.second));
+      check('the last users free the kit', r.last.g > 0 && r.last.m > 0, JSON.stringify(r.last));
+      check('an object that was never in the scene is disposed', r.looseFreed === 1, String(r.looseFreed));
+    },
+  },
+  {
+    // 不许绕开: what made a block's arrival and departure expensive in the city run. A row of blocks must not unload inside one frame; unloading must not walk the whole scene
+    // when batches hold the whole kit; one block leaving must not list every batched parent again
+    name: '[guard] entry frames: unloads take turns in engine.jobs, no scene count for a held kit, skip list redone only for changed parents (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(() => { try {
+        engine.haltLoop();
+        const T = engine.THREE, S = engine.stream, B = engine.batching, was = S.radius, p = new T.Vector3(9000, 0, 9000), src = S.source(p, { physics: false });
+        S.setRadius(50);
+        let unloaded = 0; const burn = () => { const end = performance.now() + 4; while (performance.now() < end); unloaded++; };   // longer than the jobs budget: one unload per frame
+        const hs = []; for (let i = 0; i < 5; i++) hs.push(S.add({ position: [9000 + i, 0, 9000], radius: 1, build: () => new T.Group(), dispose: burn }));
+        engine.step(1 / 30); engine.step(1 / 30);
+        const built = hs.filter(h => h.built).length;
+        p.x += 1000; S._update();
+        const sameFrame = unloaded;
+        engine.jobs.run({ deterministic: false });
+        const oneTurn = unloaded;
+        p.x -= 1000; S._update(); engine.jobs.run({ deterministic: false });   // the source came back: its turn finds the entry in range again
+        const back = unloaded;
+        p.x += 1000; engine.step(1 / 30); engine.step(1 / 30);   // a stepped frame still drains them
+        const stepped = unloaded;
+        for (const h of hs) h.remove();
+        src.remove(); S.setRadius(was);
+        const g = new T.BoxGeometry(), m = new T.MeshStandardMaterial(), roots = [];
+        for (let i = 0; i < 12; i++) { const o = new T.Group(); o.userData.batch = true; o.position.set(9000 + i, 0, 0); o.add(new T.Mesh(g, m), new T.Mesh(g, m)); engine.add(o); roots.push(o); }
+        engine.step(1 / 30); B.skip(); B.unskip();
+        const kept = B.skips.get(roots[1]), held = B.held.has(g) && B.held.has(m);
+        engine.remove(roots[0]);
+        const scanned = !!engine._users;
+        B.skip(); B.unskip();
+        const same = B.skips.get(roots[1]) === kept && !!kept, gone = !B.skips.has(roots[0]);
+        engine.remove(...roots.slice(1));
+        return { built, sameFrame, oneTurn, back, stepped, held, scanned, same, gone };
+      } catch (err) { return { err: String(err.stack) }; } });
+      if (r.err) { check('runs without error', false, r.err); return; }
+      const s = JSON.stringify(r);
+      check('entries were built', r.built === 5, s);
+      check('going out of range unloads nothing inside the frame that noticed', r.sameFrame === 0, s);
+      check('one jobs turn unloads what its budget allows, not the row', r.oneTurn >= 1 && r.oneTurn < 5, s);
+      check('an entry whose source came back is not unloaded when its turn comes', r.back <= r.oneTurn + 1 && r.back < 5, s);
+      check('engine.step still finishes the unloads (5, plus the one already gone that was rebuilt when the source came back)', r.stepped === 6, s);
+      check('a kit held by batches is unloaded with no walk of the scene', r.held && !r.scanned, s);
+      check('a root leaving relists only its own parent', r.same && r.gone, s);
+    },
+  },
+  {
+    // 不许绕开: the two costs the city run found. A block-sized root must not be checked mesh by mesh every frame, and three must not walk batched originals in the
+    // draw; both while game code still sees the scene as built, and everything that is not batched still draws
+    name: '[guard] batching: the default cell reaches across streamed blocks, so a model used a few times per block still batches (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => { try {
+        const { B } = await window.__bt();
+        const T = engine.THREE, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial(), p = engine.player.position, step = engine.stream.cellSize, cs = B.cell, parts = [];
+        const ox = Math.floor(p.x / cs) * cs, oz = Math.floor(p.z / cs) * cs;
+        // one root per stream cell, three copies each: under minCount in every block, over it across the four. A default cell of one stream cell leaves all twelve plain
+        for (let k = 0; k < 4; k++) {
+          const root = new T.Group(); root.userData.batch = true; root.position.set(ox + 1 + k * step, p.y + 30, oz + 1);
+          for (let i = 0; i < 3; i++) { const x = new T.Mesh(g, m); x.position.x = i; root.add(x); parts.push(x); }
+          engine.scene.add(root);
+        }
+        engine.step(0.05); engine.step(0.05);
+        const at = parts.map(x => B.of(x)[0]?.mesh ?? null);
+        return { cell: cs, step, batched: at.filter(Boolean).length, batches: new Set(at).size };
+      } catch (err) { return { err: String(err.stack) }; } });
+      if (r.err) { check('runs without error', false, r.err); return; }
+      check('twelve copies over four stream cells become one batch', r.batched === 12 && r.batches === 1, JSON.stringify(r));
+    },
+  },
+  {
+    name: '[guard] batching: big roots stay inside the per-frame check bound; batched originals skip the draw walk only (open world)',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => { try {
+        const { B } = await window.__bt();
+        const T = engine.THREE, g = new T.BoxGeometry(0.3, 0.3, 0.3), m = new T.MeshStandardMaterial(), p = engine.player.position, roots = [], parts = [];
+        let walked = 0, checked = 0, plainWalked = 0;
+        const spy = x => { const w = x.updateMatrixWorld, c = x.updateWorldMatrix;
+          x.updateMatrixWorld = function (f) { walked++; return w.call(this, f); }; x.updateWorldMatrix = function (a, b) { checked++; return c.call(this, a, b); }; };
+        for (let k = 0; k < 4; k++) {
+          const root = new T.Group(); root.userData.batch = true; root.position.set(p.x + k * 3, p.y + 30, p.z);
+          for (let i = 0; i < 300; i++) { const x = new T.Mesh(g, m); x.position.set(i % 20 * 0.1, 0, Math.floor(i / 20) * 0.1); root.add(x); parts.push(x); }
+          engine.scene.add(root); roots.push(root);
+        }
+        const plain = new T.Mesh(new T.BoxGeometry(0.3, 0.3, 0.3), new T.MeshStandardMaterial()); roots[0].add(plain);
+        engine.step(0.05); engine.step(0.05);
+        const batched = parts.every(x => B.of(x).length === 1) && B.of(plain).length === 0;
+        for (const x of parts) spy(x);
+        const pw = plain.updateMatrixWorld; plain.updateMatrixWorld = function (f) { plainWalked++; return pw.call(this, f); };
+        engine.step(0.05);
+        const frame = { walked, checked, plainWalked };
+        const kids = roots[0].children.length, found = []; roots[0].traverse(o => { if (o.isMesh) found.push(o); });
+        const late = new T.Mesh(new T.BoxGeometry(0.3, 0.3, 0.3), new T.MeshStandardMaterial()); let lateWalked = 0;
+        const lw = late.updateMatrixWorld; late.updateMatrixWorld = function (f) { lateWalked++; return lw.call(this, f); }; roots[1].add(late);
+        engine.step(0.05);
+        const a = new T.Matrix4(), b = new T.Matrix4(), at = B.of(parts[0])[0];
+        at.mesh.getMatrixAt(at.index, a); roots[0].position.x += 2; engine.step(0.05);
+        const now = B.of(parts[0])[0]; now.mesh.getMatrixAt(now.index, b);
+        const moved = b.elements[12] - a.elements[12];
+        const part = parts[1000]; part.position.y += 1;   // a part changed behind batching's back: the slower lap still finds it
+        let lap = 0; while (B.of(part).length && lap < 40) { engine.step(0.05); lap++; }
+        const evicted = B.of(part).length === 0;
+        for (const x of roots) engine.remove(x);
+        engine.step(0.05);
+        return { batched, frame, kids, found: found.length, lateWalked, moved, lap, evicted, left: [...B.skips.values()].filter(s => roots.includes(s.parent)).length, swapped: B.skipping };
+      } catch (err) { return { err: String(err.stack) }; } });
+      if (r.err) { check('runs without error', false, r.err); return; }
+      check('1200 meshes in 4 roots are batched, the odd one out is not', r.batched, JSON.stringify(r));
+      check('a frame checks at most about one bound plus one root of meshes, not all 1200', r.frame.checked > 0 && r.frame.checked <= 600, JSON.stringify(r.frame));
+      check('three does not walk batched originals in a frame', r.frame.walked === 0, JSON.stringify(r.frame));
+      check('the plain mesh beside them is still walked', r.frame.plainWalked > 0, JSON.stringify(r.frame));
+      check('after the frame the scene is as built (children and traverse)', r.kids === 301 && r.found === 301, JSON.stringify(r));
+      check('a child added later to a root with batched meshes is walked in the next frame', r.lateWalked > 0, String(r.lateWalked));
+      check('moving a root still moves its instances', Math.abs(r.moved - 2) < 1e-4, String(r.moved));
+      check('a part moved by hand is still found by the round robin within a lap', r.evicted, JSON.stringify(r));
+      check('removed roots leave the skip list, nothing stays swapped', r.left === 0 && r.swapped === false, JSON.stringify(r));
+    },
+  },
   {
     // 不许绕开: a game's own scene.add / engine.add meshes are never moved to layer 31 or drawn by an InstancedMesh unless userData.batch = true
     name: '[guard] batching: game-made meshes stay as made (layer 0, own Raycaster hits them); dev hint names the opt-in; userData.batch = true batches them (open world)',

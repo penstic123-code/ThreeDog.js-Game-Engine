@@ -21,6 +21,7 @@
 //   whose pixel reading sits in a helper must set it. A spec that reads pixels on the GPU unmarked is listed at the end of the run.
 // Parallel: --jobs N / -j N (default half the cores, 1-6; 1 = one after the other). spec.serial: true runs a spec alone.
 //   A spec that fails beside others is retried alone at the end of its workspace, for the first 5 failures of a run only (more = a real break).
+//   Every item that passes only on a retry is named in the summary as "passed on retry", also without --verbose.
 // Options are checked: an unknown one fails with the list (--update-snapshots, --gpu, --software, --verbose / -v, --jobs / -j, -w / --workspace).
 // A spec may set timeout (ms, default 120000); one stuck spec fails with "timed out" instead of stalling the suite.
 // Page helpers every spec can use inside ev(): __t.warns(fn) → { value, warns } (console.warn lines during fn, sync or async, ops-guard
@@ -35,7 +36,7 @@ import { scenarioSpecs } from './scenario.mjs';
 import { launchBrowser, forcedRender, newGamePage, buildAndPreview, withTimeout } from './browser.mjs';
 import { cpus } from 'node:os';
 import { nearest } from './lib/text.mjs';
-import { workspaceSpecs, toolTests as findToolTests, noDuplicateNames } from './lib/specs.mjs';
+import { workspaceSpecs, toolTests as findToolTests, noDuplicateNames, needsSoftware, softwareWhy } from './lib/specs.mjs';
 import { intOption } from './lib/cli-args.mjs';
 import { ENGINE, TOOLS, ROOT, MODE, rel, cli, engineMismatch } from './paths.mjs';
 
@@ -60,6 +61,17 @@ function pageHelpers() {
       const end = performance.now() + ms;
       while (performance.now() < end) { const v = await cond(); if (v) return v; await new Promise(r => setTimeout(r, 20)); }
       throw new Error(`__t.until: condition not met within ${ms} ms: ${String(cond).slice(0, 80)}`);
+    },
+    /** The facts printed under a failed spec: who holds the input, the open dialogue, what the player tried and the engine refused */
+    state() {
+      const e = window.engine, out = [];
+      if (!e?.describe) return out;
+      const ui = e.describe().ui, dl = ui?.dialogue;
+      if (ui?.inputLocked) out.push(`game input locked by ${e.input.holders.filter(h => !h.pass).map(h => h.context).join(', ')}`);
+      if (dl) out.push(`dialogue open, ${dl.speaker}: "${dl.text.slice(0, 50)}"${dl.typing ? ' (still typing)' : ''}; it advances with ${dl.advance}`);
+      const refused = e.ops.recent().filter(r => !r.ok && r.source === 'player').slice(-3);
+      if (refused.length) out.push(`refused presses: ${refused.map(r => `${r.name} ${r.code}${r.args?.by ? ` by ${r.args.by}` : ''}${r.count > 1 ? ` x${r.count}` : ''}`).join(', ')}`);
+      return out;
     },
   };
   // Detector for tests that read rendered pixels without a software mark (reported at the end): WebGL readPixels, and a WebGL canvas read through 2D / toDataURL
@@ -104,11 +116,6 @@ const verbose = !!opt.verbose;
 const nameHas = name => only.some(o => name.toLowerCase().includes(o.toLowerCase()));
 const match = name => !only.length || nameHas(name);
 
-/** Pixel reads in a run() body: a test that has any compares what the renderer drew, so it stays on software rendering (same pixels on every machine) */
-const PIXEL_SRC = /page\.screenshot|readPixels|readRenderTargetPixels|getImageData|toDataURL|toBlob/;
-/** spec.software: true / false decides; unset: looked up in the source of run() (helpers defined elsewhere are not seen there, so specs that use them set it) */
-const needsSoftware = spec => spec.software ?? PIXEL_SRC.test(String(spec.run));
-
 /** Smoke test when a game has no specs: one item per page */
 const smokeSpecs = dir => readdirSync(dir).filter(f => f.endsWith('.html')).sort().map(f => ({
   name: `smoke: ${basename(dir)} ${f === 'index.html' ? '/' : '/' + f}`,
@@ -134,7 +141,7 @@ let pass = 0, fail = 0, ran = 0;
 /** Parallel failures retried alone per run, at most (see runSpecs); parallelFails counts them, retriesSkipped the ones past the limit */
 const RETRY_LIMIT = 5;
 let parallelFails = 0, retriesSkipped = 0;
-const flaky = [], unmarked = [];   // failed beside other pages but passed alone; read pixels on the GPU without a software mark
+const retried = new Map(), unmarked = [];   // item -> how it failed before it passed on a retry; read pixels on the GPU without a software mark
 const seenNames = [];
 /** Items expected this run (for the progress line); set once the plan is made */
 let expected = 0;
@@ -150,16 +157,18 @@ function progress() {
 /** Before printing anything else on a terminal: end the progress line so the text does not land on it */
 const endProgress = () => { if (progressShown) { process.stdout.write('\n'); progressShown = false; } };
 /** Add one item's results to the totals and print them: every check with --verbose, otherwise only a failed item and its failed checks */
-function report(name, results, t0, extra = '') {
+function report(name, results, t0, extra = '', state = []) {
   const bad = results.filter(r => !r.ok);
   pass += results.length - bad.length; fail += bad.length; ran++;
   if (bad.length) failedItems.push(name);
+  if (bad.length && state.length) jsonItems.push(item({ level: 'warn', code: 'test-state', message: `${name}: when it ended: ${state.join('; ')}` }));
   for (const r of bad) jsonItems.push(item({ code: 'test', message: `${name}: ${r.label}${r.detail ? ' → ' + r.detail : ''}` }));
   if (verbose || bad.length) {
     endProgress();
     console.log(`\n${bad.length ? '✗' : '✓'} ${name} (${((Date.now() - t0) / 1000).toFixed(1)} s${extra})`);
     for (const r of verbose ? results : bad) console.log(`   ${r.ok ? '✓' : '✗'} ${r.label}${r.detail && !r.ok ? '  → ' + r.detail : ''}`);
     if (!verbose && results.length > bad.length) console.log(`   (${results.length - bad.length} other check(s) passed)`);
+    if (bad.length) for (const line of state) console.log(`   when it ended: ${line}`);
   }
   progress();
 }
@@ -259,7 +268,10 @@ async function runSpecPage(spec, dir, server, { software = false } = {}) {
       };
       await spec.run({ page, check, frames, ev, wait: ms => page.waitForTimeout(ms) });
     })(), spec.timeout ?? SPEC_TIMEOUT, 'spec');
-  } catch (e) { check('run error', false, String(e).split('\n')[0]); }
+  } catch (e) {
+    const why = /timed out/.test(String(e)) && browser.render.kind !== 'gpu' ? softwareWhy(spec) : null;
+    check('run error', false, String(e).split('\n')[0] + (why ? `; ${why}` : ''));
+  }
   noChecks(results, check);   // before the console check below, which every page gets
   // spec.expectErrors (regex): errors this test deliberately provokes (such as the error-level test); matches do not count
   const unexpected = spec.expectErrors ? errors.filter(m => !spec.expectErrors.test(m)) : errors;
@@ -267,22 +279,28 @@ async function runSpecPage(spec, dir, server, { software = false } = {}) {
   // A spec that read pixels while on the GPU and is not marked: its pixels depend on the machine. Reported at the end so the mark gets added.
   const pixelReads = shots + (await page.evaluate(() => window.__t?.pixelReads ?? 0).catch(() => 0));
   const gpuPixels = !!pixelReads && browser.render.kind === 'gpu' && !needsSoftware(spec) && spec.software !== false;
+  // what a failed check cannot see: "have 0" alone sent an agent hunting through pickups while an open dialogue held the input
+  const state = results.some(r => !r.ok) ? await page.evaluate(() => window.__t?.state() ?? []).catch(() => []) : [];
   await page.close().catch(() => {});
   // Startup timing: open to playable / start() to playable, slowest modules
   const slow = startup && Object.entries(startup.modules).map(([n, t]) => [n,
     (t.init ?? 0) + (t.ready ?? 0)]).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([n, t]) => `${n} ${t}`).join(', ');
-  return { name: spec.name, results, t0, gpuPixels, extra: startup ? `; startup ${startup.totalMs}/${startup.startMs} ms, slowest ${slow || '-'}` : '' };
+  return { name: spec.name, results, t0, gpuPixels, state, extra: startup ? `; startup ${startup.totalMs}/${startup.startMs} ms, slowest ${slow || '-'}` : '' };
 }
+
+/** How the lists at the end of the run name an item: two workspaces can hold the same test name */
+const itemName = (spec, dir) => `${rel(dir) || basename(dir)} · ${spec.name}`;
 
 /** runSpec, plus: a spec that read pixels on the GPU unmarked is listed, and when it failed it runs again on software rendering (its pixels
  *  depend on the machine, so a GPU failure says nothing); the note says so, the list at the end asks for the mark */
 async function runSpecChecked(spec, dir, server) {
   const d = await runSpec(spec, dir, server);
   if (!d.gpuPixels) return d;
-  unmarked.push(`${rel(dir) || basename(dir)} · ${spec.name}`);
+  unmarked.push(itemName(spec, dir));
   if (!d.results.some(r => !r.ok)) return d;
   const s = await runSpec(spec, dir, server, { software: true });
   s.note = '; failed on the GPU after reading pixels unmarked, run again on software rendering';
+  if (!s.results.some(r => !r.ok)) retried.set(itemName(spec, dir), 'failed on the GPU after reading pixels unmarked, passed on software rendering');
   return s;
 }
 
@@ -300,13 +318,13 @@ async function runSpecs(list, dir, server) {
   const softCap = jobsGiven ? jobs : Math.min(jobs, 2);
   let softRunning = 0;
   let next = 0;   // next index to print
-  const flush = () => { while (next < list.length && done[next]) { const d = done[next++]; report(d.name, d.results, d.t0, d.extra + (d.note ?? '')); } };
+  const flush = () => { while (next < list.length && done[next]) { const d = done[next++]; report(d.name, d.results, d.t0, d.extra + (d.note ?? ''), d.state); } };
   const idle = async () => { while (running.size) await Promise.race(running); };
   const alone = async i => { const d = await runSpecChecked(list[i], dir, server); done[i] = d; flush(); return d; };
   const retryAll = async () => {
     for (const r of retry.splice(0)) {
       const d = await runSpecChecked(list[r], dir, server);
-      if (!d.results.some(x => !x.ok)) { d.note = '; failed beside other pages, passed on a serial retry'; flaky.push(list[r].name); }
+      if (!d.results.some(x => !x.ok)) { d.note = '; failed beside other pages, passed on a serial retry'; retried.set(itemName(list[r], dir), 'failed beside other pages, passed alone'); }
       done[r] = d;
     }
     flush();
@@ -339,6 +357,8 @@ async function runSpecs(list, dir, server) {
 try {
   const total = plan.reduce((n, [, l]) => n + l.length, 0), pix = plan.reduce((n, [, l]) => n + l.filter(needsSoftware).length, 0);
   if (total) console.log(`Running ${total} test pages, ${jobs} at a time${forced ? ` (all on ${forced} rendering, forced)` : `: ${total - pix} on the GPU, ${pix} that read pixels on software rendering`}${toolTests.length ? `; then ${toolTests.length} tools tests` : ''}${verbose ? '' : ' (only failures are printed; --verbose prints every check)'}`);
+  // said before anything runs: the timeout it can lead to comes minutes later (the engine's own suite marks its specs, so this reaches games)
+  for (const [d, l] of plan) if (d !== ENGINE) for (const s of l) { const why = softwareWhy(s); if (why) console.log(`Note: "${s.name}": ${why}`); }
   for (const [dir, list] of plan) {
     if (!list.length) continue;
     process.env.THREEDOG_SNAP_DIR = join(dir, 'tests', 'snapshots');   // where this workspace's describe baselines live
@@ -379,7 +399,9 @@ for (const dir of targets) {
     + `\n   ${seen.size > 1 ? 'all of them' : 'listed'} in ${shown}`);
 }
 if (retriesSkipped) console.log(`\n${retriesSkipped} failed item(s) were not retried alone: more than ${RETRY_LIMIT} failed this run, so the cause is not load`);
-if (flaky.length) console.log(`\n${flaky.length} item(s) failed while running beside other pages and passed alone (load-sensitive; \`--jobs 1\` runs one at a time, spec.serial: true keeps one alone):\n${flaky.map(n => '   ' + n).join('\n')}`);
+// Named on every run, with or without --verbose: a pass on a retry is a first failure, and one nobody saw hid a real test defect for a long time
+for (const [n, why] of retried) jsonItems.push(item({ level: 'warn', code: 'test-retried', message: `${n}: passed on retry (${why})` }));
+if (retried.size) console.log(`\n${retried.size} item(s) passed on retry (each failed first: load, or a defect in the test; \`--jobs 1\` runs one at a time, spec.serial: true keeps one alone):\n${[...retried].map(([n, why]) => `   ${n}: ${why}`).join('\n')}`);
 if (unmarked.length) console.log(`\n${unmarked.length} item(s) read rendered pixels on the GPU but are not marked \`software: true\` (their pixels depend on the machine; add the mark to the spec):\n${unmarked.map(n => '   ' + n).join('\n')}`);
 const took = (Date.now() - tSuite) / 1000;
 const time = took >= 90 ? `${(took / 60).toFixed(1)} min` : `${took.toFixed(1)} s`;

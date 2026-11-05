@@ -1,6 +1,6 @@
 // Error hints: "what to do + which doc to read" for any error, so an AI that sees one knows the next step without searching. Appended to
 // engine.error (errors.js), warnOnce (validate.js), .threedog/errors.log (vite-error-relay) and the dev bridge `errors` command, all through
-// hintText() / withHint().
+// hintText().
 //
 //   throw codedError('clock-interval', 'clock.every(0): ...')   // err.code, err.fix, err.docs; the message ends with [clock-interval]
 //   hintFor('... [world-plain]')                       // { id: 'world-plain', cause: ERROR_CODES fix, docs } (from the tag)
@@ -31,8 +31,9 @@ export const ERROR_HINTS = [
   // undefined only: a module that is not installed is undefined, never null. A read on null is another cause (null-value below), and
   // calling it "not installed" sent a reader after engine.use() when three.js mergeGeometries had returned null.
   { id: 'not-installed', match: /Cannot read properties of undefined \(reading '[\w$]+'\)|engine\.[\w$]+(\.[\w$]+)* is undefined/,
-    cause: 'Usually engine.<module> was used but the module is not installed (engine.use(...)), or it ran before ' +
-      'engine.start() finished. Check the stack for the line, and that the module is in engine.use().',
+    cause: 'A plain TypeError: something was undefined where code read a property, and the message does not say which. If the stack line reads engine.<module>, ' +
+      'that module is not installed (engine.use(...)) or the code ran before engine.start() finished; otherwise it is a missing object, array item or ' +
+      'misspelled field in the game own code. Check the stack for the line.',
     docs: ['recipes/01-new-game.md', 'api/engine.md'] },
   { id: 'null-value', match: /Cannot read properties of null \(reading '[\w$]+'\)|[\w$.]+ is null/,
     cause: 'A value was null where code read a property: a lookup or helper returned null (document.querySelector found nothing; ' +
@@ -99,9 +100,4 @@ export function hintText(message) {
   const h = hintFor(message);
   if (!h) return '';
   return (tagOf(String(message)) ? '' : `\n  Code: ${h.id}`) + `\n  Possible cause: ${h.cause}\n  Read: ${h.docs.join(', ')}`;
-}
-
-/** message + its hint (unchanged if none matches or it already has one). @example withHint('world data must be plain values (...)') @param {string} message */
-export function withHint(message) {
-  return /\n\s*Possible cause:/.test(message) ? message : message + hintText(message);
 }

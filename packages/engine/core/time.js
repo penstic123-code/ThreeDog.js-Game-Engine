@@ -8,14 +8,14 @@
 //   engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 });          // bullet time: enemies at 35% for 2 real seconds
 //   engine.mod('time.local', { owner: 'stopwatch', id: 'e1', set: 0, layer: 'effect' });      // stop one record only
 //   engine.onFixed(dt => moveEnemies(dt), { channel: 'enemies' });                     // this dt is already scaled
-// Timers: one queue for every channel, written as engine.clock.after(s, fnOrEvent, data, { channel }) / clock.every (default channel 'calendar').
+// Timers: one queue for every channel, written as engine.clock.after(s, fnOrEvent, { data, channel }) / clock.every (default channel 'calendar').
 //
 // Why one source: separate counters for real seconds, shader time, channels and the calendar, each added to and zeroed in its own place, drift
 // apart (a skip that moves some, a new game that zeroes some; review 0.4, B). So only this file adds to any of them, and three entry points move them together: a fixed step (_beginStep / _endStep), engine.skip
 // (_skip), and a new playthrough (_restart). A spec greps core/ and modules/ so no second counter comes back.
 // Freeze is not "scale 0": a frozen engine runs no fixed step at all (loop.js), so tick, real, channels and timers stay put; only ambient moves.
 // A plain onFixed without { channel } gets real seconds (always 1 / 60), so cooldowns and UI are never slowed by accident.
-// Built in: world (the root), player (parent world), calendar (parent world, speed 'clock.rate'). Physics (rapier) has one world step and follows nothing here.
+// Built in: world (the root), player (parent world), calendar (parent world, speed 'clock.rate'). Physics (rapier) steps with dt('world'): to slow enemies and leave bodies alone, slow a channel of their own, not world.
 import { codedError } from './errorHints.js';
 import { reportError } from './errors.js';
 import { saveValues } from './saveValues.js';

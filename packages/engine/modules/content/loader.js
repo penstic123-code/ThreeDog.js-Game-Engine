@@ -4,14 +4,14 @@
 // a world coordinate.
 // Optional floor (reference height on multi-layer ground) and y (meters above that ground): see content.where.
 import { toast } from '../../ui/UI.js';
-import { parseClock } from '../../core/dayTime.js';
 import { vegetationModel } from '../../core/namedModel.js';
 import { addProps, needWorld } from './props.js';
 import { defineTemplates } from './templates.js';
 import { srcOf, applyRenames, pickupId } from './ids.js';
 import { DEV, warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
-import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent, list } from './rules.js';
+import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent } from './rules.js';
+import { list } from '../../core/util.js';
 import { codedError, coded } from '../../core/errorHints.js';
 import { reportError } from '../../core/errors.js';
 
@@ -50,10 +50,9 @@ const markerId = raw => raw.id ?? (typeof raw === 'string' ? raw : raw.place ?? 
 /**
  * Load one content pack. c is the merged object of content/index.js (or one pack of a list); api is engine.content; ids is the IdCheck shared by every pack of
  * this load call (ids.js); st is the content module's load state (shared across repeated load calls):
- * { triggers: merged trigger table, subs: listener handles, startOn: quest id -> listener handle, pending: set of model Promises being generated,
- * levelPlace(name) }
+ * { triggers: merged trigger table, subs: listener handles, startOn: quest id -> listener handle, levelPlace(name) }
  * Order: vocabulary -> key actions -> vegetation -> items -> containers -> pickups -> NPCs -> dialogues -> quests -> trigger zones -> templates -> props.
- * Pickups, props and NPCs are initial world data: the save records only changes and removals, independent of load order (rules at the top of world/World.js).
+ * Pickups, props and NPCs are initial world data: the save records only changes and removals, independent of load order (rules at the top of world/persist.js).
  * Positions that use level markers (not in places) belong to the current level: pickup, prop and NPC data carry a zone (= current level name,
  * engine.world.zone),
  * a level change only tears down models and they are rebuilt on return, with taken / moved / removed state intact; trigger zones are not data and are removed
@@ -89,7 +88,7 @@ export function loadContent(e, api, c, st, ids) {
   // views: named fixed camera views (core/Views.js); defining a name again replaces it, so a hot reload just works
   each(c.views, (name, v) => e.views.define(name, v));
 
-  // vegetation: model names resolve through vegetationModel (models.js, the same resolver vegetation.define uses for a name); register all
+  // vegetation: model names resolve through vegetationModel (core/namedModel.js, the same resolver vegetation.define uses for a name); register all
   // kinds at the same moment once all models are ready
   // (each registration rebuilds terrain chunks; registering one by one would rebuild several times at start). content's isReady waits for them
   const veg = [];
@@ -115,7 +114,6 @@ export function loadContent(e, api, c, st, ids) {
     origin(id, c.pickups, i);
   });
 
-  const hpd = e.calendar?.hoursPerDay ?? 24;
   each(c.npcs, (id, n) => {   // the key in content is the NPC's stable id (used by saves and quest targets)
     const plan = n.schedule ?? [];
     ids.claim(id, `npcs.${id}`);
@@ -123,7 +121,7 @@ export function loadContent(e, api, c, st, ids) {
     // The content form owns start / schedule (clock strings, places) and the id (the key), so those are translated below and not passed as written
     readParams(`content npcs.${id}`, keysSchema([...e.npcs.optionKeys.filter(k => !['id', 'position', 'zone', 'initial'].includes(k)), 'start']), n);
     const { start: _s, schedule: _p, ...rest } = n;
-    e.npcs.add({ ...rest, id, schedule: plan.map(s => ({ at: parseClock(s.at, hpd), position: where(s) })), position: where(n.start || plan[0]), zone: zoneOf(n.start, ...plan), initial: true });
+    e.npcs.add({ ...rest, id, schedule: plan.map(s => ({ at: s.at, position: where(s) })), position: where(n.start || plan[0]), zone: zoneOf(n.start, ...plan), initial: true });
     origin(id, c.npcs, id);
   });
 
@@ -191,7 +189,7 @@ export function loadContent(e, api, c, st, ids) {
   if (c.props?.length) addProps(e, api, c.props, st, zoneOf, ids);
 
   // game kinds last: their data may name the items, NPCs and places loaded above
-  each(st.kinds, (name, k) => { if (c[name] !== undefined) k.load(e, c[name], api); });
+  each(st.kinds, (name, k) => { if (c[name] !== undefined) k.load?.(e, c[name], api); });
 }
 
 /** Op names that content data refers to ({ op: [...] } / { can: [...] } anywhere), checked against engine.ops once the game is ready */

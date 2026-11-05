@@ -15,6 +15,7 @@ import { neutralMaterial } from '../../render/neutral.js';
 import { patchMaterial, unpatchMaterial } from '../../render/patches.js';
 import { EFFECTS, hashText } from '../../render/effects.js';
 import { codedError } from '../../core/errorHints.js';
+import { isWebGPU } from '../../render/backend.js';
 import { nearFadePatch } from './nearFade.js';
 
 const COLOR = 'vegetationColor';   // the patch name of vegetation.color() on every species' material
@@ -78,7 +79,7 @@ export class VegetationDraw {
 
   /** Each renderer draws its own form; the one this engine's renderer needs, when missing, is named (else the code would do nothing silently) */
   _needForm(entry, s) {
-    const gpu = !!this.engine.renderer?.isWebGPURenderer;
+    const gpu = isWebGPU(this.engine.renderer);
     if (!gpu && s.glsl == null) throw codedError('vegetation-option', `vegetation.${entry}() has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl })`);
     if (gpu && s.tsl == null) throw codedError('vegetation-option', `vegetation.${entry}() has only a glsl form, which WebGPURenderer cannot draw: give tsl too ({ glsl, tsl })`);
   }
@@ -153,7 +154,7 @@ export class VegetationDraw {
   /** @internal view hook: the chunk's ring changed (or shadows were switched): draw distance, low-poly swap and shadows of every species there */
   ring(c, ring) {
     const rec = this.meshes.get(c); if (!rec) return;
-    for (const n in rec.ims) { const sp = this.v.get(n), k = this.kinds.get(n); if (sp && k && !sp.nearOnly) this._level(rec.ims[n], sp, k, ring); }
+    for (const n in rec.ims) { const sp = this.v.get(n), k = this.kinds.get(n); if (sp && k) this._level(rec.ims[n], sp, k, ring); }
   }
   /** @internal view hook: in view or not (ring 1 is always in view, farther chunks by the camera frustum) */
   show(c, visible) { const rec = this.meshes.get(c); if (rec) rec.group.visible = visible; }
@@ -177,7 +178,7 @@ export class VegetationDraw {
     im.castShadow = !!this.engine.renderer?.shadowMap?.enabled && sp.castShadow && ring <= sp.shadowRing;
   }
   _chunk(c) {
-    const CH = this.v.host.CHUNK, g = new THREE.Group();
+    const CH = this.v.host.chunkSize, g = new THREE.Group();
     g.userData.budgetTag = 'vegetation';
     g.position.set(c.cx * CH, 0, c.cz * CH); g.matrixAutoUpdate = false; g.updateMatrix();
     g.visible = c.inView !== false;

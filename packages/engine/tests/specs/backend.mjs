@@ -43,8 +43,8 @@ export const specs = [
         r.hook.game.includes("MeshStandardMaterial with onBeforeCompile 'myBend' on Mesh 'bent' does not run on WebGPURenderer") && /positionNode/.test(r.hook.game), r.hook.game);
       check("an engine-patched material (GLSL patch wrapper, no game hook) is not named; a game hook under the wrapper is",
         r.hook.engine === '' && r.hook.under.includes("onBeforeCompile 'patchedThenHook' on Mesh 'both'"), JSON.stringify(r.hook));
-      check('a RawShaderMaterial added after start() (nested): the next frame reports it by name (engine.error), with no full scene walk',
-        r.late.error.includes("RawShaderMaterial 'lateRaw' on Mesh 'late' does not run on WebGPURenderer") && r.late.error.includes('added after start()') && r.late.logged && r.late.walks === 0,
+      check('a RawShaderMaterial added after start() (nested): the next frame reports it by name in the log and play goes on (no engine.error freeze), with no full scene walk',
+        r.late.error.includes("RawShaderMaterial 'lateRaw' on Mesh 'late' does not run on WebGPURenderer") && r.late.error.includes('added after start()') && r.late.logged && !r.late.frozen && r.late.walks === 0,
         JSON.stringify(r.late));
       check("renderer: 'webgl' is the default WebGLRenderer the engine owns", r.webglName === true, JSON.stringify(r.webglName));
       check("renderer: 'vulkan' and fallback without WebGPU are option errors", /a name is 'webgl' \(the default\) or 'webgpu'/.test(r.badName) && /only applies with renderer: 'webgpu'/.test(r.fallbackOnWebGL), `${r.badName} | ${r.fallbackOnWebGL}`);

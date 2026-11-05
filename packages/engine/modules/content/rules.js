@@ -1,5 +1,5 @@
 // Content vocabulary: the "conditions" and "effects" that content files (content/*.js) can use. Shared by the loader, the validator packages/tools/content-check.mjs and the map packages/tools/gamemap.mjs.
-// Plain data + small functions, no import of three or the engine (the validator reads it directly in node). Real execution is in loader.js.
+// Plain data + small functions, no import of three and nothing from the engine but node-safe core/util.js (the validator reads it directly in node). Real execution is in loader.js.
 //
 // Conditions (quest step done, dialogue option if, line variant if): several items in one object must all hold; array = every item holds
 //   { flag: 'metFisher' }  { notFlag: 'x' }  { has: { berry: 3 } }  { lacks: { film: 6 } }  { counter: { sunsetPhotos: 1 } }
@@ -19,13 +19,15 @@
 //
 // Game content kinds: the same content/rules.js may export kinds: { name: { desc, load, check, map } }, so a game keeps its own data
 // (enemies, recipes, loot tables, waves, shop stock) in content/<name>.js. The loader, content-check and GAMEMAP all read this one table:
-//   desc  one line (map, file list) · load(e, data, content) hands the data to the game when engine.content.load runs (required)
+//   desc  one line (map, file list) · load(e, data, content) hands the data to the game when engine.content.load runs (optional: a game that imports the file itself needs none)
 //   check(data, ctx)  optional validation in npm run check: ctx.err(msg) / ctx.warn(msg); ctx.data is all content (items, npcs…), ctx.known(obj) lists ids
 //   map(data)  optional GAMEMAP lines (default: the number of entries and their ids)
 //   fields  optional { key: 'int?' | { type, min, max, values, desc } } (core/params.js format, no default): the keys of each entry; content-check
 //           reports unknown keys (did you mean), wrong types, out of range, and missing required keys; engine.content.fields(name) returns it
 //   export default { kinds: { recipes: { desc: 'crafting recipes (id -> { needs: { item: n }, makes })', load: (e, data) => e.crafting.add(data),
 //     check: (data, ctx) => { for (const [id, r] of Object.entries(data)) if (!ctx.data.items?.[r.makes]) ctx.err(`recipe ${id} makes unknown item ${r.makes}`); } } } };
+
+import { list } from '../../core/util.js';
 
 const counts = o => Object.entries(o || {}).map(([k, n]) => `${k}×${n}`).join('、');
 const opText = v => Array.isArray(v) ? `${v[0]}${v[1] ? ' ' + Object.entries(v[1]).map(([k, x]) => `${k}=${x}`).join(' ') : ''}` : String(v);
@@ -57,7 +59,7 @@ const RULE_STRINGS = {
     items: 'items (id -> name, icon, description); also export startItems for starting items',
     pickups: 'pickups on the ground (list)',
     containers: 'chests / shelves (container id -> { capacity, items: starting goods }; starting goods are placed only the first time, then saved)',
-    npcs: 'NPCs (id -> name, schedule, dialogue)',
+    npcs: 'NPCs (id -> name, schedule, interact)',
     dialogues: 'dialogues (id -> speaker, nodes)',
     quests: 'quests (id -> title, steps, reward; a step can have a target position)',
     actions: 'own key actions of the game (action name -> default key, label)',
@@ -71,7 +73,7 @@ const RULE_STRINGS = {
     views: 'named fixed camera views (name -> { position: [x, y, z], target?: [x, y, z], fov? }); engine.views.show(name), ?view=name, npm run shot -- -w game --view name',
     grids: 'placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved',
     renames: "renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id",
-    rules: 'condition words added by the game ({ conditions }); actions are ops, not effect words',
+    rules: 'condition words and data kinds added by the game ({ conditions, kinds }); actions are ops, not effect words',
   },
   // Placement fields: the keys one entry of a content file may have, in the core/params.js spec format. Declared once here, read by the loader
   // (unknown keys), content-check (unknown keys with did-you-mean, wrong type, out of range, not in values) and engine.content.fields() (an editor
@@ -100,6 +102,7 @@ const RULE_STRINGS = {
         occluder: { type: 'bool', optional: true, desc: 'false = a solid prop the follow camera may pass through (walkers are still stopped)' },
         static: { type: 'bool', optional: true, desc: 'never moves (may be merged into one draw call)' },
         batch: { type: 'bool', optional: true, desc: 'false = never batch this copy' },
+        lod: { type: 'any', optional: true, desc: 'true = lower-detail levels far away (threedog assets optimize --lod), or rising distances in meters like [40, 120]; such a copy is never batched' },
       },
       'props.template': {
         template: { type: 'string', desc: 'template name (content/templates.js)' },
@@ -170,22 +173,20 @@ export function contentFiles(game = {}) {
   for (const [name, k] of Object.entries(game?.kinds || {})) out[name] ??= k?.desc || 'game data kind';
   return out;
 }
-/** Problems with a game's kinds table (name clashes with an engine file, no load): a list of messages */
+/** Problems with a game's kinds table (name clashes with an engine file, a load that is no function): a list of messages */
 export function kindProblems(game = {}) {
   return Object.entries(game?.kinds || {}).flatMap(([name, k]) => [
     ...(CONTENT_FILES[name] || name === 'startItems' ? [`kind "${name}" is an engine content file name: pick another name (engine files: ${Object.keys(CONTENT_FILES).join(', ')})`] : []),
-    ...(typeof k?.load !== 'function' ? [`kind "${name}" has no load(e, data) function, so its data would never reach the game`] : []),
+    ...(k?.load !== undefined && typeof k.load !== 'function' ? [`kind "${name}": load must be a function (e, data) => …, or left out when the game imports the file itself`] : []),
   ]);
 }
 /** Error text for a content name that is neither an engine file nor a registered kind */
 export const unknownContent = (name, game) => `unknown content "${name}". Known: ${Object.keys(contentFiles(game)).join(', ')}. `
-  + `For the game's own data, register it in content/rules.js: export default { kinds: { ${name}: { desc: '…', load: (e, data) => { … } } } }`;
-/** Error text when a game's content/rules.js still exports effects */
-export const NO_GAME_EFFECTS = "content/rules.js: games no longer add effect words. Register the action as an op (engine.ops.define('noun.verb', { can, run }) in main.js) "
+  + `For the game's own data, register it in content/rules.js: export default { kinds: { ${name}: { desc: '…', load: (e, data) => { … } } } }, and list \`rules\` in content/index.js too: the loader only knows what it is handed`;
+/** Error text for an effects key in a game's content/rules.js */
+export const NO_GAME_EFFECTS = "content/rules.js: effects is not a key here. Register the action as an op (engine.ops.define('noun.verb', { can, run }) in main.js) "
   + "and call it from content with { op: ['noun.verb', { args }] }; see recipes/23-ops.md";
 
-/** Wrap a single value into an array (a model written as 'tree' or ['tree', ...args]); the one copy for the content files @param {any} v @returns {any[]} */
-export const list = v => (Array.isArray(v) ? v : [v]);
 const say = (vocab, x) => Object.entries(x).map(([k, v]) => vocab[k]?.describe?.(v) ?? `${k} ${JSON.stringify(v)}`);
 
 /** Describe a condition as one human-readable sentence (for the map); vocab defaults to the engine vocabulary */

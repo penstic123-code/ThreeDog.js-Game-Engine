@@ -35,8 +35,8 @@ const cameraParts = e => {
   globalThis.document ??= /** @type {any} */ ({ pointerLockElement: null, addEventListener() {} });
   const canvas = { addEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }), requestPointerLock() {} };
   Object.assign(e, { camera: new EngineCamera(50, 4 / 3, 0.1, 1000), scene: new THREE.Scene(), focus: new THREE.Vector3(), signal: new AbortController().signal,
-    renderer: { domElement: canvas, getSize: v => v.set(800, 600) }, takeCamera: () => ({ remove() {} }), _setFov(v) { e.camera.fov = v; }, raycast: () => null,
-    player: null, elapsed: 0 });
+    renderer: { domElement: canvas, getSize: v => v.set(800, 600) }, takeCamera: () => ({ remove() {} }), _oFov: { drive(v) { e.camera.fov = v; } }, raycast: () => null,
+    player: null });
 };
 // what the engine's particles draw into: add / remove objects, the wind uniform (no renderer: the WebGL material is built, never drawn)
 const particleParts = e => { Object.assign(e, { add() {}, remove() {}, tier: 'high', uniforms: { uWind: { value: 0 } } }); };
@@ -78,10 +78,10 @@ export async function run({ check }) {
   inv.define('fish', { name: 'Fish' }).define('rock', { name: 'Rock' });
   const order = [];
   const a = e.wrap(inv, 'add', (next, ...x) => { order.push('a'); return next(...x); }, { owner: 'log' });
-  const weight = e.wrap(inv, 'add', (next, id, n = 1, o) => { order.push('w'); return id === 'rock' ? false : next(id, n, o); }, { owner: 'weight' });
+  const weight = e.wrap(inv, 'add', (next, id, n = 1, o) => { order.push('w'); return id === 'rock' ? { ok: false, code: 'tooHeavy' } : next(id, n, o); }, { owner: 'weight' });
   inv.add('fish', 2);
   check('wrap: the last wrapped runs first, next reaches the earlier one, then the method', order.join('') === 'wa' && inv.count('fish') === 2, order.join(''));
-  check('wrap: around may refuse (no next call, its result returned)', inv.add('rock') === false && inv.count('rock') === 0);
+  check('wrap: around may refuse (no next call, its result returned)', inv.add('rock').code === 'tooHeavy' && inv.count('rock') === 0);
   check('wrap: describe lists owners outermost first', JSON.stringify(e._wraps.describe()) === JSON.stringify({ 'inventory.add': ['weight', 'log'] }), JSON.stringify(e._wraps.describe()));
   // the op calls engine.inventory.transfer: a wrapper on transfer is on the op's path too (the wrapper sits on the object, not on one caller)
   e.inventory.container('chest').add('rock', 1);

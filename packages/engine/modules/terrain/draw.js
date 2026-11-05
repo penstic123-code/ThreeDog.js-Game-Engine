@@ -14,11 +14,11 @@ import { patchesOf, unpatchMaterial } from '../../render/patches.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { codedError } from '../../core/errorHints.js';
 import { mountColorMap, updateColorMap, disposeColorMap } from './terrainTexture.js';
+import { SHADINGS, NORMALS } from './terrainDefaults.js';
 
 // what the workers bake into each chunk: a change rebuilds every chunk
 const BAKED = ['colors', 'biomeColors', 'steep', 'variation', 'shading', 'normals'];
 const RECOLOR_KEYS = [...BAKED, 'detail'];
-const SHADINGS = ['smooth', 'flat', 'texture'], NORMALS = ['smooth', 'flat'];
 
 /** Check the picture values terrain({...}) and engine.terrain.recolor take; null is "none" for each @param {string} where @param {any} o */
 export function checkGround(where, o) {
@@ -58,7 +58,7 @@ export class TerrainDraw {
   /** @internal view hook: a chunk was generated (or regenerated after a full rebuild) */
   add(c) {
     const t0 = performance.now();   // measure: the 'build' stage of engine.budget.cost
-    const t = c.data, CH = this.w.CHUNK, g = new THREE.BufferGeometry();
+    const t = c.data, CH = this.w.chunkSize, g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(t.pos, 3));
     g.setAttribute('normal', new THREE.BufferAttribute(t.nor, 3));
     g.setAttribute('color', new THREE.BufferAttribute(t.col, 3));
@@ -144,7 +144,7 @@ export class TerrainDraw {
 
   // texture shading: a material with this chunk's color map. Island sides keep vertex colors (the map is sampled by world xz and would smear down them)
   _materialFor(rec, c) {
-    const t = c.data, CH = this.w.CHUNK;
+    const t = c.data, CH = this.w.chunkSize;
     const mat = t.tex ? mountColorMap(this.engine, this.material, rec, t.tex, c.cx * CH, c.cz * CH, CH) : this.material;
     const rest = t.top != null ? t.pos.length / 3 - t.top : 0;
     return rest && (t.tex || this.sideMat) ? [mat, this.sideMat ?? this.material] : mat;

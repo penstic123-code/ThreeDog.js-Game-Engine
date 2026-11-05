@@ -150,7 +150,7 @@ export async function run({ check }) {
   const ob = (o, pool) => pictureHints({ numbers: soft, probe: bud(o, pool) }).filter(h => h.id === 'over-budget');
   const dflt = ob({ category: 'lights', value: 12, limit: 8, own: false }), mine = ob({ category: 'lights', value: 12, limit: 6, own: true });
   check('[guard] over budget: the engine\'s default line is a fact, a limit the game wrote is intent; value, limit and tier are named; lightPool is quoted in the printed line',
-    dflt[0]?.kind === 'fact' && mine[0]?.kind === 'intent' && /12 real point \/ spot lights lit, over the engine's default limit 8/.test(dflt[0].text) && /your engine\.budget limit 6/.test(mine[0].text) && /tier low/.test(dflt[0].text)
+    dflt[0]?.kind === 'fact' && mine[0]?.kind === 'intent' && /12 real point \/ spot lights lit, over the engine's default guide 8/.test(dflt[0].text) && /your engine\.budget limit 6/.test(mine[0].text) && /tier low/.test(dflt[0].text)
     && /engine\.use\(lightPool\(\{ point: 8 \}\)\) then engine\.lightPool\.add\(torch/.test(printed(bud({}), dflt)), JSON.stringify(dflt));
   check('over budget: with lightPool installed the hint does not say to install it',
     !/engine\.use\(lightPool/.test(ob({ category: 'lights', value: 12, limit: 8 }, true)[0].text));
@@ -171,6 +171,11 @@ export async function run({ check }) {
   const edgeProbe = edges => ({ params: {}, shadows: { casters: 4, receivers: 4, sunLit: true, area: 0.2, depth: 0.4, intensity: 1, texel: 0.5, depthRange: 200, split: 'own', edges,
     settings: [{ name: 'DirectionalLight shadow.bias', value: -0.00005 }, { name: 'DirectionalLight shadow.mapSize', value: 512 }, { name: 'DirectionalLight shadow camera half width', value: 60 }] } });
   const edgeH = edges => pictureHints({ numbers: soft, probe: edgeProbe(edges) });
+  const def = dflt[0];
+  check('[guard] over a default budget: the line says why the number exists and that nothing is cut at it', /adds work per lit pixel/.test(def?.text) && /nothing is cut/.test(def?.text) && /a guide: each adds work/.test(def?.brief), JSON.stringify(def));
+  // a picture that changes by itself (moving film grain): 92% "stripes" on a picture with none. The stripe lines give way to one saying so
+  const noisy = pictureHints({ numbers: soft, probe: { ...edgeProbe({ stripes: 0.9, jag: 0.5 }), shadows: { ...edgeProbe({ stripes: 0.9, jag: 0.5 }).shadows, edgeNoise: 0.5 } } });
+  check('[guard] edges of a picture that moves by itself are not read: no stripes line, one line saying why', !noisy.some(h => /shadow-(stripes|jag)/.test(h.id)) && noisy.some(h => h.id === 'shadow-edges-unread' && /50\.0%/.test(h.text)), JSON.stringify(noisy.map(h => h.id)));
   const st = edgeH({ stripes: 0.2, jag: 0 }).find(h => h.id === 'shadow-stripes'), jg = edgeH({ stripes: 0, jag: 0.2 }).find(h => h.id === 'shadow-jag');
   const small = pictureHints({ numbers: soft, probe: { ...edgeProbe({ stripes: 0, jag: 0.2 }), shadows: { ...edgeProbe({ stripes: 0, jag: 0.2 }).shadows, texelPx: 1 } } });
   check('[guard] stepped edges where a shadow map pixel is under a step on screen: no line, the map cannot be what made them', !small.some(h => h.id === 'shadow-jag'));

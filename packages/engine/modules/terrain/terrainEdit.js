@@ -7,6 +7,7 @@ import { DEV, fmt } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { xzOf } from '../../core/math.js';
 import { codedError } from '../../core/errorHints.js';
+import { unkey } from './terrainGen.js';
 
 const EDIT_KEYS = ['radius', 'shape', 'raise', 'lower', 'flatten', 'paint'];
 const STRINGS = {
@@ -16,7 +17,6 @@ const STRINGS = {
   num: 'terrain.edit(): {k} must be a finite number, got {got}',
   paint: "terrain.edit(): paint must be a ground type name such as 'tilled', or null to give the cells back their generated type; got {got}",
 };
-const unkey = k => [Math.floor(k / 100000) - 50000, (k % 100000) - 50000];
 
 /** @internal owned by ChunkManager (engine.terrain.edits) */
 export class TerrainEdits {
@@ -29,7 +29,7 @@ export class TerrainEdits {
     engine.saves.register('terrain', { save: () => this.save(), load: d => this.load(d) });
   }
   /** Point the main-thread generator at the edit maps (again after the generator is rebuilt, e.g. a height map finished loading) */
-  attach() { this.mgr.T.useEdits(this.h, this.t); }
+  attach() { this.mgr.generator.useEdits(this.h, this.t); }
 
   edit(position, o = {}) {
     DEV && this.e.ops.guard('terrain.edit');
@@ -40,7 +40,7 @@ export class TerrainEdits {
     for (const k of [...ops, 'radius']) if (o[k] != null && !Number.isFinite(o[k])) throw codedError('terrain-option', fmt(STRINGS.num, { k, got: o[k] }));
     if (o.shape != null && o.shape !== 'circle' && o.shape !== 'square') throw codedError('terrain-option', fmt(STRINGS.shape, { got: JSON.stringify(o.shape) }));
     if ('paint' in o && o.paint !== null && typeof o.paint !== 'string') throw codedError('terrain-option', fmt(STRINGS.paint, { got: JSON.stringify(o.paint) }));
-    const T = this.mgr.T, C = T.CELL, [x, z] = xzOf(position), r = o.radius ?? C / 2, sq = o.shape === 'square';
+    const T = this.mgr.generator, C = T.CELL, [x, z] = xzOf(position), r = o.radius ?? C / 2, sq = o.shape === 'square';
     // off the outline of terrain({ shape }) there is no ground to dig or paint; near the rim the grid points just outside still move,
     // because the rim's height is interpolated from them. The outline itself is not editable
     if (!T.has(x, z)) return { heights: 0, cells: 0 };
@@ -78,7 +78,7 @@ export class TerrainEdits {
   /** Edits a worker needs to build chunk (cx, cz): those of the chunk and its 8 neighbors (normals and borders read one grid point past the edge) */
   forChunk(cx, cz) {
     if (!this.h.size && !this.t.size) return null;
-    const R = this.mgr.T.RES, near = (i, j) => Math.abs(Math.floor(i / R) - cx) <= 1 && Math.abs(Math.floor(j / R) - cz) <= 1;
+    const R = this.mgr.generator.RES, near = (i, j) => Math.abs(Math.floor(i / R) - cx) <= 1 && Math.abs(Math.floor(j / R) - cz) <= 1;
     const h = [], t = [];
     for (const [k, v] of this.h) { const [i, j] = unkey(k); if (near(i, j)) h.push(i, j, v); }
     for (const [k, v] of this.t) { const [i, j] = unkey(k); if (near(i, j)) t.push([i, j, v]); }
@@ -89,7 +89,7 @@ export class TerrainEdits {
   /** Grid range [i0, i1] x [j0, j1] changed: bump the version of every chunk it reaches, rebuild loaded ones now, tell listeners */
   _touch(i0, i1, j0, j1) {
     if (i0 > i1) return;
-    const m = this.mgr, R = m.T.RES, C = m.T.CELL;
+    const m = this.mgr, R = m.generator.RES, C = m.generator.CELL;
     // a grid point is shared by the cells on both sides, and smooth normals read one point further
     for (let cz = Math.floor((j0 - 2) / R); cz <= Math.floor((j1 + 2) / R); cz++)
       for (let cx = Math.floor((i0 - 2) / R); cx <= Math.floor((i1 + 2) / R); cx++) {
@@ -102,7 +102,7 @@ export class TerrainEdits {
 
   // same code as the worker on the full edit maps, so a rebuilt chunk equals a freshly generated one
   _rebuild(c) {
-    const m = this.mgr, T = m.T, t = T.buildChunk(c.cx, c.cz);
+    const m = this.mgr, T = m.generator, t = T.buildChunk(c.cx, c.cz);
     c.data = t;   // data only: each draw part copies the new arrays in its change(c) hook
     c.sphere.center.set(t.sphere[0], t.sphere[1], t.sphere[2]); c.sphere.radius = t.sphere[3];
     m._emit('change', c);
@@ -122,7 +122,7 @@ export class TerrainEdits {
     return { h, t };
   }
   load(d) {
-    const T = this.mgr.T, before = [...this.h.keys(), ...this.t.keys()];
+    const T = this.mgr.generator, before = [...this.h.keys(), ...this.t.keys()];
     this.h.clear(); this.t.clear();
     for (let n = 0; n < (d?.h?.length ?? 0); n += 3) this.h.set(T.key(d.h[n], d.h[n + 1]), d.h[n + 2]);
     for (const [i, j, v] of d?.t || []) this.t.set(T.key(i, j), v);

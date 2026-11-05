@@ -1,6 +1,6 @@
 // UI timers on the page clock.
 // How long a toast stays: one rule, it runs on whatever drives the page. A page the browser runs (the game) counts wall-clock
-// time, so a message still goes away while gameplay is paused (a pause menu stops the frame loop, not the clock). A headless tool page
+// time, so a message still goes away while gameplay is frozen (a menu stops the fixed steps, not the frames or this clock). A headless tool page
 // (?threedog-headless) is driven by engine.step: its "now" is the stepped time, so `threedog step 60` then `snap` shows the messages of the last
 // seconds only. Before, a headless page kept wall-clock timers too and a step of 60 game seconds took a few real seconds, so eight toasts from
 // the step covered the shot (farm R4). CSS fades are not timers: they always run on the browser's clock.

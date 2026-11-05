@@ -28,7 +28,7 @@ engine.onFrame(() => {
 engine.events.on('flow:change', ({ from, to }) => console.log(from, '->', to));
 ```
 **Pausing has a single entry point: flow's `'paused'`** (internally `engine.freeze('flow')`: the picture keeps rendering and the UI keeps working).
-**Don't use `engine.pause()`** (it stops even rendering and is for tests).
+`engine.haltLoop()` stops even rendering and is for tests; a game never needs it.
 The settings menu also pauses while open: `settings({ freezeWorld: true })`. With flow installed it switches to `'paused'` and returns to the previous
 state when the menu closes; without flow it calls `engine.freeze('settings')` directly.
 Stopped while frozen: the fixed step (movement, physics), module `fixed`, the game clock `clock`, quest checks (they run in the fixed step), timeline
@@ -106,7 +106,7 @@ can't be recorded).
 
 Saves live in the browser's IndexedDB (no 5 MB limit; when it is unavailable it falls back to localStorage and tells you once; old localStorage saves
 are moved over on first launch). `save()` / `remove()` / `load()` return a Promise (awaiting is optional; a failed write shows a notice), while
-`list()` / `export()` are synchronous (saves are read into memory at startup). Photos are stored separately as Blobs and are not part of the world save.
+`list()` / `export()` are synchronous (saves are read into memory at startup). Photos are stored separately as Blobs and are not part of the world save; your own binary data goes the same way with `engine.saves.putAttachment(group, id, blob, meta)`, `attachments(group)` and `removeAttachment(group, id)`, and something that belongs to the game but is not a save gets its localStorage key from `engine.saves.storageKey(name)`.
 Backup: `engine.saves.exportFile('slot1')` downloads a .json (including all binary attachments such as photos; `{ files: false }` gives only the world
 save), and `await engine.saves.importFile(file)` restores it into a save slot (without a file, a file picker opens); the "Saves" page of the settings
 menu has matching buttons.
@@ -140,7 +140,7 @@ engine.input.action('menuConfirm', { label: 'OK', keys: ['Space'], context: 'men
   whether input is locked.
 - In tests: after `engine.flow.go('paused'); engine.step(1)` the player position, `engine.clock.now`, quest progress and timelines are unchanged;
   after `await engine.flow.transition(fn)` returns, `transitioning` is false (if fn throws, the error goes to the caller and the screen still fades back in).
-- Related tests: `npm test -- 游戏流程` (city: transition fade and input lock, paused freeze), `npm test -- 接缝` (Esc focus stack, quests/timelines frozen
+- Related tests: `threedog test 游戏流程` (city: transition fade and input lock, paused freeze), `threedog test 接缝` (Esc focus stack, quests/timelines frozen
   while frozen, screen fades back in when transition fails).
 
 ## 4. New game / continue / back to title / retry (engine.session)
@@ -162,11 +162,11 @@ applied (commits), stops the music, applies the start state and snaps the camera
 
 ## 5. Window and device (engine.page)
 One place listens to window focus, tab visibility, mouse lock and the WebGL context; modules never add their own listeners.
-- Window in the background / tab hidden: gameplay waits (no fixed steps; rendering and UI go on). `createEngine({ pauseOnBlur: false })` or
+- Window in the background / tab hidden: gameplay is frozen by owner `'page'`, a full still (`freeze('page', { ambient: true })`; cutscenes stop too, rendering and UI go on; `engine.frozen` and `runState.owners` show it). `createEngine({ pauseOnBlur: false })` or
   `engine.page.pauseOnBlur = false` keeps playing. Coming back resumes with no catch-up burst; a long frame turns into at most 0.1 s of fixed steps,
   and fewer when the steps are heavy (at most about 33 ms of catch-up work per frame; the rest is dropped as a brief slow-down). `engine.step()` never drops time.
 - `engine.events.on('page:blur', () => engine.flow?.go('paused'))` also opens the pause menu. Other events: `page:focus`,
-  `page:pointerlock { locked, byEngine }` (cameras lock again on the next click; a lock the player ended counts as Esc, because the browser keeps that key), `page:contextlost` / `page:contextrestored` (gameplay waits and the player
+  `page:pointerlock { locked, byEngine }` (cameras lock again on the next click; a lock the player ended counts as Esc, because the browser keeps that key), `page:contextlost` / `page:contextrestored` (the same freeze, and the player
   sees a message; three.js restores the context).
 - `engine.step()` still advances while away (tests, dev bridge). Held keys are released by Input.
-- Tests: `npm test -- "Session:" "Window:"`.
+- Tests: `threedog test "Session:" "Window:"`.

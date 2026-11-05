@@ -34,7 +34,7 @@ engine.mod('time.player', { owner: 'haste', mul: 1.2, for: 5 });                
 const menu = engine.freeze('pause-menu');  /* ... */  menu.remove();   // pause menu: the picture, UI and ambient uTime (wind, water, clouds) keep running; { ambient: true } stops those too
 engine.input.gate('jump', { owner: 'stun', for: 1.5 });                            // no jumping while stunned
 engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) =>                      // a weight rule on top of the engine's inventory
-  carried() + weightOf(id) * n > 30 ? false : next(id, n, o), { owner: 'weight' });
+  carried() + weightOf(id) * n > 30 ? { ok: false, code: 'tooHeavy' } : next(id, n, o), { owner: 'weight' });
 ```
 
 ## The rules in full: `engine.mod(point, { owner, set | add | mul | clamp, layer?, for?, id? })`
@@ -86,7 +86,7 @@ hold.remove();                                                                  
 - One time source: `engine.time.tick` is the only counter; `engine.time.now('real' | 'ambient' | 'calendar' | channel)` are read-only views of it
   (recipe 06 "The time table"). Passing time is `engine.skip({ seconds })`: every view moves as if stepped, timers fire in order, far NPCs and
   the calendar catch up. Writing `engine.clock.now` throws (it is a view).
-- Timers: `engine.clock.after(s, fnOrEvent, data, { channel })` / `clock.every(s, fn, { channel })` on any view (default `'calendar'`; `'real'`
+- Timers: `engine.clock.after(s, fnOrEvent, { data, channel })` / `clock.every(s, fn, { channel })` on any view (default `'calendar'`; `'real'`
   ignores bullet time; `'enemies'` slows with it). One queue: `remove()` takes effect at once, even later in the same step.
 - `character.velocity` / `character.vy` are not stacks: a write is an impulse the mover integrates from (no owner, nothing to hand back). Lasting
   knockback is `character.push(vx, vz, seconds)`; full takeover is `character.mover = 'manual'`.
@@ -121,4 +121,4 @@ small engine. A vehicle is checked as an object: `runContract(vehicleContract, (
 
 ## Who holds what
 
-`describe().holds`: pause / freeze / camera / debugView, `input` (pushed contexts with owners), `gates`. Every other shared value and slot: `describe().shared`.
+`describe().holds`: halt / freeze / camera / debugView, `input` (pushed contexts with owners), `gates`. Every other shared value and slot: `describe().shared`.

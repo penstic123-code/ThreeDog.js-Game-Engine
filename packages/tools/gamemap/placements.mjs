@@ -43,6 +43,7 @@ const SYSTEMS = [
   ['saves', (m, c, code) => /saves\.(register|save|autosave)\(/.test(code), 'save your own state: `engine.saves.register(key, { version, save, load })` (recipes/20-content-actions-save.md)'],
   ['interactions', m => m.has('interactions'), 'press a key near a thing: `interactions({ ...presets.interactions.nearest })` (E, nearest; the game picks the pick mode and keys), template `interact: { label, op }` (recipes/30-templates.md)'],
   ['quests', m => m.has('quests'), 'goals with steps, conditions and rewards: `quests()` + key map presets.bindings.quests, content/quests.js (recipes/04-quests.md)'],
+  ['swarm', m => m.has('swarm'), 'many same-kind moving things (shots, crowds, flocks, debris) in typed arrays, drawn as one mesh: `swarm()` (recipes/65-swarm.md)'],
   ['grids', m => m.has('grids'), 'cell placement for farming and building: `grids()` (recipes/29-grid.md)'],
   ['templates', (m, c) => Object.keys(c.templates || {}).length > 0, 'reusable objects placed from content: content/templates.js + props { template } (recipes/30-templates.md)'],
 ];

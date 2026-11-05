@@ -1,7 +1,7 @@
 // 所有权（core/owned.js）："不许绕开"的检查。每个登记过的引擎自写属性都必须在 CASES 里有一条用例，
 // 否则第一条检查就失败——新登记一个属性却不写用例，过不了。每条用例跑三步：
 //   (a) 游戏不接管直接写 → 引擎让开，值留着，恰好一条警告且含接管原文
-//   (b) engine.view.manual(key) → 引擎不再写，也不警告
+//   (b) engine.autoView.manual(key) → 引擎不再写，也不警告
 //   (c) manual(key, false) 交还 → 引擎恢复驱动
 // 另有原生对拍：同一个小场景，纯 three.js 渲染和引擎（画面捷径全关）渲染，像素一致。
 // Same format as the other files here.
@@ -15,10 +15,12 @@ const CASES = `({
     // no manual verb: a direct write is the takeover, engine.sky.replace(null) the hand-back
     engineWrites: () => !!engine.sky._backdrop || !!engine.sky.skybox, domeShown: () => engine.sky.dome.visible, handBack: () => engine.sky.replace(null) },
   'view.fov': { setup: () => (window.__fov0 = engine.camera.fov), poke: () => (engine.camera.fov = 33), get: () => engine.camera.fov,
-    drive: () => engine._setFov(61.5), teardown: () => engine._setFov(window.__fov0) },
+    drive: () => engine._oFov.drive(61.5), teardown: () => engine._oFov.drive(window.__fov0) },
+  'view.aspect': { poke: () => (engine.camera.aspect = 2.5), get: () => engine.camera.aspect, drive: () => engine._oAspect.drive(1.5) },
+  'sky.sunDir': { poke: () => (engine.sky.sunDir.set(1, 0, 0), 1), get: () => engine.sky.sunDir.x, drive: () => engine.step(0.05) },
   'view.far': { poke: () => (engine.camera.far = 4321), get: () => engine.camera.far, drive: () => engine.viewFar(engine.camera.far + 100) },
   'view.pixelRatio': { poke: () => { engine.renderer.setPixelRatio(0.77); return 0.77; }, get: () => engine.renderer.getPixelRatio(),
-    drive: () => { const a = engine.adaptive, was = { on: a.on, paused: a.paused, min: a.min }; Object.assign(a, { on: true, paused: false, cooldown: 0, t: 0, age: 10, min: 0.3 }); engine._adapt(1, 1000, false, true); Object.assign(a, was); } },   // one heavy 1 s window past the startup grace
+    drive: () => { const a = engine.adaptive, was = { on: a.on, min: a.min }; Object.assign(a, { on: true, cooldown: 0, t: 0, age: 10, min: 0.3 }); engine._adapt(1, 1000, false, true); Object.assign(a, was); } },   // one heavy 1 s window past the startup grace
   // written once at creation, never per frame: drive = describe() (the read that notices a direct write); quiet = the yield warns nothing,
   // because a direct renderer.toneMapping write is the documented way to change the curve; no game verb hands it back (look.tone is gone), the row's own hand-back still writes the creation curve
   'toneMapping': { poke: () => (engine.renderer.toneMapping = engine.THREE.NeutralToneMapping), get: () => engine.renderer.toneMapping, drive: () => engine.describe(), quiet: true, handBack: () => engine._oTone.manual(false) },
@@ -36,13 +38,13 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async (CASES) => {
         await engine.loading.settled();
-        engine.pause(); engine.step(0.05);
+        engine.haltLoop(); engine.step(0.05);
         const C = (0, eval)(CASES), owned = engine.describe().owned, out = { missing: Object.keys(owned).filter(id => !C[id]), rows: {} };
         const near = (a, b) => (typeof a === 'number' && typeof b === 'number' ? Math.abs(a - b) < 1e-3 : a === b);
         for (const [id, row] of Object.entries(owned)) {
           const c = C[id];
           if (!c || c.skip) continue;
-          const part = c.manual ? { manual: (k, on) => c.manual(on) } : row.part === 'view' ? engine.view : null, drive = c.drive ?? (() => engine.step(0.05));
+          const part = c.manual ? { manual: (k, on) => c.manual(on) } : row.part === 'view' ? engine.autoView : null, drive = c.drive ?? (() => engine.step(0.05));
           const res = out.rows[id] = {};
           c.setup?.(); drive(); drive();
           // (a) direct write: the engine yields, the value stays, one warning naming the takeover
@@ -61,11 +63,11 @@ export const specs = [
           }
           c.teardown?.();
         }
-        let typo = '', none = ''; try { engine.view.manual('fa'); } catch (err) { typo = err.message; }
-        try { engine.view.manual(); } catch (err) { none = err.message; }
+        let typo = '', none = ''; try { engine.autoView.manual('fa'); } catch (err) { typo = err.message; }
+        try { engine.autoView.manual(); } catch (err) { none = err.message; }
         out.typo = typo; out.none = none;
         out.ids = Object.keys(owned);
-        out.writer = (() => { const h = engine.view.manual('far'), o = engine.describe().owned['view.far'].writer; h.remove(); return [o, engine.describe().owned['view.far'].writer]; })();
+        out.writer = (() => { const h = engine.autoView.manual('far'), o = engine.describe().owned['view.far'].writer; h.remove(); return [o, engine.describe().owned['view.far'].writer]; })();
         return out;
       }, CASES);
       check('every registered owned property has a case here (registering one without a test fails)', r.missing.length === 0, JSON.stringify(r.missing));
@@ -80,7 +82,7 @@ export const specs = [
       const md = readFileSync(new URL('../../docs/recipes/52-around-the-picture.md', import.meta.url), 'utf8');
       const undocumented = [...r.ids, 'camera'].filter(id => !md.includes('| `' + id + '`'));
       check('recipe 52 "Who writes it" lists every registered id', undocumented.length === 0, JSON.stringify(undocumented));
-      check('engine.view.manual: a typo throws with the keys, no key throws, remove() hands back, describe().owned shows the writer', /keys: .*far/.test(r.typo) && /key must be/.test(r.none) && r.writer.join() === 'manual:game,engine', JSON.stringify([r.typo, r.none, r.writer]));
+      check('engine.autoView.manual: a typo throws with the keys, no key throws, remove() hands back, describe().owned shows the writer', /keys: .*far/.test(r.typo) && /key must be/.test(r.none) && r.writer.join() === 'manual:game,engine', JSON.stringify([r.typo, r.none, r.writer]));
     },
   },
   {

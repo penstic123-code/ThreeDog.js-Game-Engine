@@ -28,8 +28,6 @@ export class Sky {
     horizon: any;
     /** Dome mesh @type {Object3D} */
     dome: THREE.Object3D;
-    /** Sun direction (unit vector toward the sun) @type {Vector3} */
-    sunDir: THREE.Vector3;
     /**
      * Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters) @type {{ tilt: number, sway: number, distance: number }}
      */
@@ -46,6 +44,13 @@ export class Sky {
      * @returns {void}
      */
     keyframes(rows: any[][]): void;
+    set sunDir(v: THREE.Vector3);
+    /**
+     * Sun direction (unit vector toward the sun): the same vector as engine.uniforms.uSunDir. Computed each frame from the time and orbit until a game writes either,
+     * then the value is the game's (the sun at a compass direction of your choice); engine.autoView.manual('sunDir', false) gives it back.
+     * @type {Vector3}
+     */
+    get sunDir(): THREE.Vector3;
     /**
      * Your own cloud function on the dome: glsl defines `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)`,
      * tsl is its WebGPURenderer form (ctx) => vec4 node; each renderer needs its own form (modules/sky/clouds.js). null gives the built-in kind back.
@@ -75,15 +80,16 @@ export class Sky {
         blend?: "mix" | "add";
     } | null): void;
     /**
-     * Replace or hide the dome: a skybox asset name (equirectangular panorama), a THREE.Texture / CubeTexture, or your own THREE.Object3D sky; null gives the dome back.
+     * Replace or hide the dome: a skybox asset name (equirectangular panorama), a THREE.Texture / CubeTexture, or your own THREE.Object3D sky; null gives the dome back,
+     * false draws no sky (the scene shows its base background, the signals keep running).
      * The engine never writes your object: it hides the dome, adds your object to the scene only when it has no parent, puts a plain texture's panorama
      * mapping on a clone, and keeps feeding engine.uniforms (uSunDir, uWind ...).
      * @example engine.sky.replace(new SkyMesh());
      * @example engine.sky.replace(null);
-     * @param {string | import('three').Texture | Object3D | null} sky
+     * @param {string | import('three').Texture | Object3D | null | false} sky
      * @returns {void}
      */
-    replace(sky: string | import("three").Texture | THREE.Object3D | null): void;
+    replace(sky: string | import("three").Texture | THREE.Object3D | null | false): void;
     set backdrop(v: any);
     /**
      * One flat color in place of the dome, a THREE.Color while on, else null (sky({ backdrop }) starts with one). Set any THREE.Color input, null gives the dome back.
@@ -100,7 +106,7 @@ export class Sky {
     get daylight(): number;
     /**
      * Render the sky into an environment map. Only after this call is anything built: a PMREM target, rebuilt when the sky changed and interval seconds passed
-     * (default 1, 4 times longer on a low-tier device). With into, that object's .environment gets the map at each rebuild (a map you wrote there yourself stays); without it nothing
+     * (default 1, 4 on a low-tier device). With into, that object's .environment gets the map at each rebuild (a map you wrote there yourself stays); without it nothing
      * is written anywhere and you read handle.texture. handle.remove() takes the map off and frees it. One at a time. Intensity and rotation are three.js: scene.environmentIntensity.
      * @example const env = engine.sky.environment({ into: engine.scene });
      * @example env.remove();

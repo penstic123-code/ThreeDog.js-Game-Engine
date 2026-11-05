@@ -14,7 +14,7 @@ const STRINGS = { once: '[engine] {key} threw (later errors at the same place ar
   rejected: '[engine] a promise rejected and nothing caught it (e.g. audio.play() of a missing file, an async callback that threw); reported once, the game continues. Add .catch or await it in try. ' };
 
 /** picture / ui modules only show the game, so an error in one switches it off instead of freezing gameplay (the type is the one source; no extra flag) */
-export const failsSoft = m => m?.type === 'picture' || m?.type === 'ui';
+const failsSoft = m => m?.type === 'picture' || m?.type === 'ui';
 
 /** Handle an error. key: where it happened (for display); module: the module definition that threw (none means a game callback / event listener, counted as gameplay); soft: report only once */
 export function reportError(engine, err, key, { module = null, soft = false } = {}) {

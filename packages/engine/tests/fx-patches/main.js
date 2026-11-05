@@ -16,7 +16,7 @@ const W = 160, H = 120;
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), lights: false, pixelRatio: 1, adaptiveResolution: false,
   ui: { loading: false }, saveKey: 'test-fx-patches', urlState: false });
 await engine.start();
-engine.pause();
+engine.haltLoop();
 const U = engine.uniforms;
 
 // ---------- renderers: one of each kind side by side, bound to this engine's uniforms (the engine's own WebGPU entry is tested in tests/backend) ----------
@@ -38,7 +38,7 @@ const diff = (a, b) => +(100 * pixelmatch(a, b, null, W, H, { threshold: 0.1 }) 
 const mean = a => { let s = 0; for (let i = 0; i < a.length; i += 4) s += a[i] + a[i + 1] + a[i + 2]; return +(s / (W * H * 3)).toFixed(2); };
 
 U.uTime.value = 1.7; U.uWind.value = 1.5; U.uWindFreq.value = 1; U.uWindAmp.value = 1;
-U.uCloud.value = 0.5; U.uCloudShadow.value = 0.8; U.uCloudScale.value = 0.35; U.uCloudSpeed.value.set(0.4, 0.2);
+U.uWeatherCloud.value = 0.5; U.uCloudShadow.value = 0.8; U.uCloudShadowScale.value = 0.35; U.uCloudShadowSpeed.value.set(0.4, 0.2);
 U.uGroundTint.value.setRGB(0.9, 0.6, 0.3); U.uGroundMix.value = 0; U.uFoliageTint.value.setRGB(0.8, 0.3, 0.1); U.uFoliageMix.value = 0.5;
 
 const cam = new THREE.PerspectiveCamera(50, W / H, 0.1, 200); cam.position.set(0, 6, 11); cam.lookAt(0, 1, 0); cam.updateMatrixWorld();

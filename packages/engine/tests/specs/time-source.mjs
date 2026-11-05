@@ -35,8 +35,8 @@ export const specs = [
         const diff = (a, b) => Object.fromEntries(Object.keys(a).map(k => [k, Math.round((b[k] - a[k]) * 1e6) / 1e6]));
         const log = [];
         const arm = () => [
-          engine.clock.after(2.5, () => log.push('real'), undefined, { channel: 'real' }),
-          engine.clock.after(1.5, () => log.push('enemies'), undefined, { channel: 'tsEnemies' }),
+          engine.clock.after(2.5, () => log.push('real'), { channel: 'real' }),
+          engine.clock.after(1.5, () => log.push('enemies'), { channel: 'tsEnemies' }),
           engine.clock.after(4 * engine.clock.speed, () => log.push('calendar')),
         ];
         await engine.session.newGame();   // both runs start from the same fresh playthrough (it also drops mods, so take it after)
@@ -68,26 +68,24 @@ export const specs = [
         engine.step(3, { render: false, describe: false });
         const played = { tick: T.tick, real: T.now('real') };
         await engine.session.newGame();
-        const fresh = { tick: T.tick, engineTick: engine.tick, real: T.now('real'), ambient: T.now('ambient'), uTime: engine.uniforms.uTime.value,
+        const fresh = { tick: T.tick, real: T.now('real'), ambient: T.now('ambient'), uTime: engine.uniforms.uTime.value,
           world: T.now('world'), calendar: engine.clock.now, base };
         // two timers due in the same step: the first removes the second (and an every timer), neither may fire
         const fired = [];
         let b = null, c = null;
-        engine.clock.after(0.5, () => { fired.push('a'); b.remove(); c.remove(); }, undefined, { channel: 'real' });
-        b = engine.clock.after(0.5, () => fired.push('b'), undefined, { channel: 'real' });
+        engine.clock.after(0.5, () => { fired.push('a'); b.remove(); c.remove(); }, { channel: 'real' });
+        b = engine.clock.after(0.5, () => fired.push('b'), { channel: 'real' });
         c = engine.clock.every(0.5, () => fired.push('c'), { channel: 'real' });
         engine.step(1, { render: false, describe: false });
         let wrote = '';
         try { engine.clock.now = 5; } catch (err) { wrote = String(err.message); }
-        let old = '';
-        try { void engine.elapsed; } catch (err) { old = String(err.message); }
-        return { played, fresh, fired: fired.join(','), wrote, old };
+        return { played, fresh, fired: fired.join(','), wrote };
       });
       const f = r.fresh;
-      check('new game: tick, engine.tick, real, ambient and uTime are 0', f.tick === 0 && f.engineTick === 0 && f.real === 0 && f.ambient === 0 && f.uTime === 0 && r.played.tick > 0, JSON.stringify(r));
+      check('new game: tick, real, ambient and uTime are 0', f.tick === 0 && f.real === 0 && f.ambient === 0 && f.uTime === 0 && r.played.tick > 0, JSON.stringify(r));
       check('new game: the channels and the calendar are the new-game save values', f.world === f.base.world && f.calendar === f.base.calendar, JSON.stringify(f));
       check('a timer removed by an earlier callback in the same step does not fire', r.fired === 'a', r.fired);
-      check('engine.clock.now is read-only (the error names engine.skip); engine.elapsed is gone and names engine.time.now', r.wrote.includes('engine.skip') && r.old.includes("engine.time.now('real')"), JSON.stringify([r.wrote, r.old]));
+      check('engine.clock.now is read-only (the error names engine.skip)', r.wrote.includes('engine.skip'), r.wrote);
     },
   },
   {

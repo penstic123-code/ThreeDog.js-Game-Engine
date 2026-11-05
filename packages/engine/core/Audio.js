@@ -7,15 +7,13 @@
 // Browsers only allow sound after the first click/keypress; this waits for it automatically.
 
 /** @import { SynthFn, SoundDef, AudioCondition, AudioVolume } from '../types/core' */
-import { codedError } from './errorHints.js';
+import { codedError, coded } from './errorHints.js';
 import { missingText, warnOnce } from './validate.js';
-import { readParams, keysSchema } from './params.js';
+import { readParams } from './params.js';
 import { SoundHandle, playSound, placeListener, synthNoise, synthTone, loadSound, playFile, soundDef } from './audioVoice.js';
 import { matchesWhen, volumeOf, checkRuleName, packAudio, applyDucks, audioInfo } from './audioRules.js';
 // createEngine({ audio }) schema: unknown keys throw in dev with did-you-mean. Object / array defaults are not kept here: they would be shared by all engines as one object
 const AUDIO_PARAMS = { levels: 'object?', sounds: 'object?', ambience: 'array?', music: 'object?', footsteps: 'object?' };
-// Values inside music come in many shapes (duckDialogue is a number or false), so only key spelling is checked here; music() checks the values itself
-const MUSIC_PARAMS = keysSchema(['tracks', 'rules', 'fade', 'duckDialogue', 'duckFade', 'hold', 'interval']);
 const BUS_PARAMS = { level: { type: 'number', default: 1, min: 0, desc: 'bus volume 0-1' }, owner: 'string?' };
 const DUCK_PARAMS = { fade: { type: 'number', default: 0.3, min: 0, desc: 'fade seconds both ways' } };
 const DEFAULT_LEVELS = { master: 0.8, music: 0.5, sfx: 0.8, ambience: 0.7, ui: 0.8 };
@@ -25,8 +23,6 @@ export class Audio {
   /** @internal */
   constructor(engine, opts = {}) {
     const { levels = {}, sounds = {}, ambience = [], music = {}, footsteps = {} } = readParams('createEngine({ audio })', AUDIO_PARAMS, opts);
-    // a typo (trakcs) would just play nothing
-    readParams('createEngine({ audio: { music } })', MUSIC_PARAMS, music);
     /** @internal */ this.engine = engine;
     /** The browser AudioContext (exists only after the first click) @type {any} */
     this.ctx = null;
@@ -39,8 +35,12 @@ export class Audio {
      */
     for (const [n, v] of Object.entries(sounds)) soundDef(n, v);   // the old synth forms fail here, at createEngine, not at the first play
     this.config = { sounds: { ...sounds }, ambience, music, footsteps: { ...footsteps } };
-    /** Bus input GainNodes by name (connect your own nodes here); empty until audio unlocks @type {Record<string, any>} */
-    this.buses = {};
+    /** Bus input GainNodes by name, 'master' included (connect your own nodes here); empty until audio unlocks. A name that is no bus warns and gives master: node.connect(undefined) would throw, and in dev a throw freezes gameplay @type {Record<string, any>} */
+    this.buses = new Proxy({}, { get: (t, k) => {
+      if (typeof k !== 'string' || k in t || k === 'toJSON' || k === 'then') return t[k];
+      warnOnce(coded('unknown-name', this.master ? `audio.buses.${k} is not a bus, so master was given instead. Buses: ${Object.keys(t).join(', ')}` : `audio.buses.${k}: buses are empty until audio unlocks; connect after the 'audio:ready' event`), `audio-bus-${k}`);
+      return this.master;
+    } });
     /** The game's current mode for rule lists, e.g. 'combat' / 'explore' (condition `state` in music and ambience rules) @type {string | null} */
     this.state = null;
     /** @internal */ this.buffers = new Map();
@@ -73,7 +73,7 @@ export class Audio {
     if (!AC) return;
     const ctx = this.ctx = new AC();
     /** The master GainNode (every bus ends here) @type {any} */
-    this.master = ctx.createGain(); this.master.gain.value = this.levels.master; this.master.connect(ctx.destination);
+    this.master = this.buses.master = ctx.createGain(); this.master.gain.value = this.levels.master; this.master.connect(ctx.destination);
     for (const name of Object.keys(this.levels)) if (name !== 'master') this._makeBus(name);
     this._applyDucks(0);
     const len = ctx.sampleRate * 2, buf = ctx.createBuffer(1, len, ctx.sampleRate), d = buf.getChannelData(0);
@@ -234,9 +234,10 @@ export class Audio {
     for (const v of this._spatial) { if (!v.playing) this._spatial.delete(v); else if (v.follow) v.setPosition(v.follow); }
   }
   /**
-   * What is playing (for describe and tests): bus levels, the duck multiplier per bus, live voices per sound name
+   * What is playing (describe().audio shows it while something is ducked or playing): bus levels, the duck multiplier per bus, live voices per sound name.
+   * ducks is the level the active ducks ask for (1 = not lowered), read at once even while a fade is still ramping or the audio clock does not run (headless page).
    * @returns {{ running: boolean, state: string | null, levels: Record<string, number>, ducks: Record<string, number>, voices: Record<string, number> }}
-   * @internal a debug readout the engine tests read; games react to their own rules instead
+   * @example engine.audio.duck({ music: 0.3 }); engine.audio.info.ducks.music   // 0.3
    */
   get info() { return audioInfo(this); }
 

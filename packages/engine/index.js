@@ -59,12 +59,12 @@ export { terrain, vegetation, calendar, sky, weather, water, collision, rigid, f
   level, triggers, particles, swarm, settings, music, firstPersonCamera, fixedCamera, rtsCamera, timeline, nav, hlod, lightPool, content, flow, hud, world, grids };
 export { net, fakeNetwork, webSocket } from './modules/net/index.js';
 export { screenToGround } from './core/screenToGround.js';
-export { EASINGS, ease } from './core/easing.js';
+export { ease } from './core/easing.js';
 export { sampleGrid } from './core/grid.js';   // a grid of numbers (height, moisture, density, walkable) as a function (x, z) -> value; assets.gridFromImage reads one from an image. 'threedog/grid' is the same file without three.js (workers, tests)
 export { checkOptions };   // only for extensible data (game-defined fields); an options bag goes through readParams
 export { contentParts } from './modules/content/parts.js';   // one content kind split over files: content/props/*.js joined in file-name order (recipes/30)
 export { threePatches } from './core/threePatches.js';   // the engine's page-wide changes to three.js classes: list(), off(id) (THREE.md "Global changes")
-export { readParams } from './core/params.js';   // params schema for game-made modules: validated, defaults filled, shown by engine.catalog()   // for game-made modules (recipes/14): the package exposes no core/* deep paths
+export { readParams } from './core/params.js';   // params schema for game-made modules (recipes/14): validated, defaults filled, shown by engine.catalog()
 export { createTerrain } from './modules/terrain/index.js';
 export { Character, NPC } from './modules/characters/index.js';
 export { presets } from './presets.js';   // opt-in gameplay presets (weather tables, calendars, player feel, camera): never applied by the engine itself
@@ -80,6 +80,15 @@ export { PICTURE_SLOTS } from './core/pictureSlots.js';
 /** Create an engine (core only). For the options see core/Engine.js */
 export function createEngine(opts) { return new Engine(opts); }
 
+const CAMERAS = { follow: followCamera, firstPerson: firstPersonCamera, rts: rtsCamera, fixed: fixedCamera };
+const OPEN_WORLD_PARTS = { world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug };
+const OPEN_WORLD_SHORT = ['seed', 'viewChunks', 'density', 'flatten', 'time', 'dayLength', 'autoWeather', 'camera'];
+const OW_ERR = { camera: 'openWorld(): camera has no kind \'{k}\'; available: {list}, or pass a camera module (e.g. rtsCamera({ height: 60 })) or false',
+  noCamera: "openWorld(): no camera given; pick one: openWorld({ camera: 'follow' }) (or 'firstPerson' / 'rts' / 'fixed', a camera module such as followCamera(presets.camera.overShoulder), or false for none)",
+  part: 'openWorld(): {k} must be false (leave it out), true or an options object, e.g. openWorld({ {k}: false }); got {got}',
+  noOpts: 'openWorld(): {k} takes no options, only true / false; got {got}. {hint}' };
+// vegetation takes options only on its own chunks: on terrain an options object would be dropped silently, so it throws and points to where the setting lives
+const VEGETATION_HINT = 'How much vegetation grows is a terrain setting: openWorld({ density: 1.5 }) or terrain({ density }); the species are game content (content vegetation; a style only paints them). On ground without terrain (a level) it takes its own options: openWorld({ terrain: false, vegetation: { area, density } })';
 /**
  * Open-world preset: covers only "world and environment" plus the basics every game needs:
  *   world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, camera, characters, ambience, settings, debug (debug only in dev builds).
@@ -96,15 +105,6 @@ export function createEngine(opts) { return new Engine(opts); }
  * Switch at runtime: engine.setCamera('firstPerson') (see recipes/21-camera.md).
  * @param {{ camera: 'follow' | 'firstPerson' | 'rts' | 'fixed' | false | import('./types/core').ModuleDef, [k: string]: any }} opts
  */
-const CAMERAS = { follow: followCamera, firstPerson: firstPersonCamera, rts: rtsCamera, fixed: fixedCamera };
-const OPEN_WORLD_PARTS = { world, terrain, vegetation, calendar, sky, weather, water, collision, rigid, characters, ambience, settings, debug };
-const OPEN_WORLD_SHORT = ['seed', 'viewChunks', 'density', 'flatten', 'time', 'dayLength', 'autoWeather', 'camera'];
-const OW_ERR = { camera: 'openWorld(): camera has no kind \'{k}\'; available: {list}, or pass a camera module (e.g. rtsCamera({ height: 60 })) or false',
-  noCamera: "openWorld(): no camera given; pick one: openWorld({ camera: 'follow' }) (or 'firstPerson' / 'rts' / 'fixed', a camera module such as followCamera(presets.camera.overShoulder), or false for none)",
-  part: 'openWorld(): {k} must be false (leave it out), true or an options object, e.g. openWorld({ {k}: false }); got {got}',
-  noOpts: 'openWorld(): {k} takes no options, only true / false; got {got}. {hint}' };
-// parts whose module takes no options: an options object would be dropped silently, so it throws and points to where the setting lives
-const NO_OPTIONS = { vegetation: 'How much vegetation grows is a terrain setting: openWorld({ density: 1.5 }) or terrain({ density }); the species are game content (content vegetation; a style only paints them). On ground without terrain (a level) it takes its own options: openWorld({ terrain: false, vegetation: { area, density } })' };
 export function openWorld(opts = {}) {
   readParams('openWorld()', keysSchema([...OPEN_WORLD_SHORT, ...Object.keys(OPEN_WORLD_PARTS)]), opts);
   const { seed, viewChunks, density, flatten = [], time, dayLength, autoWeather = false, camera } = opts;
@@ -118,8 +118,7 @@ export function openWorld(opts = {}) {
     if (v !== undefined && v !== true && typeof v !== 'object' && !(k === 'weather' && typeof v === 'string')) {
       throw codedError('preset-option', OW_ERR.part.replaceAll('{k}', k).replace('{got}', JSON.stringify(v)));
     }
-    // vegetation takes options only when it grows on its own chunks (terrain: false); on terrain those settings belong to terrain
-    if (NO_OPTIONS[k] && !(k === 'vegetation' && opts.terrain === false) && v && typeof v === 'object' && Object.keys(v).length) throw codedError('preset-option', OW_ERR.noOpts.replace('{k}', k).replace('{got}', JSON.stringify(v)).replace('{hint}', NO_OPTIONS[k]));
+    if (k === 'vegetation' && opts.terrain !== false && v && typeof v === 'object' && Object.keys(v).length) throw codedError('preset-option', OW_ERR.noOpts.replace('{k}', k).replace('{got}', JSON.stringify(v)).replace('{hint}', VEGETATION_HINT));
     return OPEN_WORLD_PARTS[k]({ ...short[k], ...(typeof v === 'object' ? v : null) });
   };
   const cam = camera === false ? null : typeof camera === 'string' ? CAMERAS[camera]() : camera;

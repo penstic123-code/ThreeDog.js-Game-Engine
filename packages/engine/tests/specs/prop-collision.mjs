@@ -21,7 +21,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async src => {
-        engine.pause();
+        engine.haltLoop();
         (0, eval)(src)();
         const p = engine.player.position, x = Math.round(p.x), z = Math.round(p.z), W = engine.world, at = (i, o) => ({ x: x + 5 + i * 6, z: z + 8, ...o });
         engine.content.load({
@@ -38,13 +38,14 @@ export const specs = [
           ],
         });
         engine.step(0.5); await W.whenReady; engine.step(0.1);
+        const statics = t => { const out = []; engine.collision.forEachStatic((k, o) => { if (k === t) out.push(o); }); return out; };
         const circle = (id, i) => {
-          const h = W.view(id)?.userData.colliders[0], near = [...engine.collision.circles].filter(c => Math.hypot(c.x - (x + 5 + i * 6), c.z - (z + 8)) < 6);
+          const h = W.view(id)?.userData.colliders[0], near = statics('circle').filter(c => Math.hypot(c.x - (x + 5 + i * 6), c.z - (z + 8)) < 6);
           return { ok: !!h, near: near.map(c => ({ dx: +(c.x - (x + 5 + i * 6)).toFixed(3), dz: +(c.z - (z + 8)).toFixed(3), r: +c.r.toFixed(3), h: +c.h.toFixed(2), occ: c.occ })) };
         };
         const free = (dx, i = 0) => engine.collision.walkable([x + 5 + i * 6 + dx, 0, z + 8]);
         const refused = content => { try { engine.content.load(content); return null; } catch (e) { return e.message; } };
-        const box = [...engine.collision.boxes].filter(b => Math.hypot(b.x - (x + 17), b.z - (z + 8)) < 3).map(b => ({ hw: b.hw, hd: b.hd, h: b.h }));
+        const box = statics('box').filter(b => Math.hypot(b.x - (x + 17), b.z - (z + 8)) < 3).map(b => ({ hw: b.hw, hd: b.hd, h: b.h }));
         return {
           lamp: circle('pc-lamp', 0), tree: circle('pc-tree', 1), thin: circle('pc-thin', 3), solid: circle('pc-solid', 4), prop: circle('pc-prop', 5),
           boulder: circle('pc-boulder', 6), lantern: circle('pc-lantern', 7), turned: circle('pc-turned', 8), box,

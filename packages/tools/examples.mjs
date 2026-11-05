@@ -13,6 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { ENGINE } from './paths.mjs';
 import { closest, nearest } from './lib/text.mjs';
 import { parseOptions } from './lib/cli-args.mjs';
+import { gameRoot } from './art.mjs';
 
 /** The manifest of an engine folder: { name: { dir, files, use } } */
 export function pullable(engineDir = ENGINE) {
@@ -30,11 +31,6 @@ export function listExamples(engineDir = ENGINE) {
   });
 }
 
-/** The nearest folder at or above dir with a package.json (the game root), else dir */
-function gameRoot(dir) {
-  for (let d = resolve(dir); ; d = dirname(d)) { if (existsSync(join(d, 'package.json'))) return d; if (dirname(d) === d) return resolve(dir); }
-}
-
 /**
  * Copy one example's files. Returns { out, written, same, use, packages }; throws on an unknown name (with did-you-mean) or on a changed
  * existing file without force (nothing written).
@@ -50,7 +46,7 @@ export function pullExample(name, { out, force = false, cwd = process.cwd(), eng
     const near = closest(name, names);
     throw new Error(`examples: no example "${name}"${near ? `; did you mean ${near}?` : `; close: ${nearest(name, names).join(', ')}`} (threedog examples list)`);
   }
-  const src = join(engineDir, 'examples', e.dir), dest = out ? resolve(cwd, out) : join(gameRoot(cwd), 'techniques', name);
+  const src = join(engineDir, 'examples', e.dir), dest = out ? resolve(cwd, out) : join(gameRoot(cwd) ?? resolve(cwd), 'techniques', name);
   const plan = e.files.map(f => ({ f, from: join(src, f), to: join(dest, f) }));
   // a listed file must stay inside its example folder and inside the destination: a "../x" entry in a (hand-edited or broken) manifest
   // would otherwise read or write outside both

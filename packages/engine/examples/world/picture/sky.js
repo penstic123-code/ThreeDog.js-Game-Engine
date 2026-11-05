@@ -9,7 +9,7 @@ import { AMBIENT_PEAK, CLOUDS, FOG_NEAR, OVERCAST, sampleSky, skyNow } from './p
 export function createSky(engine) {
   const { scene, uniforms: E } = engine, U = engine.sky.uniforms, weather = engine.weather;
   const fog = scene.fog = new THREE.Fog(0x000000, 70, 240);
-  U.uCloudCover.value = CLOUDS.coverage; U.uCloudScale.value = CLOUDS.scale; U.uCloudSpeed.value.set(...CLOUDS.speed);
+  U.uCloudCover.value = CLOUDS.coverage; U.uSkyCloudScale.value = CLOUDS.scale; U.uSkyCloudSpeed.value.set(...CLOUDS.speed);
   U.uCloudColor.value.set(CLOUDS.color); U.uCloudShade.value.set(CLOUDS.shade);
   E.uCloudShadow.value = CLOUDS.groundShadow;
 

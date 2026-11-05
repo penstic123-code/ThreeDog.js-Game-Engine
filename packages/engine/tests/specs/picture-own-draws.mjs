@@ -19,7 +19,7 @@ async function probe(ev, src, build) {
     E.scene.fog = new T.Fog(0x808080, 100, 300);
     E.scene.background = new T.Color(0x202020);
     E.camera.position.set(0, 0, 8); E.camera.lookAt(0, 0, 0); E.camera.updateMatrixWorld();
-    await E.start(); E.pause();
+    await E.start(); E.haltLoop();
     (0, eval)('(' + build + ')')(T, E);
     E.step(1 / 30);
     const before = { far: E.scene.fog.far, exposure: E.renderer.toneMappingExposure };
@@ -85,7 +85,7 @@ export const specs = [
         const { mk } = threedogThreads, A = threedogThreads.all, E = mk(A.createEngine, 'picture-own-lights'), T = E.THREE;
         E.scene.add(new T.Mesh(new T.BoxGeometry(2, 2, 2), new T.MeshStandardMaterial()));
         E.camera.position.set(0, 0, 8); E.camera.lookAt(0, 0, 0);
-        await E.start(); E.pause(); E.step(1 / 30); E.step(1 / 30);
+        await E.start(); E.haltLoop(); E.step(1 / 30); E.step(1 / 30);
         const quiet = await window.__probePicture(E, { time: false }); delete quiet.pixels;
         E.scene.add(new T.PointLight(0xffffff, 5)); E.step(1 / 30); E.step(1 / 30);
         const changed = await window.__probePicture(E, { time: false }); delete changed.pixels;

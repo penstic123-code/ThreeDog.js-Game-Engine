@@ -9,14 +9,14 @@
 // The ground changing (setGround, a level loaded or switched: ground.staticVersion) rebuilds every chunk.
 import * as THREE from 'three';
 import { makePlacer, makeNoise } from '../../core/scatter.js';
-import { xzOf } from '../../core/math.js';
-import { ChunkStream } from '../../core/chunkStream.js';
+import { ChunkStream, bookCollision, collidersNear, ringsReady } from '../../core/chunkStream.js';
 
-const COLLIDER_LAG = 30;   // fixed steps before a chunk's tree collision counts, times (1 + ring); ring 1 counts at once while loading
+export const GROUND_DEFAULTS = { chunkSize: 32, viewChunks: 3, density: 1, seed: 1 };   // shown by engine.catalog too
 
 export class GroundChunks {
   /** opts: chunkSize (m), viewChunks (rings drawn), density, area { min: [x, z], max: [x, z] } or null (a level's walkable bounds when a level provides the ground, else unbounded), seed */
-  constructor(engine, veg, { chunkSize = 32, viewChunks = 3, density = 1, area = null, seed = 1 } = {}) {
+  constructor(engine, veg, opts = {}) {
+    const { chunkSize, viewChunks, density, seed, area = null } = { ...GROUND_DEFAULTS, ...opts };
     this.engine = engine; this.veg = veg;
     this.chunkSize = chunkSize; this.viewChunks = viewChunks; this.density = density; this.area = area; this.seed = seed;
     this.chunks = new Map();
@@ -33,7 +33,6 @@ export class GroundChunks {
       surface: (x, z) => e.surface(x, z), slope: (x, z) => e.slope(x, z), typeAt: (x, z) => e.groundType(x, z) });
   }
 
-  get CHUNK() { return this.chunkSize; }
   /**
    * @internal vegetation plumbing: a species was added or defined again. Only its plants are placed again on the loaded chunks; the other
    * species and their collision stay (dropping every chunk left the whole map without trees and tree collision until rebuilt)
@@ -96,11 +95,9 @@ export class GroundChunks {
   _queue(cx, cz, key) {
     const c = { cx, cz, key, state: 'queued', plants: {}, colliders: {}, collidersAll: {}, inView: true, level: -1, sphere: null, solid: false, gen: this.gen };
     this.chunks.set(key, c);
-    c.ticket = this.engine.commits.request({
-      lag: !this.engine.ready && this._ring(c) <= 1 ? 0 : COLLIDER_LAG * (1 + this._ring(c)),
+    bookCollision(this, c, this._ring(c), {
       apply: () => { c.solid = true; },
       fallback: () => { if (c.state !== 'ready') this._build(c); return true; },   // due before the budget got to it: place it now, same result
-      valid: () => this.chunks.get(c.key) === c && c.gen === this.gen,
     });
     return c;
   }
@@ -145,27 +142,10 @@ export class GroundChunks {
   dispose() { this.rebuild(); }
 
   /** @internal Collision circles of solid chunks near (x, z): fn(x, z, r). Joined into engine.ground.forEachCollider (collision, path planning) */
-  forEachCollider(x, z, range, fn) {
-    const CH = this.chunkSize;
-    for (let cz = Math.floor((z - range) / CH); cz <= Math.floor((z + range) / CH); cz++)
-      for (let cx = Math.floor((x - range) / CH); cx <= Math.floor((x + range) / CH); cx++) {
-        const c = this.chunks.get(cx + ',' + cz);
-        if (!c?.solid) continue;
-        for (const n in c.colliders) {
-          const k = c.colliders[n];
-          for (let i = 0; i < k.length; i += 3) { const dx = k[i] - x, dz = k[i + 1] - z, rr = range + k[i + 2]; if (dx * dx + dz * dz < rr * rr) fn(k[i], k[i + 1], k[i + 2]); }
-        }
-      }
-  }
+  forEachCollider(x, z, range, fn) { collidersNear(this.chunks, this.chunkSize, x, z, range, fn); }
 
   /** Whether chunks within `rings` (default 1) of a position are placed (loading screen / stream ready check) */
-  isReadyAround(position, { rings = 1 } = {}) {
-    const [x, z] = xzOf(position), CH = this.chunkSize, pcx = Math.floor(x / CH), pcz = Math.floor(z / CH);
-    for (let dz = -rings; dz <= rings; dz++) for (let dx = -rings; dx <= rings; dx++) {
-      if (!this._inArea(pcx + dx, pcz + dz)) continue;
-      const c = this.chunks.get((pcx + dx) + ',' + (pcz + dz));
-      if (!c || c.state !== 'ready') return false;
-    }
-    return true;
+  readyAt(position, { rings = 1 } = {}) {
+    return ringsReady(this.chunks, this.chunkSize, position, rings, (c, cx, cz) => !this._inArea(cx, cz) || c?.state === 'ready');
   }
 }

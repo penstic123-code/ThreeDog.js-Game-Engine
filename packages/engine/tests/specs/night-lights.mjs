@@ -32,7 +32,7 @@ export const specs = [
         const g = (0, eval)(`(${src})`), { lights, lampAt, between } = window.nightLightsTest;
         const pts = { under: [lampAt[1][0], 0, lampAt[1][1]], between: [between[0], 0, between[1]], head: [lampAt[1][0], 5.5, lampAt[1][1]] };
         engine.calendar.timeOfDay = 0.92; engine.step(0.5);
-        const night = { ...g(pts), f: lights.night, lit: engine.lightPool.usage() };
+        const night = { ...g(pts), f: lights.night, lit: engine.lightPool.stats };
         engine.calendar.timeOfDay = 0.5; engine.step(0.5);
         const day = { ...g(pts), f: lights.night };
         return { night, day, intensities: engine.lightPool.lights.map(l => +l.intensity.toFixed(2)) };

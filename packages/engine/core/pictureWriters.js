@@ -261,7 +261,7 @@ class Writers {
     const left = [];
     for (const [thing, r] of mine ?? []) if (!thing._removed) left.push(r);   // _removed: a post handle; a scene root that left is already out of the map
     const e = this.e;
-    for (const list of [e._onRender.before, e._onRender.after, e._frame, e._fixed, e._fixedLate]) for (const f of list) if (f.part === m.name) left.push({ kind: 'hook', name: 'frame callback', at: f.at });
+    for (const list of [e._onRender.before, e._onRender.after, e._frame, e._animate, e._fixed, e._fixedLate]) for (const f of list) if (f.part === m.name) left.push({ kind: 'hook', name: 'frame callback', at: f.at });
     if (!swapping) for (const [name, on] of [['scene.fog', e.scene], ['scene.environment', e.scene], ['scene.background', e.scene]]) {
       const r = this.top.get(name), key = name.slice(6);
       if (r?.last?.holder === m.name && r.last.writer === 'holder' && on[key] != null) left.push({ kind: 'value', name, at: r.at });

@@ -17,7 +17,7 @@ function fake() {
   const e = Object.defineProperties({ elapsed: 0, saves: { register: (k, p) => { parts[k] = p; } }, _loop() {}, disposed: false,
     events: { emit: (n, d) => events.push([n, d]), on: (n, f) => { (on[n] ??= []).push(f); return { remove() {} }; } } }, Object.getOwnPropertyDescriptors(holdMethods));
   e.stacks = new Stacks(e); e.mod = (n, o) => e.stacks.mod(n, o);
-  defineHoldStacks(e);   // the engine's own hold stacks (pause does the loop side effect itself)
+  defineHoldStacks(e);   // the engine's own hold stacks (halt does the loop side effect itself)
   return Object.assign(e, { parts, events, fire: (n, d) => (on[n] ?? []).forEach(f => f(d)) });
 }
 
@@ -135,8 +135,8 @@ export async function run({ check }) {
   check('camera: latest holder in charge', e.cameraOverride.owner === 'photo');
   e.stacks.get('camera').release('photo'); check('releasing hands back to the previous holder', e.cameraOverride.owner === 'cut');
   cam.remove(); check('none left: null', e.cameraOverride === null);
-  const p = e.pause('t');
-  check('the pause handle does not chain (pause / step are engine calls)', Object.keys(p).sort().join() === 'owner,remove', Object.keys(p).join());
+  const p = e.haltLoop('t');
+  check('the halt handle does not chain (halt / step are engine calls)', Object.keys(p).sort().join() === 'owner,remove', Object.keys(p).join());
   p.remove();
   // nothing beside the stacks
   check('core/claims.js is deleted', !existsSync(join(ENGINE, 'core/claims.js')));

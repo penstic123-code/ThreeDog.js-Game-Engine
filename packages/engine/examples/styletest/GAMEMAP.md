@@ -39,6 +39,7 @@ Not used yet (check these before writing the system yourself):
 
 - saves: save your own state: `engine.saves.register(key, { version, save, load })` (node_modules/threedog/docs/recipes/20-content-actions-save.md)
 - quests: goals with steps, conditions and rewards: `quests()` + key map presets.bindings.quests, content/quests.js (node_modules/threedog/docs/recipes/04-quests.md)
+- swarm: many same-kind moving things (shots, crowds, flocks, debris) in typed arrays, drawn as one mesh: `swarm()` (node_modules/threedog/docs/recipes/65-swarm.md)
 - grids: cell placement for farming and building: `grids()` (node_modules/threedog/docs/recipes/29-grid.md)
 
 ## Files

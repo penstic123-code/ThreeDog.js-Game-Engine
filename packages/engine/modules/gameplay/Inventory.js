@@ -6,7 +6,7 @@
 // inventory.define('fish', { name: '鲫鱼', icon: '🐟', iconUrl: '/textures/fish.png', desc: '河里钓的', stack: 20, weight: 0.5 });
 // inventory.add('fish', 2);  inventory.has('fish', 1);  inventory.remove('fish');   // the local user's bag (engine.actor)
 // inventory.of(ctx.actor).add('fish');                                                // inside an op: the bag of whoever runs it (a net peer, an NPC)
-// One piece with its own data: const key = inventory.add('sword', 1, { data: { durability: 80 } });   // 'sword#1'; count('sword') counts every sword
+// One piece with its own data: const { key } = inventory.add('sword', 1, { data: { durability: 80 } });   // 'sword#1'; count('sword') counts every sword
 // Chest / corpse / shelf: inventory.container('chest-1', { capacity: 8 }).add('fish');  inventory.transfer('chest-1', 'player', 'fish', 2);
 // Player actions with items are ops: inventory.transfer / inventory.use / inventory.drop (inventoryOps.js).
 //
@@ -163,9 +163,9 @@ export class Inventory {
   get slotsUsed() { return this.bag.slotsUsed; }
   /** Player inventory entries: [{ key, id, count, data, def }] (for custom UI). */
   list() { return this.bag.list(); }
-  /** One player inventory entry by key: { key, id, count, data, def } or null. */
+  /** One player inventory entry by key: { key, id, count, data, def } or undefined. */
   get(key) { return this.bag.get(key); }
-  /** Add n (default 1) to the player inventory, opts { data, silent }; returns the entry key, false if it doesn't fit. */
+  /** Add n (default 1) to the player inventory, opts { data, silent }; returns { ok: true, key, added }, or { ok: false, code: 'full' } when none fit. */
   add(id, n = 1, opts) { return this.bag.add(id, n, opts); }
   /** Remove n (default 1) of an item or entry key from the player inventory; returns false if not enough. */
   remove(id, n = 1) { return this.bag.remove(id, n); }

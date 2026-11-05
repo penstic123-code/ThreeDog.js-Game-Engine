@@ -16,7 +16,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const out = {}, sh = n => engine.describe().shared[n], near = (a, b) => Math.abs(a - b) < 1e-6 * Math.max(1, Math.abs(b));
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
         // 1. game base x an effect; rain is on and adds nothing: weather writes signals, not picture values
@@ -57,7 +57,7 @@ export const specs = [
         dusk.remove(); engine.step(0.05); out.level.push(lamp.intensity);
         hold.remove(); engine.step(0.05); out.level.push(lamp.intensity);
         off.remove();
-        engine._resume();
+        engine._unhalt();
         return out;
       });
       const j = JSON.stringify(r);

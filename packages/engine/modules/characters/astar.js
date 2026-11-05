@@ -20,7 +20,8 @@ class MinHeap {
  * @param {(x: number, z: number) => boolean} walkable can a character stand here (radius already applied)
  */
 export function findPath(walkable, sx, sz, gx, gz, { radius, step = defaultStep(radius), maxNodes = defaultNodes(step) } = {}) {
-  const sample = Math.min(0.75, Math.max(0.15, radius ?? 0.4));   // smoothing samples a segment at most one radius apart: walkable() already grows colliders by radius, so nothing 2r wide is stepped over
+  const sample = 0.12;   // smoothing samples a segment every 0.12 m: one radius apart (the old rule) let a straight leg clip a wall corner by up to 0.3 m between two samples
+  if (!walkable(gx, gz)) return null;   // a target inside a wall / water is unreachable: say so instead of a path that ends in the wall
   const key = (i, j) => i * 100003 + j;
   const si = Math.round(sx / step), sj = Math.round(sz / step), gi = Math.round(gx / step), gj = Math.round(gz / step);
   const open = new MinHeap(), g = new Map(), from = new Map(), walk = new Map();

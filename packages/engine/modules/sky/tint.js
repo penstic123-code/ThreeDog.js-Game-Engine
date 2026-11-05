@@ -47,7 +47,7 @@ export function applyCover(sky, U) {
       if (k > 0) { acc.add(tmp.set(c).multiplyScalar(k)); a += k; keep *= 1 - k; }
     }
     if (!calendar && (a > 0 || sky._covered)) { T.value.setRGB(1, 1, 1); mix.value = 0; }
-    U.uCover.value.setComponent(part === 'ground' ? 1 : 0, 1 - keep);   // the amount alone, for a game's own tint (engine.terms.season)
+    U.uGroundCover.value.setComponent(part === 'ground' ? 1 : 0, 1 - keep);   // the amount alone, for a game's own tint (engine.shaderTerms.season)
     if (a <= 0) continue;
     on = true;
     const amt = 1 - keep, m1 = mix.value, m = 1 - (1 - m1) * (1 - amt);

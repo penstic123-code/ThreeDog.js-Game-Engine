@@ -5,28 +5,29 @@ import * as THREE from 'three';
 import { neutralMaterial } from '../render/neutral.js';
 import { shadowDefaults } from './assetEntry.js';
 import { paramValues } from './assetManifest.js';
-
-/** One value or a list, as a list @internal */
-export const list = v => (Array.isArray(v) ? v : [v]);
+import { list } from './util.js';
 
 /**
  * A model name (name or [name, params...]) whose asset entry is a generator (an asset pack's procedural model) goes through assets.cached:
  * name = model name, params count into the cache key. Returns a Promise (geometry or Object3D); null for a file model or an unknown name (assets.model takes those)
  */
 export function cachedModel(e, m) {
-  const [name, ...args0] = list(m), fn = e.assets.builder(name);
+  const [name] = list(m), fn = e.assets.builder(name);
   if (!fn) return null;
   // every model asked for by name is remembered, so a dev hot swap (core/assetHot.js) can build the same name + params list again
   const made = (e.assets._made ||= new Map());
   (made.get(name) ?? made.set(name, new Map()).get(name)).set(JSON.stringify(m), m);
-  // a generator with a params schema gets one object: defaults < dev panel values < the call's own object (assetManifest.js paramValues)
-  const entry = e.assets.entries.get(name), args = entry?.schema ? [paramValues(entry, args0[0])] : args0;
+  const args = builderArgs(e, m);
   // pass the generator function to cached as is (dev cache hashes its source); wrap only when there are several params
   return args.length > 1 ? e.assets.cached(name, function (p) { return fn.apply(this, p); }, args) : e.assets.cached(name, fn, args[0]);
 }
 
-/** A model name in model / lod position: 'pine' or ['flower', 0xff0000] (content data and vegetation.define take the same form) @internal */
-export const isModelName = m => typeof m === 'string' || Array.isArray(m) && typeof m[0] === 'string';
+/** What a generator is called with for a model name: a generator with a params schema gets one object, defaults < dev panel values < the call's own object (assetManifest.js paramValues) @internal */
+export function builderArgs(e, m) {
+  const [name, ...args] = list(m), entry = e.assets.entries.get(name);
+  return entry?.schema ? [paramValues(entry, args[0])] : args;
+}
+
 /**
  * A vegetation model by name: { geometry } for a generator that returns geometry or for a file model (its first mesh), { model } for a generator
  * that returns an Object3D (one material per mesh kept). content's vegetation table and vegetation.define(name, { model: 'pine' }) both resolve here,

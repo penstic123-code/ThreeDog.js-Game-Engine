@@ -142,7 +142,7 @@ function noiseLoop(audio, out, filters, wobble = 0) {
     const f = ctx.createBiquadFilter(), g = ctx.createGain(); f.type = type; f.frequency.value = freq; f.Q.value = q; g.gain.value = vol;
     src.connect(f).connect(g).connect(mix);
   }
-  if (wobble) {   // two slow oscillators on the level: the gusting of the old per-frame code, without per-frame work
+  if (wobble) {   // two slow oscillators on the level: gusting without per-frame work
     for (const hz of [0.37, 0.13]) { const o = ctx.createOscillator(), d = ctx.createGain(); o.frequency.value = hz; d.gain.value = wobble / 2; o.connect(d).connect(mix.gain); o.start(); nodes.push(o); }
     mix.gain.value = 1 - wobble / 2;
   }
@@ -192,6 +192,8 @@ export function ambience(opts = {}) {
     // "is the rain sound on here" without listening: the rules whose condition holds now, with their target volume; failed = files that did not load
     describe() {
       const on = a.info.filter(r => r.on).map(r => ({ sound: r.sound, volume: r.volume })), failed = a._rules.filter(s => s.failed).map(s => s.rule.sound);
-      return { rules: a._rules.length, on, ...(failed.length ? { failed } : {}) };
+      // audio starts only after a real click or key press (browser rule): until then `on` is empty everywhere, which is not "no rule matches here"
+      const locked = a._rules.length > 0 && !a.engine.audio.running;
+      return { rules: a._rules.length, on, ...(failed.length ? { failed } : {}), ...(locked ? { audioLocked: 'audio starts after a real click or key press; a bridge page has none, so `on` stays empty here whatever the position' } : {}) };
     } };
 }

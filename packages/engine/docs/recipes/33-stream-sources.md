@@ -30,8 +30,8 @@ const vista = engine.stream.source(towerTop, { detail: 'simple', radius: 600 });
 ```
 - `radius` caps every loader's own range around that source (terrain view distance, present radius, `stream.radius`); without it each loader uses its own.
 - `source.ready` is checked at the end of each frame; a new source counts after one full frame, so every loader has seen it. Fixed steps must run
-  (collision takes effect on a tick), so do not wait while `engine.pause()` is on without stepping.
+  (collision takes effect on a tick), so do not wait while `engine.haltLoop()` is on without stepping.
 - Leaving a place and coming back is safe: models unload, but records (an opened chest, a dropped item, a removed rock) stay in `engine.world` and the
   models are rebuilt from them.
 - Module authors with their own distance-based loader: read `engine.stream.sources({ detail: 'full' })` / `sources({ physics: true })` and
-  `s.reach(range)`, and register `engine.stream.readyCheck(name, s => ...)`. Do not read `engine.focus` or the player position for loading.
+  `s.reach(range)`, and register `engine.stream.addReadyCheck(name, s => ...)`. Do not read `engine.focus` or the player position for loading.

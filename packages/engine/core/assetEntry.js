@@ -27,6 +27,7 @@ import { paramValues } from './assetManifest.js';
 const STRINGS = {
   failed: 'Asset failed to load: {what}',
   fellBack: '; using {fallback} instead, the game continues (mark it critical: true if the game cannot start without it)',
+  cycle: '; its fallbacks loop back on themselves ({chain}). Break the loop: give one of them no fallback, or a fallback that is a different file',
   missingRefs: 'Asset loaded with missing references: {what} (missing {list}); materials show without those files',
 };
 
@@ -88,6 +89,18 @@ export function fetchEntry(a, e) {
   return e.promise;
 }
 
+/** The fallback chain from e if it comes back to a name already on it (e -> ... -> e or into a ring), as names; null if it ends */
+function fallbackCycle(a, e) {
+  const chain = [e.name ?? e.url];
+  for (let x = e; x?.opts.fallback;) {
+    const next = a.entries.get(x.opts.fallback);
+    chain.push(x.opts.fallback);
+    if (chain.indexOf(x.opts.fallback) < chain.length - 1) return chain;
+    x = next;
+  }
+  return null;
+}
+
 /** A load failed: a registered file entry degrades (warn + fallback); anything else is recorded and rethrown to the caller */
 function failedEntry(a, e, load, err) {
   const t = load.task;
@@ -96,6 +109,9 @@ function failedEntry(a, e, load, err) {
   const fb = degrade ? (e.opts.fallback ?? (e.type === 'sound' ? 'silence' : e.type === 'font' ? 'the system font' : 'gray placeholder')) : null;
   a.engine.loading._fail(t, err, fb);
   const msg = fmt(STRINGS.failed, { what: failureText(t) });
+  const loop = degrade && e.opts.fallback ? fallbackCycle(a, e) : null;
+  // A -> B -> A: each would wait for the other's fallback forever, so fail once and name the chain (the fix is in the manifest)
+  if (loop) { e.load = null; throw codedError('asset-fallback-cycle', msg + fmt(STRINGS.cycle, { chain: loop.join(' -> ') })); }
   if (!degrade) { e.load = null; throw codedError('asset-load', msg); }
   warnOnce(coded('asset-load', msg + fmt(STRINGS.fellBack, { fallback: e.opts.fallback ? `"${fb}"` : fb })));
   if (e.opts.fallback) return (e.promise = borrow(a, e, load, a._resolve(e.opts.fallback, e.type)));

@@ -3,7 +3,7 @@
 //
 // Why fresh pages and not two runs in one page: a Rapier world keeps solver caches, freed-handle order and islands that no body list shows, so a
 // second run in the same page can differ where a reload does not (or hide a difference a reload has). The real loop runs between page load and
-// engine.pause(), a wall-clock number of steps: everything the scenario compares is built after the pause, so that number does not enter.
+// engine.haltLoop(), a wall-clock number of steps: everything the scenario compares is built after the pause, so that number does not enter.
 
 const READY = { timeout: 60000 };
 const reopen = async page => { await page.reload(); await page.waitForFunction(() => window.engine?.ready && window.car, null, READY); };
@@ -13,7 +13,7 @@ const reopen = async page => { await page.reload(); await page.waitForFunction((
 // as exact numbers (JSON keeps doubles exact; Rapier's f32 widen to doubles exactly).
 async function scenario({ seconds = 2, frameEvery = 2 }) {
   const e = window.engine, R = e.rigid, T = e.THREE;
-  e.pause();
+  e.haltLoop();
   const st = { render: false, describe: false };
   // game time starts when loading ends, and the real-time loop ran a few steps (machine speed) before this pause: let the player, created on
   // engine:ready, land first, so the scenario starts from the same resting state on every page
@@ -79,7 +79,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const e = window.engine, R = e.rigid, T = e.THREE, W = e.world, car = window.car, st = { render: false, describe: false };
-        e.pause();
+        e.haltLoop();
         // the usual way a game saves props: world records whose model is a rigid body (positionFrom 'view'), the body named by the record id
         W.present('detbox', { positionFrom: 'view', build(rec) {
           const m = new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()); m.position.copy(rec.position);

@@ -32,7 +32,7 @@ export async function runRules({ only = null, all = false, verbose = false, game
   for (const { file: f, rule } of await loadRules()) {
     if ((only && !only.includes(rule.id)) || (game && !rule.game)) continue;
     let res; const t0 = Date.now();
-    try { res = await rule.run(); } catch (err) { res = [{ level: 'error', crashed: true, file: `${RULES_REL}/${f}`, line: 0, msg: `the rule itself crashed: ${err.message}`, fix: 'fix the rule script' }]; }
+    try { res = await rule.run({ scope }); } catch (err) { res = [{ level: 'error', crashed: true, file: `${RULES_REL}/${f}`, line: 0, msg: `the rule itself crashed: ${err.message}`, fix: 'fix the rule script' }]; }
     if (Date.now() - t0 > 2000) console.log(`… ${rule.id} ${rule.title} took ${((Date.now() - t0) / 1000).toFixed(1)} s`);   // a slow rule shows while it happens, so the check does not look hung
     if (scope) {
       for (const r of res) if (!r.crashed && !scope.mine(r.file)) scope.other(r.file, r.level);

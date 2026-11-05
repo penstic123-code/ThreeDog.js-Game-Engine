@@ -22,12 +22,15 @@
   "exports": {
     "./vite": "./vite/gameConfig.js",
     "./paths": "./paths.mjs",
+    "./assets-lod": "./assets-lod.mjs",
     "./browser": "./browser.mjs",
     "./describe-snapshot": "./describe-snapshot.mjs",
     "./picture-check": "./picture/check.mjs",
     "./scenario": "./scenario.mjs",
     "./contract": "./contract.mjs",
     "./panel": "./panel/index.js",
+    "./editor": "./editor/index.js",
+    "./stress-load": "./stress-load.js",
     "./gallery": "./gallery/index.js",
     "./package.json": "./package.json"
   },
@@ -43,6 +46,7 @@
     "content-check",
     "lib",
     "panel",
+    "editor",
     "gallery",
     "gamemap",
     "rules",
@@ -65,7 +69,9 @@
     }
   },
   "dependencies": {
+    "ktx2-encoder": "^0.6.0",
     "playwright": "^1.63.0",
+    "three-mesh-bvh": "^0.9.17",
     "typescript": "^5.9.3",
     "vite": "^8.3.5"
   }

@@ -34,7 +34,7 @@ export class NetClient {
     this.t?.close?.();
     this.t = t; this.connected = false; this.synced = false; this.n = -1; this.inbox.length = 0;
     this.subs = [
-      t.on('open', () => { this.connected = true; this.since = this.e.tick; this.e.events.emit('net:open', {}); }),
+      t.on('open', () => { this.connected = true; this.since = this.e.time.tick; this.e.events.emit('net:open', {}); }),
       t.on('close', () => { this.connected = false; this.synced = false; this.e.events.emit('net:close', {}); }),
       t.on('message', m => { if (m && typeof m === 'object') { this.stats.in++; this.inbox.push(m); } }),
     ];
@@ -60,7 +60,7 @@ export class NetClient {
       const box = this.inbox.splice(0);
       e.ops.allow(() => { for (const m of box) this.handle(m); });
     }
-    if (this.synced && e.tick % this.o.posEvery === 0) this.sendPosition();
+    if (this.synced && e.time.tick % this.o.posEvery === 0) this.sendPosition();
   }
   handle(m) {
     const e = this.e;
@@ -86,7 +86,7 @@ export class NetClient {
   /** a diff was lost: stop applying diffs and ask for a snapshot (frame asks again if that is lost too) */
   gap() {
     this.synced = false; this.stats.gaps++;
-    this.since = this.e.tick;
+    this.since = this.e.time.tick;
     this.send({ t: 'resync' });
   }
   apply(parts, full) {
@@ -118,14 +118,14 @@ export class NetClient {
     const p = rec.position, f = {};
     for (const k of this.o.avatarFields) if (k in rec) f[k] = rec[k];
     const key = `${p.x},${p.y},${p.z},${JSON.stringify(f)}`;
-    if (key === this.lastPos && this.e.tick % 60) return;   // unchanged: resend once a second anyway, in case the last one was lost
+    if (key === this.lastPos && this.e.time.tick % 60) return;   // unchanged: resend once a second anyway, in case the last one was lost
     this.lastPos = key;
     this.send({ t: 'p', p: [p.x, p.y, p.z], f });
   }
 
   frame(dt) {
     // out of step (snapshot or the request for it lost, or the first one never came): ask again
-    if (!this.synced && this.connected && this.e.tick - this.since >= ASK_EVERY) { this.since = this.e.tick; this.send({ t: 'resync' }); }
+    if (!this.synced && this.connected && this.e.time.tick - this.since >= ASK_EVERY) { this.since = this.e.time.tick; this.send({ t: 'resync' }); }
     if (!this.glides.size) return;
     const W = this.e.world;
     for (const [id, g] of this.glides) {

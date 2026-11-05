@@ -16,11 +16,12 @@
 - Properties:
   - `ctx: any` The browser AudioContext (exists only after the first click)
   - `levels: Record<string, number>` Volume per bus 0-1 ('master' is the total). Every key is a bus: levels: { voice: 1 } adds a 'voice' bus
-  - `buses: Record<string, any>` Bus input GainNodes by name (connect your own nodes here); empty until audio unlocks
+  - `buses: Record<string, any>` Bus input GainNodes by name, 'master' included (connect your own nodes here); empty until audio unlocks. A name that is no bus warns and gives master: node.connect(undefined) would throw, and in dev a throw freezes gameplay
   - `state: string | null` The game's current mode for rule lists, e.g. 'combat' / 'explore' (condition `state` in music and ambience rules)
   - `master: any` The master GainNode (every bus ends here)
   - `noise: any` 2 s of white noise, reused by synthesized sounds
   - `running: boolean` Is audio usable (the player has clicked/pressed a key)?
+  - `info: { running, state, levels, ducks, voices }` What is playing (describe().audio shows it while something is ducked or playing): bus levels, the duck multiplier per bus, live voices per sound name. ducks is the level the active ducks ask for (1 = not lowered), read at once even while a fade is still ramping or the audio clock does not run (headless page). Example: `engine.audio.duck({ music: 0.3 }); engine.audio.info.ducks.music   // 0.3`
 
 ## Data structures
 - **AudioConfig** The game's sound config: createEngine({ audio }), read back as engine.audio.config (merged with content packs' ContentAudio).

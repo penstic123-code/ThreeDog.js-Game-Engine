@@ -17,7 +17,6 @@
 //    breaks the handle convention (sounds, tweens and say() promises included: they all end with remove()). Error.
 // G. No Engine member named after a three.js class (raycaster, loader, mixer, composer: engine.rays is not a THREE.Raycaster) or after a verb that
 //    names other APIs (load: saves.load, session.load, level.load...). Error.
-// H. Every [file, name] in STABILITY.experimental (paths.mjs) has @experimental in the JSDoc right above its declaration. Error.
 // Limitation: B only looks at the shape of the return type; it cannot know about methods that "return void but should be removable" (such as pickups.spawn, which
 // has no way to delete).
 import { ts, dtsProgram, dtsFiles, abs, rel, read, P } from './_lib.mjs';
@@ -106,7 +105,7 @@ export default {
         if (isMethod) {
           const sig = checker.getSignatureFromDeclaration(m), ret = sig && checker.getNonNullableType(sig.getReturnType());
           const has = n => { const p = ret && checker.getPropertyOfType(ret, n); return p && isFn(checker.getTypeOfSymbol(p)); };
-          // returning this is chaining (music.addTracks), not a handle
+          // returning this is chaining, not a handle
           const selfRet = m.type && (ts.isThisTypeNode(m.type) || m.type.getText() === o.name.text);
           if (ret && !selfRet && !ret.isUnion() && (has('stop') || has('cancel')) && !has('remove'))
             shape.push({ level: 'error', ...at(m), msg: `${who}() returns ${has('stop') ? 'stop()' : 'cancel()'} without remove()`,
@@ -127,19 +126,6 @@ export default {
       });
     }
     const out = [...new Map(shape.map(x => [x.msg, x])).values()];
-    // H
-    for (const [file, name] of P.STABILITY.experimental) {
-      let lines; try { lines = read(file).split('\n'); } catch { out.push({ level: 'error', file, line: 0, msg: `STABILITY lists ${file}, which does not exist`,
-        fix: 'fix the entry in packages/tools/paths.mjs' }); continue; }
-      const decl = new RegExp(String.raw`^\s*(export\s+)?((async\s+)?(function|class|interface)\s+${name}\b|(async\s+)?${name}\s*\(|${name}\??:)`);
-      const hits = lines.flatMap((l, i) => decl.test(l) ? [i] : []), at = hits[0] ?? -1;
-      const tagged = d => { for (let i = d - 1; i >= 0
-        && i >= d - 30; i--) { if (lines[i].includes('@experimental')) return true; if (!/^\s*(\/\*\*|\*)/.test(lines[i])) return false; } return false; };
-      const ok = hits.some(tagged);   // any declaration of that name (a file may declare it twice, e.g. a handle's enable() and the class's)
-      if (!ok) out.push({ level: 'error', file, line: at + 1, msg: at < 0 ? `STABILITY lists ${name}, not declared in ${file}`
-        : `${name} is listed as experimental but its JSDoc has no @experimental`,
-        fix: 'add @experimental to the JSDoc right above it (or remove it from STABILITY.experimental in packages/tools/paths.mjs)' });
-    }
     // A
     const kinds = [...new Set(readies.map(r => r.kind))];
     if (kinds.length > 1) {

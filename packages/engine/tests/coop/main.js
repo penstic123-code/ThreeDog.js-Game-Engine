@@ -15,7 +15,7 @@ async function start() {
   /** @type {[string, import('threedog').Engine][]} */
   const all = [['Host', host], ['Guest A', guests[0]], ['Guest B', guests[1]]];
   window.engine = host;
-  for (const [, e] of all) e._resume();   // headless engines advance only on step(); resume runs them live
+  for (const [, e] of all) e._unhalt();   // headless engines advance only on step(); resume runs them live
   const panes = all.map(([title, e]) => pane(title, e));
   // refresh the debug panes from the host's frame loop (never setInterval in engine code: it ignores pause and step), about 5 times a second
   let since = 0;

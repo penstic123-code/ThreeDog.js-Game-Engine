@@ -19,7 +19,7 @@ export async function run({ check }) {
   try {
     const st1 = await threedog('status');
     check('play: prints the address and the state line; status: Ready, no page errors',
-      pl.code === 0 && /Game at http:\/\/localhost:\d+\//.test(pl.out) && /Headless page paused/.test(pl.out) && st1.code === 0 && st1.out.startsWith('✓ Ready'), pl.out + ' | ' + st1.out);
+      pl.code === 0 && /Game at http:\/\/localhost:\d+\//.test(pl.out) && /Headless page, tick/.test(pl.out) && st1.code === 0 && st1.out.startsWith('✓ Ready'), pl.out + ' | ' + st1.out);
   } finally {
     const sp = await threedog('play', '--stop');
     check('play --stop: the server stops and dev.json is gone', sp.code === 0 && !existsSync(join(ENGINE, '.threedog/dev.json')), sp.out);

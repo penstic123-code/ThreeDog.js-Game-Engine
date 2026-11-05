@@ -14,17 +14,17 @@ export const specs = [
         out.on = [!!h.texture, sc.environment === h.texture, sc.background === bg];
         const t1 = h.texture, target = s._env.target; let freed = false; target.addEventListener('dispose', () => { freed = true; });
         engine.step(1 / 30, { render: true });
-        out.twice = (() => { try { s.environment(); return ''; } catch (e) { return e.message; } })();
         out.sameTexture = h.texture === t1;
         h.remove();
         out.off = [sc.environment, freed, h.texture === t1 || h.texture === null, s._pmrem];
         h.remove();   // a second remove does nothing
+        const a = s.environment({ into: sc }), b = s.environment({ into: sc, interval: 2 }); a.remove(); out.twice = !!s._env; b.remove();
         out.bad = ['intensity', 'interval'].map(k => { try { s.environment({ [k]: k === 'interval' ? -1 : 1 }); return ''; } catch (e) { return e.message; } });
         return out;
       });
       check('no call: 10 frames, scene.environment null, no generator, no map', r.idle.every(v => v === null), JSON.stringify(r.idle));
       check('with into: scene.environment is handle.texture, the background is not touched', r.on.every(Boolean), JSON.stringify(r.on));
-      check('a second call says to remove the first', /remove\(\)/.test(r.twice), r.twice);
+      check('a second call replaces the first, and the old handle changes nothing', r.twice === true, String(r.twice));
       check('remove: scene.environment back to null, the target is freed, the generator gone', r.off[0] === null && r.off[1] && r.off[3] === null, JSON.stringify(r.off));
       check('unknown option names plain three.js; a bad interval throws', /environmentIntensity/.test(r.bad[0]) && /seconds/.test(r.bad[1]), JSON.stringify(r.bad));
     },
@@ -73,7 +73,7 @@ export const specs = [
     },
   },
   {
-    name: '[guard] engine.sky.environment: low tier rebuilds 4 times less often; sky({ environment }) throws naming the call',
+    name: '[guard] engine.sky.environment: the default interval is 4 times longer on low tier, a given one stands; sky({ environment }) throws naming the call',
     url: '/tests/threads/',
     async run({ check, ev }) {
       const r = await ev(async () => {
@@ -85,12 +85,13 @@ export const specs = [
         const tier = Object.getOwnPropertyDescriptor(E, 'tier');
         Object.defineProperty(E, 'tier', { value: 'low', configurable: true });
         const h = E.sky.environment({ interval: 2 }); out.low = E.sky._env.interval; h.remove();
+        const hd = E.sky.environment(); out.lowDefault = E.sky._env.interval; hd.remove();
         Object.defineProperty(E, 'tier', { value: 'high', configurable: true });
         const h2 = E.sky.environment({ interval: 2 }); out.high = E.sky._env.interval; h2.remove();
         if (tier) Object.defineProperty(E, 'tier', tier); else delete E.tier;
         return out;
       });
-      check('interval x 4 on low, as given on high', r.low === 8 && r.high === 2, JSON.stringify(r));
+      check('a given interval stands on both tiers, the default is x 4 on low', r.low === 2 && r.high === 2 && r.lowDefault === 4, JSON.stringify(r));
       check('sky({ environment }) throws naming engine.sky.environment', /engine\.sky\.environment/.test(r.opt), r.opt);
     },
   },

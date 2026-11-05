@@ -59,7 +59,8 @@ const WORKER_GLOBALS = new Set(('Math JSON Number String Boolean Array Object Sy
  * @param {string} src
  */
 function freeNames(src) {
-  const code = src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g, ' 0 ');
+  // numbers go too: the name scan below would read 'e9' out of 1e9 and 'xff' out of 0xff
+  const code = src.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|`(?:\\.|[^`\\])*`/g, ' 0 ').replace(/(?<![\w$])\.?\d[\w.]*/g, ' 0 ');
   const declared = new Set(), add = s => { for (const m of s.matchAll(/[A-Za-z_$][\w$]*/g)) declared.add(m[0]); };
   // parameters (function, arrow, catch) and let / const / var / function / class names, destructuring included; default values are over-collected, which only hides names
   for (const m of code.matchAll(/function\b[^(]*\(([^)]*)\)|\(([^()]*(?:\([^()]*\)[^()]*)*)\)\s*=>|([A-Za-z_$][\w$]*)\s*=>|catch\s*\(([^)]*)\)/g)) add(m[1] ?? m[2] ?? m[3] ?? m[4] ?? '');
@@ -67,9 +68,10 @@ function freeNames(src) {
   for (const m of code.matchAll(/\b(?:function|class)\s+([A-Za-z_$][\w$]*)/g)) declared.add(m[1]);
   for (const m of code.matchAll(/([A-Za-z_$][\w$]*)\s*\(([^()]*)\)\s*\{/g)) if (!/^(if|for|while|switch|catch|with|function)$/.test(m[1])) add(m[2]);   // shorthand method parameters
   const out = new Set();
-  for (const m of code.matchAll(/[A-Za-z_$][\w$]*/g)) {
+  // (?<![\w$]): the e9 of 1e9, the xff of 0xff and the n of 10n are parts of a number, not names; an identifier never starts right after a digit
+  for (const m of code.matchAll(/(?<![\w$])[A-Za-z_$][\w$]*/g)) {
     const n = m[0], before = code.slice(0, m.index).trimEnd(), after = code.slice(m.index + n.length).trimStart();
-    if (declared.has(n) || KEYWORDS.has(n) || WORKER_GLOBALS.has(n) || /\.$/.test(before) || /^\d/.test(n)) continue;
+    if (declared.has(n) || KEYWORDS.has(n) || WORKER_GLOBALS.has(n) || /\.$/.test(before)) continue;
     if (/[{,]$/.test(before) && /^(:|\()/.test(after)) continue;   // object key or shorthand method
     out.add(n);
   }

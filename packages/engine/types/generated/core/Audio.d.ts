@@ -11,7 +11,7 @@ export class Audio {
         music: any;
         footsteps: any;
     };
-    /** Bus input GainNodes by name (connect your own nodes here); empty until audio unlocks @type {Record<string, any>} */
+    /** Bus input GainNodes by name, 'master' included (connect your own nodes here); empty until audio unlocks. A name that is no bus warns and gives master: node.connect(undefined) would throw, and in dev a throw freezes gameplay @type {Record<string, any>} */
     buses: Record<string, any>;
     /** The game's current mode for rule lists, e.g. 'combat' / 'explore' (condition `state` in music and ambience rules) @type {string | null} */
     state: string | null;
@@ -123,6 +123,19 @@ export class Audio {
         params?: Record<string, any>;
         fadeIn?: number;
     }): SoundHandle | null;
+    /**
+     * What is playing (describe().audio shows it while something is ducked or playing): bus levels, the duck multiplier per bus, live voices per sound name.
+     * ducks is the level the active ducks ask for (1 = not lowered), read at once even while a fade is still ramping or the audio clock does not run (headless page).
+     * @returns {{ running: boolean, state: string | null, levels: Record<string, number>, ducks: Record<string, number>, voices: Record<string, number> }}
+     * @example engine.audio.duck({ music: 0.3 }); engine.audio.info.ducks.music   // 0.3
+     */
+    get info(): {
+        running: boolean;
+        state: string | null;
+        levels: Record<string, number>;
+        ducks: Record<string, number>;
+        voices: Record<string, number>;
+    };
     /**
      * Synth building block: a burst of filtered noise (footsteps, shutter, rain, thunder). dur seconds, freq Hz, vol 0-1; out: the node to
      * connect to (a synth's `out`), else the named bus

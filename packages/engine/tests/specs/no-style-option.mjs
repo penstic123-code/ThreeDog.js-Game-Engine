@@ -1,4 +1,4 @@
-// [guard] The picture is game code: createEngine({ style }) must fail with the fix, and nothing in modules/ or render/ may read engine.style. Why a
+// [guard] The picture is game code: createEngine({ style }) is an unknown option like any other, and nothing in modules/ or render/ may read engine.style. Why a
 // guard: a module that reads engine.style again is a second, hidden way into the picture, and an empty engine.style would hide that silently.
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
@@ -13,18 +13,16 @@ const reads = () => ['modules', 'render'].flatMap(d => sources(join(ROOT, d))).f
 
 export const specs = [
   {
-    name: '[guard] no style option: createEngine({ style }) throws naming picture/ and ui; modules/ and render/ read no engine.style',
+    name: '[guard] no style option: createEngine({ style }) throws as an unknown option; modules/ and render/ read no engine.style',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
         const { createEngine } = threedogTest, canvas = () => document.createElement('canvas');
         const err = o => { try { createEngine({ canvas: canvas(), headless: true, ui: { loading: false }, saveKey: 'no-style', ...o }).dispose(); return ''; } catch (x) { return x.message; } };
-        return { empty: err({ style: {} }), list: err({ style: [] }), none: err({}), code: (() => { try { createEngine({ style: {} }); return ''; } catch (x) { return x.code ?? ''; } })() };
+        return { empty: err({ style: {} }), none: err({}) };
       });
-      check('createEngine({ style: {} }) throws with the fix: picture/ code and createEngine({ ui })', /picture\/ code/.test(r.empty) && /createEngine\(\{ ui \}\)/.test(r.empty), r.empty);
-      check('a list of parts throws the same way', r.list === r.empty, r.list);
+      check('createEngine({ style: {} }) throws: an unknown option', /style/.test(r.empty), r.empty);
       check('no style given: the engine builds', r.none === '', r.none);
-      check('the error carries its code', r.code === 'engine-misuse', r.code);
       const hits = reads();
       check('no source line in modules/ or render/ reads engine.style', hits.length === 0, hits.join(', '));
     },

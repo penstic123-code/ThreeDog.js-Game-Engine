@@ -91,12 +91,12 @@ export const specs = [
       A.manifest({ models: { rock: threedogLoad.gltfUrl(), shrub: { url: '/models/own-missing.glb', fallback: 'rock' } } });
       const place = o => { if (o) E.scene.add(o); return o; };
       const m = place(await A.model('shrub')), freed = watch(m), g0 = geo(m);
-      out.users = [A.users('shrub'), A.users('rock')];
+      out.users = [A._users('shrub'), A._users('rock')];
       out.trim = A.trim();
       out.freedByTrim = freed();
       const now = place(A.modelNow('shrub'));
       out.now = !!now && geo(now) === g0;
-      out.usersNow = [A.users('shrub'), A.users('rock')];
+      out.usersNow = [A._users('shrub'), A._users('rock')];
       A.release('rock');
       out.freedByRelease = freed();
       if (now) E.remove(now);
@@ -105,7 +105,7 @@ export const specs = [
       out.freedByBorrowerRelease = freed();
       E.remove(m);
       out.freedLast = freed();
-      out.usersEnd = [A.users('shrub'), A.users('rock')];
+      out.usersEnd = [A._users('shrub'), A._users('rock')];
       const m2 = place(await A.model('shrub'));   // rock's data is gone: this must be a fresh load, not the old promise
       out.fresh = geo(m2) !== g0;
       const freed2 = watch(m2);
@@ -128,6 +128,16 @@ export const specs = [
     check('geometry() through a fallback pins the owner', fb.pinned.length === 0, JSON.stringify(fb));
 
   }),
+  item('fallback loop: two missing files naming each other fail once with a coded error', async ({ check, ev }) => {
+    const r = await ev(async () => {
+      const E = await own.eng('fb-loop'), A = E.assets;
+      A.manifest({ models: { a: { url: '/models/own-missing-a.glb', fallback: 'b' }, b: { url: '/models/own-missing-b.glb', fallback: 'a' } } });
+      const msg = await Promise.race([A.model('a').then(() => 'resolved', e => e.message), new Promise(r => setTimeout(() => r('hung'), 5000))]);
+      E.dispose();
+      return msg;
+    });
+    check('rejects once, code asset-fallback-cycle, chain named', /asset-fallback-cycle/.test(r) && /a -> b -> a/.test(r), r);
+  }),
   item('a generator released while it runs', async ({ check, ev }) => {
     // generator running when released: nothing can stop it, so its result arrives for an ended load
     const r = await ev(async () => {
@@ -144,7 +154,7 @@ export const specs = [
       await until(() => gen.made.length === 2);
       gg[1]?.open();
       const m = await p;
-      out.live = geo(m) === gen.made[1]?.mesh.geometry && gen.made[1].freed === 0 && A.users('gen') === 1 && E.loading.get('gen', 'model').phase === 'done';
+      out.live = geo(m) === gen.made[1]?.mesh.geometry && gen.made[1].freed === 0 && A._users('gen') === 1 && E.loading.get('gen', 'model').phase === 'done';
       E.dispose();
       return out;
     });
@@ -161,7 +171,7 @@ export const specs = [
       A.release('slow');
       await until(() => w.hits === 2);
       fg[0].open(); fg[1].open();
-      const m = await p, out = { aborted: w.aborted, hits: w.hits, users: A.users('slow'), mesh: !!geo(m) };
+      const m = await p, out = { aborted: w.aborted, hits: w.hits, users: A._users('slow'), mesh: !!geo(m) };
       E.dispose();
       return out;
     });
@@ -261,9 +271,9 @@ export const specs = [
       await A.model('pD');   // a copy outside the scene: only the old build's own free can dispose it
       A.palette = { leaf: 1 };
       const m2 = place(await A.model('pA'));
-      out.copies = { builds: a.made.length, oldKept: a.made[0].freed === 0, users: A.users('pA') };
+      out.copies = { builds: a.made.length, oldKept: a.made[0].freed === 0, users: A._users('pA') };
       E.remove(m1);
-      out.copies.oldFreed = a.made[0].freed; out.copies.newLive = a.made[1]?.freed === 0 && A.users('pA') === 1;
+      out.copies.oldFreed = a.made[0].freed; out.copies.newLive = a.made[1]?.freed === 0 && A._users('pA') === 1;
       await A.model('pB');
       out.noCopies = b.made[0].freed;
       await A.geometry('pC');
@@ -311,9 +321,9 @@ export const specs = [
       gr[0].open();
       const mr = await p;
       out.reg = { oldFreed: old.made[0].freed, got: geo(mr) === neu.made[0]?.mesh.geometry };
-      out.held = { keptWhileCopy: kept.made[0].freed, users: A.users('held') };
+      out.held = { keptWhileCopy: kept.made[0].freed, users: A._users('held') };
       E.remove(held);
-      out.held.freed = kept.made[0].freed; out.held.usersEnd = A.users('held');
+      out.held.freed = kept.made[0].freed; out.held.usersEnd = A._users('held');
       E.dispose();
       return out;
     });

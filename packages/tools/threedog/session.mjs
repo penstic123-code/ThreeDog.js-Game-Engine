@@ -9,6 +9,7 @@ import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseOptions } from '../lib/cli-args.mjs';
 
 const file = dir => join(dir, '.threedog/session.json');
 const DEFAULT_MINUTES = 10;
@@ -87,8 +88,9 @@ async function serve(dir, minutes) {
 
 /** threedog session [start] [--minutes N] | stop | status → { ok, text } */
 export async function sessionCommand(dir, args) {
-  const sub = args[0] && !args[0].startsWith('-') ? args[0] : 'start';
-  const mi = args.indexOf('--minutes'), minutes = mi >= 0 ? +args[mi + 1] : DEFAULT_MINUTES;
+  let p;
+  try { p = parseOptions(args, { positional: true, values: ['minutes'] }); } catch (e) { return { ok: false, text: '✗ ' + e.message }; }
+  const sub = p.rest[0] ?? 'start', minutes = p.opt.minutes === undefined ? DEFAULT_MINUTES : +p.opt.minutes;
   if (!['start', 'stop', 'status'].includes(sub)) return { ok: false, text: '✗ Usage: threedog session [start] [--minutes N] | session stop | session status' };
   if (!(minutes > 0)) return { ok: false, text: '✗ --minutes needs a positive number' };
   const s = readSession(dir);

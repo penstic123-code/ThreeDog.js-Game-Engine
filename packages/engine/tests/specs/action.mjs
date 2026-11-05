@@ -72,7 +72,7 @@ export const specs = [
 
       // Death by the slime's own AI (fixed steps only): stand still mid-fight until hp runs out; default mode respawns at the spawn point
       await ev(() => engine.saves.load('fight'));
-      s = await ev(() => { engine.pause(); engine.step(12, { render: false }); const r = { ...engine.describe().action, p: engine.player.position.clone() }; engine._resume(); return r; });
+      s = await ev(() => { engine.haltLoop(); engine.step(12, { render: false }); const r = { ...engine.describe().action, p: engine.player.position.clone() }; engine._unhalt(); return r; });
       check('the slime attacks on its own and the player dies, then respawns at full hp', s.deaths >= 1 && !s.over && s.hp > 0, JSON.stringify(s));
       check('enemy.attack ran with the slime as actor', await ev(() => engine.ops.recent('enemy.attack').some(r => r.ok && r.actor === 'slime-1')));
     },

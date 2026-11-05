@@ -11,12 +11,11 @@ import { Fn, float, vec3, vec4, positionGeometry, positionLocal, positionWorld, 
 import * as pub from 'threedog/tsl';
 import { createEngine } from '../../index.js';
 import { bindUniforms } from '../../render/engineUniforms.js';
-import { wind, cloudShadow, season, objectOrigin, uniforms, detailNoise, detailBump, wrapDiffuse, shadowTint, rim,
+import { wind, cloudShadow, season, objectOrigin, instanceOffset, uniforms, detailNoise, detailBump, wrapDiffuse, shadowTint, rim,
   waterWave, waterSurface, waterFresnel } from '../../render/fx/index.js';
 import { applyEffects } from '../../render/materials.js';
 import { lightingPatch } from '../../render/lighting.js';
 import { waterShader, wavesPatch, surfacePatch } from '../../modules/water/surface.js';
-import { instanceOffset } from '../../render/fx/objectOrigin.tsl.js';
 import pixelmatch from './pixelmatch.js';
 
 const W = 160, H = 120, AMP = 0.3;
@@ -24,7 +23,7 @@ const mk = (opts = {}) => createEngine({ canvas: opts.canvas || document.getElem
   ui: { loading: false }, saveKey: opts.key || 'test-fx', urlState: false });
 const engine = window.engine = mk();
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 // ---------- the hand-written materials ----------
 // GLSL: the same {value} objects as engine.uniforms (no copy), the callable chunks of render/effects.js, defines FX on / off
@@ -259,7 +258,7 @@ const lit = a => { let n = 0; for (let i = 0; i < a.length; i += 4) if (a[i] + a
 /** Set the engine values each case needs (clouds strong and small enough to vary across the ground, a season tint in both modes) */
 function setValues(U, w = 1) {
   U.uTime.value = 1.7; U.uWind.value = w; U.uWindFreq.value = 1; U.uWindAmp.value = 1;
-  U.uCloud.value = 0.5; U.uCloudShadow.value = 0.8; U.uCloudScale.value = 0.35; U.uCloudSpeed.value.set(0.4, 0.2);
+  U.uWeatherCloud.value = 0.5; U.uCloudShadow.value = 0.8; U.uCloudShadowScale.value = 0.35; U.uCloudShadowSpeed.value.set(0.4, 0.2);
   U.uGroundTint.value.setRGB(0.9, 0.6, 0.3); U.uGroundMix.value = 0; U.uFoliageTint.value.setRGB(0.8, 0.3, 0.1); U.uFoliageMix.value = 0.5;
 }
 

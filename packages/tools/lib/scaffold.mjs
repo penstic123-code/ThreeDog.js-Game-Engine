@@ -13,6 +13,9 @@ import { TOOLS, ENGINE } from '../paths.mjs';
 import { defaultLayer } from './default-layer.mjs';
 import { parseOptions } from './cli-args.mjs';
 
+/** .mcp.json for Claude Code opened in the game folder: plain node on the tools' bin @param {string} file @param {string} bin */
+export const writeMcp = (file, bin) => writeFileSync(file, JSON.stringify({ mcpServers: { threedog: { command: 'node', args: [bin, 'mcp'] } } }, null, 2) + '\n');
+
 const GAMEPLAY = {
   clean: 'This game starts blank (a scene, a camera, a start screen, autosave, an Esc menu) and has no gameplay yet; build what DESIGN.md describes. For patterns, read the engine recipes (`node_modules/threedog/docs/recipes/`, index in AI.md); `threedog new-game name --open-world` starts on generated ground with a player.',
   openWorld: 'This game starts from `--open-world`: generated ground, a day/night sky, a follow camera, a player, a start screen, autosave and an Esc menu, no gameplay yet; build what DESIGN.md describes and remove what it does not need.',
@@ -84,6 +87,7 @@ export function copyTemplates(dir, opts, { skipPackage = false } = {}) {
       const src = join(from, e.name), dst = join(to, e.name);
       if (e.isDirectory()) { walk(src, dst, false); continue; }
       if (skipPackage && top && e.name === 'package.json') continue;
+      if (made.includes(dst)) continue;   // an overlay wrote it a moment ago: not something the folder already had
       if (existsSync(dst)) { kept.push(dst); continue; }
       const text = render(readFileSync(src, 'utf8'), opts);
       writeFileSync(dst, text); made.push(dst);

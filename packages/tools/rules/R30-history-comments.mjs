@@ -1,6 +1,7 @@
 // Detection: R30 comments describe the code as it is, not its history. "as before", "used to", "previously", "no longer uses", "the old way"
 // tell a reader what changed, which only the git log should say; an AI reading the file takes them as current behavior or as a TODO.
 // Flags those phrases in // and /* */ comments of packages/engine/**/*.js (strings and code are not read). Level: error in core, warn elsewhere.
+// The tools are not scanned on purpose: their comments keep the failure a line guards against ("used to report success"), which is the reason for the line.
 // Known limits: phrase list only; "no longer" alone is allowed ("when no longer needed" describes behavior).
 import { walk, lines, P } from './_lib.mjs';
 

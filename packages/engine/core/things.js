@@ -7,6 +7,17 @@
 import { DEV, warnOnce } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 import { stackFrames, frameText } from './stackFrames.js';
+import { isPlainObject } from './util.js';
+
+/** Throw save-bad-record when the 'scene' part is not { set: { id: { prop: value } }, removed: [id] } (same refusal as the world part, world/persist.js) */
+function checkSceneSave(d) {
+  const bad = (path, want, got) => { throw codedError('save-bad-record', `scene save: ${path} must be ${want} (got ${String(JSON.stringify(got)).slice(0, 120)}); the save was refused and the game was rolled back. The save was edited by hand or damaged: fix that field, or load another save`); }
+  if (d == null) return;
+  if (!isPlainObject(d)) bad('the scene part', 'a plain object', d);
+  if (d.set !== undefined && !isPlainObject(d.set)) bad('set', 'a plain object of id -> properties', d.set);
+  for (const [id, p] of Object.entries(d.set ?? {})) if (!isPlainObject(p)) bad(`set.${id}`, 'a plain object of properties', p);
+  if (d.removed !== undefined && !(Array.isArray(d.removed) && d.removed.every(id => typeof id === 'string'))) bad('removed', 'an array of ids', d.removed);
+}
 
 /** Stacks taken per session in dev: bullets or debris added every frame must not slow dev builds down for a file:line nobody reads */
 const STACK_CAP = 2000;
@@ -123,7 +134,7 @@ export class Things {
     if (stable && owner !== 'world') claimId(this.e, id, obj);
     if (!stable) id = `obj#${++this.n}`;
     const e = this.e, play = e.ready && !this.setup;
-    const en = new Entry(id, stable, owner, play ? 'play' : 'setup', play ? e.ops.running : null, play ? e.tick : null, opts?.save, stack);
+    const en = new Entry(id, stable, owner, play ? 'play' : 'setup', play ? e.ops.running : null, play ? e.time.tick : null, opts?.save, stack);
     this.byObj.set(obj, en); this.byId.set(id, new WeakRef(obj));
     if (owner === 'game') this.adopt(obj, en);
     return en;
@@ -184,6 +195,7 @@ export class Things {
   }
   /** Replace overrides with the save's: undo the current ones first (newGame applies an empty part), then apply to live objects, keep the rest pending */
   load(d) {
+    checkSceneSave(d);   // before anything is touched: a damaged save is refused (save-bad-record) like a damaged world part, not a code error that freezes the game
     for (const [id, o] of this.over) { const obj = this.live(id); if (obj) write(obj, pick(o.orig, Object.keys(o.cur))); }
     this.over.clear();
     for (const id of [...this.removed]) this.unhide(id);

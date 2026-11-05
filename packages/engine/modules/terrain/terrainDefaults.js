@@ -2,6 +2,7 @@
 // dependency (the Worker reads it too). The engine has no built-in landform or ground types: without a height function (or a height map) the
 // ground is flat at y = 0; generators such as noise hills and biome tables are presets a game passes in (e.g. terrainPreset() from
 // @threedog/terrain-noise) or its own height / groundType functions.
+export const SHADINGS = ['smooth', 'flat', 'texture'], NORMALS = ['smooth', 'flat'];   // checked by createTerrain and checkGround
 export const DEFAULT_TERRAIN = {
   seed: 1337,
   chunkSize: 64,       // chunk edge length (m)

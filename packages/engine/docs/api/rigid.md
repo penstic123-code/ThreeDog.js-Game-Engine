@@ -16,18 +16,19 @@ Real physics, Rapier (rigid() module, needs collision)
 
 ## Methods and properties
 - `rigid.addBox(mesh: Object3D, opts?: RigidBoxOptions) → RigidEntry | null` — Add a box (crate). Physics is ready after engine.start() (or on engine:ready): called before, it throws in development, a release build warns once and returns null
-- `rigid.addBall(mesh: Object3D, opts?: RigidBallOptions) → RigidEntry | null` — Add a ball
-- `rigid.addHull(mesh: Object3D, opts?: RigidBodyOptions) → RigidEntry | null` — Add a convex hull (irregular objects such as rocks and barrels)
+- `rigid.addBall(mesh: Object3D, opts?: RigidBallOptions) → RigidEntry | null` — Add a ball; null only as in addBox: a release build, called before physics is ready
+- `rigid.addHull(mesh: Object3D, opts?: RigidBodyOptions) → RigidEntry | null` — Add a convex hull (irregular objects such as rocks and barrels); null only as in addBox: a release build, called before physics is ready
+- `rigid.ragdoll(who: any, opts?: RagdollOptions) → Ragdoll | null` — (experimental) Turn a skinned character limp in one call; rd.remove() returns it to animation. who: a Character, an NPC handle, a character id or a skinned Object3D. Its mover, animator, capsule and camera yield until then; calling again on the same one pushes it again and returns the same ragdoll. Not saved: any load ends it. A skeleton it cannot read throws, naming the missing parts.
 - `rigid.impulse(entry: RigidEntry, impulse: Vec3Like)` — Give it a push: impulse vector impulse (Vector3 / [x, y, z] / { x, y, z }), e.g. impulse(ball, [0, 3, 5])
 - `rigid.setPosition(entry: RigidEntry, position: PositionLike)` — Teleport to position (velocity is zeroed)
-- `rigid.groundReady(position: PositionLike) → boolean` — Is the physics ground under position built (always true without chunked terrain; with mover: 'rapier' and not yet built, 'simple' is used temporarily)
 - `rigid.addWheeled(mesh: Object3D, opts: VehicleOptions) → Vehicle | null` — Turn a model into a wheeled vehicle (Rapier ray-cast vehicle controller: cars, karts, carts); remove it with vehicle.remove() (anyone inside gets out first). Before physics is ready it throws in development (release: warns, null), like addBox. Boats, mounts and mechs are the game's own objects with the same seat interface
 - Properties:
   - `ready: boolean` Is the physics engine ready (downloaded and initialized at start())
   - `bodies: RigidEntry[]` All physics bodies
-  - `R: any` Rapier library
-  - `world: any` Rapier world
-  - `playerBody: any` The player's Rapier kinematic body and capsule collider (follow the player position every step; used for collision when mover: 'rapier'; the capsule is off while driving)
+  - `rapier: any` (experimental) The Rapier library itself: its shape follows the Rapier version
+  - `world: any` (experimental) The Rapier world: its shape follows the Rapier version
+  - `playerBody: any` (experimental) The player's Rapier kinematic body and capsule collider (follow the player position every step; used for collision when mover: 'rapier'; the capsule is off while driving)
+  - `playerCollider: any` (experimental) The capsule collider on playerBody
   - `playerCapsule: { halfHeight: number; radius: number }` Player capsule size (meters)
   - `vehicles: Vehicle[]` All vehicles
   - `stats: { bodies: number; active: number; colliders: number }` Statistics
@@ -46,7 +47,7 @@ Real physics, Rapier (rigid() module, needs collision)
   - `body: any` Rapier rigid body (translation(), mass(), setLinvel()…); newGame / a load rebuild the world, so read entry.body again instead of keeping it
   - `collider: any` Rapier collider
   - `mesh: Object3D` The matching three.js model (position is written by physics every step)
-  - `object: Object3D` Same as mesh (the name consistent with player.object, ent.object)
+  - `object: Object3D` Same as mesh
   - `enabled: boolean` Whether it is being simulated (frozen when too far from the player)
   - `volume: number` Volume (cubic meters, used for buoyancy)
   - `damping: number`

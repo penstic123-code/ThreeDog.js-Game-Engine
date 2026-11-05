@@ -12,7 +12,7 @@ Background music (music() module)
   - `interval?: number` Rule check interval (seconds), default 1
 
 ## Methods and properties
-- `music.addTracks(map: Record<string, MusicTrack>)` — Register tracks: { name: url / { url, volume, loop, stems } }
+- `music.define(name: string, track: MusicTrack)` — Define a track: a url, or { url, volume, loop, stems }. The same name again replaces it. Example: `engine.music.define('town', '/music/town.ogg')`
 - `music.play(name: string | null, opts?: { fade?: number; force?: boolean })` — Play a track (cross-fade over fade seconds). Does nothing if it is already playing; force replays it
 - `music.stop(opts?: { fade?: number })` — Fade out and stop (fade over fade seconds; default the music({ fade }) option). An options object like play's: stop(3) throws in dev
 - `music.stinger(name: string, opts?: { duck?: number; volume?: number })` — Layer a one-shot piece (victory, discovered place...); the background dips to `duck` while it plays

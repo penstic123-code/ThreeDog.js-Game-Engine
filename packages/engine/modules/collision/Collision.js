@@ -33,8 +33,8 @@ export class Collision {
     Object.assign(this, { maxClimb, canopyHeight, cameraPad, cameraMin, walkableWaterMargin, cameraOcclusion });
     // Sets, not arrays: they keep insertion order (forEachStatic and every consumer see colliders in the order added) and delete in O(1),
     // where an array filter per remove made unloading n colliders O(n^2)
-    /** manually added circle colliders {x, z, r, h} @type {Set<any>} */ this.circles = new Set();
-    /** rectangles {x, z, hw, hd, rot, h} @type {Set<any>} */ this.boxes = new Set();
+    /** manually added circle colliders {x, z, r, h} @type {Set<any>} */ this._circles = new Set();
+    /** rectangles {x, z, hw, hd, rot, h} @type {Set<any>} */ this._boxes = new Set();
     this._grid = new CollisionGrid();   // grid index: resolve / camera look only nearby instead of scanning all (circles / boxes change only via addCircle / addBox)
     this._blocked = [];   // addBlocked fields {fn, bounds}; empty = zero cost
     this.blockedVersion = 0;   // +1 on addBlocked / remove: async paths re-sample their cached ground rasters
@@ -45,7 +45,7 @@ export class Collision {
     this._onCamCircle = (a, b, c) => this._camCircle(a, b, c);
   }
   /** Iterate all manually added static colliders (for the physics module): fn('box' | 'circle', data) */
-  forEachStatic(fn) { for (const b of this.boxes) fn('box', b); for (const c of this.circles) fn('circle', c); }
+  forEachStatic(fn) { for (const b of this._boxes) fn('box', b); for (const c of this._circles) fn('circle', c); }
   /**
    * Keep an outside copy of the static colliders (boxes and circles) in step, e.g. physics colliders or navmesh obstacles. add(type, data) builds the
    * copy of one collider and returns it; remove(piece, data) drops one. sync() does the work only when `version` moved since the last sync, then adds
@@ -78,28 +78,28 @@ export class Collision {
    * occluder: false keeps it from pulling the follow camera in (walkers are still stopped), e.g. forest trunks the camera may pass through. Returns a handle { remove() }
    */
   addCircle(position, opts = {}) {
-    readParams('collision.addCircle()', keysSchema(CIRCLE_KEYS), opts); if (typeof opts !== 'object') opts = {};
+    opts = readParams('collision.addCircle()', keysSchema(CIRCLE_KEYS), opts);
     const [x, z] = xzOf(position), c = { x, z, r: opts.radius ?? 0.5, h: opts.height ?? 6, occ: opts.occluder !== false };
-    this.circles.add(c); this._grid.add(c, false); this.version++;
-    return { remove: () => { if (!this.circles.delete(c)) return; this._grid.remove(c); this.version++; } };
+    this._circles.add(c); this._grid.add(c, false); this.version++;
+    return { remove: () => { if (!this._circles.delete(c)) return; this._grid.remove(c); this.version++; } };
   }
   /**
    * Add a rectangle collider (house, fence): position is the centre; halfWidth / halfDepth (default 1), rotation about the Y axis (radians),
    * height (default 6), y is the box bottom height (omit to sit on the ground; set it for walls on platforms in levels); occluder: false as in addCircle. Returns a handle { remove() }
    */
   addBox(position, opts = {}) {
-    readParams('collision.addBox()', keysSchema(BOX_KEYS), opts); if (typeof opts !== 'object') opts = {};
+    opts = readParams('collision.addBox()', keysSchema(BOX_KEYS), opts);
     const [x, z] = xzOf(position), hw = opts.halfWidth ?? 1, hd = opts.halfDepth ?? 1, rot = opts.rotation ?? 0;
     const b = { x, z, hw, hd, rot, h: opts.height ?? 6, y: opts.y, c: Math.cos(rot), s: Math.sin(rot), r: Math.hypot(hw, hd), occ: opts.occluder !== false };
-    this.boxes.add(b); this._grid.add(b, true); this.version++;
-    return { remove: () => { if (!this.boxes.delete(b)) return; this._grid.remove(b); this.version++; } };
+    this._boxes.add(b); this._grid.add(b, true); this.version++;
+    return { remove: () => { if (!this._boxes.delete(b)) return; this._grid.remove(b); this.version++; } };
   }
   /**
    * Add a thin wall along the line a -> b (fence, wall; positions like addBox). thickness (default 0.3), height (default 6), y and occluder as in addBox.
    * It is a rotated box in the same grid, so a gap between two segments is a gate. Returns a handle { remove() }
    */
   addSegment(a, b, opts = {}) {
-    readParams('collision.addSegment()', keysSchema(SEG_KEYS), opts); if (typeof opts !== 'object') opts = {};
+    opts = readParams('collision.addSegment()', keysSchema(SEG_KEYS), opts);
     const [ax, az] = xzOf(a), [bx, bz] = xzOf(b);
     // box-local +x is (cos r, -sin r) in world, so r = -atan2(dz, dx)
     return this.addBox([(ax + bx) / 2, 0, (az + bz) / 2], { halfWidth: Math.hypot(bx - ax, bz - az) / 2, halfDepth: (opts.thickness ?? 0.3) / 2, rotation: -Math.atan2(bz - az, bx - ax), height: opts.height, y: opts.y, occluder: opts.occluder });
@@ -110,7 +110,7 @@ export class Collision {
    * or keep the water field exact and let fn test `!onBridge(x, z)`. findPathAsync samples fn into its ground raster (1 m cells), so give bounds to keep that cheap. Returns a handle { remove() }
    */
   addBlocked(fn, opts = {}) {
-    readParams('collision.addBlocked()', keysSchema(BLOCK_KEYS), opts); if (typeof opts !== 'object') opts = {};
+    opts = readParams('collision.addBlocked()', keysSchema(BLOCK_KEYS), opts);
     if (typeof fn !== 'function') throw codedError('collision-misuse', 'collision.addBlocked(fn): fn(x, z) => boolean is required');
     const f = { fn, bounds: opts.bounds ?? null }; this._blocked.push(f); this.version++; this.blockedVersion++;
     return { remove: () => { if (!this._blocked.includes(f)) return; this._blocked = this._blocked.filter(o => o !== f); this.version++; this.blockedVersion++; } };
@@ -128,7 +128,8 @@ export class Collision {
   /** Add collision from a three.js object's bounding box (common for house models), pad grows it outward (m), occluder as in addBox. Returns a handle { remove() } */
   addObject(obj, { pad = 0, occluder = true } = {}) {
     obj.updateMatrixWorld(true);
-    const THREE = this.engine.THREE, box = new THREE.Box3().setFromObject(obj), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
+    // a THREE.LOD is measured by its full model: a low level may stick out a little, and collision must not change with which levels exist
+    const THREE = this.engine.THREE, box = new THREE.Box3().setFromObject(obj.isLOD ? obj.levels[0].object : obj), c = box.getCenter(new THREE.Vector3()), s = box.getSize(new THREE.Vector3());
     return this.addBox(c, { halfWidth: s.x / 2 + pad, halfDepth: s.z / 2 + pad, height: s.y, occluder });
   }
 
@@ -310,7 +311,7 @@ export function collision(opts = {}) {
     // counts of what blocks walking, and whether the player's own spot is walkable: answers "why can the player not go there" without stepping
     describe(e) {
       const p = e.player?.position;
-      return { circles: c.circles.size, boxes: c.boxes.size, fields: c._blocked.length, cameraOcclusion: c.cameraOcclusion,
+      return { circles: c._circles.size, boxes: c._boxes.size, fields: c._blocked.length, cameraOcclusion: c.cameraOcclusion,
         ...(p ? { atPlayer: { walkable: c.groundWalkable(p.x, p.z), blocked: c.blockedAt(p.x, p.z) } } : {}) };
     } };
 }

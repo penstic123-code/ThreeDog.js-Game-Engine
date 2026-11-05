@@ -98,7 +98,7 @@ export function schemaInfo(shape) {
 }
 
 /**
- * Module options read through a params schema: unknown keys and wrong types throw (with the fix), defaults are filled in.
+ * Module options read through a params schema, defaults filled in. A wrong type, a value out of range or a missing required option throws (with the fix) in every build, a release one too; an unknown key throws in dev only and warns once in a release build.
  * Put the schema on the module definition too (`params`, `options`), so engine.catalog(name) shows every option, its default and the value in use.
  * @param {string} where who reads them, for the error text (the module name)
  * @param {Record<string, string | { type: string, default?: any, min?: number, max?: number, values?: any[], desc?: string, optional?: boolean }>} schema

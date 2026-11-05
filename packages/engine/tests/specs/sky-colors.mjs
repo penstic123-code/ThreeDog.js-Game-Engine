@@ -11,7 +11,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const U = engine.uniforms, sky = engine.sky, out = {}, hex = c => c.getHexString();
         const read = () => ({ hor: hex(U.uSkyHorizon.value), top: hex(U.uSkyTop.value), dome: hex(sky.uniforms.uHorizon.value), domeTop: hex(sky.uniforms.uTop.value) });
         engine.weather.setAuto(false);

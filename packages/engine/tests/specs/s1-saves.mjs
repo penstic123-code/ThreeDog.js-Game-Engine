@@ -28,6 +28,26 @@ export const specs = [
     },
   },
   {
+    // Why: flush() is the promise "nothing is still on its way to disk". An attachment that skips the queue breaks it without any error.
+    name: 'S1 saves: flush waits for an attachment made by a function; the queue and prefix stay private (open world)',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const S = engine.saves;
+        S.putAttachment('s1-att', 'a', async () => { await new Promise(res => setTimeout(res, 30)); return new Blob(['bytes']); }, { n: 1 });
+        await S.flush();
+        const rows = await S.attachments('s1-att');
+        await S.removeAttachment('s1-att', 'a');
+        return { rows: rows.map(x => [x.id, x.meta.n, x.blob.size]), left: (await S.attachments('s1-att')).length,
+          key: S.storageKey('settings'), settings: engine.settings?.storageKey, old: [typeof S.queue, typeof S.prefix] };
+      });
+      check('flush waited for the bytes', JSON.stringify(r.rows) === '[["a",1,5]]', JSON.stringify(r.rows));
+      check('removeAttachment deletes', r.left === 0);
+      check('settings takes its key from storageKey', !r.settings || r.settings === r.key, `${r.settings} / ${r.key}`);
+      check('saves.queue and saves.prefix are not public', r.old.join() === 'undefined,undefined', r.old.join());
+    },
+  },
+  {
     name: 'S1 saves: save (with a photo) -> reopen the page -> it is in list, load reads it back, the photo returns to the album (open world)',
     url: '/',
     async run({ page, check, ev, wait }) {
@@ -109,7 +129,7 @@ export const specs = [
         let got = null;
         engine.saves.register('s1ls', { save: () => ({ z: 9 }), load: d => { got = d; } });
         const ok = await engine.saves.save('s1-ls');
-        const inLS = !!localStorage.getItem(engine.saves.prefix + 's1-ls');
+        const inLS = !!localStorage.getItem(engine.saves._prefix + 's1-ls');
         engine.saves.load('s1-ls');
         return { mode: engine.saves.store.mode, ok, inLS, got };
       });

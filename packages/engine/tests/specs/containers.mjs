@@ -32,7 +32,7 @@ export const specs = [
         const coreEv = []; engine.events.on('item:add', e => coreEv.push(e.container + ':' + e.id)); I.add('rag', 1, { silent: true }); I.container('chest-ev').add('rag', 1);
         return { same, a, b, full, afterAdd, t1, m2, m3, log, errs, coreEv, chest2: I.container('chest-2').count('stick'), bagList: I.list().map(x => x.id + x.count).join(), cap: I.capacity, cap2: I.container('chest-3').capacity };
       }));
-      check('container() with the same id returns the same one; add returns the key and spreads over slots of stack size; full slots reject', r.same && r.a === 'rock' && r.b === 'rock' && r.full === false
+      check('container() with the same id returns the same one; add says the key and spreads over slots of stack size; full slots reject', r.same && r.a.key === 'rock' && r.b.key === 'rock' && r.full.code === 'full'
         && r.afterAdd.rock === 12 && r.afterAdd.slots === 3 && r.afterAdd.room === 3 && r.afterAdd.roomStick === 0, JSON.stringify(r));
       check('Container contents stay out of the player bag; transfer returns the amount actually moved', r.afterAdd.playerRock === 0 && r.t1.moved === 4 && r.t1.chest === 8 && r.t1.bag === 4 && r.t1.slots === 2, JSON.stringify(r.t1));
       check('transfer stacks into the target; moves only what the source has', r.m2 === 1 && r.chest2 === 2 && r.m3 === 4, JSON.stringify({ m2: r.m2, m3: r.m3, chest2: r.chest2 }));
@@ -50,7 +50,7 @@ export const specs = [
         const I = engine.inventory;
         I.define('potion', { name: 'potion', stack: 10 });
         const a = I.container('fix-a'), b = I.container('fix-b');
-        const key = a.add('potion', 5, { data: { q: 2 } });
+        const { key } = a.add('potion', 5, { data: { q: 2 } });
         I.transfer(a, b, key, 2);
         const keysA = a.list().map(e => e.key), keysB = b.list().map(e => e.key);
         const rest = I.transfer(a, b, key, 3);   // the whole remaining entry moves: it may keep its key (merges into b's equal entry)
@@ -126,9 +126,9 @@ export const specs = [
         const sack = I.container('sack', { maxWeight: 10 }); const heavy = sack.add('ore', 5), w1 = sack.weight, roomOre = sack.room('ore'), none = sack.add('ore');
         return { part, noSlot, heavy, w1, roomOre, none, gems: box.count('gem'), ores: sack.count('ore') };
       })); return { ...value, warns }; });
-      check('partial fit returns the key, full returns false; warn names the limits and the fix', r.part === 'gem' && r.gems === 5 && r.noSlot === false
+      check('partial fit says how many went in, full says why; warn names the limits and the fix', r.part.ok && r.part.key === 'gem' && r.part.added === 5 && r.gems === 5 && r.noSlot.ok === false && r.noSlot.code === 'full' && r.noSlot.facts.id === 'coin2'
         && r.warns.some(m => /Only 5 of 7 gem/.test(m) && /Raise capacity/.test(m)) && r.warns.some(m => /no room for coin2/.test(m)), JSON.stringify(r));
-      check('maxWeight: 3 of 5 ore fit under 10, weight 9, then nothing fits', r.heavy === 'ore' && r.ores === 3 && r.w1 === 9 && r.roomOre === 0 && r.none === false, JSON.stringify(r));
+      check('maxWeight: 3 of 5 ore fit under 10, weight 9, then nothing fits', r.heavy.key === 'ore' && r.ores === 3 && r.w1 === 9 && r.roomOre === 0 && r.none.code === 'full', JSON.stringify(r));
     },
   },
   {
@@ -199,8 +199,9 @@ export const specs = [
       const a = await ev(async s => engine.ops.allow(async () => {
         const I = engine.inventory;
         I.define('sword', { name: '剑', stack: 1 }).define('tomato', { name: '番茄', stack: 20 });
-        const k1 = I.add('sword', 1, { data: { durability: 80, level: 3 } }), k2 = I.add('sword', 1, { data: { level: 3, durability: 80 } }), k3 = I.add('sword');
-        const t1 = I.add('tomato', 3, { data: { q: 2 } }), t2 = I.add('tomato', 2, { data: { q: 2 } }), t3 = I.add('tomato', 1, { data: { q: 1 } });
+        // add() returns { ok, key, added } (not the bare key), so take .key
+        const k1 = I.add('sword', 1, { data: { durability: 80, level: 3 } }).key, k2 = I.add('sword', 1, { data: { level: 3, durability: 80 } }).key, k3 = I.add('sword').key;
+        const t1 = I.add('tomato', 3, { data: { q: 2 } }).key, t2 = I.add('tomato', 2, { data: { q: 2 } }).key, t3 = I.add('tomato', 1, { data: { q: 1 } }).key;
         const kept = I.setData(k1, { ...I.get(k1).data, durability: 79 });
         const swords = I.count('sword'), has3 = I.has('sword', 3);
         I.container('rack'); const moved = I.transfer('player', 'rack', k2);
@@ -219,7 +220,7 @@ export const specs = [
         const I = engine.inventory; I.define('sword', { name: '剑', stack: 1 }).define('tomato', { name: '番茄', stack: 20 });
         const ret = engine.saves.load('single'); if (ret?.then) await ret;
         const snap = new Function('return ' + s)()();
-        const fresh = engine.ops.allow(() => I.add('sword', 1, { data: { durability: 1 } }));
+        const fresh = engine.ops.allow(() => I.add('sword', 1, { data: { durability: 1 } })).key;
         return { snap, fresh, keys: I.list().map(e => e.key) };
       }, '' + snap);
       check('[守] save -> reload -> load: every entry, key and data identical', b.snap === a.snap, b.snap + ' vs ' + a.snap);
@@ -233,7 +234,7 @@ export const specs = [
       const r = await ev(async () => {
         const I = engine.inventory, warns = [], orig = console.warn;
         I.define('axe', { name: '斧', stack: 1 });
-        const k = engine.ops.allow(() => I.add('axe', 1, { data: { durability: 50 } }));
+        const k = engine.ops.allow(() => I.add('axe', 1, { data: { durability: 50 } })).key;
         I.container('shed');
         console.warn = (...a) => { warns.push(String(a[0])); };
         await new Promise(res => setTimeout(() => { I.setData(k, { durability: 49 }); I.transfer('player', 'shed', k); res(); }, 0));   // the misuse under test
@@ -254,7 +255,7 @@ export const specs = [
         const I = engine.inventory, used = [];
         engine.events.on('item:use', e => used.push(e.item + ':' + (e.data?.hp ?? '')));
         I.define('potion', { name: '药', stack: 9, consume: true, use: () => {} }).define('stone', { name: '石' }).define('blade', { name: '刃', stack: 1 }).define('coin', { name: '币' });
-        const bk = engine.ops.allow(() => { I.add('potion', 2, { silent: true }); I.add('stone', 3, { silent: true }); return I.add('blade', 1, { data: { sharp: 7 }, silent: true }); });
+        const bk = engine.ops.allow(() => { I.add('potion', 2, { silent: true }); I.add('stone', 3, { silent: true }); return I.add('blade', 1, { data: { sharp: 7 }, silent: true }).key; });
         engine.ui.set('inventory', { drop: true });
         const opened = engine.ui.open('inventory');
         const el = document.querySelector('.threedog-win-inventory'), rows = el?.querySelectorAll('.threedog-row').length, entries = I.list().length;
@@ -267,12 +268,12 @@ export const specs = [
         const p = engine.player.position;
         const drop = engine.ops.run('inventory.drop', { item: bk });
         const rec = engine.world.query({ kind: 'pickup', where: r => r.item === 'blade' })[0];
-        engine.pause(); engine.step(0.2, { render: false });
+        engine.haltLoop(); engine.step(0.2, { render: false });
         const take = engine.ops.run('interaction.use', { id: rec.id });
         const back = I.list().find(e => e.id === 'blade');
         // auto pickup: no key, taken in the fixed step when the player is within its radius
         engine.pickups.spawn([p.x + 0.5, 0, p.z], { give: 'coin', count: 4, auto: true, radius: 3 });
-        engine.step(0.3, { render: false }); engine._resume();
+        engine.step(0.3, { render: false }); engine._unhalt();
         return { opened, rows, entries, afterClicks, notUsable, drop: drop.ok, recData: rec?.data, take: take.ok, back: back && back.data, coins: I.count('coin'),
           coinLeft: engine.world.query({ kind: 'pickup', where: r => r.item === 'coin' }).length, ui: engine.ui.describe().inventory };
       });

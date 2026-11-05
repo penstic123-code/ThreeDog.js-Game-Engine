@@ -70,7 +70,7 @@ export const specs = [
         const ok = engine.saves.apply(bad, 'bad');
         console.warn = warn;
         const list = engine.inventory.bag.list().map(x => `${x.key}:${x.count}`);
-        const key = engine.ops.allow(() => engine.inventory.add('film', 1, { data: { roll: 9 }, silent: true }));
+        const { key } = engine.ops.allow(() => engine.inventory.add('film', 1, { data: { roll: 9 }, silent: true }));
         return { ok, list, warns: warns.filter(w => w.includes('dropped a saved entry')).length, seq: engine.inventory._seq };
       });
       check('only well-formed rows are loaded', r.list.join() === 'film:3,film#7:1', JSON.stringify(r));

@@ -15,7 +15,7 @@ export const specs = [
         const t0 = E.time.now('real'), before = E.stateApplied;
         // start 之后才加：所有区块重排（terrain 不再 ready），以前无头页面没人跑帧，就一直卡住
         E.vegetation.define('late-box', { geometry: new T.BoxGeometry(0.3, 0.6, 0.3), positions: [[1, 1], [-2, 3], [4, -1], [0, -5]] });
-        const right = { applied: E.stateApplied, terrainReady: E.terrain.isReadyAround({ x: 0, z: 0 }) };
+        const right = { applied: E.stateApplied, terrainReady: E.terrain.readyAt({ x: 0, z: 0 }) };
         const t1 = performance.now();
         while (!E.stateApplied && performance.now() - t1 < 30000) await new Promise(res => setTimeout(res, 50));
         let inst = 0; for (const c of E.terrain.chunks.values()) inst += E.vegetationDraw.mesh(c, 'late-box')?.count ?? 0;

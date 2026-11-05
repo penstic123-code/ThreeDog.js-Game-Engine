@@ -23,12 +23,13 @@ export const specs = [
         C.load({ 'g-waves': [{ n: 8 }] });   // later loads still know the kind
         return {
           got: got.join(), unknown: err(() => C.load({ enemies: {} })),
-          clash: err(() => C.load({ rules: { kinds: { npcs: { load() {} } } } })), noLoad: err(() => C.load({ rules: { kinds: { loot: { desc: 'x' } } } })),
+          clash: err(() => C.load({ rules: { kinds: { npcs: { load() {} } } } })), noLoad: err(() => C.load({ rules: { kinds: { loot: { desc: 'x' } } }, loot: { a: 1 } })), badLoad: err(() => C.load({ rules: { kinds: { gold: { load: 'x' } } } })),
         };
       });
       check('[guard] a registered kind gets its data (and the content api); a later load without rules still finds it', r.got === '2:function,1:function', r.got);
       check('an unregistered content name throws, naming kinds in content/rules.js', /unknown content "enemies".*kinds: \{ enemies:/.test(r.unknown || ''), r.unknown);
-      check('a kind clashing with an engine file, or without load, throws', /"npcs" is an engine content file name/.test(r.clash || '') && /"loot" has no load/.test(r.noLoad || ''), JSON.stringify(r));
+      check('a kind clashing with an engine file, or with a load that is no function, throws; a kind with no load loads (the game imports its file itself)',
+        /"npcs" is an engine content file name/.test(r.clash || '') && /"gold": load must be a function/.test(r.badLoad || '') && !r.noLoad, JSON.stringify(r));
     },
   },
   {
@@ -36,7 +37,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const C = engine.content, old = engine.ground, p = engine.player.position, x = p.x + 40, z = p.z + 40;
         // two storeys everywhere: ground floor at 0, upper floor at 6 (the top layer without a reference height)
         engine.setGround({ height: (_x, _z, refY) => refY !== undefined && refY < 5 ? 0 : 6 });
@@ -54,7 +55,7 @@ export const specs = [
         C.load({ pickups: [{ id: 'g-pk-low', item, x: x + 3, z, floor: 0 }, { id: 'g-pk-top', item, x: x + 4, z }] });
         out.pickups = [engine.world.get('g-pk-low')?.position.y - lift, engine.world.get('g-pk-top')?.position.y - lift].map(v => Math.round(v * 100) / 100).join('/');
         engine.ground = old;
-        engine._resume();
+        engine._unhalt();
         return out;
       });
       check('without floor / y a position stays { x, z } (top layer, as before)', !r.plain.includes('"y"'), r.plain);
@@ -68,7 +69,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const Q = engine.quests, V = engine.vars, out = {}, said = [], evs = [];
         const p = engine.player.position, A = [p.x + 20, 0, p.z], B = [p.x - 20, 0, p.z];
         const subs = ['quest:part', 'quest:fail', 'quest:done'].map(n => engine.events.on(n, d => evs.push(`${n}:${d.id}${d.part !== undefined ? '#' + d.part : ''}`)));
@@ -106,7 +107,7 @@ export const specs = [
           try { Q.define('g-bad', def); errs.push(null); } catch (e) { errs.push(e.message); }
         out.errs = errs;
         Q.notify = notify; for (const s of subs) s.remove();
-        engine._resume();
+        engine._unhalt();
         out.said = said.join(); out.evs = evs.join();
         return out;
       });
@@ -125,7 +126,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const I = engine.interactions, inp = engine.input, pl = engine.player, p = pl.position, used = [];
         pl.face(0);   // facing +z
         const front = I.add([p.x, p.y, p.z + 2], { id: 'g-front', label: 'front', onUse: () => used.push('front') });
@@ -154,7 +155,7 @@ export const specs = [
         try { new I.constructor(engine, { pick: 'closest' }); } catch (e) { bad = e.message; }
         out.bad = bad;
         for (const h of [front, back, far, harvest]) h.remove();
-        engine._resume();
+        engine._unhalt();
         out.used = used.join();
         return out;
       });
@@ -172,7 +173,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const I = engine.interactions, p = engine.player.position, out = {};
         out.def = engine.actor === 'player' && engine.actorPosition() === engine.player.position;
         const cx = p.x + 30, cz = p.z + 30, cy = engine.surface(cx, cz);
@@ -195,7 +196,7 @@ export const specs = [
         out.back = I.pick()?.id;
         for (const h of [atCart, atPlayer, zone, op]) h.remove();
         engine.ops.allow(() => engine.world.remove('g-cart'));
-        engine._resume();
+        engine._unhalt();
         return out;
       });
       check('default actor is the player', r.def && r.player === 'g-at-player' && r.enteredAsPlayer === 0, JSON.stringify(r));
@@ -209,7 +210,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const Cal = engine.calendar.constructor, made = [];
         // extra Calendars, only to read them (not installed): they view a clock of their own that the test moves, as the time source would
         const clk = { now: 0 }, view = Object.create(engine, { clock: { value: clk } });
@@ -250,7 +251,7 @@ export const specs = [
     async run({ check, ev }) {
       const { presets } = await import('../../presets.js');   // node side: the page gets the plain table as an argument
       const r = await ev(temperate => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const Weather = engine.weather.constructor, out = {};
         {
           const w = new Weather(engine, { types: { clear: { cloud: 0.1 }, dust: { fog: 0.3, wind: 2, heat: 1 } } });

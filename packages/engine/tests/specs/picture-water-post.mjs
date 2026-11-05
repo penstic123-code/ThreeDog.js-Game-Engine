@@ -16,20 +16,22 @@ export const specs = [
       const r = await ev(page(() => {
         const out = {};
         out.moved = [err(() => sky({ layers: [] })), err(() => sky({ skybox: 'pano' }))];
-        out.kept = [err(() => sky({ time: '12:00', moonSize: 900, dim: { stars: false } }))];
+        out.kept = [err(() => sky({ time: '12:00', dim: { stars: false } }))];
+        out.gone = ['moonSize','starScale','gradientCurve','orbitTilt','orbitSway'].map(k => err(() => sky({ [k]: 1 })));
         // sky: start values land on the dome; engine.uniforms, plain fields and keyframes() are live
-        const s = make([sky({ moonSize: 900, dim: { stars: false } })]), U = s.sky.uniforms, EU = s.uniforms;
+        const s = make([sky({ dim: { stars: false } })]), U = s.sky.uniforms, EU = s.uniforms;
         s.sky.update(s.focus);
         out.s0 = [EU.uMoonSize.value, U.uMoonSize === EU.uMoonSize, U.uStarCloudDim.value];
-        EU.uMoonSize.value = 500; EU.uCurve.value = 0.3; s.sky.orbit.tilt = 0.1; s.sky.dim.stars = true; s.sky.update(s.focus);
-        out.s1 = [U.uMoonSize.value, U.uCurve.value, U.uStarCloudDim.value];
+        EU.uMoonSize.value = 500; EU.uSkyCurve.value = 0.3; s.sky.orbit.tilt = 0.1; s.sky.dim.stars = true; s.sky.update(s.focus);
+        out.s1 = [U.uMoonSize.value, U.uSkyCurve.value, U.uStarCloudDim.value];
         out.sBad = err(() => s.sky.keyframes([[0.5, 0, 0, 0, 1, 1]]));
         s.dispose();
         return out;
       }));
       check('removed sky options throw naming the call', r.moved[0].includes('engine.sky.layer(name, layer)') && r.moved[1].includes('engine.sky.replace(skybox)'), JSON.stringify(r.moved));
+      check('the five start values that only duplicated a uniform / field throw naming where to write it', r.gone.every((m, i) => m.includes(['uMoonSize', 'uStarScale', 'uSkyCurve', 'orbit.tilt', 'orbit.sway'][i])), JSON.stringify(r.gone));
       check('structural options stay (sky time and start values)', r.kept.join('') === '', JSON.stringify(r.kept));
-      check('sky: start values are on the dome through engine.uniforms; .value and plain fields move it; bad keyframes throw', r.s0.join() === '900,true,0'
+      check('sky: start values are on the dome through engine.uniforms; .value and plain fields move it; bad keyframes throw', r.s0.join() === '1400,true,0'
         && r.s1.join() === '500,0.3,1' && /keyframes/.test(r.sBad), JSON.stringify([r.s0, r.s1, r.sBad]));
     },
   },

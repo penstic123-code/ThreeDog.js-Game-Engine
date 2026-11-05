@@ -46,12 +46,12 @@ export const specs = [
         const nearest = torches.map((t, i) => ({ i, d: Math.abs(-i * 5 - -100) })).sort((a, b) => a.d - b.d).slice(0, 4).map(o => o.i);
         for (const i of nearest) near.push({ i, weight: torches[i].weight, light: !!torches[i].light, glow: halos[i].material.emissiveIntensity });
         const far = { weight: torches[0].weight, glow: halos[0].material.emissiveIntensity };
-        const usage = P.usage(), d = engine.describe().lightPool;
+        const usage = P.stats, d = engine.describe().lightPool;
         // put the nearest torch out: its light moves to another torch, still 4 lights in the scene
         torches[nearest[0]].set({ intensity: 0 }); engine.step(0.6);
-        const out = { weight: torches[nearest[0]].weight, lit: P.usage().lit };
+        const out = { weight: torches[nearest[0]].weight, lit: P.stats.lit };
         torches[nearest[1]].remove(); torches[nearest[1]].remove(); engine.step(0.6);
-        const removed = { sources: P.usage().sources, glow: halos[nearest[1]].material.emissiveIntensity };
+        const removed = { sources: P.stats.sources, glow: halos[nearest[1]].material.emissiveIntensity };
         const end = { programs: info.programs.length, lights: lightSetup(engine.scene) };
         return { start, programs: [...programs], lights: [...lights], near, far, usage, d, out, removed, end };
       } catch (err) { return { err: String(err.stack) }; } });
@@ -61,7 +61,7 @@ export const specs = [
       check('walking past every torch: the scene light setup never changes', r.lights.length === 1 && r.lights[0] === r.start.lights && r.end.lights === r.start.lights, JSON.stringify(r.lights));
       check('the 4 torches nearest the camera hold the 4 lights at full strength, their stand-in glow faded to 0', r.near.every(n => n.light && n.weight === 1 && n.glow === 0), JSON.stringify(r.near));
       check('a far torch has no light and its stand-in glows at its own value (2)', r.far.weight === 0 && r.far.glow === 2, JSON.stringify(r.far));
-      check('usage() and describe().lightPool report 40 sources, 4 lit', r.usage.sources === 40 && r.usage.lit === 4 && r.usage.slots.length === 4 && r.d.lights === 4 && r.d.lit === 4 && r.d.sources === 40, JSON.stringify({ u: r.usage, d: r.d }));
+      check('stats and describe().lightPool report 40 sources, 4 lit', r.usage.sources === 40 && r.usage.lit === 4 && r.usage.slots.length === 4 && r.d.lights === 4 && r.d.lit === 4 && r.d.sources === 40, JSON.stringify({ u: r.usage, d: r.d }));
       check('a torch set to intensity 0 gives its light away; all 4 lights still lit by others', r.out.weight === 0 && r.out.lit === 4, JSON.stringify(r.out));
       check('remove() (twice is safe) unregisters and puts the stand-in back', r.removed.sources === 39 && r.removed.glow === 2, JSON.stringify(r.removed));
     },
@@ -101,6 +101,29 @@ export const specs = [
       });
       check('many-lights warning names lightPool', /\[many-lights\]/.test(r) && /lightPool/.test(r), r);
       check('the warning appears once', (r.match(/\[many-lights\]/g) || []).length === 1, r);
+    },
+  },
+  {
+    // A game light next to the still-lit placeholder lights adds up: one dev warning that names the fix; none with lights:false
+    name: '[guard] a game light beside the placeholder lights warns once and names lights: false; no warning with lights: false',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk, THREE } = threedogThreads, T = threedogThreads.all, warns = [];
+        const w = console.warn; console.warn = (...a) => { warns.push(String(a[0])); w.apply(console, a); };
+        const hit = () => warns.filter(m => /placeholder lights/.test(m)).length;
+        const out = {};
+        try {
+          const A = mk(T.createEngine, 'adds-up-a', { lights: false });
+          A.scene.add(new THREE.PointLight(0xffffff, 1)); await A.start(); A.step(1 / 30); out.off = hit(); A.dispose();
+          const B = mk(T.createEngine, 'adds-up-b');
+          B.scene.add(new THREE.PointLight(0xffffff, 1)); B.scene.add(new THREE.PointLight(0xffffff, 1)); await B.start(); B.step(1 / 30); B.step(1 / 30);
+          out.on = hit(); out.text = warns.find(m => /placeholder lights/.test(m)) ?? ''; B.dispose();
+        } finally { console.warn = w; }
+        return out;
+      });
+      check('lights: false -> no warning', r.off === 0, JSON.stringify(r));
+      check('placeholders on -> exactly one warning that names lights: false', r.on === 1 && /lights: false/.test(r.text), JSON.stringify(r));
     },
   },
 ];

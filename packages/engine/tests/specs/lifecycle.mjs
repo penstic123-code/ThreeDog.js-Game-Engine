@@ -26,13 +26,14 @@ export const specs = [
         out.loading = E.phase;
         // what the real-time loop does each frame on a real browser (headless never runs it): turn real time into fixed steps
         for (let i = 0; i < 30; i++) E._catchUp(0.1);
-        E.step(0.5, { render: false });   // headless scenario settling steps during loading too
-        out.during = { tick: E.tick, clock: E.clock.now, elapsed: E.time.now('real'), ...seen };
+        const { warns } = await __t.warns(() => E.step(0.5, { render: false }));   // a load nobody awaited: frame hooks only, and dev says so
+        out.stepWarn = warns.some(w => w.includes('[step-during-load]'));
+        out.during = { tick: E.time.tick, clock: E.clock.now, elapsed: E.time.now('real'), ...seen };
         release(); await p;
         out.after = E.phase;
-        out.atReady = { tick: E.tick, elapsed: E.time.now('real') };
+        out.atReady = { tick: E.time.tick, elapsed: E.time.now('real') };
         E.step(0.1, { render: false });
-        out.played = { ...seen, tick: E.tick };
+        out.played = { ...seen, tick: E.time.tick };
         E.dispose();
         out.disposed = E.phase;
         return out;
@@ -40,6 +41,7 @@ export const specs = [
       check('phase goes constructed -> loading -> running -> disposed', r.constructed === 'constructed' && r.loading === 'loading' && r.after === 'running' && r.disposed === 'disposed', JSON.stringify(r));
       check('while loading: no tick, clock, elapsed or onFixed / module fixed hook, on the real-time path and in step()',
         r.during.tick === 0 && r.during.clock === 0 && r.during.elapsed === 0 && r.during.onFixed === 0 && r.during.fixedSlow === 0 && r.during.fixedLate === 0, JSON.stringify(r));
+      check('engine.step during an unawaited start() warns in dev', r.stepWarn, JSON.stringify(r));
       check('a module whose init has not run gets no frame hook either', r.during.frameLate === 0, JSON.stringify(r));
       check('the game opens at tick 0 and fixed steps run once ready', r.atReady.tick === 0 && r.atReady.elapsed === 0 && r.played.fixedSlow > 0 && r.played.onFixed > 0, JSON.stringify(r));
     },

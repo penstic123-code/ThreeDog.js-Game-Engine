@@ -54,10 +54,10 @@ export async function exportSaveFile(s, slot, { files = true } = {}) {
   const list = [];
   if (files) for (const b of await s.store.blobs()) list.push({ group: b.group, id: b.id, at: b.at, meta: b.meta, type: b.blob.type, url: await toDataURL(b.blob) });
   // splice the world save's JSON text in directly instead of parsing it again (halves memory at tens of MB)
-  const head = `{"threedog":"save","format":${FILE_FORMAT},"game":${JSON.stringify(s.prefix)},"slot":${JSON.stringify(slot)},"savedAt":${s._meta.get(slot)},"data":`;
+  const head = `{"threedog":"save","format":${FILE_FORMAT},"game":${JSON.stringify(s._prefix)},"slot":${JSON.stringify(slot)},"savedAt":${s._meta.get(slot)},"data":`;
   const blob = new Blob([head, json, ',"files":', JSON.stringify(list), '}'], { type: 'application/json' });
   const a = document.createElement('a'), url = URL.createObjectURL(blob);
-  a.href = url; a.download = `${s.prefix.replace(/-save-$/, '')}-${slot}-${new Date().toISOString().slice(0, 10)}.json`;
+  a.href = url; a.download = `${s._prefix.replace(/-save-$/, '')}-${slot}-${new Date().toISOString().slice(0, 10)}.json`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);   // presentation: release only after the browser has started the download
   return true;
@@ -90,7 +90,7 @@ export async function importSaveFile(s, file, slot = 'imported') {
   if (r !== true) return r === 'write' ? null : refuse(STRINGS.bad.replace('{why}', r));   // a failed write already showed its toast
   let ok = true;
   for (const [p, blob] of blobs) {
-    try { await s.queue(() => s.store.putBlob(p.group, p.id, blob, p.meta, p.at)); } catch (e) { ok = false; s._fail(e); }
+    try { await s._enqueue(() => s.store.putBlob(p.group, p.id, blob, p.meta, p.at)); } catch (e) { ok = false; s._fail(e); }
   }
   if (!ok) return null;
   s.engine.events.emit('save:imported', slot);

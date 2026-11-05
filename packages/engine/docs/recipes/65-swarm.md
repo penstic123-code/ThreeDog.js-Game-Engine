@@ -37,8 +37,8 @@ The test: if game rules read the thing, it is a swarm; if only eyes do, it is on
 ## The id rule: handles and rows
 Two numbers, never mixed up.
 
-- A **handle** is what `spawn` returns and what `d.id[i]` holds. It names one object for as long as it lives and never names another afterwards. Keep these:
-  a turret's target, a homing missile's prey. A handle in a save stays good after loading that save.
+- A **handle** is what `spawn` returns and what `d.id[i]` holds. It names one object for as long as it lives and never names another afterwards. Keep these, in a variable or in a
+  field of any swarm: a turret's target, a homing missile's prey. A handle in a save stays good after loading that save.
 - A **row** `i` is where the object sits now: what `onStep` and `near` pass, what `d.x[i]` reads. Removing an object moves the last row into the gap, so a
   row means something only inside one callback or one plain loop. Never store a row.
 
@@ -120,10 +120,9 @@ crops.onStep((d, i, dt) => {
   swarm with objects at start returns to them on `engine.session.newGame()`. A saved field added in a later game version starts at its default.
 - Saves write every number of every object: fine for crops, wasteful for 50,000 bullets, which is why it is opt-in.
 - `capacity` is fixed and all memory is taken at once. A full swarm refuses the spawn: `spawn` returns -1, `dropped` counts it, one `[swarm-full]` warning names it, and `free(-1)` is
-  harmless. `describe().swarm`, `engine.explain({ swarm: 'name' })` and `engine.counts().swarm` show the numbers. All columns are `Float32Array`: whole numbers stay exact up to 16,777,216.
+  harmless. `describe().swarm`, `engine.explain({ swarm: 'name' })` and `engine.counts().swarm` show the numbers. Your own `fields` are `Float64Array`, so a handle kept in one stays exact. `x`, `y`, `z` and `r`, `g`, `b` are `Float32Array`: fine for a position or a colour, not for a handle.
 - `swarm.dispose()` removes the mesh and its GPU buffers; so do `engine.unuse('swarm')` and `engine.dispose()`. Geometry and material stay yours to dispose.
 - A swarm is for one shape. Three enemy kinds are three swarms, or one swarm when they differ only in colour and scale.
-- Numbers: `PERF.md` "Swarm".
 
 ## Pure picture: GPU compute
 When nothing in the rules reads the things, and the game runs on WebGPU, they need not touch the CPU at all. This is plain three.js with no engine API. It needs a real

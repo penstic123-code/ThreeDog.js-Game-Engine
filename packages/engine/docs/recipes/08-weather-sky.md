@@ -2,13 +2,13 @@
 
 **In this recipe**: 1. Switching weather · 2. The game's own weather table · 3. Sky colors, sun, stars (and the sky color for your own shader) · 4. Time and brightness (how a game's value and the weather multiply) · 5. Verify · 6. Day and night in game logic · 7. Wet roads
 
-Modules: `sky()` (draws the dome from `engine.calendar`, sun and moon, and computes the signals; it writes no light, fog or exposure, those are your `picture/` code, recipe 62; the time itself is `calendar()`, recipe 06), `weather()` (needs sky; the game's weather types, smooth transitions, rain and snow,
+Modules: `sky()` (draws the dome from `engine.calendar`, sun and moon, and computes the signals; it writes no light, fog or exposure, those are your `picture/` code, recipe 62; the time itself is `calendar()`, recipe 06), `weather()` (the game's weather types, smooth transitions, rain and snow,
 lightning; their picture is `weather({ rain, snow, lightning })`, recipe 44). The engine has only a neutral fallback.
 
 ```js
 engine.use(sky({ keyframes: ROWS, sunSize: 600, clouds: { coverage: 0.6 }, dim: { stars: false } }));   // start values
-engine.uniforms.uSunPower.value = 4;        // sun, moon, star and dome cloud numbers: engine.uniforms, the dome's own objects, on both renderers
-engine.uniforms.uCloudCover.value = 0.8;    // also uSunSize uSunGlow uMoonSize uMoonPower uMoonColor uStars uStarScale uCurve uSkyCloudScale uSkyCloudSpeed uCloudOpacity uCloudSoft uCloudColor uCloudShade
+engine.uniforms.uSunBrightness.value = 4;        // sun, moon, star and dome cloud numbers: engine.uniforms, the dome's own objects, on both renderers
+engine.uniforms.uCloudCover.value = 0.8;    // also uSunSize uSunGlow uMoonSize uMoonBrightness uMoonColor uStars uStarScale uSkyCurve uSkyCloudScale uSkyCloudSpeed uCloudOpacity uCloudSoft uCloudColor uCloudShade
 engine.sky.top = boss ? '#400' : null;      // plain fields, read each frame: top, horizon (color over the keyframes, null = keyframes), orbit.tilt / sway, dim.tint / stars
 engine.sky.backdrop = 0x335577;             // one flat color in place of the dome; null gives the dome back
 engine.sky.keyframes(NIGHT_ROWS);           // the day's rows, live
@@ -19,11 +19,11 @@ engine.sky.replace(mySky);                  // skybox name | Texture | CubeTextu
 mySky.material.uniforms.sunPosition = engine.uniforms.uSunDir;   // the same Vector3, refreshed every frame
 ```
 
-WebGPU (recipe 56): same dome as a node material. Hooks take `{ glsl, tsl: (ctx) => vec4 }` ([52](52-around-the-picture.md#tsl-forms)); GLSL alone throws `[webgpu-needs-tsl]`. Own sky: three's `SkyMesh` via `engine.sky.replace`.
+WebGPU (recipe 56): same dome as a node material. Hooks take `{ glsl, tsl: (ctx) => vec4 }` ([52](52-around-the-picture.md#tsl-forms)); GLSL alone throws `[webgpu-needs-tsl]`. Own sky: three's `SkyMesh` via `engine.sky.replace`, or a dome of your own with a node material (the `ShaderMaterial` below is the WebGL form): a `MeshBasicNodeMaterial` with `side: THREE.BackSide`, `fog: false`, `depthWrite: false`, `depthTest: false`, and a `colorNode` built on the view direction (world position minus camera position, normalized), on a sphere that follows the camera.
 
 The sky follows one contract: **inputs** time, weather, season,
 **outputs** the dome and the background, plus the shared `engine.uniforms`
-(`uSunDir`, `uSunColor`, `uDaylight`, `uTimeOfDay`, `uSkyTop`, `uSkyHorizon`, `uWind`, `uCloud`, `uRain`, `uSnow`, `uWeatherLight`, `uWeatherFog` (the weather state writes the last six every frame), season tints) and events (`day:start`, `season:change`, `weather:change`) that wind,
+(`uSunDir`, `uSunColor`, `uDaylight`, `uTimeOfDay`, `uSkyTop`, `uSkyHorizon`, `uWind`, `uWeatherCloud`, `uRain`, `uSnow`, `uWeatherLight`, `uWeatherFog` (the weather state writes the last six every frame), season tints) and events (`day:start`, `season:change`, `weather:change`) that wind,
 rain and vegetation read. The keyframes are only the default implementation: `engine.sky.replace` swaps the whole dome and everything else keeps running (the whole sky module is
 `engine.use(mySky(), { replaces: 'sky' })`).
 
@@ -34,7 +34,7 @@ then on **never moves, scales or writes it**: it does not follow the camera, is 
 your own must, on its own:
 
 - **contain the camera and stay inside the far plane**: either a fixed sphere big enough for everywhere the camera goes (radius < `camera.far`,
-  which the engine pulls in to the view range unless you take it: `engine.view.manual('far')`), or one that follows the camera; or skip
+  which the engine pulls in to the view range unless you take it: `engine.autoView.manual('far')`), or one that follows the camera; or skip
   depth altogether as below, so the radius no longer matters;
 - **compute the view direction per pixel from world space**: pass `worldPosition - cameraPosition` (linear, safe to interpolate) as the
   varying and do every non-linear step (normalize, `atan`, projecting onto a cloud plane, noise) in the fragment shader. A direction taken from
@@ -101,13 +101,13 @@ With openWorld the weather module is already installed; pass its options through
 `[time 0-1, zenith color, horizon color, sun color, ambient intensity]`, interpolated by time; the rows
 run from time 0 to time 1 (both midnight: the first row at 0, the last at 1 with the same values), else the sky throws. What each column drives
 (and which light carries the moonlight) is on `keyframes` in `SkyPictureOptions`, `types/world.d.ts`;
-also `sunSize sunGlow moonSize starDensity clouds` (defaults and ranges there too; `hoursPerDay` is timing, so it is a
+also `sunSize sunGlow starDensity clouds` (defaults and ranges there too; `hoursPerDay` is timing, so it is a
 `calendar()` option, not a sky key). `sky()` takes `time` and the dome's start values: all of these are `sky({ ... })` start values; at run time use the entries at the top of this page. `sky({ sun | hemisphere | fog })`
 throw naming what to write in your `picture/` code.
 **Day and night brightness** is your `picture/` code: the sky lights nothing. Read `uDaylight` and write your own lights (recipe 62), and check with `shot --time 12:00` and
 `--time 22:00`. The keyframes only color the dome; the ambient column also dims a skybox and the weather's sky tint. `engine.sky.environment({ into: engine.scene })` builds an environment map
 from the dome (outdoor reflections show the sky, not a studio; it darkens by itself), recipe 34.
-The look of rain and snow is `weather({ rain, snow })` (shape, density, shaders; the game's own particles with `engine.weather.define`: recipe 44).
+The look of rain and snow is `weather({ rain, snow })` (shape, density, shaders; the game's own particles with `engine.weather.defineField`: recipe 44).
 
 ### Sky color for my shader (horizon color, zenith color)
 A shader of your own that should meet the sky (a sea fading to the horizon, distant cards, a reflection) reads the colors the sky draws this frame:

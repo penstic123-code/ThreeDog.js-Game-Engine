@@ -4,7 +4,7 @@
 // Save key world (runtime records whole, initial records only changes and removals, see the top of World.js); emits world:load after loading. The loading screen waits for world.ready (nearby models all built). describe() reports world.total / byKind / presented, and nearby records with a name go into nearby.
 import { recordSource } from './thingSource.js';
 import { World } from './World.js';
-import { WORLD_MIGRATE } from './persist.js';
+import { WORLD_MIGRATE, worldChanges } from './persist.js';
 import { worldExplain } from './explain.js';
 import { closest, warnOnce, DEV } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
@@ -43,7 +43,7 @@ export function world(opts = {}) {
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.world': '世界数据' }, en: { 'module.world': 'world data' } });
       w = new World(e, opts);
       e.stream.player.at(() => w.center);   // the default stream source sits where gameplay is simulated (world.anchor, else the player)
-      e.stream.readyCheck('world', s => s.detail !== 'full' || w.ready);
+      e.stream.addReadyCheck('world', s => s.detail !== 'full' || w.ready);
       e.saves.register('world', { atomic: true, version: 5, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d), checkNewGame: codePlaced });
       e._things.addSource(recordSource(w));   // engine.thing / thing.set / the shared id space reach the records through this
       e.explainWith(worldExplain);
@@ -67,7 +67,7 @@ export function world(opts = {}) {
       return w;
     },
     isReady() { return w.ready; },
-    afterLoad(e) { if (e.paused) w.refresh(); return w.whenReady; },   // a paused engine has no frames to build in: build now
+    afterLoad(e) { if (e.halted) w.refresh(); return w.whenReady; },   // a paused engine has no frames to build in: build now
     counts() { let views = 0; for (const id of w.records.keys()) if (w.view(id)) views++; return { records: w.records.size, views }; },   // engine.counts().world
     fixed(dt) { w.fixed(dt); },
     skip(dt, e, done) { w._s.skip(dt, done); },
@@ -76,9 +76,15 @@ export function world(opts = {}) {
       const byKind = {};
       for (const r of w.records.values()) byKind[r.kind] = (byKind[r.kind] || 0) + 1;
       // with a model, report by the model (merged with the interaction and other modules' reports on the same object into one entry); skip records of another zone (level)
-      for (const r of w.query({ near: ctx.center, radius: ctx.radius })) if (r.name != null && w._inZone(r)) ctx.near(w.view(r.id) ?? r.position, { id: r.id, name: r.name, kind: r.kind }, true);
+      // a record without a name (props, template instances) is listed by its id, nearest 8 only: 'kind' shows what it is, and the list is capped so a thick prop field cannot push NPCs out of nearby
+      let unnamed = 0;
+      for (const r of w.query({ near: ctx.center, radius: ctx.radius }).sort((a, b) => Math.hypot(a.position.x - ctx.center.x, a.position.z - ctx.center.z) - Math.hypot(b.position.x - ctx.center.x, b.position.z - ctx.center.z))) {
+        if (!w.inZone(r) || (r.name == null && unnamed >= 8)) continue;
+        if (r.name == null) unnamed++;
+        ctx.near(w.view(r.id) ?? r.position, { id: r.id, name: r.name ?? r.id, kind: r.kind }, true);
+      }
       const orphans = w.orphans();
-      return { total: w.records.size, byKind, presented: w._v.map.size, zone: w.zone, ...(orphans.length && { orphans: orphans.slice(0, 20) }) };
+      return { total: w.records.size, byKind, presented: w._v.map.size, zone: w.zone, ...worldChanges(w), ...(orphans.length && { orphans: orphans.slice(0, 20) }) };
     },
     dispose() { w.dispose(); },
   };

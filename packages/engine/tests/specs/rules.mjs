@@ -8,7 +8,7 @@
 function roundTrip() {
   const stable = v => JSON.stringify(v, (k, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(key => [key, x[key]])) : x));
   engine.timeline?.skip?.();
-  engine.pause();
+  engine.haltLoop();
   // Build state (skipped if the module is not installed)
   try { engine.vars.setFlag('r3.flag', true); engine.vars.bump('r3.count', 2); } catch { /* no vars */ }
   try { const id = engine.inventory && [...(engine.inventory.defs?.keys?.() ?? [])][0]; if (id) engine.inventory.add(id, 1, { silent: true }); } catch { /* no inventory */ }

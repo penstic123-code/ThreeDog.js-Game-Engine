@@ -34,7 +34,7 @@ export const checkMethods = {
    * or a test, not in the middle of a real one. A diff usually means a module that keeps its own time lacks (or has a wrong) skip hook.
    * @param {number} seconds game seconds, > 0
    * @param {{ ignore?: string[] }} [opts] ignore: state paths (or their prefix, e.g. 'random') not to compare
-   * Refuses (failure: { ok: false, code: 'frozen' | 'rate0', facts, nextActions, diffs }) while gameplay is frozen or paused, or the calendar is stopped.
+   * Refuses (failure: { ok: false, code: 'frozen' | 'rate0', facts, nextActions, diffs }) while gameplay is frozen, or the calendar is stopped.
    * @returns {Promise<{ ok: boolean, code?: string, diffs: { path: string, a: any, b: any }[] }>} a = after skip, b = after stepping
    * @example const r = await engine.checkSkip(600); if (!r.ok) console.log(r.diffs);
    */

@@ -26,11 +26,16 @@ const valid = it => it && typeof it === 'object' && typeof it.type === 'string' 
 // Browser side: a plain <script> (not a module), running before all page code; sends a merged batch every 300 ms
 const CLIENT = `(() => {
   const q = new Map();
-  const fmt = a => a instanceof Error ? String(a) : typeof a === 'object' && a !== null ? (() => { try { return JSON.stringify(a).slice(0, 500); } catch { return String(a); } })() : String(a);
+  // a rejection reason that is not an Error used to print as {"isTrusted":true} (an Event) or {} : name what it is and where it came from, so the log says what failed
+  const fmt = a => a instanceof Error ? (a.message ? String(a) : (a.name || 'Error') + ' (empty message)') : typeof a === 'object' && a !== null ? (() => {
+    const kind = (a.constructor && a.constructor.name) || 'object', t = a.target || a.currentTarget, where = t && (t.src || t.href || t.responseURL || t.url);
+    if (typeof Event !== 'undefined' && a instanceof Event) return kind + ' type=' + a.type + (where ? ' ' + where : '') + ' (not an Error: no message)';
+    try { const j = JSON.stringify(a).slice(0, 500); return j === '{}' ? kind + ' (no readable fields)' : j; } catch { return String(a); }
+  })() : String(a);
   const push = (type, msg, stack, src) => {
     const k = type + msg + (src || '');
     const it = q.get(k); if (it) { it.count++; return; }
-    q.set(k, { type, msg: String(msg).slice(0, 2000), stack: stack ? String(stack).slice(0, 4000) : '', src: src || '', page: location.pathname + location.search, t: Date.now(), count: 1, tick: window.engine && Number.isFinite(window.engine.tick) ? window.engine.tick : undefined });
+    q.set(k, { type, msg: String(msg).slice(0, 2000), stack: stack ? String(stack).slice(0, 4000) : '', src: src || '', page: location.pathname + location.search, t: Date.now(), count: 1, tick: Number.isFinite(window.engine?.time?.tick) ? window.engine.time.tick : undefined });
   };
   const flush = () => {
     if (!q.size) return;
@@ -63,7 +68,7 @@ export const mergeKey = (it, src) => it.type === 'warn' && WEBGPU_FALLBACK.test(
 const LABEL = { error: 'error', rejection: 'Promise rejection', resource: 'resource load failure', warn: 'warning' };
 const RED = s => `\x1b[31m${s}\x1b[0m`, YELLOW = s => `\x1b[33m${s}\x1b[0m`, DIM = s => `\x1b[2m${s}\x1b[0m`;
 
-// URL → project path: http://localhost:5173/demo/city.js?t=1:42:7 → packages/engine/examples/city.js:42:7
+// URL → project path: http://localhost:5173/examples/city.js?t=1:42:7 → packages/engine/examples/city.js:42:7
 const shortUrl = u => u.replace(/https?:\/\/[^/\s]+\//g, '').replace(/\?[^:\s)]*(?=:\d)/g, '');
 const SKIP = /threedog-error-relay|@vite\/client/;
 const FRAME = /(https?:\/\/[^\s)]+?):(\d+):(\d+)/;

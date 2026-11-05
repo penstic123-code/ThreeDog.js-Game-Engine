@@ -2,12 +2,13 @@
 // A neutral scene (gray ground, a camera looking down at a 80×60 m field, the engine's default lights with the sun shadow off) inside createEngine
 // (headless, pixel ratio 1, adaptive resolution off), so the numbers are the engine's real render path, not a bare renderer.
 //   window.stress.set(axis, n)    replace the load with n units of one axis (AXES below); returns what was built
-//   window.stress.measure(frames) median per-frame cpu / gpu / frame ms, see measure()
+//   window.stress.measure(frames) median per-frame cpu / gpu / frame ms, see meter() in @threedog/tools/stress-load
 //   ?axis=reference               the fixed mixed scene of the alarm spec (stress.reference())
 // Plain three.js materials on purpose: this page measures the GPU and the engine loop, not a style.
 import * as THREE from 'three';
 import { createEngine } from '../../index.js';
 import * as postEffects from '@threedog/post-effects';
+import { field, boxes as boxesOn, tiles, instances, lights as lightsOn, freeLoad, meter } from '@threedog/tools/stress-load';
 
 const canvas = document.getElementById('view');
 const mixers = [];
@@ -24,17 +25,13 @@ ground.receiveShadow = true; engine.scene.add(ground);
 
 let load = new THREE.Group(), undo = [];
 engine.scene.add(load);
-/** Positions spread over the visible field (x ±40, z ±30), deterministic */
-const field = (i, n) => { const side = Math.ceil(Math.sqrt(n)), u = (i % side + 0.5) / side, v = (Math.floor(i / side) + 0.5) / side; return [u * 80 - 40, v * 60 - 30]; };
 const boxGeo = new THREE.BoxGeometry(1, 1, 1), boxMat = gray(0xa0a0a0);
-function boxes(n, to = load) {
-  for (let i = 0; i < n; i++) { const m = new THREE.Mesh(boxGeo, boxMat), [x, z] = field(i, n); m.position.set(x, 0.5, z); m.castShadow = m.receiveShadow = true; to.add(m); }
-}
+const boxes = n => boxesOn(load, n, boxGeo, boxMat, true);
 function clear() {
   for (const f of undo) f();
   undo = [];
   mixers.length = 0;
-  load.traverse(o => { if (o.geometry && o.geometry !== boxGeo) o.geometry.dispose(); if (o.isLight) o.shadow?.map?.dispose(); if (o.isSkinnedMesh) o.skeleton.dispose(); });
+  freeLoad(load, boxGeo);
   engine.scene.remove(load);
   load = new THREE.Group(); engine.scene.add(load);
 }
@@ -61,16 +58,6 @@ function characters(n) {
     const mx = new THREE.AnimationMixer(m); mx.clipAction(sway).play(); mx.setTime(i * 0.37 % 1); mixers.push(mx);
   }
 }
-function lights(n, { shadow = false } = {}) {
-  for (let i = 0; i < n; i++) {
-    const [x, z] = field(i, n), spot = shadow || i % 2 === 1;
-    const l = spot ? new THREE.SpotLight(0xffffff, 40, 25, 0.7, 0.4) : new THREE.PointLight(0xffffff, 30, 15);
-    l.position.set(x, 6, z);
-    if (spot) { l.target.position.set(x, 0, z); load.add(l.target); }
-    if (shadow) { l.castShadow = true; l.shadow.mapSize.set(1024, 1024); }
-    load.add(l);
-  }
-}
 const ALL_POST = () => [postEffects.bloom({ enabled: true }), postEffects.vignette({ enabled: true }), postEffects.grain({ enabled: true }),
   postEffects.lut({ enabled: true, saturation: 1.1 }), postEffects.chromatic({ enabled: true }), postEffects.outline({ enabled: true }),
   postEffects.ao({ enabled: true }), postEffects.dof({ enabled: true })];
@@ -80,21 +67,11 @@ const ALL_POST = () => [postEffects.bloom({ enabled: true }), postEffects.vignet
  * Every axis except triangles / draw calls / instances sits on 400 shadow-receiving boxes so lights and pixels have something to shade.
  */
 export const AXES = {
-  triangles: { unit: 'triangles', start: 1e6, cap: 128e6, build(n) {
-    // 1M-triangle tiles sharing one geometry (memory stays flat); small on screen so vertex work dominates, not pixels
-    const tiles = Math.max(1, Math.round(n / 1e6)), per = n / tiles, s = Math.max(1, Math.round(Math.sqrt(per / 2)));
-    const g = new THREE.PlaneGeometry(3, 3, s, s).rotateX(-Math.PI / 2), m = gray(0x9a9a9a);
-    for (let i = 0; i < tiles; i++) { const t = new THREE.Mesh(g, m), [x, z] = field(i, tiles); t.position.set(x, 0.05, z); load.add(t); }
-    return { triangles: tiles * 2 * s * s, drawCalls: tiles };
-  } },
+  triangles: { unit: 'triangles', start: 1e6, cap: 128e6, build(n) { return tiles(load, n, gray(0x9a9a9a)); } },
   drawCalls: { unit: 'meshes', start: 1000, cap: 256000, build(n) { boxes(n); return { meshes: n }; } },
-  instances: { unit: 'instances', start: 50000, cap: 12.8e6, build(n) {
-    const im = new THREE.InstancedMesh(boxGeo, boxMat, n), m = new THREE.Matrix4(), side = Math.ceil(Math.sqrt(n));
-    for (let i = 0; i < n; i++) { const [x, z] = field(i, n); m.makeScale(60 / side, 60 / side, 60 / side).setPosition(x, 0.3, z); im.setMatrixAt(i, m); }
-    load.add(im); return { instances: n, triangles: n * 12 };
-  } },
-  lights: { unit: 'point + spot lights', start: 2, cap: 512, build(n) { boxes(400); lights(n); return { lights: n }; } },
-  shadowLights: { unit: 'shadow-casting spot lights (1024²)', start: 1, cap: 32, build(n) { boxes(400); lights(n, { shadow: true }); return { lights: n }; } },
+  instances: { unit: 'instances', start: 50000, cap: 12.8e6, build(n) { return instances(load, n, boxGeo, boxMat); } },
+  lights: { unit: 'point + spot lights', start: 2, cap: 512, build(n) { boxes(400); lightsOn(load, n, { spots: true }); return { lights: n }; } },
+  shadowLights: { unit: 'shadow-casting spot lights (1024²)', start: 1, cap: 32, build(n) { boxes(400); lightsOn(load, n, { shadow: true }); return { lights: n }; } },
   shadowMapSize: { unit: 'sun shadow map size', start: 512, cap: 16384, build(n) {
     boxes(400); sun.castShadow = true; sun.shadow.map?.dispose(); sun.shadow.map = null; sun.shadow.mapSize.set(n, n);
     undo.push(() => { sun.castShadow = false; sun.shadow.map?.dispose(); sun.shadow.map = null; });
@@ -123,45 +100,11 @@ export const AXES = {
 
 /** The fixed mixed scene of the slowdown alarm: a bit of every axis, small enough for software rendering */
 function reference() {
-  clear(); boxes(400); lights(4); characters(6); AXES.transparent.build(3); AXES.particles.build(5000);
+  clear(); boxes(400); lightsOn(load, 4, { spots: true }); characters(6); AXES.transparent.build(3); AXES.particles.build(5000);
   sun.castShadow = true; sun.shadow.mapSize.set(512, 512); sun.shadow.map?.dispose(); sun.shadow.map = null;
 }
 
-let shaderError = null;
-engine.renderer.debug.onShaderError = (gl, program) => { shaderError = 'shader failed to compile (driver limit)'; };
-const median = a => { const s = [...a].sort((x, y) => x - y); return s.length ? s[s.length >> 1] : null; };
-const r2 = x => x === null ? null : Math.round(x * 100) / 100;
-
-/**
- * Run warm frames, then `frames` measured frames of engine.step (fixed step + frame hooks + render). Per frame:
- *   cpu    main-thread time of the step (JS + WebGL calls issued; the GPU process may still be working)
- *   gpu    GPU time of the step from EXT_disjoint_timer_query_webgl2 (null without the extension or on a disjoint event)
- *   frame  cpu + waiting for the GPU to finish (a 1-pixel readPixels): no CPU/GPU overlap, so a conservative upper bound of the frame
- * Returns medians plus draw calls / triangles of the last frame.
- */
-async function measure(frames = 30, warm = 6) {
-  const gl = engine.renderer.getContext(), ext = gl.getExtension('EXT_disjoint_timer_query_webgl2'), px = new Uint8Array(4), DT = 1 / 60;
-  shaderError = null;
-  for (let i = 0; i < warm; i++) { engine.step(DT, { render: true, describe: false }); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px); }
-  const cpu = [], wall = [], qs = [];
-  for (let i = 0; i < frames; i++) {
-    const t0 = performance.now(), q = ext && gl.createQuery();
-    if (q) gl.beginQuery(ext.TIME_ELAPSED_EXT, q);
-    engine.step(DT, { render: true, describe: false });
-    if (q) gl.endQuery(ext.TIME_ELAPSED_EXT);
-    const t1 = performance.now();
-    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    cpu.push(t1 - t0); wall.push(performance.now() - t0); if (q) qs.push(q);
-  }
-  const gpu = [];
-  const end = performance.now() + 3000;
-  while (qs.length && performance.now() < end && !gl.getQueryParameter(qs.at(-1), gl.QUERY_RESULT_AVAILABLE)) await new Promise(r => setTimeout(r, 5));
-  const disjoint = ext && gl.getParameter(ext.GPU_DISJOINT_EXT);
-  for (const q of qs) { if (!disjoint && gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) gpu.push(gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6); gl.deleteQuery(q); }
-  const info = engine.renderer.info.render;
-  return { cpu: r2(median(cpu)), gpu: gpu.length ? r2(median(gpu)) : null, frame: r2(median(wall)), drawCalls: info.calls, triangles: info.triangles,
-    timer: !!ext, error: shaderError ?? (gl.isContextLost() ? 'WebGL context lost' : null) };
-}
+const r2 = x => Math.round(x * 100) / 100;
 
 /** A fixed single-thread JS workload (ms), timed in the same page: the alarm divides frame cost by it so a slower or busier machine does not trip it */
 function calibrate() {
@@ -174,7 +117,7 @@ window.stress = {
   axes: Object.fromEntries(Object.entries(AXES).map(([k, a]) => [k, { unit: a.unit, start: a.start, cap: a.cap, ladder: !!a.next }])),
   set(axis, n) { clear(); const r = AXES[axis].build(n); return r; },
   next: (axis, n) => AXES[axis].next ? AXES[axis].next(n) : n * 2,
-  measure, reference, calibrate, clear,
+  measure: meter(engine), reference, calibrate, clear,
   maxTexture: () => engine.renderer.capabilities.maxTextureSize,
 };
 await engine.start();

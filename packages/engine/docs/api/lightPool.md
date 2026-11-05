@@ -12,14 +12,13 @@ Light pool: many light sources, a fixed number of real lights (lightPool() modul
 
 ## Methods and properties
 - `lightPool.add(position: PositionLike, opts?: LightSourceOptions) → LightSource` — Register a light source at a position (an Object3D: it follows that object every frame). Example: `const torch = engine.lightPool.add(torchMesh, { color: 0xffa040, intensity: 4, distance: 8, glow: haloSprite }); torch.set({ intensity: 0 });   // put out: its light goes to another torch`
-- `lightPool.usage() → LightPoolUsage` — What the pool is doing now (also in describe().lightPool)
 - Properties:
   - `lights: Object3D[]` The real three.js lights, created once at install and never added, removed or hidden (the pool sets their position, color, intensity)
   - `focus: PositionLike | null` Distance is measured from this object / position; null = the camera
 
 ## Data structures
 - **LightSourceOptions** Options of lightPool.add(position, opts): one light source (a torch, lamp, campfire, muzzle flash...)
-  - `name?: string` Name shown in lightPool.usage()
+  - `name?: string` Name shown in describe().lightPool
   - `type?: 'point' | 'spot'` 'point' (default) or 'spot' (needs lightPool({ spot: n }))
   - `color?: ColorLike` Light color, default white
   - `intensity?: number` three.js intensity, default 1; 0 = off (gives its light away). With decay 2 a surface d m away gets intensity / d^2: pick it for the distance to what it lights (one that pools on a street 4 m below blows a wall 1 m away to white). Example values are no targets: threedog shot / snap name a light that glares.
@@ -52,7 +51,3 @@ Light pool: many light sources, a fixed number of real lights (lightPool() modul
   - `weight: number` How much of its light it has now, 0-1
   - `set(patch: LightSourcePatch) → LightSource` — Change the source; returns the same handle
   - `remove()` — Unregister: its light fades out and moves on, the stand-in is put back (safe to call twice)
-- **LightPoolUsage** lightPool.usage(): what the pool is doing now
-  - `sources: number` Registered sources
-  - `lit: number` Real lights lighting a source now
-  - `slots: { type, shadow, source, weight }[]` One per real light: its kind, whether it casts shadows, the source it holds (name or number, null = idle) and its fade 0-1

@@ -13,6 +13,7 @@ import * as THREE from 'three';
 import { rigModule, defineRig, YAW_RIG, HIDE_RIG, clickToLock, releaseLock } from './common.js';
 import { setProjection } from './projection.js';
 import { codedError } from '../../core/errorHints.js';
+import { wrapAngle } from '../../core/math.js';
 
 const GROUND = ['raise', 'shorten', 'none'];
 // ground: 'shorten' sampling. 0.2 m: narrower than this the ground height rarely has a feature that blocks the view (posts and walls are colliders,
@@ -53,7 +54,7 @@ export class FollowCamera {
   /**
    * Lock-on framing: each frame turn yaw toward "behind the followed object, looking at target" (forward() turns with it, so camera-relative movement strafes around the target).
    * Mouse / stick yaw is ignored while framing; frame(null) hands yaw back. strength: how fast it turns (1/s). Set it once when the lock starts, not every frame
-   * @example engine.cameraRig.frame(enemy.object); player.faceMode = 'target'; player.faceTarget = enemy.object;
+   * @example engine.cameraRig.frame(enemy.root); player.faceMode = 'target'; player.faceTarget = enemy.root;
    */
   frame(target, { strength = 6 } = {}) { this.framing = target ? { target, strength } : null; }
   /**
@@ -80,8 +81,7 @@ export class FollowCamera {
     const cam = this.engine.camera, fr = this.framing;
     if (fr && this.target) {
       const t = fr.target.position ?? fr.target, p = this.target.position;
-      const want = Math.atan2(p.x - t.x, p.z - t.z), d = Math.atan2(Math.sin(want - this.yaw), Math.cos(want - this.yaw));
-      this.yaw += d * Math.min(1, dt * fr.strength);
+      this.yaw += wrapAngle(Math.atan2(p.x - t.x, p.z - t.z) - this.yaw) * Math.min(1, dt * fr.strength);
     }
     if (input.enabled && this.mouseLook !== false) {
       if (!fr) this.yaw -= input.look.dx * 0.005 * this.sensitivity;

@@ -35,15 +35,30 @@ import { SettingsView } from './view.js';
 import { applySetting, allowed, checkLimits } from './apply.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { reportError } from '../../core/errors.js';
+import { codedError } from '../../core/errorHints.js';
+import { warnOnce } from '../../core/validate.js';
 
 // Graphics presets. Values are performance tiers, not art; a game can override with settings({ presets: { low: {...} } })
+// pixelRatio here is a share (0 to 1) of the ratio the engine picked for this device. A fixed number is wrong on one screen or the other: 1 is an upscaled
+// picture on a 2x screen (core/tier.js), 1.5 is wasted work on a 1x one
 const PRESETS = {
   low: { pixelRatio: 0.75, shadows: false, antialias: false, bloom: false, ao: false, viewChunks: 3, density: 0.5 },
   medium: { pixelRatio: 1, shadows: true, antialias: true, bloom: false, ao: false, viewChunks: 4, density: 0.75 },
-  high: { pixelRatio: 1.5, shadows: true, antialias: true, bloom: true, ao: false, viewChunks: 5, density: 1 },
+  high: { pixelRatio: 1, shadows: true, antialias: true, bloom: true, ao: false, viewChunks: 5, density: 1 },
 };
-// Settings keys that switch a style post effect of the same name; a key whose effect the style lacks is hidden and ignored
+// Settings keys that switch a post effect of the same name; a key whose effect the game did not add is hidden and ignored
 const POST_KEYS = ['bloom', 'ao'];
+
+/**
+ * What a stored file says the player changed. A version 1 file held every value, so there only a value that differs from today's default can be
+ * the player's, and 'quality' was a label worked out from the rest.
+ * @param {any} stored @param {Record<string, any>} defaults @returns {Record<string, any>}
+ */
+function playerValues(stored, defaults) {
+  const v = stored.values || {};
+  if (stored.v >= 2) return { ...v };
+  return Object.fromEntries(Object.entries(v).filter(([k, val]) => k !== 'quality' && val !== defaults[k]));
+}
 
 export class Settings extends SettingsView {
   constructor(engine, { action = 'cancel', storageKey, presets = {}, sections = true, freezeWorld = false } = {}, track) {
@@ -52,10 +67,12 @@ export class Settings extends SettingsView {
     this.engine = engine;
     this.action = action;
     this.presets = { ...PRESETS };
-    for (const k in presets) this.presets[k] = { ...(this.presets[k] || {}), ...presets[k] };
-    // Storage key: shares the game's save prefix ('game-save-' -> 'game-settings') but is kept out of the save list
-    const p = engine.saves.prefix;
-    this.storageKey = storageKey || p.replace(/save-$/, '') + 'settings';
+    for (const k in presets) {
+      // loud, because a game's old fixed ratio (2) would otherwise multiply the device's own
+      if (presets[k].pixelRatio > 1) throw codedError('bad-arg', `settings({ presets: { ${k}: { pixelRatio: ${presets[k].pixelRatio} } } }): a preset's pixelRatio is a share from 0 to 1 of the ratio the engine picked for this device. For a fixed ratio call engine.setPixelRatio`);
+      this.presets[k] = { ...(this.presets[k] || {}), ...presets[k] };
+    }
+    this.storageKey = storageKey || engine.saves.storageKey('settings');
     this.sections = new Map();
     this.custom = new Map();         // game's custom settings: key -> { def, apply }
     this.capturing = null;           // action name waiting for a key press
@@ -69,12 +86,16 @@ export class Settings extends SettingsView {
     injectUICSS(CSS);
 
     const stored = this._read();
-    this.saved = stored;                       // raw data read back
     // the player's saved keys: through input.rebind, the one way to rebind (the settings layer of 'input.keys'). It works before the module that
     // declares an action is installed, so nothing waits for "every action registered"
     for (const [a, k] of Object.entries(stored.bindings || {})) if (Array.isArray(k) && k.length) engine.input.rebind(a, k);
-    this.values = { ...this._currentValues(), ...(stored.values || {}) };
-    this._applyAll();
+    this._defaults = this._currentValues();    // the engine's own values before the player's saved ones: what reset() goes back to
+    // Only what the player changed is stored and applied, like input.rebound() for keys. The rest stays with whoever owns it (the tier, adaptive
+    // resolution, the game), so one volume change no longer pins every graphics value for all later launches
+    /** @internal key -> value; 'quality' names a chosen preset, the rows after it override it */ this._changed = playerValues(stored, this._defaults);
+    this._values = { ...this._defaults, ...this._picked() };
+    this._values.quality = this._matchPreset();
+    for (const [k, v] of Object.entries(this._picked())) this._apply(k, v);
     // Tabs: true = the default set; a list picks built-in and optional tabs by name (optional ones register their own settings in setup)
     if (sections === true) for (const [id, s] of Object.entries(BUILTIN_SECTIONS)) this.sections.set(id, s);
     else if (sections) for (const id of sections) this._builtin(id);
@@ -101,21 +122,25 @@ export class Settings extends SettingsView {
   }
 
   // ---------- reading and writing settings ----------
+  /** Every setting's value, read only. The render scale comes from the renderer: adaptive resolution and the game move it, and a stored copy was a second answer to describe().render.scale */
+  get values() { return { ...this._values, pixelRatio: +this.engine.renderer.getPixelRatio().toFixed(2) }; }
   get(key) { return this.values[key]; }
   /** Change a setting: applies at once and saves. Changing a graphics setting turns the preset into "custom" */
   set(key, value, { save = true } = {}) {
     if (key === 'quality') return this.preset(value);
-    this.values[key] = value;
+    this._values[key] = value; this._changed[key] = value;
     this._apply(key, value);
-    if (key in (this.presets.low || {})) this.values.quality = this._matchPreset();
+    if (key in (this.presets.low || {})) this._values.quality = this._matchPreset();
     if (save) this.save();
     this.win.refresh();
   }
   /** Graphics preset */
   preset(name) {
-    const p = this.presets[name]; if (!p) return;
-    for (const k in p) { this.values[k] = p[k]; this._apply(k, p[k]); }
-    this.values.quality = name;
+    if (!this.presets[name]) return;
+    const p = this._presetValues(name);
+    // the name is stored, not its numbers: the ratio is worked out again on the next launch, where the tier may differ
+    for (const k in p) { this._values[k] = p[k]; delete this._changed[k]; this._apply(k, p[k]); }
+    this._values.quality = this._changed.quality = name;
     this.save(); this.win.refresh();
   }
   /**
@@ -131,8 +156,8 @@ export class Settings extends SettingsView {
     const limits = o.limits == null ? null : [].concat(o.limits);
     if (limits) checkLimits(this, key, def, limits);
     this.custom.set(key, { def, apply: o.apply, limits });
-    if (!(key in this.values)) this.values[key] = def;
-    this._apply(key, this.values[key]);
+    if (!(key in this._values)) this._values[key] = def;
+    this._apply(key, this._values[key]);
     return this;
   }
   /** Add a tab */
@@ -143,13 +168,32 @@ export class Settings extends SettingsView {
     this.win.refresh();
     return this;
   }
-  removeSection(id) { this.sections.delete(id); if (this.current === id) this.current = null; this.win.refresh(); }
 
   get isOpen() { return this.win.open; }
   open() { if (!this.win.open) this.win.toggle(true); }
   close() { this.capturing = null; if (this.win.open) this.win.toggle(false); }
   toggle(on = !this.win.open) { on ? this.open() : this.close(); }
 
+  /**
+   * Put one setting (or, with no key, every setting) back to its default: the value the engine or the game's define() started with, before the player's saved ones.
+   * Keys stay as they are (resetBindings does those). Why here and not in the game: the built-in defaults (volumes, graphics) are known only to the engine,
+   * and a graphics change leaves the quality on 'custom', which is no preset to go back to.
+   * @param {string} [key]
+   * @example engine.settings.reset('vol.music')  ·  engine.settings.reset()
+   */
+  reset(key) {
+    const def = k => this.custom.has(k) ? this.custom.get(k).def : this._defaults[k];
+    // 'quality' is no value of its own (it is the name of the preset the graphics values match): resetting it resets the graphics values the presets set
+    const keys = key === undefined ? Object.keys(this._values).filter(k => k !== 'quality') : key === 'quality' ? Object.keys(this.presets.low || {}) : [key];
+    if (key === undefined || key === 'quality') delete this._changed.quality;
+    const preset = this._presetValues(this._changed.quality);   // a row a kept preset sets must stay stored, or the preset takes it back on the next launch
+    for (const k of keys) {
+      if (!(k in this._values) || def(k) === undefined) { if (key !== undefined) warnOnce(`settings.reset('${k}'): no setting with this key (known: ${Object.keys(this._values).join(', ')})`); continue; }
+      this.set(k, def(k), { save: false });
+      if (!(k in preset)) delete this._changed[k];
+    }
+    this.save();
+  }
   /** Reset all keys to the game's (takes every player rebinding away) */
   resetBindings() {
     const inp = this.engine.input;
@@ -187,8 +231,7 @@ export class Settings extends SettingsView {
   }
   save() {
     const bindings = this.engine.input.rebound();   // only the player's changes; restored through input.rebind on the next launch
-    const data = { v: 1, values: this.values, bindings, locale: this.engine.i18n.locale };
-    this.saved = data;
+    const data = { v: 2, values: { ...this._changed }, bindings, locale: this.engine.i18n.locale };
     try { localStorage.setItem(this.storageKey, JSON.stringify(data)); } catch { return false; }
     this.engine.events.emit('settings:change', this.values);
     return true;
@@ -201,21 +244,27 @@ export class Settings extends SettingsView {
    */
   chunkHost() { return this.engine.terrain ?? this.engine.vegetation?.host ?? null; }
   _currentValues() {
-    const e = this.engine, v = { pixelRatio: +e.renderer.getPixelRatio().toFixed(2), shadows: allowed(e, 'shadows.enabled') };
+    const e = this.engine, v = { pixelRatio: +e.adaptive.base.toFixed(2), shadows: allowed(e, 'shadows.enabled') };
     v.antialias = e.post.antialias;
     for (const k of POST_KEYS) if (e.post.get(k)) v[k] = allowed(e, `post.${k}.enabled`);
-    if (e.adaptive) v.adaptive = !!e.adaptive.on;
+    v.adaptive = !!e.adaptive.on;
     const H = this.chunkHost();
-    if (H) { v.viewChunks = H.viewChunks ?? 4; v.density = H.density ?? 1; }
+    if (H) { v.viewChunks = H.viewChunks; v.density = H.density; }
     for (const [bus, level] of Object.entries(e.audio.levels)) v['vol.' + bus] = level;   // one slider per bus, the game's own buses too
-    this.values = v;
-    v.quality = this._matchPreset();
     return v;
   }
+  /** A preset's values on this device: its pixelRatio share made a ratio. Nothing for 'custom' or no preset @param {string} [name] */
+  _presetValues(name) {
+    const p = this.presets[name]; if (!p) return {};
+    return 'pixelRatio' in p ? { ...p, pixelRatio: +(p.pixelRatio * this.engine.adaptive.base).toFixed(2) } : { ...p };
+  }
+  /** What the player chose: the preset, then the rows moved after it */
+  _picked() { const { quality, ...rows } = this._changed; return { ...this._presetValues(quality), ...rows }; }
+  // reads what was asked for (_values), not the live ratio: adaptive resolution lowering the scale is not the player picking 'custom'
   _matchPreset() {
-    const v = this.values, e = this.engine;
-    for (const [name, p] of Object.entries(this.presets)) {
-      const ok = Object.entries(p).every(([k, val]) => {
+    const v = this._values, e = this.engine;
+    for (const name of Object.keys(this.presets)) {
+      const ok = Object.entries(this._presetValues(name)).every(([k, val]) => {
         if ((k === 'viewChunks' || k === 'density') && !this.chunkHost()) return true;
         if (POST_KEYS.includes(k) && !e.post.get(k)) return true;
         return v[k] === val;
@@ -224,7 +273,6 @@ export class Settings extends SettingsView {
     }
     return 'custom';
   }
-  _applyAll() { for (const k in this.values) this._apply(k, this.values[k]); }
   _apply(key, val) { applySetting(this, key, val); }
 
 
@@ -232,13 +280,17 @@ export class Settings extends SettingsView {
   init() {
     // At start() every module is installed: terrain settings and key bindings can only be applied fully now
     this._ready = true;
-    const stored = this.saved.values || {};
+    const picked = this._picked(), e = this.engine;
     for (const k of ['viewChunks', 'density']) {
       const H = this.chunkHost(); if (!H) continue;
-      if (k in stored) this._apply(k, stored[k]); else this.values[k] = H[k];
+      if (k in picked) this._apply(k, this._values[k] = picked[k]); else this._values[k] = H[k];
     }
-    for (const [key, c] of this.custom) if (!(key in this.values)) this.values[key] = c.def;
-    this.values.quality = this._matchPreset();
+    // start() may have learned the real device on the WebGPU route and written its default ratio over the player's
+    this._defaults.pixelRatio = +e.adaptive.base.toFixed(2);
+    this._values.pixelRatio = picked.pixelRatio ?? this._defaults.pixelRatio;
+    if ('pixelRatio' in picked) this._apply('pixelRatio', picked.pixelRatio);
+    for (const [key, c] of this.custom) if (!(key in this._values)) this._values[key] = c.def;
+    this._values.quality = this._matchPreset();
   }
   frame() {
     const inp = this.engine.input;
@@ -288,7 +340,7 @@ export function settings(opts = {}) {
   readParams('settings', SETTINGS_PARAMS, opts);
   let s = null;
   return {
-    name: 'settings', type: 'ui', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['terrain', 'vegetation'], stage: 'effects',
+    name: 'settings', type: 'ui', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['terrain', 'vegetation', 'flow'], stage: 'effects',
     install(e, ctx) {
       s = new Settings(e, opts, ctx.track);
       ctx.track(e.ui.titleItem('settings', { label: x => x.t('title.settings'), run: () => s.open() }));   // the title screen's Settings button

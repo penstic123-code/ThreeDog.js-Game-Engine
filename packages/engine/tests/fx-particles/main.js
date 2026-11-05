@@ -16,7 +16,7 @@ const W = 200, H = 150;
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), lights: false, pixelRatio: 1, adaptiveResolution: false,
   ui: { loading: false }, saveKey: 'test-fx-particles', urlState: false });
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 const cam = new THREE.PerspectiveCamera(50, W / H, 0.1, 200); cam.position.set(0, 2, 7); cam.lookAt(0, 1.5, 0); cam.updateMatrixWorld();
 const canvas = () => Object.assign(document.createElement('canvas'), { width: W, height: H });

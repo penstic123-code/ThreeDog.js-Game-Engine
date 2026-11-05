@@ -1,4 +1,4 @@
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { mergeCommon } from '../../render/mergeCommon.js';
 import { copyPatches } from '../../render/patches.js';
 import { codedError } from '../../core/errorHints.js';
 
@@ -15,8 +15,5 @@ export function fromModel(root, label) {
     mats.push(copyPatches(n.material, n.material.clone()));   // the clone keeps the model material's own shader patches
   });
   if (!geos.length) throw codedError('vegetation-option', `${label}: model has no meshes`);
-  const names = Object.keys(geos[0].attributes).filter(k => geos.every(g => g.attributes[k]));
-  const indexed = geos.every(g => g.index);
-  const ready = geos.map(g => { const h = indexed ? g : g.toNonIndexed(); for (const k in h.attributes) if (!names.includes(k)) h.deleteAttribute(k); return h; });
-  return { geometry: mergeGeometries(ready, true), materials: mats };
+  return { geometry: mergeCommon(geos, true), materials: mats };
 }

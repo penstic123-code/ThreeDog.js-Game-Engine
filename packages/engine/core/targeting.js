@@ -1,10 +1,9 @@
 // Target selection: pure functions (no camera, input or engine state), for lock-on, aim assist, "talk to whoever I'm facing", select the nearest unit.
 // Why a score and not just "nearest": the player wants what they are looking at; an enemy pressed against their back should not steal the lock.
 // The caller keeps the current target (in a world record, a module, a variable) and decides when to pick; these functions only answer "which one".
-import { xzOf } from './math.js';
+import { xzOf, wrapAngle } from './math.js';
 import { codedError } from './errorHints.js';
 
-const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
 const KEYS = ['radius', 'cone', 'close', 'angleWeight', 'blocked', 'at'];
 const yawOf = view => typeof view === 'number' ? view : Math.atan2(view.x, view.z);
 /** Candidate position: an Object3D / NPC / Character / world record has .position; a Vector3 / { x, z } / [x, y, z] is the position itself */
@@ -33,7 +32,7 @@ export function pickTarget(from, view, candidates, opts = {}) {
   for (const c of candidates) {
     const [x, z] = xzOf(at(c)), d = Math.hypot(x - fx, z - fz);
     if (d > radius) continue;
-    const off = Math.abs(wrap(Math.atan2(x - fx, z - fz) - yaw));
+    const off = Math.abs(wrapAngle(Math.atan2(x - fx, z - fz) - yaw));
     if (off > cone && d > close) continue;
     const score = d + off * angleWeight;
     if (score < bestScore && !blocked?.(c)) { bestScore = score; best = c; }
@@ -55,7 +54,7 @@ export function switchTarget(from, view, current, candidates, side, opts = {}) {
   const list = [];
   for (const c of candidates) {
     const [x, z] = xzOf(at(c));
-    if (Math.hypot(x - fx, z - fz) <= radius && !blocked?.(c)) list.push({ c, a: -wrap(Math.atan2(x - fx, z - fz) - yaw) });
+    if (Math.hypot(x - fx, z - fz) <= radius && !blocked?.(c)) list.push({ c, a: -wrapAngle(Math.atan2(x - fx, z - fz) - yaw) });
   }
   if (!list.length) return null;
   list.sort((p, q) => p.a - q.a);

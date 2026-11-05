@@ -13,8 +13,8 @@ export const specs = [
         const log = [], b = engine.budget, orig = b.sample;
         b.sample = function (dt) {   // the engine calls this once per real-time frame, after the afterRender hooks
           orig.call(this, dt);
-          const p = engine.cpuPhases;
-          log.push({ cpu: engine.cpuMs, sampled: this._cpu.at(-1), sum: p.fixed + p.frame + p.render + p.afterRender, frame: p.frame, after: p.afterRender });
+          const p = engine._cpuPhases;
+          log.push({ cpu: engine._cpuMs, sampled: this._cpu.at(-1), sum: p.fixed + p.frame + p.render + p.afterRender, frame: p.frame, after: p.afterRender });
         };
         await __t.until(() => log.length >= 14, 20000);
         b.sample = orig;
@@ -69,7 +69,7 @@ export const specs = [
         await new Promise(res => setTimeout(res, 1500));   // let every first-ring detail job come back
         // 碰撞体按固定步数分批建（每步 1 块，不看墙钟，回放才一致），所以"多久到齐"取决于这台机器每秒跑几个固定步：
         // 无头软件渲染下帧率低、每帧补的固定步有上限，原来睡固定 4 秒只到 1/9。这里等到齐（带上限），检查的仍是"全部到齐"
-        const CH = T.T.CHUNK, pcx = Math.floor(engine.player.position.x / CH), pcz = Math.floor(engine.player.position.z / CH);
+        const CH = T.generator.CHUNK, pcx = Math.floor(engine.player.position.x / CH), pcz = Math.floor(engine.player.position.z / CH);
         const ring = () => { let n = 0; for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (engine.rigid.terrain.get((pcx + dx) + ',' + (pcz + dz))?.ready) n++; return n; };
         await __t.until(() => ring() === 9, 30000).catch(() => {});
         const ringReady = ring();

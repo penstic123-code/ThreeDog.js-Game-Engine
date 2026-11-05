@@ -29,10 +29,10 @@ Details, only when you need them:
 - Order inside a fixed step: `onFixed(fn)` runs before the modules (player not moved yet), `onFixed(fn, { phase: 'late' })` after them. Stacks, `input.gate` and `engine.wrap` together: recipe 55.
 
 ## The time table (the single source; other docs link here)
-**One time source.** `engine.time` counts one thing, `engine.time.tick` (fixed steps run; `engine.tick` is the same number). Every other time is a
+**One time source.** `engine.time` counts one thing, `engine.time.tick` (fixed steps run). Every other time is a
 read-only view of it, moved only by the engine, and always together: a fixed step, `engine.skip` and a new playthrough move or reset all of them.
 Read any view with `engine.time.now(name)`: `'real'`, `'ambient'`, `'calendar'` or a channel (`'world'`, `'player'`, your own).
-`'ambient'` (= `engine.uniforms.uTime`: wind, water, clouds) is the one view that keeps moving while gameplay is frozen.
+`'ambient'` (= `engine.uniforms.uTime`: wind, water, clouds) is the one view that keeps moving while gameplay is frozen, unless the freeze is a full still (`{ ambient: true }`, which also stops skeletal animation and particles; `engine.still` says so, for your own frame code).
 
 Three rulers, always named: **real seconds** (`engine.time.now('real')` = tick / 60; the `dt` of a plain `onFixed` / module `fixed` / `world.simulate`, the N of
 `engine.step(N)`; never scaled), **channel seconds** (`engine.time.now(ch)`, the `dt` of
@@ -42,10 +42,11 @@ from calendar seconds: one day = `calendar.dayLength` calendar seconds. **Frame 
 
 | Use it for | Time to use | Paused / frozen | `clock.rate` 2 (one real second at 60 Hz) |
 |---|---|---|---|
-| Movement, camera follow, physics (Rapier), AI steering | real seconds, or channel seconds for things bullet time should slow (`onFixed(fn, { channel })`) | stops | unchanged: speed in m/s stays the same |
+| Movement, camera follow, AI steering | real seconds, or channel seconds for things bullet time should slow (`onFixed(fn, { channel })`) | stops | unchanged: speed in m/s stays the same |
+| Physics (Rapier) | the `world` channel, so `engine.mod('time.world', ...)` slows bodies and speed 0 holds them; a mod on another channel leaves them alone | stops | unchanged |
 | Action judgement and action timelines (hit windows, invulnerability, "finish the swing"), cooldowns, hit-stop | a `mod` with `for` (hit-stop: `engine.mod('time.world', { owner: 'hitstop', set: 0, layer: 'system', for: 0.06 })`), or accumulate `dt` in `onFixed` | stops | unchanged: a 0.6 s swing is still 0.6 s |
 | `world.simulate` near / far, dialogue typing, cutscenes, `engine.step(N)` | real seconds | stops | unchanged |
-| Poison ticks, status effects, projectiles that bullet time should slow | channel seconds (`clock.after(s, 'ev', data, { channel })`, `for` + `clock: '<channel>'`) | stops | unchanged |
+| Poison ticks, status effects, projectiles that bullet time should slow | channel seconds (`clock.after(s, 'ev', { data, channel })`, `for` + `clock: '<channel>'`) | stops | unchanged |
 | Crop / template stage growth, vegetation and pickup respawn, "ripe after 10 minutes" | calendar seconds (`clock.now`, `clock.after / every`; saved) | stops | twice as fast: growth that needs 600 calendar seconds is ripe after 300 real seconds |
 | Calendar, day, season, clock hours, lamps and shop doors (`calendar.at / between / daily / onSeason`) | time of day (`engine.calendar`, derived from calendar seconds) | stops | twice as fast: with `dayLength = 360` one hour (15 calendar seconds) passes in 7.5 real seconds |
 | UI animation and effects that follow the game (bobbing, sway) | `engine.time.now('real')` | stops | unchanged |
@@ -91,7 +92,7 @@ const lampHours = engine.calendar.between('18:00', '06:00', { on: () => lamp.vis
 engine.calendar.at('12:00', day => market.open(), { days: [1, 3, 5] });   // only on days 1, 3, 5; a function also works: day => day % 7 === 6
 
 // After how long: pass an event name to make it saveable (still fires after loading a save); a function cannot be saved
-engine.clock.after(120, 'bread:ready', { oven: 1 });
+engine.clock.after(120, 'bread:ready', { data: { oven: 1 } });
 engine.events.on('bread:ready', ({ oven }) => engine.inventory?.add('bread', 1));
 
 engine.clock.every(30, () => spawnBird());                           // every 30 calendar seconds (not 30 clock seconds)
@@ -136,7 +137,7 @@ What catches up, and how:
 - Not run while skipping: `onFixed`, module `fixed` hooks, physics, near simulation. Every time view moves exactly as if stepped (tick, real,
   ambient, each channel by the skipped real seconds x its speed, the calendar), so timers on any channel fire and `mod`s with `for` end in order (`mod:end` as often as when stepping). So anything that must advance during a sleep is measured in calendar seconds (`clock.now`) or lives in a world record with `far`.
 - Input is locked and gameplay frozen for the whole skip (keys pressed during the fade do nothing). With `fade: 0` (default) the time has moved when
-  `skip` returns; with a fade the Promise resolves after the fade in, which needs frames (in a paused test keep calling `engine.step`).
+  `skip` returns; with a fade the Promise resolves after the fade in, which needs frames (in a halted test keep calling `engine.step`).
 - A stopped calendar (`clock.rate` 0) skips as if at 1x. The jump itself is the op `time.skip { seconds }` (logged and replayable; it refuses `seconds <= 0`).
 - A module that keeps its own time implements the hook `skip(dt, e, done)` (called once per segment; `done` on the last one).
 
@@ -146,6 +147,7 @@ callbacks **in the order they were registered** -> module `frame` hooks -> strea
 from `engine.assets.animate` (and a Character's model) is itself an `onFrame` callback registered when the animator was created, so your `onFrame` runs
 before it if you registered first (you see last frame's pose) and after it if you registered later. To read or override a pose after animation, register
 the callback after the model is created, or use an `afterRender` hook.
+When a game has several systems, a default that keeps this order in one place: one `engine.onFixed(dt => { weapons.step(dt); enemies.step(dt); })` in `main.js` instead of one registration per system (`{ phase: 'late' }` for code that reads this step's results; a game module with `before` / `after`: recipe 14).
 
 ## 3. Verify
 - Without waiting real time: in a test or the console, `engine.calendar.timeOfDay = parseClock('17:59'); engine.step(5)`, then look at the result (`step`
@@ -162,4 +164,4 @@ the callback after the model is created, or use an `afterRender` hook.
   it on a scratch playthrough or in a test. A diff usually means a module with its own time lacks a `skip` hook. `await engine.checkSave()` does the same
   for save -> load (a diff names a save part whose `load` does not restore what `save` wrote).
 - Why did it fire (or not)? `engine.events.traceSize = 200` records each event with the event or op that caused it: `events.trace('item:add').at(-1).chain`. Failed ops, sight queries and NPC state changes are entries too (with `code`); `events.note(name, { obj, code, data })` adds your own and `events.traceFocus(id)` makes one object verbose (the ring is bounded; size 0 costs nothing). Details: recipe 23 section 12.
-- Related tests: `npm test -- 游戏时钟 SKIP`.
+- Related tests: `threedog test 游戏时钟 SKIP`.

@@ -29,21 +29,21 @@ export interface NavOptions {
 
 /**
  * engine.nav: navmesh. Usually not called directly; engine.characters.findPath uses it automatically once ready.
- * The mesh comes from the ground API's navGeometry() (optional) or staticTrimeshes() (the level's walkable mesh);
+ * The mesh comes from the ground API's staticTrimeshes() (the level's walkable mesh);
  * collision boxes / circles (level col_ walls, those added by collision.addBox) all become dynamic obstacles and update automatically when added or removed.
  */
 export interface Nav {
   /** The navmesh has been generated */
   readonly ready: boolean;
-  /** Native Recast NavMesh (null until ready) */
+  /** Native Recast NavMesh (null until ready) @experimental */
   navMesh: any;
-  /** Native Recast NavMeshQuery */
+  /** Native Recast NavMeshQuery @experimental */
   query: any;
-  /** Native Recast TileCache (for dynamic obstacles) */
+  /** Native Recast TileCache (for dynamic obstacles) @experimental */
   tileCache: any;
-  /** Native Recast Crowd (only when crowd: true) */
+  /** Native Recast Crowd (only when crowd: true) @experimental */
   crowd: any;
-  /** three.js object for the debug display (only when debug: true) */
+  /** three.js object for the debug display (only when debug: true) @experimental */
   helper: any;
   /** +1 on rebuild / unload: code that cached native objects (crowd agents etc.) must recreate them when it changes */
   readonly version: number;

@@ -1,10 +1,10 @@
-// R18 names referenced in hand-written docs still exist: docs/{AI,COMMANDS,CONVENTIONS,THREE,PERF}.md, recipes, READMEs, the game template's docs,
+// R18 names referenced in hand-written docs still exist: docs/{AI,COMMANDS,CONVENTIONS,THREE}.md, recipes, READMEs, the game template's docs,
 //   and each game's DESIGN.md, STATUS.md, docs/design/** and docs/plans/** (archived plans in docs/plans/done/ are skipped).
 // Detection: only inline code spans and fenced blocks are read, never prose. Reference classes (level):
 //   1. paths with an extension and a `/` (error): resolved against the doc's folder, the docs root, the engine and tools packages, the game folders
 //      and the repo root; `node_modules/threedog/…` maps to the engine. A `packages/…` path in a shipped doc (engine docs, template) is an error.
 //      Placeholders (<…>, *, …, xxx, my-*, games/<missing game>/) are skipped.
-//   2. `npm test -- name` (error): each name must be a substring of a real test name, any case (engine and game specs, tool tests, scenarios, pack items).
+//   2. `threedog test name` and `npm test -- name` (error): each name must be a substring of a real test name, any case (engine and game specs, tool tests, scenarios, pack items).
 //   3. `threedog cmd` / `npm run script` (error): a command of bin/threedog.mjs, or a script of the root / engine / template / game package.json.
 //   4. events `noun:action` (error): in EventMap, a game's GameEvents, or emitted by game code.
 //   5. `engine.x.y` (error): a property of the Engine type, then of its type
@@ -21,7 +21,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve, relative, basename, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { walk, read, abs, rel, P, engineApi, dtsFiles } from './_lib.mjs';
+import { walk, read, abs, rel, P, engineApi, dtsFiles, docLevel } from './_lib.mjs';
 import { closest, nearest } from '../lib/text.mjs';
 import { workspaceSpecs } from '../lib/specs.mjs';
 
@@ -54,12 +54,13 @@ const IGNORE = '<!-- r18-ignore-line -->';
 const fwd = p => p.split(sep).join('/');
 
 /** The hand-written docs this rule reads (paths relative to ROOT) */
-export function docFiles() {
+export function docFiles(scope = null) {
   const game = d => [...['DESIGN.md', 'STATUS.md', 'README.md'].map(f => join(d, f)).filter(existsSync).map(rel),
     ...walk(rel(join(d, 'docs')), ['.md']).filter(f => !/\/docs\/plans\/done\//.test(f))];
   if (P.MODE === 'game') return P.gameDirs().flatMap(game);
+  if (scope?.notEngine) return game(scope.dir);   // check -w <game>: only this game's docs count, and reading every engine doc and spec was most of its minute
   const D = P.DOCS_REL;
-  return [...['AI', 'COMMANDS', 'CONVENTIONS', 'THREE', 'PERF'].map(n => `${D}/${n}.md`).filter(f => existsSync(abs(f))),
+  return [...['AI', 'COMMANDS', 'CONVENTIONS', 'THREE'].map(n => `${D}/${n}.md`).filter(f => existsSync(abs(f))),
     ...walk(P.RECIPES_REL, ['.md']), ...['README.md', 'README.zh-CN.md', `${P.ENGINE_REL}/README.md`,
       `${P.TOOLS_REL}/README.md`].filter(f => existsSync(abs(f))),
     ...walk(`${P.TOOLS_REL}/templates`, ['.md']), ...walk(`${P.ENGINE_REL}/examples/techniques`, ['.md']), ...P.gameDirs().flatMap(game)];
@@ -81,14 +82,14 @@ export function extract(text) {
 
 let ctxCache = null;
 /** Everything the checks resolve against (built once) */
-export async function context() {
+export async function context(scope = null) {
   if (ctxCache) return ctxCache;
-  const games = P.gameDirs();
+  const only = scope?.notEngine ? [scope.dir] : null, games = only ?? P.gameDirs();
   // test names
   const tests = [];
   // the same files npm test runs (lib/specs.mjs); a broken spec file is npm test's error to report, here it only adds no names
   const specsOf = async d => { try { return (await workspaceSpecs(d)).map(x => x.spec.name); } catch { return []; } };
-  for (const d of P.workspaces()) {
+  for (const d of only ?? P.workspaces()) {
     const names = await specsOf(d);
     tests.push(...names);
     if (d !== P.ENGINE) { if (!names.length) tests.push(`smoke: ${basename(d)}`); tests.push(`pack: ${rel(d)}`, `pack: dist of ${rel(d)}`); }
@@ -96,7 +97,7 @@ export async function context() {
     if (existsSync(sc)) tests.push(...readdirSync(sc).filter(f => f.endsWith('.json')).map(f => `scenario: ${f.slice(0, -5)}`));
   }
   const toolTests = join(P.TOOLS, 'tests');
-  if (P.MODE === 'monorepo' && existsSync(toolTests)) for (const f of readdirSync(toolTests).filter(f => f.endsWith('.mjs')))
+  if (P.MODE === 'monorepo' && !only && existsSync(toolTests)) for (const f of readdirSync(toolTests).filter(f => f.endsWith('.mjs')))
     tests.push(readFileSync(join(toolTests, f), 'utf8').match(/export const name = '([^']+)'/)?.[1] ?? f);
   // commands
   const bin = await import(pathToFileURL(join(P.TOOLS, 'bin', 'threedog.mjs')).href);
@@ -134,7 +135,7 @@ export async function context() {
 const shipped = f => P.under(f, P.DOCS_REL) || P.under(f, `${P.TOOLS_REL}/templates`);
 // A name in an engine doc is a fact the AI copies, so a wrong one is an error. A game's own DESIGN / STATUS / README names the game's own modules
 // (engine.farm.plant), which the engine d.ts cannot know, so there it is a warning.
-const levelOf = doc => P.MODE === 'game' || /^games\//.test(doc) || P.gameDirs().some(d => doc.startsWith(`${rel(d)}/`)) ? 'warn' : 'error';
+const levelOf = docLevel;
 const allowed = (doc, token) => ALLOW.some(([d, t]) => (d === '*' || d === doc) && t === token);
 
 function checkPath(doc, tok, ctx) {
@@ -153,31 +154,31 @@ function checkPath(doc, tok, ctx) {
   else cands.push(resolve(dirname(abs(doc)), p), ...ctx.bases.map(b => join(b, p)));
   if (cands.some(existsSync)) return null;
   const near = closest(p, ctx.known, 6);
-  return { level: 'error', msg: `path \`${tok}\` does not exist${near ? `; did you mean \`${near}\`?` : ''}`,
+  return { level: levelOf(doc), msg: `path \`${tok}\` does not exist${near ? `; did you mean \`${near}\`?` : ''}`,
     fix: 'fix the path, or mark an intentional example with <!-- r18-ignore-line -->' };
 }
 
-function checkTests(tok, ctx) {
-  const m = tok.split(/\s(?:#|\/\/)|\s{2,}/)[0].match(/\bnpm (?:run )?test\s+--\s+(.+)$/); if (!m) return [];
+function checkTests(doc, tok, ctx) {
+  const m = tok.split(/\s(?:#|\/\/)|\s{2,}/)[0].match(/\b(?:npm (?:run )?test\s+--|threedog\s+test)\s+(.+)$/); if (!m) return [];
   const args = [...m[1].matchAll(/"([^"]+)"|'([^']+)'|(\S+)/g)].map(x => x[1] ?? x[2] ?? x[3]);
   const out = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '-w' || a === '--workspace') { i++; continue; }
     if (a.startsWith('-') || PLACEHOLDER.test(a) || /^[|#;]/.test(a) || a === 'name' || /^(and|or|e\.g\.)$/.test(a)) { if (/^[|#;]/.test(a)) break; continue; }
-    if (!ctx.tests.some(t => t.toLowerCase().includes(a.toLowerCase()))) out.push({ level: 'error',
-      msg: `\`npm test -- ${a}\` matches no test${nearest(a, ctx.tests, 2).length ? `; close: ${nearest(a, ctx.tests, 2).map(t => `"${t}"`).join(', ')}` : ''}`,
-      fix: 'use a fragment of a real test name, any case (npm test -- --verbose lists them)' });
+    if (!ctx.tests.some(t => t.toLowerCase().includes(a.toLowerCase()))) out.push({ level: levelOf(doc),
+      msg: `\`threedog test ${a}\` matches no test${nearest(a, ctx.tests, 2).length ? `; close: ${nearest(a, ctx.tests, 2).map(t => `"${t}"`).join(', ')}` : ''}`,
+      fix: 'use a fragment of a real test name, any case (threedog test --verbose lists them)' });
   }
   return out;
 }
 
-function checkCli(tok, ctx) {
+function checkCli(doc, tok, ctx) {
   const out = [];
   for (const m of tok.matchAll(/(?:^|\bnpx\s+|[;&|]\s*)threedog\s+([a-z][\w-]*)/g)) if (!ctx.cli.has(m[1]) && !PLACEHOLDER.test(m[1]))
-    out.push({ level: 'error', msg: `\`threedog ${m[1]}\` is not a command${closest(m[1], [...ctx.cli]) ? `; did you mean \`threedog ${closest(m[1], [...ctx.cli])}\`?` : ''}`, fix: 'the commands are listed by threedog' });
+    out.push({ level: levelOf(doc), msg: `\`threedog ${m[1]}\` is not a command${closest(m[1], [...ctx.cli]) ? `; did you mean \`threedog ${closest(m[1], [...ctx.cli])}\`?` : ''}`, fix: 'the commands are listed by threedog' });
   for (const m of tok.matchAll(/\bnpm run ([\w:-]+)/g)) if (!ctx.scripts.has(m[1]) && !PLACEHOLDER.test(m[1]))
-    out.push({ level: 'error', msg: `\`npm run ${m[1]}\` is not a script${closest(m[1], [...ctx.scripts]) ? `; did you mean \`npm run ${closest(m[1], [...ctx.scripts])}\`?` : ''}`, fix: 'use a script from package.json' });
+    out.push({ level: levelOf(doc), msg: `\`npm run ${m[1]}\` is not a script${closest(m[1], [...ctx.scripts]) ? `; did you mean \`npm run ${closest(m[1], [...ctx.scripts])}\`?` : ''}`, fix: 'use a script from package.json' });
   return out;
 }
 
@@ -233,7 +234,7 @@ export function checkDoc(doc, text, ctx) {
     const at = r => ({ ...r, file: doc, line: it.line });
     if (it.span) { const p = checkPath(doc, it.text.trim(), ctx); if (p) out.push(at(p)); }
     if (it.lang === 'js') continue;   // R13 type-checks js blocks; commands in their comments are examples
-    for (const r of [...checkTests(it.text, ctx), ...checkCli(it.text, ctx)]) out.push(at(r));
+    for (const r of [...checkTests(doc, it.text, ctx), ...checkCli(doc, it.text, ctx)]) out.push(at(r));
     for (const r of [...checkEvents(doc, it, ctx), ...checkMembers(doc, it, ctx), ...checkFn(doc, it, ctx)]) out.push(at(r));
   }
   return out;
@@ -248,16 +249,16 @@ export function checkAnchors(doc, text, readFile = f => existsSync(f) ? readFile
   const out = [], lineAt = i => text.slice(0, i).split('\n').length;
   for (const m of text.matchAll(/\]\(([^()\s#]*\.md)?#([^()\s]+)\)/g)) {
     const target = m[1] ? readFile(resolve(dirname(abs(doc)), m[1])) : text;
-    if (target != null && !anchorsOf(target).has(decodeURIComponent(m[2]))) out.push({ level: 'error', file: doc, line: lineAt(m.index), msg: `link to ${m[1] ?? ''}#${m[2]}: no such heading or <a id>`, fix: 'point it at the section as it is named now' });
+    if (target != null && !anchorsOf(target).has(decodeURIComponent(m[2]))) out.push({ level: levelOf(doc), file: doc, line: lineAt(m.index), msg: `link to ${m[1] ?? ''}#${m[2]}: no such heading or <a id>`, fix: 'point it at the section as it is named now' });
   }
-  if (!/MIGRATING-/.test(doc)) for (const m of text.matchAll(/\blook\.<part>/g)) out.push({ level: 'error', file: doc, line: lineAt(m.index), msg: 'look.<part> no longer exists', fix: 'name what replaced it: MIGRATING-0.6.md lists each one' });
+  if (!/MIGRATING-/.test(doc)) for (const m of text.matchAll(/\blook\.<part>/g)) out.push({ level: levelOf(doc), file: doc, line: lineAt(m.index), msg: 'look.<part> no longer exists', fix: 'name what replaced it: MIGRATING-0.6.md lists each one' });
   return out;
 }
 
 export default {
   id: 'R18', title: 'Names referenced in hand-written docs exist', game: true,
-  async run() {
-    const ctx = await context(), docs = docFiles(), out = [];
+  async run({ scope = null } = {}) {
+    const ctx = await context(scope), docs = docFiles(scope), out = [];
     for (const d of docs) out.push(...checkDoc(d, read(d), ctx), ...checkAnchors(d, read(d)));
     out.note = `${docs.length} docs, ${ctx.tests.length} test names, ${ctx.events.size} event names`;
     return out;

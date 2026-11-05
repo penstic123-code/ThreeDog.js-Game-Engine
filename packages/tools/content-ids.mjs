@@ -8,13 +8,15 @@
 //
 // threedog content set|add|remove: one entry (content-write.mjs). threedog content stamp|capture and set --source: arrangements (content-stamp.mjs).
 // set --source <arrangement> <part> field=value is an explicit batch edit of every copy: copies are plain entries and never follow on their own.
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
 import { parseAst } from 'vite';
 import { abs, rel, command, CONTENT_IDS_REL } from './paths.mjs';
 import { loadGame, partOf } from './content-check/load.mjs';
 import { exportedLiteral } from './vite/vite-threedog-content-src.js';
+import { writeAtomic } from './lib/atomic.mjs';
+import { lit } from './content-write.mjs';
 
 const { missingIds } = await import(pathToFileURL(abs(CONTENT_IDS_REL)).href);
 
@@ -39,9 +41,9 @@ export async function planIds(dir) {
       const el = node?.type === 'ArrayExpression' ? node.elements[m.index] : null;
       const spread = node?.elements?.slice(0, m.index + 1).some(x => x?.type === 'SpreadElement');
       if (!el || el.type !== 'ObjectExpression' || spread) { out.manual.push(`${rel(path)}[${m.index}] -> id: '${m.id}' (not a literal in the exported array: edit by hand)`); continue; }
-      const lit = `'${m.id.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`, next = code[el.start + 1];
+      const id = lit(m.id), next = code[el.start + 1];
       // `{ template: … }` -> `{ id: '…', template: … }`; `{}` -> `{ id: '…' }`
-      edits.push({ at: el.start + 1, text: el.properties.length ? ` id: ${lit},${/\s/.test(next) ? '' : ' '}` : ` id: ${lit} ` });
+      edits.push({ at: el.start + 1, text: el.properties.length ? ` id: ${id},${/\s/.test(next) ? '' : ' '}` : ` id: ${id} ` });
     }
     if (!edits.length) continue;
     let after = code;
@@ -71,7 +73,7 @@ async function main(argv) {
   for (const f of plan.files) console.log(f.lines.join('\n'));
   for (const m of plan.manual) console.log('! ' + m);
   if (!n && !plan.manual.length) { console.log(`✓ ${rel(dir)}: every stateful content entry has a written id`); return 0; }
-  if (write) for (const f of plan.files) writeFileSync(f.path, f.after);
+  if (write) for (const f of plan.files) writeAtomic(f.path, f.after);
   console.log(write ? `✓ wrote ${n} id(s) into ${plan.files.length} file(s). Rename one later through content/renames.js: { 'old': 'new' }`
     : `${n} id(s) to write (dry run). Run again with --write to apply`);
   return 0;

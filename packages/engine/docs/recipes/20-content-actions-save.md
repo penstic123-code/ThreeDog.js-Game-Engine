@@ -42,7 +42,9 @@ export default {
 // content/recipes.js
 export default { bread: { needs: { flour: 2 }, makes: 'bread' } };
 ```
-Add `recipes` to `content/index.js` like any other file. A file in `content/` that is neither an engine file nor a registered kind is an error,
+Add `recipes` to `content/index.js` like any other file, and `rules` too: the loader knows a kind only from the `rules` it is handed (`threedog check`
+says so when one is missing). `load` is optional: a game that imports the file itself leaves it out and still gets the check and the map entry.
+A file in `content/` that is neither an engine file nor a registered kind is an error,
 and so is `content.load({ enemies })` without the kind: both say how to register it. A kind may not reuse an engine file name.
 
 **Field tables.** Every content entry has one: the engine declares the placement fields of its own files once (`modules/content/rules.js`,
@@ -186,7 +188,7 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
 ```
 - **Parts and versions**: each `engine.saves.register(key, { version, migrate, save, load })` owns one part. When `save()` changes shape, raise
   `version` by 1 and add `migrate[oldVersion] = data => newData`; load runs the steps in order on a copy, so `load` only sees the current shape. A
-  part from a newer build, or a missing step, refuses the whole load before anything changes.
+  part from a newer build, or a missing step, refuses the whole load before anything changes. This is how a game's own saved data migrates across its releases (there is no other system): keep one saved file per released game version, never edit it, and load each in a test with `engine.saves.apply(sample)` (the engine does the same for its own parts in `tests/specs/save-compat.mjs`).
 - **Parts nobody owns are kept**: a part in the loaded save whose module is not installed in this run (a feature turned off for a version) is written
   back unchanged on every save, and handed to the module if it registers later. Only a new game drops it.
 - **Authored baseline + per-id diff**: everything placed in a level comes from content (props, template instances, pickups, NPCs, grid items in
@@ -215,4 +217,4 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
   step positions; the migrate step maps them to ids through the quest definitions), `containers` 2 and `grids` 2, every other part 1.
 - The export file wraps the envelope:
   `{ threedog: 'save', format: 1, game, slot, savedAt, data: <envelope>, files: [{ group, id, at, meta, type, url: 'data:...' }] }`.
-- Tests: `npm test -- "Save failure"`.
+- Tests: `threedog test "Save failure"`.

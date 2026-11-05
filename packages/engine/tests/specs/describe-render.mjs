@@ -5,7 +5,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE, R = engine.renderer, S = engine.scene;
         const was = { tone: R.toneMapping, exposure: R.toneMappingExposure, fog: S.fog, bg: S.background, env: S.environment, envI: S.environmentIntensity, type: R.shadowMap.type, on: R.shadowMap.enabled };
         R.toneMapping = T.CineonToneMapping; R.toneMappingExposure = 0.00125;
@@ -41,7 +41,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const before = engine.describe().render;
         // tone mapping is plain three.js (written once at creation, never again): the game's direct write shows as game and stays after frames
         const m0 = engine.renderer.toneMapping;
@@ -59,20 +59,20 @@ export const specs = [
     },
   },
   {
-    name: 'describe holds: pause / freeze / camera / debug view owners come in one shape (small town)',
+    name: 'describe holds: halt / freeze / camera / debug view owners come in one shape (small town)',
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
         const none = engine.describe().holds;
-        const p = engine.pause('t-pause'), f = engine.freeze('t-freeze'), c = engine.takeCamera('t-cam'), v = engine.debug.view('normals', { owner: 't-view' });
+        const p = engine.haltLoop('t-halt'), f = engine.freeze('t-freeze'), c = engine.takeCamera('t-cam'), v = engine.debug.view('normals', { owner: 't-view' });
         const held = engine.describe().holds;
         p.remove(); f.remove(); c.remove(); engine.debug.clear('t-view');
         return { none, held, after: engine.describe().holds };
       });
       const shape = o => Array.isArray(o) && o.every(x => typeof x.owner === 'string' && typeof x.at === 'string');
-      check('each kind lists its owner', ['pause', 'freeze', 'camera', 'debugView'].every(k => r.held[k]?.[0]?.owner === 't-' + (k === 'debugView' ? 'view' : k === 'camera' ? 'cam' : k)), JSON.stringify(r.held));
+      check('each kind lists its owner', ['halt', 'freeze', 'camera', 'debugView'].every(k => r.held[k]?.[0]?.owner === 't-' + (k === 'debugView' ? 'view' : k === 'camera' ? 'cam' : k)), JSON.stringify(r.held));
       check('every kind has the same [{ owner, at }] shape', Object.values(r.held).every(shape), JSON.stringify(r.held));
-      check('released claims leave the list', !r.after.pause && !r.after.freeze && !r.after.camera && !r.after.debugView, JSON.stringify(r.after));
+      check('released claims leave the list', !r.after.halt && !r.after.freeze && !r.after.camera && !r.after.debugView, JSON.stringify(r.after));
     },
   },
   {
@@ -82,9 +82,9 @@ export const specs = [
       const r = await ev(() => {
         const warns = [], w0 = console.warn; console.warn = (...a) => { warns.push(String(a[0])); };
         try {
-          engine.pause();
+          engine.haltLoop();
           const dpr = devicePixelRatio || 1, base = engine.describe().render.scale;
-          const a = engine.adaptive; a.on = true; a.paused = false; a.target = 60; a.lowered = false; a.from = null; a.age = 10;   // past the startup grace
+          const a = engine.adaptive; a.on = true; a.target = 60; a.lowered = false; a.from = null; a.age = 10;   // past the startup grace
           const max = a.max; engine.setPixelRatio(max);
           const slow = () => { for (let i = 0; i < 10; i++) engine._adapt(0.1, 60, false, true); };   // 60 ms frames with GPU time known: overload
           slow(); slow();
@@ -107,7 +107,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         if (engine.particles.effects.has('dust')) engine.particles.emit('dust', engine.player.position, { count: 12 });
         const d = engine.describe(), keys = o => (o && typeof o === 'object' ? Object.keys(o).sort().join() : String(o));
         const byPaths = [];
@@ -120,9 +120,9 @@ export const specs = [
           hasDust: engine.particles.effects.has('dust'), live: d.particles?.alive.effects, sea: d.water?.sea, byPaths,
           tone: d.render?.toneMapping, exposure: d.render?.exposure, rendererExposure: engine.renderer.toneMappingExposure, run: d.time.run, installed: [...engine.modules.keys()] };
       });
-      const want = { ambience: 'on,rules', collision: 'atPlayer,boxes,cameraOcclusion,circles,fields', music: 'current,ducked,gain,intensity,override,pending,playing,ready,ruled,stems,tracks',
+      const want = { ambience: 'audioLocked,on,rules', collision: 'atPlayer,boxes,cameraOcclusion,circles,fields', music: 'current,ducked,gain,intensity,override,pending,playing,ready,ruled,stems,tracks',
         particles: 'alive,effects,emitters', photo: 'album,keyBound,last,maxAlbum', rigid: 'bodies,colliders,dynamic,fixed,frozen,ready,sleeping,vehicles', water: 'bodies,sea',
-        settings: 'capturing,open,tab,values', debugPanel: 'benchmarking,open' };
+        settings: 'capturing,open,tab,values', debugPanel: 'open' };
       for (const [n, k] of Object.entries(want)) {
         if (n === 'debugPanel' && !r.installed.includes(n)) continue;   // dev builds only
         check(`describe().${n} has its fields`, r.mods[n] === k, `${r.mods[n]} (want ${k})`);
@@ -131,7 +131,7 @@ export const specs = [
       check('water: the sea reports its level and size', typeof r.sea?.level === 'number' && r.sea.size > 0, JSON.stringify(r.sea));
       check('no `by` key anywhere in describe() (who set it = writer)', r.byPaths.length === 0, r.byPaths.join(', '));
       check('render: toneMapping says writer, exposure is the value on the renderer', typeof r.tone?.writer === 'string' && Math.abs(r.exposure?.value - r.rendererExposure) < 0.01, JSON.stringify([r.tone, r.exposure, r.rendererExposure]));
-      check('time.run lists pause owners as owners', Array.isArray(r.run?.owners) && r.run.owners.length > 0, JSON.stringify(r.run));
+      check('time.run lists halt owners as owners', Array.isArray(r.run?.owners) && r.run.owners.length > 0, JSON.stringify(r.run));
     },
   },
   {
@@ -139,7 +139,7 @@ export const specs = [
     url: '/tests/level/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const lv = engine.describe().level, zones = engine.triggers.list().length;
         const lines = () => engine.scene.getObjectByName('triggers-debug')?.children.length ?? 0;
         const on = engine.debug.view('triggers'), drawn = lines(), text = engine.describeText({ path: 'render' });

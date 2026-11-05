@@ -16,7 +16,7 @@ import { defineGridOps, placed } from './ops.js';
 
 /** Grids save part: version 1 stored every cell of a layer whole ([[i, j, data]]); version 2 stores a diff against the authored cells (Layer.js) */
 const GRIDS_MIGRATE = { 1: d => Object.fromEntries(Object.entries(d || {}).map(([g, ls]) => [g, Object.fromEntries(Object.entries(ls || {}).map(([n, rows]) => [n, { set: rows, whole: true }]))])) };
-import { closest, DEV, warnOnce } from '../../core/validate.js';
+import { closest, DEV, warnOnce, fmt } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { failure } from '../../core/opsFail.js';
 import { STRINGS as TEXT } from './strings.js';
@@ -29,7 +29,6 @@ const STRINGS = {
   orphan: "[engine] grid '{grid}': {id} is a '{item}', which this content no longer defines; it is kept in the save but takes no cells. Define '{item}' again (engine.grids.define) to bring it back, or remove it with engine.ops.run('grid.remove', { id })",
   overlap: "[engine] grid '{grid}': {id} overlaps {other} at cell {cell}; the cell stays with {other}. Place things with engine.ops.run('grid.place', ...) / 'grid.move', which check can() first",
 };
-const fmt = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k] ?? '');
 const hint = (n, list) => { const c = closest(n, list); return c ? ` (did you mean '${c}'?)` : ''; };
 const freeze = p => { Object.freeze(p.cell); Object.freeze(p.size); return Object.freeze(p); };
 
@@ -88,11 +87,11 @@ export class Grids {
     return g;
   }
   /**
-   * A grid by name, or null when there is none
+   * A grid by name, or undefined when there is none
    * @param {string} name
-   * @returns {Grid | null}
+   * @returns {Grid | undefined}
    */
-  get(name) { return this._grids.get(name) ?? null; }
+  get(name) { return this._grids.get(name); }
   /** @internal A grid by name; throws with the names that exist */
   _must(name) {
     const g = this._grids.get(name);

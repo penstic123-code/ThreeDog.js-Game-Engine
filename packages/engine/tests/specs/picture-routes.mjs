@@ -12,9 +12,9 @@ export const specs = [
       console.log('  picture routes numbers:', JSON.stringify(r));
       for (const side of ['gl', 'gpu']) {
         const o = r[side];
-        check(`${side}: engine.terms.cloudShadow({ glsl, tsl }) changes the built terrain and trees; false drops the term; remove() gives it back`,
+        check(`${side}: engine.shaderTerms.cloudShadow({ glsl, tsl }) changes the built terrain and trees; false drops the term; remove() gives it back`,
           o.cloud.moved > 3 && o.cloud.on > 0 && o.cloudOff === 0 && o.cloudBack.on > 0 && o.cloudBack.moved < 0.5, JSON.stringify([o.cloud, o.cloudOff, o.cloudBack]));
-        check(`${side}: engine.terms.season(kind => spec) recolors ground and foliage already built; remove() gives the engine tint back`,
+        check(`${side}: engine.shaderTerms.season(kind => spec) recolors ground and foliage already built; remove() gives the engine tint back`,
           o.season.moved > 3 && o.season.on > 0 && o.seasonBack < 0.5, JSON.stringify([o.season, o.seasonBack]));
         check(`${side}: vegetation.color() recolors the planted trees live; null takes the patch off`,
           o.veg.moved > 0.3 && o.veg.on > 0 && o.vegBack.on === 0 && o.vegBack.moved < 0.5, JSON.stringify([o.veg, o.vegBack]));

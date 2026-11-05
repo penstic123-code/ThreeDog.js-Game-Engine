@@ -43,6 +43,7 @@ Content: actions 4 · audio 3 · containers 1 · dialogues 1 · items 4 · npcs 
 
 Not used yet (check these before writing the system yourself):
 
+- swarm: many same-kind moving things (shots, crowds, flocks, debris) in typed arrays, drawn as one mesh: `swarm()` (node_modules/threedog/docs/recipes/65-swarm.md)
 - grids: cell placement for farming and building: `grids()` (node_modules/threedog/docs/recipes/29-grid.md)
 
 ## Files

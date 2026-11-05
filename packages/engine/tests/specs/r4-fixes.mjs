@@ -36,7 +36,7 @@ export const specs = [
     },
   },
   {
-    // W6：夜里下雨 / 阴天时星星要被天气的云量压暗（天空与天气的协调：dome 着色器读 uCloud，并且星星在画出来的云后面）
+    // W6：夜里下雨 / 阴天时星星要被天气的云量压暗（天空与天气的协调：dome 着色器读 uWeatherCloud，并且星星在画出来的云后面）
     software: true,   // reads rendered pixels: stays on software rendering (same pixels on every machine)
     name: 'r4 W6: night stars dim with the weather cloud cover (rain shows far fewer bright star pixels than clear)',
     url: '/',
@@ -63,7 +63,7 @@ export const specs = [
           return { bright };
         };
         const clear = stars('clear'), rain = stars('rain');
-        return { clear, rain, cloud: engine.uniforms.uCloud.value };
+        return { clear, rain, cloud: engine.uniforms.uWeatherCloud.value };
       } catch (err) { return { err: String(err.stack) }; } });
       if (r.err) { check('runs without error', false, r.err); return; }
       check('a clear night shows stars', r.clear.bright > 0, JSON.stringify(r));

@@ -22,8 +22,8 @@ const engine = window.engine = createEngine({ canvas: document.getElementById('v
   ui: { loading: false }, saveKey: 'test-sky-tsl', urlState: false });
 engine.use(sky({ time: 0.27, keyframes: KF, clouds: { coverage: 1 } }));
 await engine.start();
-engine.pause();
-engine.uniforms.uCloud.value = 0.55;   // weather's cloud amount (no weather module here): clouds on
+engine.haltLoop();
+engine.uniforms.uWeatherCloud.value = 0.55;   // weather's cloud amount (no weather module here): clouds on
 
 const canvas = () => Object.assign(document.createElement('canvas'), { width: W, height: H });
 const gl = new THREE.WebGLRenderer({ canvas: canvas(), antialias: false });
@@ -96,8 +96,8 @@ window.skyTsl = async () => {
     const e2 = createEngine({ canvas: c2, renderer: 'webgpu', pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, saveKey: 'test-sky-tsl-gpu', urlState: false });
     e2.use(sky({ time: 0.33, keyframes: KF, clouds: { coverage: 1 } }));
     e2.scene.fog = new THREE.FogExp2(0xcccccc, 0.01);
-    await e2.start(); e2.pause();
-    e2.uniforms.uCloud.value = engine.uniforms.uCloud.value; e2.uniforms.uTime.value = engine.uniforms.uTime.value;
+    await e2.start(); e2.haltLoop();
+    e2.uniforms.uWeatherCloud.value = engine.uniforms.uWeatherCloud.value; e2.uniforms.uTime.value = engine.uniforms.uTime.value;
     S.fixedTime = 0.33; S.update(engine.focus); e2.sky.update(e2.focus);
     e2.scene.fog.color.copy(e2.sky.uniforms.uHorizon.value); e2.sky.update(e2.focus);   // a fog in the horizon color: no fog band on the dome, like the WebGL side
     // the engine's own scene (only the dome draws in it: no ground, no objects) against the WebGL dome over the WebGL engine's uniforms
@@ -107,7 +107,7 @@ window.skyTsl = async () => {
     const b = await read();
     // engine.uniforms is the dome's own value on this renderer too: a plain .value write moves the picture, and writing it back restores it
     const moved = {};
-    for (const [k, v] of [['uCurve', 3], ['uCloudCover', 0], ['uSkyCloudScale', 3]]) {
+    for (const [k, v] of [['uSkyCurve', 3], ['uCloudCover', 0], ['uSkyCloudScale', 3]]) {
       const was = e2.uniforms[k].value; e2.uniforms[k].value = v; moved[k] = change(b, await read()); e2.uniforms[k].value = was;
     }
     moved.back = change(b, await read()); rt.dispose();
@@ -121,7 +121,6 @@ window.skyTsl = async () => {
   } finally { delete navigator.gpu; }
 
   // ---- errors by name
-  out.errors.layersGpu = tryIt(() => makeDome(S.uniforms, { layers: [{ glsl: 'vec4 threedogSkyLayer(vec3 d, float t, vec3 s, float n){ return vec4(0.0); }' }] }, DOME_FOG, gpuHost));
   const keep = swapWebGPUPart('sky', null);
   try {
     out.errors.noTslDome = tryIt(() => makeDome(makeSkyUniforms({}, engine.uniforms), {}, DOME_FOG, gpuHost));

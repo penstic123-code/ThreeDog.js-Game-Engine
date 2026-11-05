@@ -34,7 +34,7 @@ engine.scene.add(ground, wall, tower, sun, new THREE.AmbientLight(0xffffff, 0.4)
 engine.scene.background = new THREE.Color(0x203040);
 
 await engine.start();
-engine.pause();
+engine.haltLoop();
 const cam = engine.camera, rt = gpu ? new TG.RenderTarget(W, H) : new THREE.WebGLRenderTarget(W, H);
 const place = x => { cam.position.set(x, 2, 10); cam.lookAt(x, 2, 0); cam.aspect = W / H; cam.updateProjectionMatrix(); cam.updateMatrixWorld(); };
 
@@ -92,7 +92,7 @@ window.occlusionRun = async () => {
   out.shadowSeesBoxes = sun.shadow.camera.layers.isEnabled(BOX_LAYER);
   out.shadowSeesHidden = sun.shadow.camera.layers.isEnabled(HIDDEN_LAYER);
   engine.rays.addStatic(tower);
-  out.rayHit = engine.rays.cast(new THREE.Vector3(2, 2.5, -4), new THREE.Vector3(0, 0, 1))?.object === tower;
+  out.rayHit = engine.raycast(new THREE.Vector3(2, 2.5, -4), new THREE.Vector3(0, 0, 1))?.object === tower;
   const onPicture = await read();
   out.ms = { on: await cost() };
   out.changed = differing(offPicture, onPicture);
@@ -153,7 +153,7 @@ window.occlusionFallback = async () => {
     const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial());
     m.position.z = -5; e.scene.add(m);
     e.occlusion.watch([m]); e.occlusion.enabled = true;
-    await e.start(); e.pause();
+    await e.start(); e.haltLoop();
     for (let i = 0; i < 3; i++) { e.step(1 / 60, { describe: false }); await new Promise(requestAnimationFrame); }
     const [it] = e.occlusion._items;
     return { webgl: !!e.renderer.isWebGLRenderer, query: !!it.query, gpuHook: !!it.proxy.occlusionTest };

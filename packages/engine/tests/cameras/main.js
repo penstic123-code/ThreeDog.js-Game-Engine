@@ -18,7 +18,7 @@ const rigs = {
     },
     start: 'south',
   }),
-  rts: () => rtsCamera({ height: 30, angle: 0.95, edgePan: false, bounds: { minX: -80, maxX: 80, minZ: -80, maxZ: 80 } }),
+  rts: () => rtsCamera({ height: 30, pitch: 0.95, edgePan: false, bounds: { minX: -80, maxX: 80, minZ: -80, maxZ: 80 } }),
 };
 
 const engine = createEngine({ bindings: { ...presets.bindings.walk, ...presets.bindings.interact }, canvas: document.getElementById('view'), ui: { loading: { title: 'camera test' } } });

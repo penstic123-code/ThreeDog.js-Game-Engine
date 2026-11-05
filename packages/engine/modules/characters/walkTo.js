@@ -6,7 +6,7 @@
 // Control: a walk holds the character on layer 'script' (core/control.js). So the player's keys pause while it walks and come back when it ends; a
 // cutscene above pauses the walk (no progress, no stuck clock) and the walk carries on after; another script owner on the same character is a
 // control-conflict error instead of two hooks pushing one body.
-import { xzOf } from '../../core/math.js';
+import { xzOf, wrapAngle } from '../../core/math.js';
 
 const STUCK_PROGRESS = 0.15;   // metres the character must gain on the next point within the stuck window, else it counts as stuck
 
@@ -60,7 +60,7 @@ export function walkTo(ch, target, { speed, arrive = 0.5, turnRate = 8, stuckSec
     }
     const want = Math.atan2(p.x - x, p.z - z);
     heading ??= ch.facing;
-    let diff = want - heading; diff -= Math.PI * 2 * Math.round(diff / (Math.PI * 2));
+    const diff = wrapAngle(want - heading);
     const step = turnRate * dt;
     heading += Math.abs(diff) <= step ? diff : Math.sign(diff) * step;
     // slow down while the body is still turning toward the point, so it does not overshoot sideways

@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const HELPERS = `
-  const { createEngine, world, grids, particles } = threedogTest;
+  const { createEngine, world, grids, particles, music } = threedogTest;
   const base = { canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'strict-options' };
   const err = f => { try { f(); return ''; } catch (x) { return x.message; } };
 `;
@@ -23,7 +23,7 @@ export const specs = [
         const out = {};
         out.engine = err(() => createEngine({ ...base, antialas: false }).dispose());
         out.audio = err(() => createEngine({ ...base, audio: { levles: { sfx: 1 } } }).dispose());
-        out.music = err(() => createEngine({ ...base, audio: { music: { trakcs: {} } } }).dispose());
+        out.music = err(() => { const m = createEngine({ ...base, canvas: document.createElement('canvas'), audio: { music: { trakcs: {} } } }); try { m.use(music()); } finally { m.dispose(); } });
         const e = createEngine(base);
         e.use(world()); e.use(grids()); e.use(particles());
         out.gridAdd = err(() => e.grids.add('g1', { cel: 1, size: [4, 4] }));
@@ -75,7 +75,7 @@ export const specs = [
       const veg = world.slice(world.indexOf('export interface Vegetation {'), world.indexOf('}', world.indexOf('export interface Vegetation {') + 500) + 1);
       check('[guard] Vegetation types: define(name, …) defines a kind, there is no add()', /\n  define\(name: string, opts: VegetationOptions\)/.test(world) && !/\n  add\(name: string, opts: VegetationOptions\)/.test(world), veg.slice(0, 200));
       const time = gameplay.slice(gameplay.indexOf('export interface Time {'), gameplay.indexOf('\n}', gameplay.indexOf('export interface Time {')));
-      check('[guard] Time types: no after() (the one public timer is engine.clock.after(s, fn, data, { channel }))', time.length > 50 && !/\n  after\(/.test(time), time.slice(-200));
+      check('[guard] Time types: no after() (the one public timer is engine.clock.after(s, fn, { data, channel }))', time.length > 50 && !/\n  after\(/.test(time), time.slice(-200));
     },
   },
 ];

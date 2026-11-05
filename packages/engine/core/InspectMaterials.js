@@ -6,11 +6,9 @@
 // Plain three.js equivalent: scene.traverse + material[slot] + texture.colorSpace / texture.image; renderer.info.memory.textures is the count.
 import { isEngineMade, materialPatchSlots } from '../render/patches.js';
 import { textureBytes, mb } from './textureBytes.js';
+import { COLOR_SLOTS, DATA_SLOTS } from './assetReport.js';
 
-const COLOR_SLOTS = ['map', 'emissiveMap', 'specularColorMap', 'sheenColorMap', 'lightMap'];
-const DATA_SLOTS = ['normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'bumpMap', 'displacementMap', 'alphaMap', 'clearcoatMap', 'clearcoatNormalMap',
-  'clearcoatRoughnessMap', 'specularIntensityMap', 'transmissionMap', 'thicknessMap', 'iridescenceMap', 'anisotropyMap', 'sheenRoughnessMap'];
-const OTHER_SLOTS = ['envMap', 'gradientMap', 'matcap', 'specularMap'];
+const OTHER_SLOTS = ['lightMap', 'envMap', 'gradientMap', 'matcap'];   // listed, with no one right color space
 const SRGB = 'srgb';
 
 /** Textures of a material: the standard slots, then any texture uniform of a ShaderMaterial */
@@ -25,7 +23,7 @@ function texturesOf(m) {
 function spaceIssue(slot, t) {
   if (t.isRenderTargetTexture || t.isDepthTexture) return null;
   const name = `${slot} "${t.name || t.uuid.slice(0, 8)}"`;
-  if (COLOR_SLOTS.includes(slot) && slot !== 'lightMap' && t.colorSpace !== SRGB && !t.isDataTexture && !t.isCompressedTexture)
+  if (COLOR_SLOTS.includes(slot) && t.colorSpace !== SRGB && !t.isDataTexture && !t.isCompressedTexture)
     return `${name} holds colors but its colorSpace is '${t.colorSpace || 'none'}': it renders washed out. Fix: texture.colorSpace = THREE.SRGBColorSpace`;
   if (DATA_SLOTS.includes(slot) && t.colorSpace === SRGB)
     return `${name} holds data but is marked sRGB: values are bent (normals tilt, roughness shifts). Fix: texture.colorSpace = THREE.NoColorSpace`;

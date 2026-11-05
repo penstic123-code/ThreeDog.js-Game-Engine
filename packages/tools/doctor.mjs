@@ -1,8 +1,9 @@
 // One-shot health check: npm run doctor [--ci] [--json]
 // One line per item: ✓ passed / ✗ problem (followed by the fix) / – info only. The browser check runs last: it renders one real engine frame on
 // software rendering (what tests use) and on the hardware GPU path (what shot / gallery / perf / stress prefer), a few seconds; the rest takes milliseconds.
-// --json prints one verdict object instead of lines: { healthy, items: [{ status, msg, fix? }], render }. Exit code 0 only when healthy.
+// --json prints the one result shape of tool commands instead of lines (lib/result.mjs: { ok, summary, items }): a problem is level error, an info line level warn, a passed line is left out. Exit code 0 only when ok.
 // --ci only prints and never fails the command (no GPU and the like are normal on CI machines).
+import { item, result } from './lib/result.mjs';
 import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync, realpathSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
@@ -15,8 +16,8 @@ import { nodeProblem, NODE_RANGE, NODE_FIX } from './lib/node-version.mjs';
 const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['ci', 'json', 'gpu', 'software'] });
 const ci = !!opt.ci, json = !!opt.json;
 let bad = 0;
-const items = [], verdict = { healthy: false, items, render: {} };
-const line = (status, msg, fix) => { items.push(fix ? { status, msg, fix } : { status, msg }); if (!json) console.log(`${{ ok: '✓', problem: '✗', info: '–' }[status]} ${msg}${fix ? `  →${fix}` : ''}`); };
+const items = [], render = {};
+const line = (status, msg, fix) => { if (status !== 'ok') items.push(item({ level: status === 'problem' ? 'error' : 'warn', message: msg, fix })); if (!json) console.log(`${{ ok: '✓', problem: '✗', info: '–' }[status]} ${msg}${fix ? `  →${fix}` : ''}`); };
 const ok = msg => line('ok', msg);
 const info = msg => line('info', msg);
 const no = (msg, fix) => { bad++; line('problem', msg, fix); };
@@ -152,13 +153,13 @@ try {
   };
   try {
     // the launch itself is the install check: executablePath() names the full chromium, while headless launches use the headless shell
-    const sw = verdict.render.software = await frame('software');
+    const sw = render.software = await frame('software');
     if (/Executable doesn't exist|npx playwright install/.test(sw.error ?? '')) no('Playwright chromium is not installed', 'run npx playwright install chromium');
     else if (sw.error) no(`the engine cannot render a frame with software rendering (tests use it): ${sw.error}`, 'update the graphics driver; if that fails, reinstall the browser: npx playwright install chromium --force');
     else if (!sw.drawn) no(`software rendering ran but the frame came out wrong (center pixel ${sw.pixel}, renderer ${sw.renderer})`, 'reinstall the browser: npx playwright install chromium --force');
     else ok(`engine frame rendered with software rendering (${sw.renderer}, ${sw.frameMs} ms): tests run on this, the same pixels on every machine`);
-    const gpu = verdict.render.gpu = await frame('gpu');
-    const hw = verdict.render.hardwareGpu = !gpu.error && gpu.drawn && !SOFTWARE_RENDERER.test(gpu.renderer);
+    const gpu = await frame('gpu');
+    const hw = render.hardwareGpu = !gpu.error && gpu.drawn && !SOFTWARE_RENDERER.test(gpu.renderer);
     if (hw) ok(`a hardware GPU is available to headless (${gpu.renderer}, ${gpu.frameMs} ms): shot, gallery --shots, perf and stress use it; tests use it too, except those that read pixels (they stay on software)`);
     else info(`no hardware GPU reachable headless (${gpu.error ?? (gpu.drawn ? gpu.renderer : `frame came out wrong on ${gpu.renderer}`)}): shot / gallery / perf / stress fall back to software rendering (slower, GPU ms not real). ` +
       'Normal on CI and remote machines; on a desktop update the graphics driver' + (process.platform === 'linux' ? ' and install the Mesa Vulkan driver (mesa-vulkan-drivers)' : ''));
@@ -170,7 +171,8 @@ try {
   } finally { await server.close(); rmSync(page, { recursive: true, force: true }); }
 }
 
-verdict.healthy = bad === 0;
-if (json) console.log(JSON.stringify(verdict, null, 1));
+// summary keeps the one fact tools asked `render` for: which path a shot will take
+const gpuNote = 'hardwareGpu' in render ? `; hardware GPU ${render.hardwareGpu ? 'available' : 'not reachable headless'}` : '';
+if (json) console.log(JSON.stringify(result(items, `${bad ? `${bad} problems` : 'All passed'}${gpuNote}`)));
 else console.log(bad ? `\n${bad} problems, follow the fixes after "→"` : '\nAll passed');
 process.exit(bad && !ci ? 1 : 0);

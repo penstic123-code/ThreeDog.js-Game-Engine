@@ -12,7 +12,7 @@
 - `engine.start() → Promise<this>` — Start: initialize modules, preload assets, wait for the world to be ready
 - `engine.step(seconds: number, opts?: { render?, frameEvery?, describe? }) → GameState | null` — Advance seconds of fixed-step time synchronously
 - `engine.describeText(opts?: { radius?, full?, path? }) → string` — The same information as English text, summary first: at most 30 lines…
-- `engine.applyState(params: StateParams) → Promise<void>` — Set up a scenario: time of day, weather, player position, load a save, advance time, skip cutscenes
+- `engine.applyState(params: StateParams) → Promise<{ ok: boolean, refused: {…` — Set up a scenario: time of day, weather, player position, load a save, advance time, skip cutscenes
 - `engine.onFixed(fn: (dt: number) => void, opts?: { channel?, phase? }) → Handle` — Fixed-step logic (60 times per second, dt in fixed seconds): movement, physics, cooldowns, and game…
 - `engine.onFrame(fn: (dt: number) => void) → Handle` — Once per frame (dt in frame seconds): animation, camera, UI and UI keys…
 - `engine.add(obj: T, ...more: (Object3D | { id?, save? })[]) → T` — Add objects to the scene and register them (engine.thing), returns the first one
@@ -22,7 +22,7 @@
 - `engine.raycast(origin: Vec3Like, dir: Vec3Like, opts?: RaycastOptions) → RayHit | null` — Ray: shoot from origin along dir, returns the nearest hit or null…
 - `engine.pick(ndcX: number, ndcY: number, opts?: RaycastOptions) → RayHit | null` — Shoot a ray through the camera from screen coordinates (-1..1, e.g. input.pointer.ndcX/ndcY)
 - `engine.freeze(owner?: string | { owner?, kind?, ambient? }, opts?: { kind?, ambient? }) → OwnerHandle` — Gameplay pause (menu, flow's paused): fixed steps are skipped entirely…
-- `engine.pause(owner?: string | { owner?, kind? }, opts?: { kind?: 'test' }) → OwnerHandle` — Pause the real-time loop: the picture stops and even rendering stops, only step() advances…
+- `engine.haltLoop(owner?: string | { owner?: string }) → OwnerHandle` — Pause the real-time loop: the picture stops and even rendering stops, only step() advances…
 - `engine.stateApplied` — Scenario is ready: start() completed, and the URL parameters / the latest applyState have all been …
 - `engine.ready` — phase is 'ready' or 'running': the world is built and the loading screen is gone…
 - `engine.player` — The player (exists only after characters.createPlayer())
@@ -34,41 +34,41 @@
 - [`engine.input`](api/input.md) Input: read by "action": action bind touchButton simulate rebind rebound keysOf isUnbound label down pressed released pressedRaw push …
 - [`engine.clock`](api/clock.md) calendar seconds and "after how long / every how long": after every
 - [`engine.vars`](api/vars.md) story flags and counters (autosaved): flag setFlag counter bump
-- [`engine.saves`](api/saves.md) engine.saves handles saving: register queue flush collect check apply save load list remove export import exportFile importFile …
-- [`engine.assets`](api/assets.md) Assets: manifest builder paramsOf setParams preload font model modelNow geometry gridFromImage texture useTexture release trim …
+- [`engine.saves`](api/saves.md) engine.saves handles saving: register putAttachment removeAttachment attachments storageKey flush collect check apply save load list remove export …
+- [`engine.assets`](api/assets.md) Assets: manifest builder paramsOf setParams preload font model lod modelNow geometry gridFromImage texture useTexture release …
 - [`engine.audio`](api/audio.md) buses: addBus setVolume duck condition measure value matches volumeOf sfx noiseBurst tone load play
-- [`engine.i18n`](api/i18n.md) string tables: add setLocale has t
-- [`engine.rays`](api/rays.md) engine.rays is the ray registry…: addStatic forget addProvider cast pick
+- [`engine.i18n`](api/i18n.md) string tables: add setLocale has
+- [`engine.rays`](api/rays.md) engine.rays is the ray registry…: addStatic forget addProvider
 - [`engine.jobs`](api/jobs.md) engine.jobs queues build work in a binary heap: add run
-- [`engine.stream`](api/stream.md) engine.stream builds on demand by space: only entries n…: add setRadius source teleport readyCheck sources
+- [`engine.stream`](api/stream.md) engine.stream builds on demand by space: only entries n…: add setRadius source teleport addReadyCheck sources
 - [`engine.budget`](api/budget.md) performance budget (turned on by createEngine: enable disable metric limitOf report checkStartup values byTag
 - [`engine.post`](api/post.md) PostFX: object targets add get own setAntialias list render
 - [`engine.occlusion`](api/occlusion.md) Occlusion
-- [`engine.ground`](api/ground.md) Ground: whoever provides the ground height is the "terr…: height slope type has voidY forEachCollider viewRange chunkCollision staticTrimeshes staticVersion navGeometry
+- [`engine.ground`](api/ground.md) Ground: whoever provides the ground height is the "terr…: height slope type has voidY forEachCollider viewRange chunkCollision staticTrimeshes staticVersion
 
 ## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))
-- [`engine.terrain`](api/terrain.md) terrain() Procedural terrain, data part: recolor setViewChunks setDensity view retry rebuild edit isReadyAround
-- [`engine.terrainDraw`](api/terrainDraw.md)  Draws the terrain chunks: recolor
+- [`engine.terrain`](api/terrain.md) terrain() Procedural terrain, data part: recolor setViewChunks setDensity view retry rebuild edit
+- [`engine.terrainDraw`](api/terrainDraw.md)  terrainDraw: recolor
 - [`engine.vegetation`](api/vegetation.md) vegetation() Vegetation: sway color view rebuild setShadowRing define get list isRemoved removeInstance restoreInstance instanceAt
-- [`engine.vegetationDraw`](api/vegetationDraw.md)  Draws the plants: mesh kind
+- [`engine.vegetationDraw`](api/vegetationDraw.md)  vegetationDraw: mesh kind
 - [`engine.sky`](api/sky.md) sky() Sky dome, sun / moon light and fog drawn from the calendar's time: keyframes clouds layer replace environment
 - [`engine.calendar`](api/calendar.md) calendar() Time of day, day, seasons and clock-time timers: at between daily onSeason untilMark
-- [`engine.weather`](api/weather.md)  Weather state: define setAuto set label
-- [`engine.weatherDraw`](api/weatherDraw.md)  Weather drawing
+- [`engine.weather`](api/weather.md)  Weather state: defineField setAuto set label
+- [`engine.weatherDraw`](api/weatherDraw.md)  weatherDraw
 - [`engine.water`](api/water.md) water() Water surface: shader normalMap
 - [`engine.world`](api/world.md)  World data: add origin idOf get set move remove query forEachNear present view refresh …
 - [`engine.net`](api/net.md)  net: reconnect
 - [`engine.grids`](api/grids.md)  grids: add get list define preview
 - [`engine.collision`](api/collision.md) collision() Lightweight collision: addCircle addBox addSegment addBlocked blockedAt addObject forEachStatic mirror walkable walkableAt lineClear
-- [`engine.rigid`](api/rigid.md) rigid() Real physics, Rapier: addBox addBall addHull impulse setPosition groundReady addWheeled
+- [`engine.rigid`](api/rigid.md) rigid() Real physics, Rapier: addBox addBall addHull ragdoll impulse setPosition addWheeled
 - [`engine.cameraRig`](api/cameraRig.md) followCamera() / firstPersonCamera() / fixedCamera() / rtsCamera() Current camera: follow forward right focusPoint screenToGround update onOverride onEnter onExit
 - [`engine.timeline`](api/timeline.md) timeline() Cutscenes, tweens: tween play skip
 - [`engine.level`](api/level.md) level() Hand-built level: marker markersWith unload load track
 - [`engine.triggers`](api/triggers.md) triggers() Trigger zones: list add clear byTag fromMarkers
 - [`engine.particles`](api/particles.md) particles() Particles: define has emit attach count clear
-- [`engine.swarm`](api/swarm.md)  Makes a swarm of same-kind gameplay objects
-- [`engine.settings`](api/settings.md) settings() Settings menu: get set preset define addSection removeSection open close toggle resetBindings rebind actionList …
-- [`engine.music`](api/music.md) music() Background music: addTracks play stop stinger rules override pick
+- [`engine.swarm`](api/swarm.md)  swarm
+- [`engine.settings`](api/settings.md) settings() Settings menu: get set preset define addSection open close toggle reset resetBindings rebind actionList …
+- [`engine.music`](api/music.md) music() Background music: define play stop stinger rules override pick
 - [`engine.characters`](api/characters.md) characters() Characters: findSpawn createPlayer moveInput support removePlayer findPath findPathAsync; Character, NPC; engine.npcs: list add remove behavior tiers get character avoid (behavior and avoid: see recipes/02-npc)
 - [`engine.interactions`](api/interactions.md) interactions() Interaction prompts: add get
 - [`engine.dialogue`](api/dialogue.md) dialogue() Dialogue: define start say bubbles end
@@ -79,10 +79,10 @@
 - [`engine.ambience`](api/ambience.md) ambience() Ambience: add rules nearWater
 - [`engine.nav`](api/nav.md) nav() Navmesh: findPath dispose
 - [`engine.hlod`](api/hlod.md) hlod() hlod: add
-- [`engine.lightPool`](api/lightPool.md) lightPool() Light pool: add usage
+- [`engine.lightPool`](api/lightPool.md) lightPool() Light pool: add
 - [`engine.content`](api/content.md) content() Content loading: load condition test run place where template fields spawn
 - [`engine.flow`](api/flow.md) flow() Game flow and scene transitions: define go transition
-- [`engine.hud`](api/hud.md) hud() Objective markers, counters, progress bars: marker counter add value bar remove
+- [`engine.hud`](api/hud.md) hud() Objective markers, counters, progress bars: marker counter bump value bar remove
 
 ## Other
-- [Utility functions](api/tools.md): PICTURE_SLOTS weather presets world net fakeNetwork webSocket grids swarm screenToGround EASINGS sampleGrid ease checkOptions contentParts readParams threePatches createTerrain terrainMaterial mergeColored applyEffects rampTexture bakeVertexAO materialPatches …
+- [Utility functions](api/tools.md): PICTURE_SLOTS weather presets world net fakeNetwork webSocket grids swarm screenToGround sampleGrid ease checkOptions contentParts readParams threePatches createTerrain terrainMaterial mergeColored applyEffects rampTexture bakeVertexAO materialPatches toast …

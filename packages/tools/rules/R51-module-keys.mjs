@@ -1,6 +1,7 @@
-// R51 a module that needs a key has one (error): a game that installs interactions(), quests(), inventory() or photo() binds their action somewhere.
+// R51 a module that needs a key has one (warning): a game that installs interactions(), quests(), inventory() or photo() usually binds their action somewhere.
 // Why: modules bind no keys, so forgetting the bind leaves a game that builds, loads and passes every other check while E does nothing. The engine reports it
 // at run time too (interaction-no-key, input-unbound), but `check` is what runs after every change, with no browser.
+// Why only a warning: a click-only or touch-only game, or one with its own on-screen button, has no key and is right. The rule cannot see that.
 // Scanned per game folder (a bind in main.js covers a module installed in plugins/): createEngine({ bindings }), input.bind(...), input.action(name, { keys }).
 // Any key counts, a rebind to another key or to [] included: only "no key at all" is the fault. Bindings this pass cannot read (a variable, a spread of one,
 // a computed name) count as "may cover it", so the rule stays quiet rather than guess. content/actions.js entries with keys count by their name.
@@ -66,9 +67,9 @@ const fixLine = (action, groups) => {
 /** Findings of one game's scan */
 export function findings({ needs, bound }, groups) {
   if (bound.unknown) return [];
-  return needs.filter(n => !bound.has(n.action)).map(n => ({ level: 'error', file: n.file, line: n.line,
-    msg: `${n.module} needs the action '${n.action}' but this game binds no key for it, so the player can never press it`,
-    fix: `${fixLine(n.action, groups)}; any key works, and [] says no key on purpose` }));
+  return needs.filter(n => !bound.has(n.action)).map(n => ({ level: 'warn', file: n.file, line: n.line,
+    msg: `${n.module} needs the action '${n.action}' but this game binds no key for it, so no key reaches it`,
+    fix: `${fixLine(n.action, groups)}; any key works. Reached by a click, a touch or your own button instead? Say so with engine.input.bind('${n.action}', []) and this stops` }));
 }
 
 /** One game per folder: examples/<x>, games/<x>, templates are layers of one game and are read together */

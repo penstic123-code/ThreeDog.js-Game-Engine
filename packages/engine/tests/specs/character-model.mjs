@@ -9,12 +9,12 @@ export const specs = [
     async run({ page, check, ev }) {
       await page.waitForFunction(() => window.ready === true, null, { timeout: 20000 });
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const { Character } = window, A = engine.assets;
         const kingUrl = A.entries.get('king').url;   // king is already loaded by the page; king3 / king4 are fresh (uncached) names for the placeholder sections
         A.manifest({ models: { king2: kingUrl, king3: kingUrl + '?spec=3', king4: kingUrl + '?spec=4', broken: new URL('/tests/anim/public/broken.glb', location.href).href }, name: 'character-model-spec' });
         const events = []; engine.events.on('character:model', ({ character }) => events.push(character));
-        const make = o => { const c = new Character(engine, o).addTo(); c.placeAt({ x: 2, z: 0 }); engine.onFrame(dt => c.animate(dt)); return c; };
+        const make = o => { const c = new Character(engine, o); engine.add(c.root); c.placeAt({ x: 2, z: 0 }); engine.onFrame(dt => c.animate(dt)); return c; };
         const hasModel = c => !!c.root.children.find(o => o.userData.animations?.length);
         const out = {};
 
@@ -27,14 +27,14 @@ export const specs = [
           out.swapped = { ready: a.ready, model: hasModel(a), children: a.root.children.length, anim: a.anim?.state, clip: a.anim?.describe().clip, x: a.position.x, facing: a.root.rotation.y, event: events.includes(a) };
 
           // 2. a second name loads its own asset
-          const u0 = A.users('king2'), b = make({ model: 'king2' }); await b.whenReady;
-          out.override = { king2: A.users('king2') - u0, model: hasModel(b) };
+          const u0 = A._users('king2'), b = make({ model: 'king2' }); await b.whenReady;
+          out.override = { king2: A._users('king2') - u0, model: hasModel(b) };
 
           // 3. removed before loading finished: nothing reaches the scene, the copy is released
 
-          const kingUsers = A.users('king4'), sceneCount = () => { let n = 0; engine.scene.traverse(o => { if (o.userData.animations?.length) n++; }); return n; };
+          const kingUsers = A._users('king4'), sceneCount = () => { let n = 0; engine.scene.traverse(o => { if (o.userData.animations?.length) n++; }); return n; };
           const n0 = sceneCount(), d = make({ model: 'king4' }); d.dispose(); await d.whenReady; engine.step(0.1);
-          out.early = { added: sceneCount() - n0, users: A.users('king4') - kingUsers, anim: d.anim ?? null, inScene: !!d.root.parent };
+          out.early = { added: sceneCount() - n0, users: A._users('king4') - kingUsers, anim: d.anim ?? null, inScene: !!d.root.parent };
 
 
           // 4. unknown name throws at once with the registered names

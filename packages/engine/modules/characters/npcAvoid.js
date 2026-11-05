@@ -27,7 +27,7 @@ function shove(acc, dx, dz, d, min, tie) {
   acc.x += Math.round((ux * COS - uz * SIN) * w * Q); acc.z += Math.round((ux * SIN + uz * COS) * w * Q);
 }
 
-/** @internal @internal Mounted on engine.npcs: engine.npcs.avoid = false | { radius, strength } */
+/** Mounted on engine.npcs: engine.npcs.avoid.set(false | { radius, strength }) */
 export class NpcAvoid {
   /** @param {(h: any) => any} track the characters module's ctx.track: its listeners leave with the module */
   constructor(engine, track) {

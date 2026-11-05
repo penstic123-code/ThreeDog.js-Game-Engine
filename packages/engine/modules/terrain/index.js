@@ -11,7 +11,7 @@
 // Height map: terrain({ heightmap: { url: '/textures/height.png', size: [1024, 1024], min: -5, max: 60 } }), a grayscale image, whiter is higher, read at startup.
 // Colors: terrain({ colors, biomeColors, steep, variation }), plain data the workers bake into each chunk; a type without a color is neutral gray.
 //   engine.terrain.recolor({ ... }) changes them at run time (recipes/36-sky-ground-plants.md).
-// Shading: 'smooth' | 'flat' | 'texture' (per-chunk color map, colors independent of the mesh; see recipes/37-terrain-draw-hooks.md).
+// Shading: 'smooth' | 'flat' | 'texture' (per-chunk color map, colors independent of the mesh; see recipes/37-terrain-hooks.md).
 // Material: terrain({ material }), a Material or (engine) => Material; chunks carry position, normal, color and uv (world xz / chunk size, continuous
 //   across chunks). Cloud shadows, season tint and terrain({ detail }) are added to it; terrain({ material, effects: false }) draws it exactly as given.
 //   engine.terrain.material = m at any time draws m as given too; engine.terrain.patches keeps the effects on it (applyEffects(m, { patches })).
@@ -36,13 +36,14 @@ const NO_HEIGHT = 'terrain(): no height function or height map was given, so the
 
 export { createTerrain, DEFAULT_TERRAIN } from './terrainGen.js';
 
-const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'detail', 'variation', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, viewChunks: 4, density: 1, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
+const VIEW = { viewChunks: 4, density: 1 };
+const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'detail', 'variation', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, ...VIEW, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
 
 export function terrain(opts = {}) {
   readParams('terrain', TERRAIN_PARAMS, opts);
   checkGround('terrain', opts);
   // material and detail stay on the main thread (a texture, a function): everything left in cfg is plain data for the workers
-  const { viewChunks = 4, density = 1, material, effects, detail = null, viewFog = false, ...cfg } = opts;
+  const { viewChunks = VIEW.viewChunks, density = VIEW.density, material, effects, detail = null, viewFog = false, ...cfg } = opts;
   // effects only says how the game's own material is used: without one it would silently do nothing
   if (effects !== undefined && (material == null || typeof effects !== 'boolean'))
     throw codedError('terrain-option', 'terrain({ effects }): goes with your own material, terrain({ material: myMaterial, effects: false }) = drawn as given (no cloud shadow / season / detail patch); got ' + JSON.stringify({ effects, material: material == null ? material : typeof material }));
@@ -65,30 +66,33 @@ export function terrain(opts = {}) {
       sideMat = terrainCfg.shape ? prepareShape(terrainCfg) : null;
       w = new ChunkManager(e, terrainCfg);
       if (terrainCfg.shape) watchVoid = voidWatcher(e, w);
-      w.density = density;
-      w.viewFog = viewFog;   // opt-in: the drawing half writes the view distance to the signal uViewDistance (a game's fog reads it to hide the edge)
+      w._density = density;   // before anything is placed: nothing to place again yet
+      w.viewFog = viewFog;   // opt-in: the view distance goes out as the signal uViewDistance (a game's fog reads it to hide the edge)
       state.cfg = terrainCfg;
       e.setGround({
-        height: (x, z) => w.T.surface(x, z),
-        slope: (x, z) => w.T.slope(x, z),
-        type: (x, z) => w.T.biomeAt(x, z, w.T.surface(x, z), w.T.slope(x, z)),   // 'void' outside terrain({ shape })
-        waterLevel: w.T.waterLevel,
+        height: (x, z) => w.generator.surface(x, z),
+        slope: (x, z) => w.generator.slope(x, z),
+        type: (x, z) => w.generator.biomeAt(x, z, w.generator.surface(x, z), w.generator.slope(x, z)),   // 'void' outside terrain({ shape })
+        waterLevel: w.generator.waterLevel,
         // public collision API: the collision and physics modules read terrain only through these, never chunk internals
         forEachCollider: (x, z, range, fn) => w.forEachCollider(x, z, range, fn),
-        chunkSize: w.T.CHUNK,
-        viewRange: () => w.viewChunks * w.T.CHUNK,   // stream entries build within the terrain view by default
+        chunkSize: w.generator.CHUNK,
+        viewRange: () => w.viewChunks * w.generator.CHUNK,   // stream entries build within the terrain view by default
         chunkCollision: (cx, cz) => w.chunkCollision(cx, cz),
-        has: (x, z) => w.T.has(x, z),
+        has: (x, z) => w.generator.has(x, z),
         voidY: () => w.voidY,   // the physics module reports its own bodies falling below it (terrain:void)
       });
       w.setViewChunks(viewChunks);
       // a source is ready when the ring around it is generated, and for a physics source its collision has taken effect (chunkCollision non-null)
-      e.stream.readyCheck('terrain', s => w.isReadyAround(s, { rings: 1 }) && (!s.physics || w.isReadyAround(s, { rings: 1, solid: true })));
-      ctx.track(e.events.on('settings:shadows', () => w.refreshLevels()));
+      e.stream.addReadyCheck('terrain', s => w.readyAt(s, { rings: 1 }) && (!s.physics || w.readyAt(s, { rings: 1, solid: true })));
       e.budget.metric('chunkApplyMs', () => w.stats.applyMs);   // chunk upload ms per frame (the limit comes from the game's budget)
       return w;
     },
-    frame(dt, e) { w.update(e.stream.sources(), e.camera); },   // chunks load around every engine.stream source
+    frame(dt, e) {
+      w.update(e.stream.sources(), e.camera);   // chunks load around every engine.stream source
+      // shortcut: the value stays after the terrain unloads; upgrade if a game swaps terrains with different ranges
+      const far = w.viewFogFar; if (far != null) e.uniforms.uViewDistance.value = far;
+    },
     fixed() { watchVoid?.(); },   // terrain({ shape }) only: falls below voidY are gameplay, so they are seen on the fixed step
     describe(e, ctx) { ctx.out.perf.chunks = { loaded: w.stats.loaded ?? 0, visible: w.stats.visible ?? 0, queued: w.stats.queued, failed: w.stats.failed }; },
     // height map / mask image wait for the image: after it loads, rebuild terrain with the new config (both the main-thread copy and the workers)
@@ -102,10 +106,10 @@ export function terrain(opts = {}) {
       if (needM) cfg2.shape = { ...cfg2.shape, mask: { ...mk, ...await loadGray(mk.url), url: undefined } };
       w.reinit(cfg2, speciesRules(w));
     },
-    isReady(e) { return e.stream.sources().every(s => w.isReadyAround(s)); },
+    isReady(e) { return e.stream.sources().every(s => w.readyAt(s)); },
     dispose() { w.dispose(); },
   };
-  let drawPart = null, fog = null;
+  let drawPart = null;
   const lookModule = {
     // the same terrain({...}) call: material / effects are read here, the rest by the data part
     name: 'terrainDraw', type: 'picture', label: 'Terrain drawing', params: TERRAIN_PARAMS, options: opts, requires: ['terrain'], provides: ['terrain-draw'], stage: 'effects',
@@ -114,13 +118,11 @@ export function terrain(opts = {}) {
       // the colors the workers bake into each chunk: no chunk is generated before the first frame, so this reinit only swaps the config
       state.cfg = { ...state.cfg, ...drawConfig(e, cfg) };
       w.reinit(state.cfg, speciesRules(w));
-      fog = viewFogSync(e);
       // effects false (terrain({ material, effects: false })): the game's material is drawn untouched
       drawPart = w.drawPart = new TerrainDraw(e, w, { material, effects: material == null || effects !== false, detail, sideMat,
         config: { get: () => state.cfg, set: c => { state.cfg = c; }, species: () => speciesRules(w) } });
       return drawPart;
     },
-    frame() { fog(w.viewFogFar); },
     describe() { return { chunks: drawPart?.meshes.size ?? 0 }; },
     dispose() { drawPart?.dispose(); drawPart = w.drawPart = null; },
   };
@@ -137,14 +139,6 @@ function drawConfig(e, cfg) {
   // low-tier devices start with a coarser color map (a quarter of the pixels and upload); the game's own colorResolution wins
   if (out.shading === 'texture' && out.colorResolution == null && e.tier === 'low') out.colorResolution = 64;
   return out;
-}
-
-/**
- * terrain({ viewFog: true }): the view distance goes out as the signal uViewDistance; the fog itself is the game's, which reads it for its far.
- * shortcut: the value stays after the terrain unloads; upgrade if a game swaps terrains with different ranges.
- */
-function viewFogSync(e) {
-  return far => { if (far != null) e.uniforms.uViewDistance.value = far; };
 }
 
 /** Every species' placement rule (the workers get the full table when the terrain config is replaced) */

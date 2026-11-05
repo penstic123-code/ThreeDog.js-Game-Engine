@@ -5,7 +5,7 @@ export const specs = [
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const car = window.car;
         engine.step(3);
         const y = car.object.position.y, z0 = car.object.position.z, x0 = car.object.position.x;
@@ -27,7 +27,7 @@ export const specs = [
         const prompt = engine.interactions.current?.object === car.object;
         p.enter(car);
         engine.step(0.1);
-        const inCar = { state: p.state, cam: engine.cameraRig.target === car.object, dist: engine.cameraRig.distance, hidden: !p.object.visible,
+        const inCar = { state: p.state, cam: engine.cameraRig.target === car.object, dist: engine.cameraRig.distance, hidden: !p.root.visible,
           desc: engine.describe().player.vehicle, seat: p.position.distanceTo(car.seatPosition()) };
         engine.input.autopilot = { x: 0.6, y: 1 };    // driving: autopilot stands in for the arrow keys
         const z0 = car.object.position.z, x0 = car.object.position.x; engine.step(2);
@@ -35,7 +35,7 @@ export const specs = [
         engine.input.autopilot = null;
         engine.step(2);
         p.exit(); engine.step(0.1);
-        return { before, prompt, inCar, steered, out: { state: p.state, cam: engine.cameraRig.target === p.object, dist: engine.cameraRig.distance, visible: p.object.visible, driver: car.driver } };
+        return { before, prompt, inCar, steered, out: { state: p.state, cam: engine.cameraRig.target === p.root, dist: engine.cameraRig.distance, visible: p.root.visible, driver: car.driver } };
       });
       check('an enter-vehicle interaction appears next to the car', t.prompt);
       check('after enter: camera follows the car, state is drive, character is hidden', t.inCar.state === 'drive' && t.inCar.cam && t.inCar.hidden && t.inCar.dist === 16, JSON.stringify(t.inCar));
@@ -49,7 +49,7 @@ export const specs = [
     url: '/tests/vehicle/index.html?mover=rapier',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player;
         engine.cameraRig.yaw = -Math.PI / 2;            // camera forward = +X
         const walk = (x, z) => { p.placeAt({ x, z }); p.velocity.set(0, 0); engine.step(0.2); engine.input.autopilot = { x: 0, y: 1, speed: 3 }; engine.step(2.5); engine.input.autopilot = null; return { x: p.position.x, y: p.position.y }; };
@@ -73,7 +73,7 @@ export const specs = [
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player;
         engine.cameraRig.yaw = -Math.PI / 2;
         const walk = (x, z) => { p.placeAt({ x, z }); engine.step(0.2); engine.input.autopilot = { x: 0, y: 1, speed: 3 }; engine.step(2.5); engine.input.autopilot = null; return { x: p.position.x, y: p.position.y }; };
@@ -88,7 +88,7 @@ export const specs = [
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const model = window.makeRig(); engine.add(model);
         const anim = engine.assets.animate(model, {
           states: { idle: { clip: 'Idle' }, walk: { clip: 'Walk' }, move: { blend: [{ clip: 'Walk', at: 1.5 }, { clip: 'Run', at: 6 }] }, wave: { clip: 'Wave', loop: false, then: 'idle', lock: true } },
@@ -131,7 +131,7 @@ export const specs = [
     url: '/tests/nav/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const len = p => p ? p.reduce((s, q, i) => i ? s + Math.hypot(q.x - p[i - 1].x, q.z - p[i - 1].z) : 0, 0) : 0;
         const path = engine.characters.findPath({ x: 4, z: -5 }, { x: 4, z: 5 });
         const native = !!(engine.nav.navMesh && engine.nav.query && engine.nav.tileCache && engine.nav.helper) && engine.nav.crowd === null;
@@ -162,12 +162,12 @@ export const specs = [
     },
   },
   {
-    name: '[guard] Camera: a direct camera.position edit takes the camera (the rig stops, one warning), engine.view.manual hands it back',
+    name: '[guard] Camera: a direct camera.position edit takes the camera (the rig stops, one warning), engine.autoView.manual hands it back',
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
         const during = await __t.warns(() => {
-          engine.pause(); engine.step(0.1);
+          engine.haltLoop(); engine.step(0.1);
           globalThis.__cam = engine.takeCamera('test'); engine.camera.position.x += 5; engine.step(0.1); globalThis.__cam?.remove(); engine.step(0.1);
         });
         let x = 0, by = '';
@@ -176,19 +176,19 @@ export const specs = [
           by = engine.describe().owned.camera.writer; globalThis.__holder = engine.cameraOverride?.owner;
         });
         const stays = engine.camera.position.x === x;
-        engine.view.manual('camera', false); engine.step(0.1);
-        const m = engine.view.manual('camera'); const mHolder = engine.cameraOverride?.owner; m.remove(); const freed = engine.cameraOverride;
+        engine.autoView.manual('camera', false); engine.step(0.1);
+        const m = engine.autoView.manual('camera'); const mHolder = engine.cameraOverride?.owner; m.remove(); const freed = engine.cameraOverride;
         const w = [...during.warns, ...after.warns].filter(w => w.includes('camera was changed outside'));
-        return { clean: during.warns.length, n: w.length, takeover: w.every(t => t.includes("engine.takeCamera('me')") && !t.includes("engine.view.manual('camera')")), stays, by,
+        return { clean: during.warns.length, n: w.length, takeover: w.every(t => t.includes("engine.takeCamera('me')") && !t.includes("engine.autoView.manual('camera')")), stays, by,
           back: engine.describe().owned.camera.writer, moved: engine.camera.position.x !== x, holder: globalThis.__holder, mHolder, freed };
       });
       check('no warning when the camera is edited during an override', r.clean === 0, JSON.stringify(r));
       check('direct camera.position edit: exactly 1 warning, the rig stops (the value stays), describe().owned says so', r.n === 1 && r.stays && /yielded/.test(r.by), JSON.stringify(r));
-      // the warning's takeover is the one canonical form, takeCamera (the hand-back for the yielded camera stays engine.view.manual('camera', false))
+      // the warning's takeover is the one canonical form, takeCamera (the hand-back for the yielded camera stays engine.autoView.manual('camera', false))
       check("the warning names engine.takeCamera('me') as the takeover", r.takeover, JSON.stringify(r));
-      check('engine.view.manual(camera, false) hands it back: the rig places the camera again', r.back === 'engine' && r.moved, JSON.stringify(r));
-      // guard: one camera state. A direct write and engine.view.manual are takeCamera holds (cameraOverride names them); remove() frees the camera
-      check('[guard] direct write / engine.view.manual(camera) show as the camera holder; hand-back clears it', r.holder === 'three' && r.mHolder === 'manual:game' && r.freed === null, JSON.stringify(r));
+      check('engine.autoView.manual(camera, false) hands it back: the rig places the camera again', r.back === 'engine' && r.moved, JSON.stringify(r));
+      // guard: one camera state. A direct write and engine.autoView.manual are takeCamera holds (cameraOverride names them); remove() frees the camera
+      check('[guard] direct write / engine.autoView.manual(camera) show as the camera holder; hand-back clears it', r.holder === 'three' && r.mHolder === 'manual:game' && r.freed === null, JSON.stringify(r));
     },
   },
   // ---------- Seams (review 6.8): vehicle saves, brake key, rigid-body shadows, fixed camera interrupting a blend, nav version, entity growth ----------
@@ -197,14 +197,14 @@ export const specs = [
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player, car = window.car;
         p.placeAt({ x: car.object.position.x + 2.5, z: car.object.position.z }); engine.step(0.1);
         engine.saves.save('b-walk');
         p.enter(car); engine.step(0.2);
         engine.saves.save('b-drive');
         engine.saves.load('b-walk'); engine.step(0.2);
-        const walk = { vehicle: !!p.vehicle, visible: p.object.visible, seat: p.position.distanceTo(car.seatPosition()) };
+        const walk = { vehicle: !!p.vehicle, visible: p.root.visible, seat: p.position.distanceTo(car.seatPosition()) };
         engine.saves.load('b-drive'); engine.step(0.1);
         const drive = { vehicle: p.vehicle === car };
         p.exit(); engine.step(0.1);
@@ -226,7 +226,7 @@ export const specs = [
     url: '/tests/cameras/index.html?cam=fixed',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const rig = engine.cameraRig;
         let done = false;
         rig.blend('east', { seconds: 5 }).then(() => { done = true; });
@@ -255,7 +255,7 @@ export const specs = [
     url: '/tests/placeables/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const npc = engine.npcs.add({ name: 'b路人', position: { x: 2, z: 2 } });
         engine.step(1 / 60, { render: false });   // the NPC model is world presentation: nearby ones are built on the next fixed step
         const root = npc.root, geo = root?.children[0]?.children[0]?.geometry ?? null;

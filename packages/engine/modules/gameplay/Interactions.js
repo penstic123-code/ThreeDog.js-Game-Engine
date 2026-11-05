@@ -27,8 +27,8 @@ import { worldToScreen } from '../../ui/UI.js';
 import { promptPart } from './interactionPrompt.js';
 
 import { readParams, keysSchema } from '../../core/params.js';
-import { codedError } from '../../core/errorHints.js';
-import { DEV } from '../../core/validate.js';
+import { codedError, coded } from '../../core/errorHints.js';
+import { DEV, warnOnce } from '../../core/validate.js';
 import { vec3 } from '../../core/math.js';
 import { Cells } from '../../core/cells.js';
 
@@ -104,7 +104,7 @@ export class Interactions {
    * approach: true walks the player there first (walkTo, stops 1.2 m away), then uses it. Returns a handle { remove() }.
    * once: true hides the object after a use and it cannot be used again (onUse returning { ok: false } leaves it); saved, and back on a new game. The save
    * knows it by id, else the object's name; development throws when it has neither. counter: name of a HUD counter that each use
-   * adds 1 to (hud.add; nothing without hud()); declare it once at setup with hud.counter(name, { label, value: 0, max }), not on session:start.
+   * adds 1 to (hud.bump; nothing without hud()); declare it once at setup with hud.counter(name, { label, value: 0, max }), not on session:start.
    * label, enabled and onUse are called with (object, { actor }): actor is the world record id of who asks / uses it (engine.actor for the local user,
    * a net peer's or an NPC's id when they run interaction.use), so per-actor rules never read engine.player.
    * @example engine.interactions.add(door, { label: (o, { actor }) => owns(actor) ? 'Open' : 'Knock', onUse: (o, { actor }) => engine.ops.run('door.open', { id: o.name }, { actor }) });
@@ -147,7 +147,7 @@ export class Interactions {
   _run(it, actor) {
     const r = it.onUse?.(it.object, { actor });
     if (r?.ok === false) return r;
-    if (it.counter && this.engine.hud) { this.engine.hud.add(it.counter); this._counted.set(it.counter, (this._counted.get(it.counter) ?? 0) + 1); }
+    if (it.counter && this.engine.hud) { this.engine.hud.bump(it.counter); this._counted.set(it.counter, (this._counted.get(it.counter) ?? 0) + 1); }
     // shortcut: once lives on the local peer (interaction.use is net: 'local'); a thing all peers share in a net game is a pickup (the host decides)
     if (it.once) { this._spent.add(it.id); it.object.visible = false; }
     return r;
@@ -161,7 +161,7 @@ export class Interactions {
     for (const it of this._byId.values()) if (it.once && was.has(it.id) !== this._spent.has(it.id)) it.object.visible = !this._spent.has(it.id);
     for (const name of new Set([...this._counted.keys(), ...Object.keys(counted)])) {
       const d = (counted[name] ?? 0) - (this._counted.get(name) ?? 0);
-      if (d) this.engine.hud?.add(name, d);
+      if (d) this.engine.hud?.bump(name, d);
     }
     this._counted = new Map(Object.entries(counted));
   }
@@ -219,8 +219,8 @@ export class Interactions {
     return C;
   }
 
-  /** The interaction with this id (null if none). @param {string} id */
-  get(id) { return this._byId.get(id) ?? null; }
+  /** The interaction with this id (undefined if none). @param {string} id */
+  get(id) { return this._byId.get(id); }
   /** All interactions in the order added (a fresh array each read) */
   get items() { return [...this._byId.values()]; }
 
@@ -282,16 +282,23 @@ export class Interactions {
     const c = fn(list, { engine: this.engine, actor, position: pos, action });
     return c ? this.get(c.id) : null;
   }
+  /** @internal The key went down and nothing was used: logged like a refused interaction.use, with the same codes. A record, not a warning: tapping E in a menu is normal play */
+  _pressRefused(action, reason) { const e = this.engine; e.ops.refused('interaction.use', { action, ...(reason === 'inputLocked' && { by: lockFacts(e).by }) }, { reason, actor: e.actor, source: 'player' }); }
   /** Fixed step: each action's key fires that action's pick (input snapshot, frame-rate independent; picked on the spot, not from last frame). @internal */
   fixed(dt) {
     const inp = this.engine.input;
-    if (!inp.enabled) { if (this._hold) this._interrupt('inputLocked'); return; }
+    if (!inp.enabled) {
+      if (this._hold) this._interrupt('inputLocked');
+      // a press that does nothing still leaves a trace: an open dialogue swallowed every E, and the game's test could only report "have 0"
+      for (const a of this._actions.keys()) if (inp.pressedRaw(a)) this._pressRefused(a, 'inputLocked');
+      return;
+    }
     this._pass = ++this._passes;
     if (this._hold) this._tickHold(dt);
     for (const a of this._actions.keys()) {
       if (!inp.pressed(a) || this._hold) continue;
       const b = this.pick(undefined, a);
-      if (!b) continue;
+      if (!b) { this._pressRefused(a, 'nothingNear'); continue; }
       if (b.hold > 0) { this._hold = { it: b, action: a, t: 0 }; this._holdView(); this.engine.events.emit('interaction:hold', { id: b.id, action: a, seconds: b.hold }); }
       else this.engine.ops.run('interaction.use', { id: b.id }, { source: 'player' });
     }
@@ -322,14 +329,14 @@ export class Interactions {
     try { this._update(); } finally { this._pass = 0; }
   }
   /**
-   * @internal Dev: an interaction whose action has no key cannot be reached by any player, yet everything else about it works, so nothing else would say so.
-   * Thrown from the frame hook, it freezes gameplay and shows in engine.error, describe() and the test tools. Only once running: code right after
-   * `await engine.start()` may still bind. Release builds skip it; there the op and the prompt still say so.
+   * @internal Dev: an interaction whose action has no key is reached by no key press, and nothing else would say so. A warning, not a throw: a click-only or touch-only
+   * game runs the op from its own code and is right, so this must not stop it (bind the action to [] to say so and the warning ends). Only once running: code right
+   * after `await engine.start()` may still bind. describe() keeps the note for every build.
    */
   _checkKeys() {
     this._keysDue = false;
     for (const a of this._actions.keys()) {
-      if (this.engine.input.isUnbound(a)) throw codedError('interaction-no-key', `interactions: action '${a}' has no key, so the player can never use what was added to it. Add: ${bindLine(a)}`);
+      if (this.engine.input.isUnbound(a)) warnOnce(coded('interaction-no-key', `interactions: action '${a}' has no key, so no key press reaches what was added to it. Add: ${bindLine(a)}. Reached by a click or your own code? engine.input.bind('${a}', []) says so`), `interaction-no-key:${a}`);
     }
   }
   /** @internal */
@@ -427,8 +434,6 @@ function defineUse(e, i) {
       const it = find(id, action, ctx);
       if (!it) return id === undefined ? 'nothingNear' : 'unknown';
       if (!it.enabled(it.object, { actor: ctx.actor })) return 'disabled';
-      // the local player only: a net peer or an NPC does not go through this page's keys. The bridge and tests are refused too, so `ops` never shows a ✓ no player can do
-      if (ctx.actor === e.actor && e.input.isUnbound(it.action)) return { code: 'noKey', facts: { action: it.action, fix: bindLine(it.action) } };
       if (ctx.actor === e.actor && !e.input.enabled) return { code: 'inputLocked', facts: lockFacts(e) };
       if (it.approach && !walkerOf(e, ctx.actor)) return 'cannotWalk';
       const p = e.actorPosition(ctx.actor);
@@ -445,10 +450,13 @@ function defineUse(e, i) {
       if (!it.approach) return i._run(it, ctx.actor);
       const ch = walkerOf(e, ctx.actor), q = it.object.getWorldPosition(new THREE.Vector3());
       if (Math.hypot(q.x - ch.position.x, q.z - ch.position.z) <= APPROACH_ARRIVE + 0.3) return i._run(it, ctx.actor);
+      // the game holds this character on the walk's layer: 'cannot walk now' is an answer, and from the key press in a fixed step a throw would freeze play
+      let walk; try { walk = ch.walkTo(q, { arrive: APPROACH_ARRIVE }); } catch (err) { if (err?.code === 'control-conflict') return { ok: false, code: 'cannotWalk' }; throw err; }
       // used after arrival, so checked again then: removed or disabled while walking = not used
-      return { approaching: ch.walkTo(q, { arrive: APPROACH_ARRIVE }).then(r => r.status === 'arrived' && !it._gone && it.enabled(it.object, { actor: ctx.actor }) ? i._run(it, ctx.actor) : r) };
+      return { approaching: walk.then(r => r.status === 'arrived' && !it._gone && it.enabled(it.object, { actor: ctx.actor }) ? i._run(it, ctx.actor) : r) };
     },
-    offers(e, ctx) { const it = find(undefined, undefined, ctx); return it ? [{ id: it.id }] : []; },
-    reasons: { unknown: 'No interaction with this id', noKey: 'Its action has no key bound, so the player cannot reach it', nothingNear: 'No interaction in range', disabled: 'Its enabled() is false', tooFar: 'Actor is outside its radius', cannotWalk: 'approach walks the player; this actor has no character to walk', inputLocked: 'A title, window, dialogue or cutscene locks input; facts.by names it' },
+    // no key: the op still runs when code asks (a click-only game), but it is not offered, so `ops` shows no ✓ for what no key reaches; describe() says why
+    offers(e, ctx) { const it = find(undefined, undefined, ctx); return it && !(ctx.actor === e.actor && e.input.isUnbound(it.action)) ? [{ id: it.id }] : []; },
+    reasons: { unknown: 'No interaction with this id', nothingNear: 'No interaction in range', disabled: 'Its enabled() is false', tooFar: 'Actor is outside its radius', cannotWalk: 'approach walks the player; this actor has no character to walk', inputLocked: 'A title, window, dialogue or cutscene locks input; facts.by names it' },
   });
 }

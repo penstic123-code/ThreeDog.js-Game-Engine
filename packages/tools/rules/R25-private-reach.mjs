@@ -8,7 +8,10 @@ import { walk, read, codeOnly, P } from './_lib.mjs';
 
 // [folder, member, reason]; folder '*' = any folder
 const ALLOW = [
+  ['rigid', 'control._resolve', 'ragdoll takes a character id: control is the one place that finds a character by id'],
+  ['rigid', 'assets._animators', 'ragdoll holds the animator of a bare model: the only record of it, and a public getter would be one more name for one caller'],
   ['characters', 'collision._blocked', 'the simple mover skips blockedAt when no blocked ground exists (a per-step shortcut); characters is being changed by another pass: give collision a hasBlocked getter then'],
+  ['debug', '_cpuMs', 'the panel adds up the cost of every frame; engine.inspect.perf() walks the materials and is too heavy to call each frame'],
   ['world', '_things', 'adds its record store with engine._things.addSource at install: the one door core offers to record stores'],
 ];
 // LookPart private fields reached through any name (part._owners, p._write, look.fog._params ...): the engine-prefix pattern above misses an alias

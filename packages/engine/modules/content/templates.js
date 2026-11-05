@@ -34,7 +34,7 @@ import { whyBad, readParams, keysSchema } from '../../core/params.js';
 import { stagesProblems, stagedFields, growStages } from './stages.js';
 import { codedError } from '../../core/errorHints.js';
 
-const DEF_KEYS = ['model', 'collide', 'occluder', 'static', 'interact', 'container', 'sound', 'animate', 'state', 'fields', 'body', 'stages', 'update', 'canGrow'];
+const DEF_KEYS = ['model', 'collide', 'occluder', 'static', 'lod', 'interact', 'container', 'sound', 'animate', 'state', 'fields', 'body', 'stages', 'update', 'canGrow'];
 const BODY_KEYS = ['shape', 'mass', 'friction', 'restitution', 'damping', 'angularDamping'];
 // what a placement may set besides the state fields: the placement field table (rules.js), so the loader, content-check and content.fields() agree
 const PLACE_KEYS = Object.keys(PLACEMENT_FIELDS['props.template']);

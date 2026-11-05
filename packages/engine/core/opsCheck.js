@@ -4,7 +4,7 @@ import { closest, fmt } from './validate.js';
 import { codedError } from './errorHints.js';
 import { parseSchema, whyBad, checkOf, OP_TYPES as TYPES } from './params.js';   // one type check for op args and module params
 
-export const SOURCES = ['player', 'game', 'bridge', 'test', 'replay', 'net'];
+export const SOURCES = ['player', 'game', 'bridge', 'test', 'replay', 'net', 'editor'];
 const NAME = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 const DEF_KEYS = ['desc', 'args', 'can', 'run', 'offers', 'reasons', 'undo', 'net', 'owner', 'targets', 'atomic', 'after'];
 export { fmt };

@@ -8,7 +8,7 @@
 // Under software rendering (cloud swiftshader) GPU time counts as CPU time, so use the numbers only for relative comparison.
 import * as THREE from 'three';
 import { patchesOf } from '../../render/patches.js';
-import { createEngine, presets, Character, characters, createTerrain, openWorld, world, interactions, dialogue, inventory, pickups, quests, timeline, triggers, particles,
+import { createEngine, presets, Character, characters, createTerrain, openWorld, world, interactions, dialogue, inventory, pickups, quests, timeline, triggers, particles, music,
   hud, level, calendar, sky, weather, water, terrain, hlod, settings, rampTexture, applyEffects, materialPatches, terrainMaterial, grids } from '../../index.js';
 import { patchMaterial, copyPatches } from '../../render/patches.js';
 import { SLOTS } from '../../render/slots.js';
@@ -178,7 +178,7 @@ if (mode === 'native') {
   bench = {
     /** Run frames frames (per frame: 1 fixed step + 1 frame hook pass + render); with move the player walks forward automatically (m/s) */
     run(frames, { move = 0 } = {}) {
-      engine.pause();
+      engine.haltLoop();
       frame();   // warm-up
       engine.profile(true);   // time module hooks
       renderMs = 0; sc.renders = sc.calls = 0;
@@ -195,29 +195,29 @@ if (mode === 'native') {
     },
     /**
      * Stream into a new area in the real-time loop (workers answer between frames, like in play): put the player dist meters away and watch for
-     * seconds. Returns the cost of each stage (engine.budget.cost), the frame CPU time (engine.cpuMs, per phase for the worst frame) and how many
+     * seconds. Returns the cost of each stage (engine.budget.cost), the frame CPU time (engine._cpuMs, per phase for the worst frame) and how many
      * chunks were loaded, so one number per stage is reproducible.
      */
     async streamIn(dist = 700, seconds = 12) {
       const T = engine.terrain, cost = engine.budget.cost, pl = engine.player.root.position;
-      engine.pause();
+      engine.haltLoop();
       for (let i = 0; i < 20; i++) engine.step(1 / 30, { describe: false });
       engine.player.placeAt({ x: pl.x + dist, z: pl.z });
       cost.reset();
       let frames = 0, sum = 0, worst = 0, worstPhases = null, last = -1;
-      engine._resume();
+      engine._unhalt();
       const t0 = performance.now();
       await new Promise(res => {
         const poll = () => {
-          if (engine.cpuMs !== last) {   // one new real-time frame
-            last = engine.cpuMs; frames++; sum += last;
-            if (last > worst) { worst = last; worstPhases = { ...engine.cpuPhases }; }
+          if (engine._cpuMs !== last) {   // one new real-time frame
+            last = engine._cpuMs; frames++; sum += last;
+            if (last > worst) { worst = last; worstPhases = { ...engine._cpuPhases }; }
           }
           if (performance.now() - t0 < seconds * 1000) requestAnimationFrame(poll); else res();
         };
         requestAnimationFrame(poll);
       });
-      engine.pause();
+      engine.haltLoop();
       const ph = {}; for (const k in worstPhases) ph[k] = r2(worstPhases[k]);
       return { seconds, frames, cpuAvg: r2(sum / Math.max(1, frames)), cpuMax: r2(worst), worstPhases: ph, chunks: T.chunks.size, cost: cost.report() };
     },
@@ -239,4 +239,4 @@ function skyLayers(e, { layers = [] } = {}) {
   return e;
 }
 window.threedogTest = { THREE, patchesOf, skyLayers, fakeAssets, engineWith, Character, characters, protoOf, neutralMaterial, isEngineMade, rampTexture, toGLB, applyEffects, patchMaterial, materialPatches, SLOTS, terrainMaterial, copyPatches, createEngine,
-  injectUICSS, NOISE_GLSL, createTerrain, worldScene, worldArt, worldModels, sky, calendar, postEffects, outline, ShaderPass, CopyShader, water, weather, terrain, Reflector, world, grids, particles, pickups, triggers };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it
+  injectUICSS, NOISE_GLSL, createTerrain, worldScene, worldArt, worldModels, sky, calendar, postEffects, outline, ShaderPass, CopyShader, water, weather, terrain, Reflector, world, grids, particles, pickups, triggers, music };   // packages/engine/tests/specs/c.mjs bake round-trip test uses it

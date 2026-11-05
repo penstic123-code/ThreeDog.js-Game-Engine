@@ -32,22 +32,20 @@ Characters: createPlayer() (characters() module)
 - `player.onPose(fn: (character, dt) => void) → { remove(): void }` — Run fn(character, dt) every frame right after the animation pose is applied (model clips or procedural rig): attach things to bones or adjust bones. h.remove() stops it. Presentation only. Example: `const h = player.onPose(() => sword.position.copy(hand.getWorldPosition(v)));`
 - `player.dispose()` — Fully delete this character: exits the vehicle first, releases animation and movement, removes it from the scene and releases geometry and materials (used by npcs.remove / removePlayer)
 - `player.jump(opts?: { air?: boolean })` — Request a jump (buffered for jumpBuffer s): the ground jump on the ground or in coyote time, else an air jump while maxJumps allows; air: false = ground only. Example: `createPlayer({ ...presets.player.thirdPerson, maxJumps: 2 })   // double jump`
-- `player.addTo(scene?: any)` — Add to the scene
 - `player.placeAt(position: PositionLike)` — Put it on the ground at position (Vector3 / object / [x, y, z] / { x, z })
 - `player.syncRecord()` — After moving root yourself (a cutscene path, a scripted pose): write position and motion back to its world record (the player's), so a save right after has it
 - `player.walkTo(target: Vector3 | { x: number; z: number } | [number, number, number] | …, opts?: { speed?, arrive?, turnRate?, stuckSeconds?, maxRepaths?, run? }) → Promise<{ status: 'arri… & { remove(): void }` — Walk to a point along characters.findPath on fixed steps; never rejects. One walk per character: a new walkTo, dispose() or a save load ends the old one with 'cancelled'. Transient: not saved, not fast-forwarded by engine.skip. Holds the character's control on layer 'script' (owner 'walkTo'): the player's keys / an NPC's schedule pause meanwhile, a cutscene pauses the walk, and another script owner on it is control-conflict
 - `player.move(dirX: number, dirZ: number, run: boolean, dt: number)` — Move in a direction (called once per fixed step): dirX/dirZ is the world direction (length 0–1 scales the speed), run to run, dt in seconds (used as given). Speed comes from the stats: engine.mod('move.speed', { owner, id: character.id, ... }) (the player: id 'player'), the one way to change speed. A character someone controls (engine.control.of(ch)) moves only through its holder: called from anywhere else it is control-bypass in dev; take control and use handle.move() / step instead
 - `player.groundType() → string` — Ground type underfoot ('water' while swimming)
 - `player.face(target: PositionLike | number)` — Turn at once to a position, or to an angle in radians (0 = +Z)
-- `player.saveMotion(out?: CharacterMotion) → CharacterMotion` — Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after the model is rebuilt or a save is loaded, loadMotion continues from it with identical results
-- `player.loadMotion(m: CharacterMotion | null | undefined)` — Restore the motion state from the plain object of saveMotion
+- `player.saveMotion(out?: CharacterMotion) → CharacterMotion` — (experimental) Copy the motion state into a plain object (velocity, vertical velocity, heading, movement amount, grounded, swimming) to store in world data; after the model is rebuilt or a save is loaded, loadMotion continues from it with identical results
+- `player.loadMotion(m: CharacterMotion | null | undefined)` — (experimental) Restore the motion state from the plain object of saveMotion
 - Properties:
-  - `root: Object3D` Root node (this is what gets added to the scene)
-  - `object: Object3D` Same as root: add children, change visible and scale on it
+  - `root: Object3D` Root node: add it to the scene with engine.add(character.root) when you built the Character yourself; add children, change visible and scale on it
   - `position: Vector3` Position (= root.position)
   - `velocity: Vector2` Horizontal velocity (x, y map to world x, z). Writable: a write is an impulse the mover steers back toward the input (lasting knockback: push(); full control: mover 'manual')
   - `facing: number` Heading (radians): 0 faces +Z, forward = (sin facing, cos facing); increasing turns toward +X (rotation about the Y axis, consistent with root.rotation.y)
-  - `vy: number` Vertical velocity (m/s). Writable: setting it is an impulse (launch() does the same and also leaves the ground cleanly)
+  - `vy: number` Vertical velocity (m/s), kept apart from velocity, which is horizontal only (velocity.y is world z, not this). Writable: setting it is an impulse (launch() does the same and also leaves the ground cleanly)
   - `grounded: boolean` Whether standing on the ground
   - `swimming: boolean` Whether swimming
   - `state: CharacterState` Current action state
@@ -61,12 +59,10 @@ Characters: createPlayer() (characters() module)
   - `id: string` The character's id, the one form engine.mod / time.local take: its world record id ('player', an NPC's record id), else the id option, else a generated one
   - `support: { kind, object, id, safe, velocity }` What it stands on, read-only (reused object); 'platform' = a registered support (characters.support), which carries it
   - `safeGround: Vector3 | null` Last spot it stood still on safe ground (where a fall returns it); null until it first stands. Saved with the motion
-  - `onStep: ((groundType: string) => void) | null` Called when a foot lands (the argument is the ground type underfoot)
-  - `onLand: ((impact: number) => void) | null` Called on landing (the argument is the landing speed)
   - `mover: { name, controller?, body?, collider?, move, dispose? }` How it walks now; name is 'simple' / 'rapier' / 'manual', controller is the native Rapier character controller (when rapier). Assign a name to switch: c.mover = 'manual'
   - `anim: Animator | null` Skeletal animation state machine (when there is a glTF model; null while a model named by asset is still loading)
   - `ready: boolean` false while a model named by asset is loading (the placeholder body shows); true otherwise, also after a failed load (placeholder kept)
-  - `whenReady: Promise<void>` Settles (never rejects) when a model named by asset is swapped in or has failed; already settled otherwise. Example: `const npc = new Character(engine, { model: 'villager' }).addTo();   // import { Character } from 'threedog' await npc.whenReady; npc.playAction('Wave');`
+  - `whenReady: Promise<void>` Settles (never rejects) when a model named by asset is swapped in or has failed; already settled otherwise. Example: `const npc = new Character(engine, { model: 'villager' }); engine.add(npc.root);   // import { Character } from 'threedog' await npc.whenReady; npc.playAction('Wave');`
   - `vehicle: Rideable | null` The vehicle it sits in (null on foot)
   - `seat: number | null` Its seat in the vehicle: 0 drives, others ride; null on foot
 

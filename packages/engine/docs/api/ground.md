@@ -10,7 +10,6 @@
 - `ground.chunkCollision(cx: number, cz: number) → any` — Optional: collision data of a chunk (used by the physics module)
 - `ground.staticTrimeshes() → { positions, indices }[]` — Optional: static triangle mesh (the level module provides it for physics)
 - `ground.staticVersion() → number` — Optional: version number of the static mesh; rebuild when it changes
-- `ground.navGeometry() → { positions, indices }` — Optional: triangle mesh for building the navmesh (walkable surfaces + obstacle volumes), used by the nav module
 - Properties:
   - `waterLevel: number` Global water level (meters); -Infinity when there is no water
   - `chunkSize?: number` Optional: chunk edge length (meters)

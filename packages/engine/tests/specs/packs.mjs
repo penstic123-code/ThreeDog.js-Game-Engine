@@ -89,7 +89,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player.position, out = {};
         const err = f => { try { f(); return null; } catch (e) { return e.message; } };
         out.pineBuilder = typeof engine.assets.builder('pine') === 'function';

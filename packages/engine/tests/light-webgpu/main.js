@@ -30,7 +30,7 @@ engine.scene.add(sun, sun.target, new THREE.AmbientLight(0xffffff, 0.15));
 
 await engine.start();
 const demo = new URLSearchParams(location.search).get('demo');
-if (!demo) engine.pause();
+if (!demo) engine.haltLoop();
 const cam = engine.camera;
 cam.position.set(1.5, 3, 5); cam.lookAt(-2, 2.5, -4); cam.aspect = W / H; cam.updateProjectionMatrix(); cam.updateMatrixWorld();
 const rt = new TG.RenderTarget(W, H);
@@ -112,7 +112,7 @@ window.lightHeld = async () => {
   console.warn = warn;
   const c = Object.assign(document.createElement('canvas'), { width: W, height: H }); document.body.appendChild(c);
   const e = createEngine({ canvas: c, lights: false, pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, saveKey: 'test-light-held', urlState: false });
-  await e.start(); e.pause();
+  await e.start(); e.haltLoop();
   const errors = [fake, voxelGI(), temporalAA(), sunShafts({ light: sun }), lightVolumes({ bounds: new THREE.Box3() })].map(fx => { try { e.post.add(fx); return null; } catch (err) { return err.message; } });
   e.dispose();
   return { cases, lowNotes: notes.filter(n => /fake' held off: engine.tier/.test(n)).length, errors };

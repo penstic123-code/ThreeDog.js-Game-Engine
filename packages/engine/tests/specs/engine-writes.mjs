@@ -72,8 +72,8 @@ export const specs = [
         // the player allows it again: the settings entry goes, the game's on shows
         if (s) { s.set('bloom', true, { save: false }); out.bloom5 = row('bloom'); out.bloomOn5 = engine.post.get('bloom').enabled; s.set('bloom', false, { save: false }); }
         // the settings menu re-applies the current values at start (as on a page reload): unchanged values are not written
-        // the saved values equal the engine's current state (page reload, the player changed nothing): _applyAll adds no record
-        if (s) { const before = GAME_RECORDS().join('|'); Object.assign(s.values, s._currentValues()); s._applyAll(); out.reapplySame = GAME_RECORDS().join('|') === before; out.bloom4 = row('bloom'); }
+        // the saved values equal the engine's current state (page reload, the player changed nothing): applying them adds no record
+        if (s) { const before = GAME_RECORDS().join('|'); for (const [k, v] of Object.entries(s._currentValues())) s._apply(k, v); out.reapplySame = GAME_RECORDS().join('|') === before; out.bloom4 = row('bloom'); }
         return out;
       })()`);
       const j = JSON.stringify(r);

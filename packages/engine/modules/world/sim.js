@@ -52,7 +52,7 @@ export class Sim {
     // created once, no closure per step
     this._pick = (rec, d2) => {
       const s = this.sims.get(rec.kind);
-      if (s && d2 <= s.r2 && this.w._inZone(rec)) { const e = this.ents.get(rec.id); e.d2 = d2; this.list.push(e); }
+      if (s && d2 <= s.r2 && this.w.inZone(rec)) { const e = this.ents.get(rec.id); e.d2 = d2; this.list.push(e); }
     };
   }
 

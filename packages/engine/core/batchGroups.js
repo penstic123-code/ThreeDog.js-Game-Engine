@@ -4,8 +4,8 @@
 import * as THREE from 'three';
 import { copyPatches } from '../render/patches.js';
 import { RESERVED_LAYERS } from '../render/layers.js';
+import { noRaycast } from '../render/occlusion.js';
 
-const noRaycast = () => {};
 /** Layer a batched original is moved to: the camera does not draw it (nor its shadow), engine.rays still tests it */
 export const BATCH_LAYER = RESERVED_LAYERS.batched;
 const WHITE = new THREE.Color(1, 1, 1);
@@ -14,7 +14,7 @@ const hold = (B, x, d) => { const n = (B.held.get(x) ?? 0) + d; if (n > 0) B.hel
 
 function makeMesh(B, g, capacity) {
   const im = new THREE.InstancedMesh(g.geometry, g.material, capacity);
-  im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  // No DynamicDrawUsage: on WebGPURenderer it means a full refresh of every batch, every pass, every frame, and a batch rests almost always. three sees a write by the attribute's version either way
   im.castShadow = g.cast; im.receiveShadow = g.receive;
   im.matrixAutoUpdate = false; im.raycast = noRaycast;   // rays hit the originals (on BATCH_LAYER), never the batch
   im.userData = { budgetTag: 'batch', cell: g.cell };
@@ -48,7 +48,7 @@ export function join(B, e) {
   im.setMatrixAt(e.slot, m.matrixWorld); im.instanceMatrix.needsUpdate = true;
   if (g.colored || B.tints.has(m)) color(B, e);
   m.layers.set(BATCH_LAYER); m.userData.batched = true;   // not visible = false: visibility stays the game's
-  g.dirty = true; B.live.add(e.info);
+  g.dirty = true; B.live.add(e.info); B._skipChanged(e);
 }
 /** Swap-remove an entry from its InstancedMesh and show its mesh again */
 export function leave(B, g, e) {
@@ -60,7 +60,7 @@ export function leave(B, g, e) {
   }
   im.count = g.items.length; im.instanceMatrix.needsUpdate = true; g.dirty = true;
   e.slot = -1;
-  const m = e.mesh; m.layers.set(0); delete m.userData.batched;
+  const m = e.mesh; m.layers.set(0); delete m.userData.batched; B._skipChanged(e);
   localTint(B, m);
   if (!e.info.entries.some(x => x.slot >= 0)) B.live.delete(e.info);
 }
@@ -84,7 +84,7 @@ function grow(B, g) {
 /** Write an entry's tint (white when none) into the batch's instance colors */
 export function color(B, e) {
   const g = e.group, im = g.mesh;
-  if (!im.instanceColor) { im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(im.instanceMatrix.count * 3).fill(1), 3); g.colored = true; }
+  if (!im.instanceColor) { im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(im.instanceMatrix.count * 3).fill(1), 3); g.colored = true; im.material.needsUpdate = true; }   // three built this batch's shader (and its vertex buffers) before any instance color existed; without a rebuild the color never reaches the GPU
   im.setColorAt(e.slot, B.tints.get(e.mesh) ?? WHITE); im.instanceColor.needsUpdate = true;
 }
 /** An unbatched mesh shows its tint through a cloned material (patches carried over); the original is kept for grouping and restored on clear */
@@ -121,4 +121,5 @@ export function same(o, s) {
 }
 /** Instance matrices are float32: compare against the float32 rounding of matrixWorld */
 export function stored(a, slot, mw) { const el = mw.elements, o = slot * 16; for (let i = 0; i < 16; i++) if (a[o + i] !== Math.fround(el[i])) return false; return true; }
-export function under(m, root) { for (let p = m; p; p = p.parent) if (p === root) return true; return false; }
+/** Is o inside a THREE.BundleGroup? three replays a bundle as recorded, so what is inside belongs to it: hiding a child from outside (a batch, an hlod swap) would do nothing */
+export function inBundle(o) { for (let p = o; p; p = p.parent) if (p.isBundleGroup) return true; return false; }

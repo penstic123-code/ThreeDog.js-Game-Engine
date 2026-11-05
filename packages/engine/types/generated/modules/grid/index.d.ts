@@ -57,11 +57,11 @@ export class Grids {
         layers?: Record<string, [number, number, Record<string, any>][]>;
     }): Grid;
     /**
-     * A grid by name, or null when there is none
+     * A grid by name, or undefined when there is none
      * @param {string} name
-     * @returns {Grid | null}
+     * @returns {Grid | undefined}
      */
-    get(name: string): Grid | null;
+    get(name: string): Grid | undefined;
     /** All grids (a new array) @returns {Grid[]} */
     list(): Grid[];
     /**

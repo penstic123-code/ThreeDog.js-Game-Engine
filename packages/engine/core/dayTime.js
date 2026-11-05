@@ -13,6 +13,10 @@ export function parseClock(v, hoursPerDay = 24) {
 /** Is time t (0-1) inside the window [from, to)? (from and to are 'HH:MM' or 0-1; from > to wraps past midnight). calendar.between and the audio rule condition { time: [from, to] } both use it */
 export function inRange(t, from, to, hoursPerDay = 24) { return inFrac(t, parseClock(from, hoursPerDay), parseClock(to, hoursPerDay)); }
 export const inFrac = (t, a, b) => (a <= b ? t >= a && t < b : t >= a || t < b);
+/** Where the sun is on its circle at time t (0-1), radians: 0 at 06:00, PI / 2 at noon */
+export const sunAngle = t => (t - 0.25) * Math.PI * 2;
+/** Sun height at time t (0-1): -1 at midnight, 0 on the horizon, 1 at noon */
+export const sunHeightAt = t => Math.sin(sunAngle(t));
 /** Fraction of a day 0-1 -> 'HH:MM' */
 export function formatClock(t, hoursPerDay = 24) {
   // whole minutes with a hair of slack: 0.3 * 24 * 60 is 431.99999999999994 in floats, and flooring that showed 07:11 for 07:12

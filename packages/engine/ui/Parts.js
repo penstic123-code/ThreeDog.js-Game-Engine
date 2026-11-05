@@ -15,6 +15,7 @@
 // Names and the data each part receives are listed in `engine.ui.describe()` and in recipes/26-ui-parts.md.
 import { uiFocus } from './Focus.js';
 import { codedError } from '../core/errorHints.js';
+import { fmt } from '../core/validate.js';
 /** @import { Engine } from '../types/core' */
 /** @import { UIPart, UIPartFactory, UIPartValue, UIPartDef } from '../types/core' */
 
@@ -27,7 +28,6 @@ const DEV = {
   unknown: "engine.ui.set('{name}'): no UI part has that name. Known parts: {known}. (A module's parts exist only after engine.use(module).)",
   notModal: "engine.ui.open('{name}'): only full-screen parts can be opened ({known}).",
 };
-const fmt = (s, p) => s.replace(/\{(\w+)\}/g, (_, k) => p[k]);
 const kind = v => v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v;
 
 /** @internal Fill missing verbs with no-ops so callers never write ?. */

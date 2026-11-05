@@ -2,9 +2,30 @@
 // add registers each root in the thing registry (things.js) so engine.thing / hit.thing can say what it is and what a save keeps. A plain
 // engine.scene.add(obj) is registered the same way (things.js adopts roots added under the scene), so both ways in give the same answer.
 import { DEV } from './validate.js';
+import { writeRatio } from './adaptive.js';
 import { codedError } from './errorHints.js';
 import { thing } from './thingOps.js';
+import { isUnder } from './util.js';
 import { freshFrame, renderOnce as drawOnce } from '../render/backend.js';
+
+/** The geometry and materials of one object */
+const parts = o => [o.geometry, ...[].concat(o.material)].filter(Boolean);
+/**
+ * How many objects in the scene use each geometry and material. Why remove asks: disposing a kit that other streamed blocks still draw makes the renderer
+ * rebuild all of them (worst frame 270 ms against 79 in the city stress run). One walk per task, so removing ten thousand objects in a loop walks once; an object
+ * added later in that task is not counted, so its geometry may be disposed and uploaded again, which costs time and nothing else; one that left by plain scene.remove
+ * in that task still counts, so its model waits for the next engine.remove. Batches are left out:
+ * batching.held speaks for them, and it lets go when a batch dissolves in the same task.
+ * shortcut: one walk of the scene per frame that removes something (not measured at 100k objects); if it shows up in a profile, keep the counts on the scene-add hook instead.
+ */
+function sceneUsers(e) {
+  if (e._users) return e._users;
+  const users = e._users = new Map(), skip = e.batching.root;
+  const walk = o => { if (o === skip) return; for (const x of parts(o)) users.set(x, (users.get(x) ?? 0) + 1); for (const c of o.children) walk(c); };
+  walk(e.scene);
+  queueMicrotask(() => { e._users = null; });
+  return users;
+}
 
 /** A short stack for "added at main.js:50" (dev): 4 frames are enough (this, add, its caller) and keep the cost low; it is formatted only when read */
 function captureStack() {
@@ -51,20 +72,21 @@ export const sceneMethods = {
   /** Detach from the parent only (no GPU release; use when you will add it back). Use remove for objects you are done with */
   detach(...objs) { for (const o of objs) o.removeFromParent(); },
   /**
-   * Delete an object for good: detach it, unregister its rays and dispose geometries and materials (textures are kept). Geometry and materials shared by assets
-   * model clones are only decremented in use count (see Assets.js)
+   * Delete an object for good: detach it, unregister its rays and dispose the geometries and materials nothing else in the scene uses (textures are kept).
+   * One still used by another object stays, and goes with its last user. Geometry and materials shared by assets model clones are only decremented in use count (see Assets.js)
    */
   remove(...objs) {
     for (const o of objs) {
+      const counted = isUnder(o, this.scene) && !!this._users;   // the count was made while this object was still in the scene
       o.removeFromParent();
       this._things.forget(o);
       this.rays.forget(o);
       this.assets.forget(o);
       const shared = this.assets.shared, held = this.batching.held;   // a batch still drawing the same geometry / material keeps it alive
-      o.traverse(c => {
-        if (c.geometry && !shared.has(c.geometry) && !held.has(c.geometry)) c.geometry.dispose();
-        for (const m of [].concat(c.material || [])) if (!shared.has(m) && !held.has(m)) m.dispose();
-      });
+      if (counted) o.traverse(c => { for (const x of parts(c)) this._users.set(x, (this._users.get(x) ?? 0) - 1); });
+      // The whole-scene count only for a part nothing else keeps: unloading a streamed block whose kit is all held by batches walked every object of the district for nothing (7 ms in one frame of the city run)
+      const free = []; o.traverse(c => { for (const x of parts(c)) if (!shared.has(x) && !held.has(x)) free.push(x); });
+      if (free.length) { const users = sceneUsers(this); for (const x of free) if (!(users.get(x) > 0)) x.dispose(); }
     }
   },
   /**
@@ -88,9 +110,10 @@ export const sceneMethods = {
       drawOnce(this.renderer, this.scene, camera, target);
     } finally { if (own) own.inside--; }
   },
-  // an engine.setPixelRatio call is the game's (or settings') request: written even when the game took the ratio, and re-read so it is not an outside write
-  setPixelRatio(p) { this.renderer.setPixelRatio(p); this._oPixelRatio?.mark(); },
-  /** Raise camera.far to at least far (terrain view range). Goes through ownership: a game that owns camera.far (engine.view.manual('far')) keeps its value. @param {number} far */
+  // an engine.setPixelRatio call is the game's (or settings') request: written even when the game took the ratio. It is also the new ceiling, or adaptive
+  // resolution would climb back to the old one and undo the engine's own named entry where the raw three.js call stays. Adaptive writes through writeRatio
+  setPixelRatio(p) { writeRatio(this, p); Object.assign(this.adaptive, { max: p, lowered: false, from: null, good: 0 }); },
+  /** Raise camera.far to at least far (terrain view range). Goes through ownership: a game that owns camera.far (engine.autoView.manual('far')) keeps its value. @param {number} far */
   viewFar(far) {
     if (this.camera.far >= far) return;
     if (this._oFar) this._oFar.drive(far); else { this.camera.far = far; this.camera.updateProjectionMatrix(); }

@@ -1,9 +1,9 @@
 // Ground API (part of Engine, mixed into Engine.prototype): whoever provides ground height is the "terrain" -- a procedural terrain module, a hand-made level, or a flat plane.
 // The queries below take (x, z), or a Vector3 / Object3D directly: engine.surface(mesh.position)
 import { xzOf } from './math.js';
-import { DEV } from './validate.js';
+import { warnOnce } from './validate.js';
 import { readParams, keysSchema } from './params.js';
-import { codedError } from './errorHints.js';
+import { coded } from './errorHints.js';
 
 // Default ground: an infinite flat plane at y = 0. A terrain or level module replaces it
 export const flatGround = {
@@ -18,12 +18,12 @@ const noGround = (who, x, z, left = '') => NO_GROUND.replace('{who}', who).repla
 
 /**
  * Ground height for a place-it-here entry (spawn, props, pickups, npcs, placeAt). Beyond terrain({ shape }) surface() is -Infinity, and that must never
- * reach a position (a save turns it into null / NaN and the object vanishes): dev throws with the fix, release keeps `fallback`. @internal
+ * reach a position (a save turns it into null / NaN and the object vanishes): a warning with the fix (once per caller), and `fallback` is used. @internal
  */
 export function placeY(e, who, x, z, refY, fallback = 0) {
   const y = e.surface(x, z, refY);
   if (y !== -Infinity) return y;
-  if (DEV) throw codedError('ground-missing', noGround(who, x, z));
+  warnOnce(coded('ground-missing', noGround(who, x, z)), `ground-missing:${who}`);   // a warning: the fallback is safe, and a prop at the island's edge is legal game code
   return fallback;
 }
 /** Ground height for a visual-only reader (hud anchor, grid tiles, camera start, shot path): off the island use `fallback`, never throw. @internal */
@@ -69,7 +69,7 @@ export const groundMethods = {
   snapToGround(obj, offset = 0) {
     const p = obj.position, y = this.surface(p.x, p.z, p.y);
     if (y === -Infinity) {   // never write an infinite y: the object would vanish and poison bounds and physics
-      if (DEV) throw codedError('ground-missing', noGround('engine.snapToGround()', p.x, p.z, ', so the object was left where it is'));
+      warnOnce(coded('ground-missing', noGround('engine.snapToGround()', p.x, p.z, ', so the object was left where it is')), 'ground-missing:snapToGround');
       return obj;
     }
     p.y = y + offset; return obj;

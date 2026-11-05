@@ -3,10 +3,10 @@
 // node has the files; neither side keeps its own list.
 import { readdirSync, readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import { abs, rel, ENGINE, DOCS_REL, API_DIR_REL, EXAMPLES_REL, MODULES_REL } from '../paths.mjs';
+import { abs, rel, ENGINE, DOCS_REL, API_DIR_REL, EXAMPLES_REL, MODULES_REL, SKIP_DIRS } from '../paths.mjs';
 
 const MAX_FILES = 3, MAX_TEXT = 6000, MAX_SIZE = 200_000;
-const SKIP_DIRS = new Set(['node_modules', 'dist', '.threedog', '.git', 'tests', 'generated']);
+const SKIP = new Set([...SKIP_DIRS, 'tests', 'generated']);
 
 /** Every .js / .mjs / .md under dir (skipping build output, tests and dependencies) */
 function files(dir, ext = /\.(m?js|md)$/) {
@@ -15,7 +15,7 @@ function files(dir, ext = /\.(m?js|md)$/) {
     let list; try { list = readdirSync(d, { withFileTypes: true }); } catch { return; }
     for (const f of list) {
       const p = join(d, f.name);
-      if (f.isDirectory()) { if (!SKIP_DIRS.has(f.name) && !f.name.startsWith('.')) walk(p); }
+      if (f.isDirectory()) { if (!SKIP.has(f.name) && !f.name.startsWith('.')) walk(p); }
       else if (ext.test(f.name)) out.push(p);
     }
   };
@@ -150,8 +150,17 @@ function opText(o, where) {
 }
 
 /** Bridge command: r is the page result { data, ids, ops } of engine.catalog(id) */
-export function catalogCommand(r, id, opt, dir) {
+/** catalog --find: this game's hits, then the library's (not installed yet, so they carry the way to pull them); no hit in either says so */
+function findText(rows, library, { find, full }) {
+  const lib = Array.isArray(library) ? library : [], failed = library?.error ? `(the library could not be read: ${library.error})` : '';
+  if (!rows.length && !lib.length) return [`Nothing found for "${find}" in this game's modules and ops or in the library. Other words: threedog how "${find}"`, failed].filter(Boolean).join('\n');
+  return [rows.length ? summaryText(rows, full) : `Nothing for "${find}" in this game's modules and ops`,
+    ...lib.map(e => `library: ${e.name} [${e.kind}] ${e.summary} (threedog lib pull ${e.name})`), failed].filter(Boolean).join('\n');
+}
+
+export function catalogCommand(r, id, opt, dir, library = null) {
   const max = opt.max || MAX_TEXT, cut = s => s.length > max ? s.slice(0, max) + '\n… (--max N for more, --json for the data)' : s;
+  if (!id && opt.find) return { ok: true, text: cut(findText(r.data, library, opt)), data: { rows: r.data, library } };
   if (!id) return { ok: true, text: cut(summaryText(r.data, opt.full)), data: r.data };
   if (!r.data) return { ok: false, text: `✗ catalog: no module or op "${id}". Modules: ${r.ids.join(', ')}; ops: ${r.ops.slice(0, 20).join(', ')}` };
   const where = locate(id, r.data.kind, dir);

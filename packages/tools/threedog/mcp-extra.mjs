@@ -18,15 +18,15 @@ const LABEL = [
 export const label = name => LABEL.find(([cmds]) => cmds.includes(name.replace('_', '-')))?.[1] ?? '';
 
 /** engine.runState.state values, copied from core/holds.js (tests/run-state-enum.mjs keeps the two equal) */
-export const RUN_STATES = ['loading', 'title-frozen', 'test-paused', 'paused', 'running'];
+export const RUN_STATES = ['loading', 'title-frozen', 'halted', 'frozen', 'running'];
 /**
  * The shape every tool result has (structuredContent), explained once at the front of the server instructions. The time sentence is generated
  * from TIME. Why here and not in each tool's outputSchema: the tool list is loaded into every session, and the full schema repeated on all 29
  * tools was 72% of it (35.7 of 49.6 KB)
  */
-export const RESULT_SHAPE = 'Every result has text plus structuredContent { ok, code, summary, runtime: { ready, mode: running|paused|frozen|null, tick, headless, ' +
+export const RESULT_SHAPE = 'Every result has text plus structuredContent { ok, code, summary, runtime: { ready, mode: running|halted|frozen|null, tick, headless, ' +
   `blockedBy[], run: { state: ${RUN_STATES.join('|')}, owners[], blockedBy[] } }, data (short, command-specific; a large one keeps its small fields and names the CLI --json call for the rest) }. ` +
-  'code: ok; blocked = ran and was refused or found a problem; not-ready = page not ready; no-server|starting|page-error|no-bridge = cannot reach the game; ' +
+  'code: ok; blocked = ran and was refused or found a problem; not-ready = page not ready; no-server|starting|busy|page-error|no-bridge = cannot reach the game; ' +
   'command-error = bad arguments or a page exception. runtime.blockedBy: input contexts (win-<id>, ui-<part>, dialogue, cutscene...), error, loading. ' +
   'The text ends with one line on the game state and how to get back to normal play. ' +
   `${TIME.advances.join(' / ')} advance game time; ${TIME.frozenTimeSafe.join(', ')} do not; everything else only observes.`;
@@ -57,7 +57,7 @@ export const EXTRA_TOOLS = {
     args: a => a.stop ? ['--stop'] : [],
   },
   status: {
-    description: 'Is the engine ready, loading done, any page errors, running / paused / frozen? If the bridge cannot answer, names the cause and the next step.',
+    description: 'Is the engine ready, loading done, any page errors, running / halted / frozen? If the bridge cannot answer, names the cause and the next step.',
     schema: { type: 'object', properties: {}, required: [] },
     args: () => [],
   },

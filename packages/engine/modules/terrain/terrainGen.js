@@ -4,10 +4,10 @@
 // Note: the config here must be serializable because it is passed to the Worker: a game's own height / groundType function travels as source text (threads.pure rules).
 // Edits (dig, raise, paint) are an overlay of grid-point heights and cell ground types on top of the generated terrain; see terrainEdit.js.
 // Split: defaults in terrainDefaults.js; chunk meshes and vegetation placement in terrainMesh.js (neither depends on three.js).
-import { DEFAULT_TERRAIN } from './terrainDefaults.js';
+import { DEFAULT_TERRAIN, SHADINGS, NORMALS } from './terrainDefaults.js';
 import { makeMesher } from './terrainMesh.js';
 import { makeShape } from './terrainShape.js';
-import { grayAt } from '../../core/grayMap.js';
+import { grayWorld } from '../../core/grayMap.js';
 import { makeNoise } from '../../core/scatter.js';
 import { compilePure } from '../../core/threadPure.js';
 import { codedError } from '../../core/errorHints.js';
@@ -16,9 +16,13 @@ export { DEFAULT_TERRAIN } from './terrainDefaults.js';
 const srgbToLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 const hexToLinear = h => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255].map(srgbToLinear);
 
+// grid and cell keys of the edit overlay (terrainEdit.js reads them back)
+const key = (i, j) => (i + 50000) * 100000 + (j + 50000);
+export const unkey = k => [Math.floor(k / 100000) - 50000, (k % 100000) - 50000];
+
 export function createTerrain(userCfg = {}) {
   const cfg = { ...DEFAULT_TERRAIN, ...userCfg, colors: { ...DEFAULT_TERRAIN.colors, ...(userCfg.colors || {}) }, boundsPad: { ...DEFAULT_TERRAIN.boundsPad, ...(userCfg.boundsPad || {}) } };
-  for (const [k, ok] of [['shading', ['smooth', 'flat', 'texture']], ['diagonal', ['fixed', 'adaptive', 'alternate']], ['normals', [null, 'smooth', 'flat']]])
+  for (const [k, ok] of [['shading', SHADINGS], ['diagonal', ['fixed', 'adaptive', 'alternate']], ['normals', [null, ...NORMALS]]])
     if (!ok.includes(cfg[k])) throw codedError('terrain-option', `terrain({ ${k} }) must be ${ok.filter(Boolean).map(v => `'${v}'`).join(' | ')}, got ${JSON.stringify(cfg[k])}`);
   const SEED = cfg.seed | 0, CHUNK = cfg.chunkSize, RES = cfg.resolution, CELL = CHUNK / RES, WATER = cfg.waterLevel;
   const PAL = {};
@@ -28,10 +32,9 @@ export function createTerrain(userCfg = {}) {
   const smooth = t => t * t * (3 - 2 * t);
 
   function heightmapHeight(x, z) {
-    const H = cfg.heightmap, [sx, sz] = H.size, [cx0, cz0] = H.center || [0, 0];
-    const u = (x - cx0) / sx + 0.5, v = (z - cz0) / sz + 0.5;
-    if (u < 0 || u > 1 || v < 0 || v > 1) return H.outside ?? (Number.isFinite(WATER) ? WATER - 5 : H.min ?? 0);   // outside the map: under the water, or the map's floor without water
-    return (H.min ?? 0) + grayAt(H, u, v) * ((H.max ?? 60) - (H.min ?? 0));
+    const H = cfg.heightmap, g = grayWorld(H, x, z);
+    if (g === null) return H.outside ?? (Number.isFinite(WATER) ? WATER - 5 : H.min ?? 0);   // outside the map: under the water, or the map's floor without water
+    return (H.min ?? 0) + g * ((H.max ?? 60) - (H.min ?? 0));
   }
   // helpers handed to a game's own height / groundType function: it runs in a worker and cannot import or close over anything
   const NOISE = { fbm, noise: vnoise, hash: hash2, seed: SEED, waterLevel: WATER, params: cfg.params ?? {} };
@@ -54,7 +57,6 @@ export function createTerrain(userCfg = {}) {
 
   // edit overlay: grid key -> height (grid point i*CELL, j*CELL) and cell key -> ground type (cell [i, i+1) x [j, j+1)). The main thread holds every edit;
   // a worker gets only those around the chunk it builds (setEdits), which is all buildChunk / place read
-  const key = (i, j) => (i + 50000) * 100000 + (j + 50000);
   let EH = new Map(), ET = new Map();
   function setEdits(d) {
     EH = new Map(); ET = new Map();

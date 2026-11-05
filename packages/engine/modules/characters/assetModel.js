@@ -1,23 +1,25 @@
-// Character body named by asset (Character({ model: 'humanoid' | 'hero' })): construction is synchronous, loading is not.
+// Character body named by asset (Character({ model: 'humanoid' | 'hero' | ['villager', 0xcc8844] })): construction is synchronous, loading is not.
+// The name takes the same two forms as a prop's model: a villager with a colour argument used to reach Object3D.add as an array and crash far from the content that wrote it.
 // A procedural builder (manifest models: { humanoid: fn }, an asset pack's models) is built right here (buildNow), so its joints exist as soon as the
 // character does and no placeholder frame shows. A file model already loaded is swapped in at once (engine.assets.modelNow); otherwise the
 // character keeps its gray capsule until engine.assets.model(name) resolves, then the copy (SkeletonUtils clone, so many characters share one
 // asset) replaces the body under the same root: position, facing, state and every reference to the character or its root (collision,
 // interactions, world view) stay valid.
 import * as THREE from 'three';
-import { warnOnce } from '../../core/validate.js';
-import { fmt } from '../../core/opsCheck.js';
+import { warnOnce, fmt } from '../../core/validate.js';
 import { neutralMaterial } from '../../render/neutral.js';
 import { codedError } from '../../core/errorHints.js';
+import { builderArgs } from '../../core/namedModel.js';
+import { list as nameAndArgs } from '../../core/util.js';
 
 /**
  * Build a procedural model asset now (synchronously) when `name` is a registered builder; null when it is a file model, unknown, or the
  * builder is async (those load through loadAssetModel). The builder gets this = { palette: engine.assets.palette, engine } like any generator in the manifest.
  */
-export function buildNow(engine, name) {
-  const build = engine.assets.builder(name);
+export function buildNow(engine, model) {
+  const [name] = nameAndArgs(model), build = engine.assets.builder(name);
   if (!build) return null;
-  const v = build.call({ palette: engine.assets.palette, engine });
+  const v = build.call({ palette: engine.assets.palette, engine }, ...builderArgs(engine, model));
   if (!v || typeof v.then === 'function') return null;
   if (v.isBufferGeometry) return new THREE.Mesh(v, neutralMaterial('character', { vertexColors: !!v.attributes.color }));
   if (!v.name) v.name = name;
@@ -33,14 +35,16 @@ const STRINGS = {
  * Start loading the asset model for ch; returns the promise stored as ch.whenReady (never rejects).
  * Throws at once when no model asset has the name (paths with / or . load as files).
  * @param {import('./Character.js').Character} ch
- * @param {string} name
+ * @param {string | any[]} model a name, or [name, ...args]
  * @param {(model: any) => void} use builds the model and Animator on ch
  */
-export function loadAssetModel(ch, name, use) {
-  const e = ch.engine, A = e.assets;
+export function loadAssetModel(ch, model, use) {
+  const e = ch.engine, A = e.assets, [name, ...args] = nameAndArgs(model);
   const names = [...A.entries].filter(([, x]) => x.type === 'model' && x.named).map(([n]) => n);
   const list = names.join(', ') || 'none; register them with engine.assets.manifest({ models })';
   if (!names.includes(name) && !/[/.]/.test(name)) throw codedError('character-option', fmt(STRINGS.unknown, { name, list }));
+  // shortcut: arguments reach generators built on the spot; a file or an async generator cannot take them here, so it stops rather than drop them. Upgrade when a game needs an async one
+  if (args.length) throw codedError('character-option', `Character model ${JSON.stringify(model)}: arguments work on a generator that builds synchronously, and "${name}" does not`);
   const fail = why => warnOnce(fmt(STRINGS.failed, { name, why, list }));
   const swap = m => {
     if (ch._disposed || e.disposed) { e.remove(m); return; }   // removed before loading finished: never reaches the scene, the copy is released

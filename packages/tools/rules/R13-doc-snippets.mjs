@@ -16,7 +16,7 @@
 //     widened to string before it met a named literal union (`type: 'rules'` against ModuleType; a wrong name is still caught by the engine at install)
 // Output: doc file + block number + line within the block + the reason (TypeScript's original text).
 // Limitation: variables without a type (such as const npc = … inside the snippet) are only checked as far as the d.ts lets TypeScript infer.
-import { mkdtempSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync, readdirSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ts, walk, read, abs, dtsFiles, P } from './_lib.mjs';
@@ -44,7 +44,10 @@ const DOM = /HTML\w*Element|CSSStyleDeclaration|EventTarget|'Element'|Window|glo
 export default {
   id: 'R13', title: 'Type-check of doc code blocks',
   run() {
-    const docs = [...walk(P.RECIPES_REL, ['.md']), ...walk(P.API_DIR_REL, ['.md'])];
+    // also the pages a newcomer reads first (root and package READMEs, the conventions, the three.js and command pages): they hold js blocks too and were unchecked
+    const front = ['README.md', `${P.ENGINE_REL}/README.md`, `${P.DOCS_REL}/CONVENTIONS.md`, `${P.DOCS_REL}/THREE.md`, `${P.DOCS_REL}/COMMANDS.md`,
+      'packages/post-effects/README.md', 'packages/terrain-noise/README.md', 'packages/tools/README.md'].filter(f => existsSync(abs(f)));
+    const docs = [...front, ...walk(P.RECIPES_REL, ['.md']), ...walk(P.API_DIR_REL, ['.md'])];
     const slots = slotNames();
     const dir = mkdtempSync(join(tmpdir(), 'threedog-r13-'));
     const blocks = [], bad = [];   // { doc, n, startLine, file }; findings made while reading the blocks

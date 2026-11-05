@@ -26,7 +26,7 @@ async function make(extra, { parts = true, more = [], before = null, ground = {}
   if (parts) e.particles.define('puff', { rate: 0, max: 60, color: [0xffffff, 0xffeeaa], size: [0.6, 0.6], lifetime: [100, 100], speed: [0, 0] });
   before?.(e);
   await e.start();
-  e.pause();
+  e.haltLoop();
   if (parts) e.particles.emit('puff', { x: 0, y: 3, z: 0 }, { count: 40 });
   e.camera.position.set(0, 9, 16); e.camera.lookAt(0, 0, 0); e.camera.updateMatrixWorld();
   return e;
@@ -81,7 +81,7 @@ window.engineWebGPU = async () => {
 
 /**
  * The three routes added on 2026-11-03 (tests/specs/picture-routes.mjs), on the WebGL engine and on a WebGPU one: the game's own cloud-shadow term
- * (engine.terms.cloudShadow), its own season tint (engine.terms.season), a color hook on the plants (engine.vegetation.color).
+ * (engine.shaderTerms.cloudShadow), its own season tint (engine.shaderTerms.season), a color hook on the plants (engine.vegetation.color).
  * Each reaches materials already built, and removing it gives the engine's back.
  */
 window.pictureRoutes = async () => {
@@ -93,15 +93,15 @@ window.pictureRoutes = async () => {
     const base = shot(e), now = () => differ(base, shot(e), 8);
     const has = n => engineMaterials(e).filter(m => m.patches.includes(n)).length;
     // (c) cloud shadow: the game's own term in place of the engine's (here a flat darkening), then none at all, then the engine's again
-    const hc = e.terms.cloudShadow({ glsl: 'reflectedLight.directDiffuse *= 0.25;', tsl: c => ({ directDiffuse: c.directDiffuse.mul(0.25) }) });
+    const hc = e.shaderTerms.cloudShadow({ glsl: 'reflectedLight.directDiffuse *= 0.25;', tsl: c => ({ directDiffuse: c.directDiffuse.mul(0.25) }) });
     out.cloud = { moved: now(), on: has('clouds') };
     hc.remove();
-    const ho = e.terms.cloudShadow(false);
+    const ho = e.shaderTerms.cloudShadow(false);
     out.cloudOff = has('clouds');
     ho.remove();
     out.cloudBack = { on: has('clouds'), moved: now() };
-    // (c) season tint: kind => spec, ground red and foliage blue, reading the signals still bound (uCover)
-    const hs = e.terms.season(kind => ({ glsl: `diffuseColor.rgb = mix(vec3(${kind === 'ground' ? '1.0, 0.0, 0.0' : '0.0, 0.0, 1.0'}), vec3(1.0), uCover.y);`,
+    // (c) season tint: kind => spec, ground red and foliage blue, reading the signals still bound (uGroundCover)
+    const hs = e.shaderTerms.season(kind => ({ glsl: `diffuseColor.rgb = mix(vec3(${kind === 'ground' ? '1.0, 0.0, 0.0' : '0.0, 0.0, 1.0'}), vec3(1.0), uGroundCover.y);`,
       tsl: c => c.tsl.vec4(kind === 'ground' ? c.tsl.vec3(1, 0, 0) : c.tsl.vec3(0, 0, 1), c.color.a) }));
     out.season = { moved: now(), on: has('season') };
     hs.remove();
@@ -116,7 +116,7 @@ window.pictureRoutes = async () => {
     const err = f => { try { f(); return ''; } catch (x) { return x.message; } };
     const sway = { glsl: 'void threedogWind(inout vec3 t, vec3 ip, vec3 p){ t.x += 0.5 * max(p.y, 0.0) * THREEDOG_WIND_AMP; }', tsl: c => c.position.add(c.tsl.vec3(c.tsl.positionGeometry.y.mul(0.1), 0, 0)) };
     const swayHalf = gpuSide ? { glsl: sway.glsl } : { tsl: sway.tsl };
-    out.named = [err(() => e.terms.cloudShadow(half)), err(() => e.terms.season(half)), err(() => e.vegetation.color(half)),
+    out.named = [err(() => e.shaderTerms.cloudShadow(half)), err(() => e.shaderTerms.season(half)), err(() => e.vegetation.color(half)),
       err(() => applyEffects(new THREE.MeshStandardMaterial(), { engine: e, wind: { amplitude: 0.1, ...swayHalf } }))];
     // wind: the signal reaches plants already planted, and a species' own sway rides on its wind option
     amp.value = 60; out.wind = { moved: now() };
@@ -177,7 +177,7 @@ window.patchMeanings = async () => {
     const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
     const e = createEngine({ canvas, pixelRatio: 1, adaptiveResolution: false, antialias: false, ui: { loading: false }, urlState: false,
       saveKey: 'test-engine-webgpu-meanings', ...extra });
-    await e.start(); e.pause();
+    await e.start(); e.haltLoop();
     const lit = applyEffects(new THREE.MeshLambertMaterial({ color: 0x808080 }), { clouds: false, patches: [
       { name: 'dim', slot: 'lighting', glsl: 'reflectedLight.directDiffuse *= 0.2;', tsl: { after: c => ({ directDiffuse: c.directDiffuse.mul(0.2) }) } },
       { name: 'glow', slot: 'lighting', glsl: '#if NUM_DIR_LIGHTS > 0\n  reflectedLight.directDiffuse += vec3(0.0, 0.0, 0.4);\n#endif',
@@ -230,12 +230,31 @@ window.pluginOrderRoutes = async () => {
  * (threedogNodeKey, render/patches.js), so the engine must hand same-spec materials the same patch objects. Counts the node builds three
  * creates for those materials (renderer.debug.onNodeBuilderCreated) while one frame draws them.
  */
+/** assets.texture() before start() on the WebGPU route: a game loads in any order it likes, so the load must work and the texture must still reach the picture */
+window.textureBeforeStart = async () => {
+  const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
+  const e = createEngine({ canvas, pixelRatio: 1, adaptiveResolution: false, antialias: false, ui: { loading: false }, urlState: false, lights: false,
+    saveKey: 'test-engine-webgpu-tex', renderer: 'webgpu' });
+  const c = Object.assign(document.createElement('canvas'), { width: 4, height: 4 }), x = c.getContext('2d');
+  x.fillStyle = '#f00'; x.fillRect(0, 0, 4, 4);
+  try {
+    const t = await e.assets.texture(c.toDataURL('image/png'));
+    await e.start(); e.haltLoop();
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(40, 40), new THREE.MeshBasicMaterial({ map: t, toneMapped: false }));
+    e.add(m); e.camera.position.set(0, 0, 5); e.camera.lookAt(0, 0, 0); e.camera.updateMatrixWorld();
+    e.step(0.1);
+    const px = shot(e);
+    let red = 0; for (let i = 0; i < px.length; i += 4) if (px[i] > 200 && px[i + 1] < 60) red++;
+    return { backend: e.describe().renderer.backend, red: red / (px.length / 4) };
+  } catch (err) { return { error: String(err.message) }; } finally { e.dispose?.(); }
+};
+
 window.programSharing = async () => {
   const N = 8;
   const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
   const e = createEngine({ canvas, pixelRatio: 1, adaptiveResolution: false, antialias: false, ui: { loading: false }, urlState: false,
     saveKey: 'test-engine-webgpu-share', renderer: 'webgpu' });
-  await e.start(); e.pause();
+  await e.start(); e.haltLoop();
   const mats = new Set(), g = new THREE.BoxGeometry(1, 1, 1);
   for (let i = 0; i < N; i++) {
     const m = applyEffects(new THREE.MeshLambertMaterial({ color: 0x808080 + i * 0x101010 }),
@@ -262,7 +281,7 @@ window.tslIdentity = async () => {
   const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
   const e = createEngine({ canvas, pixelRatio: 1, adaptiveResolution: false, antialias: false, ui: { loading: false }, urlState: false,
     saveKey: 'test-engine-webgpu-tsl', renderer: 'webgpu' });
-  await e.start(); e.pause();
+  await e.start(); e.haltLoop();
   e.camera.position.set(0, 0, 5); e.camera.lookAt(0, 0, 0); e.camera.updateMatrixWorld();
   const at = (px, x, y) => { const i = (y * W + x) * 4; return [px[i], px[i + 1], px[i + 2]]; };
   const plane = (m, x) => { const o = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), m); o.position.x = x; e.add(o); return o; };
@@ -274,7 +293,7 @@ window.tslIdentity = async () => {
 
   // a term swapped on a live material: same GLSL (none), same name, other tsl
   const lit = plane(applyEffects(new THREE.MeshLambertMaterial({ color: 0xffffff }), { engine: e }), 0);
-  const term = k => e.terms.cloudShadow({ tsl: c => ({ directDiffuse: c.directDiffuse.mul(k) }) });
+  const term = k => e.shaderTerms.cloudShadow({ tsl: c => ({ directDiffuse: c.directDiffuse.mul(k) }) });
   const mid = () => at(shot(e), W / 2, H / 2)[0];
   const builtIn = mid();
   const a = term(0), dark = mid();
@@ -301,7 +320,10 @@ window.tslIdentity = async () => {
   console.error = () => {};
   for (let i = 0; i < 2; i++) e.renderer.onDeviceLost({ api: 'WebGPU', message: 'test', reason: null });
   console.error = logged;
-  out.lost = { held: e.page.held, events, three: e.renderer._isDeviceLost === true };
+  // a halted engine has no real-time loop to hold, so the 'page' freeze comes up when the loop restarts (core/page.js): read it on both sides of that
+  const lostWhileHalted = { frozen: e.frozen, lost: e.page.contextLost };
+  e._unhalt();
+  out.lost = { halted: lostWhileHalted, held: e.stacks.get('freeze').has('page'), events, three: e.renderer._isDeviceLost === true };
   e.dispose();
 
   // WebGL reads customProgramCacheKey only: patches with the same GLSL and other tsl stay one program there
@@ -325,7 +347,7 @@ window.colorSpots = async () => {
     const canvas = Object.assign(document.createElement('canvas'), { width: W, height: H });
     const e = createEngine({ canvas, pixelRatio: 1, adaptiveResolution: false, antialias: false, ui: { loading: false }, urlState: false,
       saveKey: 'test-engine-webgpu-spots', ...(renderer && { renderer }) });
-    await e.start(); e.pause();
+    await e.start(); e.haltLoop();
     e.renderer.toneMapping = tone ? THREE.AgXToneMapping : THREE.NoToneMapping;
     if (kind === 'fog') {
       e.scene.background = new THREE.Color(0x8fa8c0);
@@ -380,11 +402,11 @@ window.plainClouds = async () => {
     const dim = box => {
       e.scene.add(box); box.position.set(0, 2.5, 0); box.updateMatrixWorld();
       // full cover and small clouds (scale 0.5: many cells inside the region, so the noise near the world origin, about 0, cannot hide them)
-      U.uCloud.value = 1;
-      const lit = dim.lit = center(shot(e)), was = [U.uCloudShadow.value, U.uCloudScale.value];
-      U.uCloudShadow.value = 0.9; U.uCloudScale.value = 0.5;
+      U.uWeatherCloud.value = 1;
+      const lit = dim.lit = center(shot(e)), was = [U.uCloudShadow.value, U.uCloudShadowScale.value];
+      U.uCloudShadow.value = 0.9; U.uCloudShadowScale.value = 0.5;
       const shade = center(shot(e));
-      [U.uCloudShadow.value, U.uCloudScale.value] = was; box.removeFromParent();
+      [U.uCloudShadow.value, U.uCloudShadowScale.value] = was; box.removeFromParent();
       return +(100 * (1 - shade / Math.max(lit, 1e-3))).toFixed(1);   // % darker under the clouds
     };
     const stand = () => new THREE.MeshStandardMaterial({ color: 0xd0c8b0, roughness: 0.9 });

@@ -13,7 +13,7 @@
 // Rules (checked about once a second; the highest-priority match wins; a new result must hold `hold` seconds before switching):
 //   engine.music.rules([
 //     { track: 'combat',  when: { state: 'combat' }, priority: 10 },   // engine.audio.state = 'combat' (the game sets it)
-//     { track: 'cave',    when: { zone: 'cave' }, priority: 5 },        // condition keys: state, zone (triggers), time (sky), weather
+//     { track: 'cave',    when: { zone: 'cave' }, priority: 5 },        // condition keys: state, zone (triggers), time (calendar), weather
 //     { track: 'night',   when: { time: 'night' }, priority: 2 },
 //     { track: 'explore', priority: 0 },                                // no when = always: the fallback
 //     { track: null,      when: e => e.dialogue?.active, priority: 20 },  // a function works too; track: null = silence
@@ -23,13 +23,13 @@
 // music({ duckDialogue: 0.35 }) does that during dialogue (off by default: whether dialogue lowers the music is the game's call). Before the first click play()
 // is remembered and starts once audio is usable.
 //
-// Events: music:change { from, to }, music:stinger { name }
+// Events: music:change { from, to }, music:stinger { name, played } (played false: the call was made but audio was not running, nothing sounded)
 
 import { warnMissing, warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { pickTrack, evaluateRules } from './rules.js';
 import { codedError } from '../../core/errorHints.js';
-const STOP_KEYS = ['fade'];   // a module constant: keysSchema caches by the array object
+const STOP_KEYS = ['fade'], PLAY_KEYS = ['fade', 'force'], STINGER_KEYS = ['duck', 'volume'];   // module constants: keysSchema caches by the array object
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { MusicTrack, MusicRule, MusicOptions } from '../../types/gameplay' */
 
@@ -42,12 +42,12 @@ export class Music {
   /** @internal track: the module's ctx.track, so its listeners leave with the module */
   constructor(engine, opts, track) {
     /** @internal */ this.engine = engine;
-    const st = engine.audio.config.music;
-    /** @internal */ this.opts = { ...DEFAULTS, ...st, ...opts };
+    const st = readParams('createEngine({ audio: { music } })', MUSIC_PARAMS, engine.audio.config.music);   // core keeps this table for music() and does not read it, so its spelling is checked here
+    /** @internal */ this.opts = { ...st, ...opts };
     /** Registered tracks @type {Map<string, { url?: string, volume?: number, loop?: boolean, stems?: { url: string, at?: number[], volume?: number }[] }>} */
     this.tracks = new Map();
-    this.addTracks(st.tracks || {});
-    this.addTracks(opts.tracks || {});
+    this._defineAll(st.tracks || {});
+    this._defineAll(opts.tracks || {});
     /** Name of the track playing (or wanted) @type {string | null} */
     this.current = null;
     /** 0-1: how loud each stem of the playing track is (see the stems `at` range); fades in about half a second @type {number} */
@@ -74,7 +74,7 @@ export class Music {
     track(engine.audio.onPack((key, pack) => {
       for (const name of Object.keys(pack.music.tracks)) if (code.has(name)) throw codedError('music-track', `music track '${name}' is defined both in music({ tracks }) `
         + `and in content ${pack.from}. One name, one place: keep it in one of them [audio-name-clash]`);
-      this.addTracks(pack.music.tracks);
+      this._defineAll(pack.music.tracks);
       this._packRules.set(key, { from: pack.from, rules: pack.music.rules });
       this._setRules();
     }));
@@ -86,18 +86,19 @@ export class Music {
   }
 
   /**
-   * Register tracks: { name: url | { url, volume, loop, stems } }
-   * @param {Record<string, MusicTrack>} map
-   * @returns {this}
+   * Define a track: a url, or { url, volume, loop, stems }. The same name again replaces it
+   * @example engine.music.define('town', '/music/town.ogg')
+   * @param {string} name
+   * @param {MusicTrack} track
+   * @returns {void}
    */
-  addTracks(map) {
-    for (const [name, v] of Object.entries(map)) {
-      const tr = typeof v === 'string' ? { url: v } : { ...v };
-      if (tr.url == null && !tr.stems?.length) throw codedError('music-track', `music track '${name}' needs url or stems, e.g. { url: '/music/${name}.ogg' }`, TypeError);
-      this.tracks.set(name, tr);
-    }
-    return this;
+  define(name, track) {
+    const tr = typeof track === 'string' ? { url: track } : { ...track };
+    if (tr.url == null && !tr.stems?.length) throw codedError('music-track', `music track '${name}' needs url or stems, e.g. { url: '/music/${name}.ogg' }`, TypeError);
+    this.tracks.set(name, tr);
   }
+  /** @internal */
+  _defineAll(map) { for (const [name, track] of Object.entries(map)) this.define(name, track); }
   /**
    * Whether audio is usable
    * @returns {boolean}
@@ -124,7 +125,7 @@ export class Music {
    * @returns {void}
    */
   play(name, opts = {}) {
-    const { fade = this.opts.fade, force = false } = opts;
+    const { fade = this.opts.fade, force = false } = readParams('music.play()', keysSchema(PLAY_KEYS), opts);
     if (name == null) return this.stop({ fade });
     const tr = this.tracks.get(name);
     if (!tr) { warnMissing('track', name, [...this.tracks.keys()]); return; }
@@ -193,12 +194,14 @@ export class Music {
    * @returns {void}
    */
   stinger(name, opts = {}) {
-    const { duck = 0.5, volume } = opts;
+    const { duck = 0.5, volume } = readParams('music.stinger()', keysSchema(STINGER_KEYS), opts);
     const tr = this.tracks.get(name);
     if (!tr) { warnMissing('track', name, [...this.tracks.keys()]); return; }
     const a = this.engine.audio;
-    if (!a.running || !this._ensureOutput()) return;          // a one-shot piece is not worth queueing
-    this.engine.events.emit('music:stinger', { name });
+    // the record comes first: a headless page or a locked audio context plays nothing, but the call still happened and a test must be able to see it (played: false)
+    const live = a.running && this._ensureOutput();
+    this.engine.events.emit('music:stinger', { name, played: !!live });
+    if (!live) return;                                         // a one-shot piece is not worth queueing
     a.play(tr.url, { bus: 'music', volume: volume ?? tr.volume ?? 1 }).then(h => {
       const d = h.source.buffer?.duration || 1, g = this.output.gain, t = a.ctx.currentTime;
       if (duck >= 1) return;

@@ -25,7 +25,7 @@ export const name = 'movers: move.* stats via engine.mod, jump API, moving platf
 /** Flat ground at y = 0 (or ground(x, z)), no water, the real stacks and time channels */
 function fake({ ground = () => 0 } = {}) {
   const events = [], on = {};
-  const e = Object.defineProperties({ elapsed: 0, disposed: false, paused: false, _loop() { e.loops = (e.loops ?? 0) + 1; }, style: {},
+  const e = Object.defineProperties({ elapsed: 0, disposed: false, halted: false, _loop() { e.loops = (e.loops ?? 0) + 1; }, style: {},
     movement: { radius: 0.3, stepHeight: 0.4, slopeRatio: 1 }, saves: { register() {} }, clock: { rate: 1, _advance() {} }, world: { recs: {}, get(id) { return this.recs[id] ??= {}; }, move() {} },
     surface: (x, z) => ground(x, z), waterAt: () => -Infinity, slope: () => 0, groundType: () => 'grass',
     events: { emit: (n, d) => { events.push([n, d]); for (const f of on[n] ?? []) f(d); }, on: (n, f) => { (on[n] ??= []).push(f); return { remove() {} }; } },
@@ -41,17 +41,17 @@ const perms = a => a.length < 2 ? [a] : a.flatMap((x, i) => perms([...a.slice(0,
 const code = f => { try { f(); return 'no throw'; } catch (x) { return x.code; } };
 
 export async function run({ check }) {
-  // ---- step 0: engine.mod('pause') is engine.pause()
+  // ---- step 0: engine.mod('halt') is engine.haltLoop()
   {
     const e = fake();
-    const h = e.mod('pause', { owner: 'menu' });
-    check('mod(pause) pauses the loop like engine.pause()', e.paused === true && e.runState === undefined || e.paused === true);
+    const h = e.mod('halt', { owner: 'menu' });
+    check('mod(halt) stops the loop like engine.haltLoop()', e.halted === true && e.runState === undefined || e.halted === true);
     const loops = e.loops ?? 0; h.remove();
-    check('... and its remove() resumes and restarts the loop', e.paused === false && e.loops === loops + 1);
-    e.pause('a'); e.mod('pause', { owner: 'b' }); e._resume('a');
-    check('pause(a) + mod(pause, b), resume(a): still paused by b', e.paused === true);
-    e.stacks.get('pause').release('b');
-    check('release(b): running', e.paused === false);
+    check('... and its remove() resumes and restarts the loop', e.halted === false && e.loops === loops + 1);
+    e.haltLoop('a'); e.mod('halt', { owner: 'b' }); e._unhalt('a');
+    check('halt(a) + mod(halt, b), end a: still halted by b', e.halted === true);
+    e.stacks.get('halt').release('b');
+    check('release(b): running', e.halted === false);
   }
   // ---- step 4: stats
   {

@@ -165,7 +165,7 @@ export const startupMethods = {
     // the GPU is known only now (adapterInfo after init): the default quality follows the real device
     if (!(this.headless && forcedTier())) {
       const t = detectTier(this.renderer);
-      if (t !== this.tier && this._ownsRenderer && this._createParams.pixelRatio == null) this.renderer.setPixelRatio(defaultPixelRatio(devicePixelRatio || 1, t));
+      if (t !== this.tier && this._ownsRenderer && this._createParams.pixelRatio == null) this.setPixelRatio(this.adaptive.base = defaultPixelRatio(devicePixelRatio || 1, t));
       // MSAA defaults from the tier too (Engine.js: antialias ?? tier !== 'low'); decided from a WebGL probe before the WebGPU
       // adapter was known, so a low-tier device could keep MSAA on the WebGPU route (found by the WebGPU parity test). Untouched when the game
       // chose, or changed it since. The renderer's own samples stay as made: the new value then runs through the post chain (PostFX active)
@@ -229,7 +229,7 @@ export const startupMethods = {
     const found = this._webglOnlyFound;
     if (!found.length) return;
     const msgs = found.splice(0);
-    for (const msg of msgs) reportError(this, codedError('renderer-backend', `[threedog] ${msg} (added after start())`), msg);
+    for (const msg of msgs) reportError(this, codedError('renderer-backend', `[threedog] ${msg} (added after start())`), msg, { soft: true });   // a picture problem: reported, gameplay carries on
   },
 
   /** Critical items that failed: assets, track() steps and modules declared critical: true (a non-critical module's init error goes through reportError instead) */

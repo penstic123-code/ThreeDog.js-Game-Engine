@@ -33,7 +33,8 @@ Code may hold functions (a `volume: e => ...`); the same config as data goes in 
 
 ## 2. Buses and sounds by name
 Buses are real Web Audio `GainNode`s: `master`, `music`, `sfx`, `ambience`, `ui`, plus the game's own (`levels: { voice: 1 }` or
-`engine.audio.addBus('voice')`). `engine.audio.setVolume('music', 0.3)` sets one; `engine.audio.buses.sfx` is the node to connect your own nodes to.
+`engine.audio.addBus('voice')`). `engine.audio.setVolume('music', 0.3)` sets one; `engine.audio.buses.sfx` is the node to connect your own nodes to, and `buses.master` (also `audio.master`) is the total. `buses` is empty until audio
+unlocks on the player's first click or key: build your own nodes on the `audio:ready` event. A name that is no bus warns once and gives `master`, so the sound still plays.
 
 ```js
 engine.audio.sfx('door');                                   // plays on its bus (default sfx)

@@ -28,4 +28,4 @@ World data (world() module): things that must be saved, survive level changes an
   - `zone: string | null` Current zone (e.g. level name, set by the level module on level change): once set, records of another zone get no model and no near simulation; null = no zoning
   - `ready: boolean` All models that should exist near the stream sources are built (async ones too; failed builds do not count as pending). The loading screen waits for it; to wait yourself, await world.whenReady
   - `whenReady: Promise<void>` Promise that resolves when ready becomes true
-  - `steps: number` Number of fixed steps simulated
+  - `steps: number` (experimental) Number of fixed steps simulated

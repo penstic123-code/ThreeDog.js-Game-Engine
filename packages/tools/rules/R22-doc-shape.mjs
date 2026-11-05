@@ -9,7 +9,7 @@
 //      Plus a size budget for all shipped AI docs: hand-written (recipes and the rest) and generated (API.md, api/, CODEMAP.md).
 //   3. Duplicates (warn): one sentence of 12 or more words in two hand-written docs (AI.md, recipes, READMEs, CLAUDE.md files, .claude/rules,
 //      game docs). Both places are printed; keep it in the one that owns the topic and link from the other.
-//   4. Copied passages (error): a run of 30 or more words that appears in two docs (all of 3's docs plus COMMANDS, THREE and PERF). Why an
+//   4. Copied passages (error): a run of 30 or more words that appears in two docs (all of 3's docs plus COMMANDS and THREE). Why an
 //      error: a copied paragraph is a second source of the same fact; one copy gets fixed, the other goes stale, and the AI reads both.
 //   5. Recipe summaries (error): a recipe over 15 KB starts with an "**In this recipe**:" line of at most 5 lines, so `threedog how` and a
 //      reader see what is inside before opening it.
@@ -18,7 +18,7 @@ import { existsSync, statSync } from 'node:fs';
 import { defaultLayer } from '../lib/default-layer.mjs';
 import { render } from '../lib/scaffold.mjs';
 import { join } from 'node:path';
-import { walk, read, abs, rel, P, engineApi } from './_lib.mjs';
+import { walk, read, abs, rel, P, engineApi, docLevel } from './_lib.mjs';
 import { docFiles } from './R18-doc-refs.mjs';
 
 const AI_REL = `${P.DOCS_REL}/AI.md`, AI_MAX = 11 * 1024, TPL_CLAUDE_MAX = 7.25 * 1024, DESIGN_MAX = 8 * 1024, STATUS_MAX = 4 * 1024, MIN_WORDS = 12;
@@ -71,9 +71,9 @@ export function entryTable(text, namespaces, recipeExists) {
   for (const [row, n] of rows) {
     const cells = row.split(/(?<!\\)\|/).slice(1, -1), last = cells[cells.length - 1] || '';
     // the column names recipes by file, with or without the folder ("06-clock-events.md" or `recipes/06-clock-events.md`)
-    const m = last.match(/(?:recipes\/)?(\d\d-[\w.-]+\.md)/), rec = m && `recipes/${m[1]}`;
-    if (!rec) out.push({ level: 'error', line: n, msg: 'entry row without a recipe in its last column', fix: 'point the row at the recipe that teaches the task (`recipes/NN-x.md`)' });
-    else if (!recipeExists(rec)) out.push({ level: 'error', line: n, msg: `entry row points at \`${rec}\`, which does not exist`, fix: 'fix the recipe name' });
+    const recs = [...last.matchAll(/(?:recipes\/)?(\d\d-[\w.-]+\.md)/g)].map(m => `recipes/${m[1]}`);
+    if (!recs.length) out.push({ level: 'error', line: n, msg: 'entry row without a recipe in its last column', fix: 'point the row at the recipe that teaches the task (`recipes/NN-x.md`)' });
+    for (const rec of recs) if (!recipeExists(rec)) out.push({ level: 'error', line: n, msg: `entry row points at \`${rec}\`, which does not exist`, fix: 'fix the recipe name' });
   }
   return out;
 }
@@ -110,8 +110,9 @@ export default {
       if (ts > TPL_CLAUDE_MAX) out.push({ level: 'error', file: tpl, line: 0, msg: `the game template's CLAUDE.md is ${kb(ts)} > ${kb(TPL_CLAUDE_MAX)}`, fix: 'every game reads it every session: keep correctness rules and one-line pointers, move steps into the recipe that owns them' });
       const sizeOf = fs => fs.reduce((n, f) => n + statSync(abs(f)).size, 0);
       const docs = walk(P.DOCS_REL, ['.md']), isGen = f => GENERATED_FILES.has(f.split('/').pop()) || f.startsWith(`${P.API_DIR_REL}/`);
-      const hand = sizeOf(docs.filter(f => !isGen(f))), gen = sizeOf(docs.filter(isGen));
-      if (hand > HAND_MAX) out.push({ level: 'error', file: AI_REL, line: 0, msg: `hand-written AI docs (recipes, AI.md, CONVENTIONS, COMMANDS, THREE, PERF, MIGRATING) are ${kb(hand)} > ${kb(HAND_MAX)}`, fix: 'merge or cut before adding: a fact lives in one place; raise HAND_MAX in R22-doc-shape.mjs only with the reason in the same change' });
+      const isUpgradeNote = f => f.split('/').pop().startsWith('MIGRATING-');   // read once when upgrading, never part of daily reading
+      const hand = sizeOf(docs.filter(f => !isGen(f) && !isUpgradeNote(f))), gen = sizeOf(docs.filter(isGen));
+      if (hand > HAND_MAX) out.push({ level: 'error', file: AI_REL, line: 0, msg: `hand-written AI docs (recipes, AI.md, CONVENTIONS, COMMANDS, THREE) are ${kb(hand)} > ${kb(HAND_MAX)}`, fix: 'merge or cut before adding: a fact lives in one place; raise HAND_MAX in R22-doc-shape.mjs only with the reason in the same change' });
       if (gen > GENERATED_MAX) out.push({ level: 'error', file: AI_REL, line: 0, msg: `generated docs (API.md, api/, CODEMAP.md) are ${kb(gen)} > ${kb(GENERATED_MAX)}`, fix: 'the public surface grew: see docs/testing/api-count.md; raise GENERATED_MAX in R22-doc-shape.mjs only with the reason' });
       const ns = engineApi().namespaces.map(n => n.name);
       for (const r of entryTable(text, ns, rec => existsSync(join(abs(P.DOCS_REL), rec)))) out.push({ ...r, file: AI_REL });
@@ -136,11 +137,11 @@ export default {
       else if (first.f !== f && gameOf(f) === gameOf(first.f)) out.push({ level: 'warn', file: f, line: s.line, msg: `same sentence as ${first.f}:${first.line} ("${s.key.split(' ').slice(0, 8).join(' ')} …")`, fix: 'keep it in the doc that owns the topic and link to it from the other' });
     }
     // 4. copied passages (the same game scoping as 3: a game's files are compared only with files of the same game)
-    const all = [...docs, ...[`${P.DOCS_REL}/COMMANDS.md`, `${P.DOCS_REL}/THREE.md`, `${P.DOCS_REL}/PERF.md`].filter(f => existsSync(abs(f)))];
+    const all = [...docs, ...[`${P.DOCS_REL}/COMMANDS.md`, `${P.DOCS_REL}/THREE.md`].filter(f => existsSync(abs(f)))];
     const groups = new Map();
     for (const f of new Set(all)) { const g = gameOf(f) ?? ''; if (!groups.has(g)) groups.set(g, []); groups.get(g).push([f, read(f)]); }
     for (const list of groups.values()) for (const p of passages(list))
-      out.push({ level: 'error', file: p.fb, line: p.lb, msg: `a passage of ${PASSAGE}+ words is also in ${p.fa}:${p.la} ("${p.text} …")`, fix: 'one source per fact: keep the passage in the doc that owns the topic, replace this copy with one line and a link' });
+      out.push({ level: docLevel(p.fb), file: p.fb, line: p.lb, msg: `a passage of ${PASSAGE}+ words is also in ${p.fa}:${p.la} ("${p.text} …")`, fix: 'one source per fact: keep the passage in the doc that owns the topic, replace this copy with one line and a link' });
     // 5. long recipes carry a summary of what is inside
     if (P.MODE === 'monorepo') for (const f of walk(P.RECIPES_REL, ['.md'])) {
       const text = read(f);

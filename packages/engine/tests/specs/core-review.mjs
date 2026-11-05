@@ -30,7 +30,7 @@ export const specs = [
           { name: 'crFine', type: 'rules', install: () => ({}), describe: () => ({ ok: 1 }) });
         await E.start();
         let stepErr = null, d = null;
-        const { warns } = await __t.warns(() => { try { E.pause(); E.step(0.1); d = E.describe(); } catch (e) { stepErr = e.message; } });
+        const { warns } = await __t.warns(() => { try { E.haltLoop(); E.step(0.1); d = E.describe(); } catch (e) { stepErr = e.message; } });
         E.dispose?.();
         return { stepErr, broken: d?.crBroken, fine: d?.crFine, time: typeof d?.time, warns };
       });
@@ -176,15 +176,16 @@ export const specs = [
         const wait = p => Promise.race([p, new Promise(res => setTimeout(() => res('timeout'), 8000))]);
         const out = { size: T.size, moved: await wait(moved), copied: await wait(copied) };
         const refuse = fn => { try { T.pure(fn, 'cr'); return null; } catch (e) { return e.code; } };
-        out.engineName = refuse(rec => { rec.x = engine.tick; });
+        out.engineName = refuse(rec => { rec.x = engine.time.tick; });
         out.documentName = refuse(rec => { rec.t = document.title; });
         out.mathOk = refuse(rec => { rec.x = Math.max(rec.a, 1) + Number.parseFloat('2'); });
+        out.numbersOk = refuse(rec => { rec.x = rec.a > 1e9 ? 0xff : 2.5e-3; });   // 'e9' and 'xff' are parts of numbers, not outer variables
         L.dispose();
         return out;
       });
       check('the task that transferred its buffer rejects with threads-transfer', r.size === 0 || r.moved.code === 'threads-transfer', JSON.stringify(r));
       check('the task without transfer is answered on the main thread', r.size === 0 || r.copied.value === 42, JSON.stringify(r));
-      check('a pure function reading engine or document is refused (pure-function); Math / Number are fine', r.engineName === 'pure-function' && r.documentName === 'pure-function' && r.mathOk === null, JSON.stringify(r));
+      check('a pure function reading engine or document is refused (pure-function); Math / Number are fine', r.engineName === 'pure-function' && r.documentName === 'pure-function' && r.mathOk === null && r.numbersOk === null, JSON.stringify(r));
     },
   },
   {
@@ -217,7 +218,7 @@ export const specs = [
         const f1 = E.counts().frame;
         E.remove(g);
         out.animator = { f0, f1, f2: E.counts().frame };
-        E.stream.readyCheck('cr-never', s => s.name !== 'teleport');
+        E.stream.addReadyCheck('cr-never', s => s.name !== 'teleport');
         const tp = E.stream.teleport([30, 0, 30], { timeout: 0.5 }).then(() => 'moved', e => ({ code: e.code, names: /cr-never/.test(e.message) }));
         for (let i = 0; i < 20; i++) E.step(0.1);
         out.teleport = await tp;

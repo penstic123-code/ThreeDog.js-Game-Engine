@@ -3,13 +3,10 @@
 // options typedef's JSDoc, so the description is written once. A module whose factory takes options and declares `params` should have an
 // Options section on its page, and every option line there should carry a sentence.
 // Fix: add the options typedef (`@typedef {{ key?: type }}` with a `/** sentence */` per key, or an interface in types/*.d.ts), then `npm run map`.
-import { ts, parse, visit, engineFiles, lineOf, abs } from './_lib.mjs';
+import { ts, parse, visit, engineFiles, lineOf, abs, hasProp, OPT_NAMES, factoryOf } from './_lib.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { API_DIR_REL } from '../paths.mjs';
 
-const OPT_NAMES = new Set(['opts', 'options', 'all']);
-const hasProp = (obj, name) => obj.properties.some(p => p.name?.getText() === name);
-function factoryOf(n) { for (let p = n.parent; p; p = p.parent) if (ts.isFunctionLike(p) && !ts.isMethodDeclaration(p)) return p; return null; }
 
 export default {
   id: 'R38', title: 'module options without a description',

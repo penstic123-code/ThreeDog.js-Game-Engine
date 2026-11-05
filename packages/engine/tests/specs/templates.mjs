@@ -30,7 +30,7 @@ export const specs = [
     async run({ page, check, ev }) {
       const mid = await ev(async (src) => {
         'use strict';   // game modules are strict: a write to a frozen definition throws there (sloppy page code would fail silently)
-        engine.pause();
+        engine.haltLoop();
         const { x, z } = (0, eval)(src)();
         const W = engine.world, I = engine.inventory, played = [];
         engine.audio.sfx = name => { played.push(name); };   // spy: the use sound
@@ -64,7 +64,7 @@ export const specs = [
       await reload(page);
       const r = await ev(async (src) => {
         'use strict';   // game modules are strict: a write to a frozen definition throws there (sloppy page code would fail silently)
-        engine.pause();
+        engine.haltLoop();
         (0, eval)(src)();
         const W = engine.world, I = engine.inventory;
         const ret = engine.saves.load('tpl'); if (ret?.then) await ret;
@@ -97,25 +97,30 @@ export const specs = [
     },
   },
   {
-    name: 'Off the island: engine.content.spawn / a placed prop beyond terrain({ shape }) throws with the fix (dev); a record saves finite positions',
+    name: 'Off the island: engine.content.spawn / a placed prop beyond terrain({ shape }) warns with the fix and is placed at a finite y; a record saves finite positions',
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
+        const warns = [], w0 = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); };
         const err = f => { try { f(); return null; } catch (e) { return e.message; } };
         // stand-in for terrain({ shape }): surface() is -Infinity beyond x = 1000
         engine.setGround({ height: x => x > 1000 ? -Infinity : 0, has: x => x <= 1000 });
         engine.content.load({ templates: { tvoid: { model: 'rock' } } });
-        const spawnOut = err(() => engine.ops.allow(() => engine.content.spawn('tvoid', { x: 2000, z: 0 })));
-        const propOut = err(() => engine.content.load({ props: [{ template: 'tvoid', id: 'tv-out', x: 2000, z: 0 }] }));
+        let outY = null;
+        const spawnThrew = err(() => engine.ops.allow(() => { outY = engine.content.spawn('tvoid', { x: 2000, z: 0 }).position.y; }));
+        const spawnOut = warns.find(m => /no ground/.test(m)) ?? spawnThrew;
+        const propThrew = err(() => engine.content.load({ props: [{ template: 'tvoid', id: 'tv-out', x: 2000, z: 0 }] }));
+        const propOut = propThrew ?? warns.filter(m => /no ground/.test(m)).join(' / ') + ' |' + warns.length;
+        console.warn = w0;
         const spawnIn = engine.ops.allow(() => engine.content.spawn('tvoid', { x: 5, z: 0 }));
         engine.content.load({ props: [{ template: 'tvoid', id: 'tv-y', x: 7, z: 0, y: 3 }] });
         engine.step(0.1);
         const text = JSON.stringify(engine.saves.collect());
-        return { spawnOut, propOut, inY: spawnIn.position.y, yRec: engine.world.get('tv-y')?.position.y, bad: /null|NaN|Infinity/.test(JSON.stringify(engine.world.get('tv-y').position) + JSON.stringify(spawnIn.position)), len: text.length };
+        return { spawnThrew, propThrew, outY, spawnOut, propOut, inY: spawnIn.position.y, yRec: engine.world.get('tv-y')?.position.y, bad: /null|NaN|Infinity/.test(JSON.stringify(engine.world.get('tv-y').position) + JSON.stringify(spawnIn.position)), len: text.length };
       });
-      check('engine.content.spawn beyond the island throws and says to check engine.ground.has', /no ground/.test(r.spawnOut ?? '') && /ground\.has/.test(r.spawnOut ?? ''), r.spawnOut);
-      check('a content prop beyond the island throws too; inside spawns on the ground', /no ground/.test(r.propOut ?? '') && r.inY === 0, JSON.stringify([r.propOut, r.inY]));
+      check('engine.content.spawn beyond the island warns (no throw), says to check engine.ground.has, and stays finite', !r.spawnThrew && /no ground/.test(r.spawnOut ?? '') && /ground\.has/.test(r.spawnOut ?? '') && Number.isFinite(r.outY), JSON.stringify([r.spawnThrew, r.spawnOut, r.outY]));
+      check('a content prop beyond the island does not throw either; inside spawns on the ground', !r.propThrew && r.inY === 0, JSON.stringify([r.propThrew, r.propOut, r.inY]));
       check('records never hold null / NaN / Infinity positions after a save', r.yRec === 3 && !r.bad, JSON.stringify(r));
     },
   },
@@ -125,7 +130,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const err = f => { try { f(); return null; } catch (e) { return e.message; } };
         engine.content.load({ templates: { tcrop: { model: 'rock', state: { stage: 0, sort: 'wheat' }, fields: { stage: { type: 'int', min: 0, max: 4, desc: 'growth' }, sort: { values: ['wheat', 'corn'] } } } } });
         const f = engine.content.fields('tcrop'), p = engine.content.fields('props');

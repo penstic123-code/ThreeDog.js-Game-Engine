@@ -13,20 +13,20 @@
 // three.js objects: dome (dome Mesh), sunDir (Vector3 toward the sun). Dome layers: domeLayers.js
 // Skybox: engine.sky.replace('sky.jpg') (equirectangular panorama) replaces the gradient sky; brightness follows time
 import { engineOwned } from '../../core/things.js';
+import { watchRenamed, RENAMED_DOME_UNIFORMS } from '../../render/uniformRenames.js';
 import * as THREE from 'three';
 import { readParams } from '../../core/params.js';
-import { NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms, makeDome, loadSkybox } from './shader.js';
+import { NEUTRAL_KEYFRAMES, checkKeyframes, makeSkyUniforms, makeDome } from './shader.js';
 import { defineSkyPoints } from './tint.js';
 import { environmentMethods } from './environment.js';
-import { codedError } from '../../core/errorHints.js';
 import { updateSky, watchOwned, skyLight } from './frame.js';
 import { prepareDome, domeEntries } from './dome.js';
-import { parseClock } from '../../core/dayTime.js';
+import { parseClock, sunHeightAt } from '../../core/dayTime.js';
 import { onRendererSwap } from '../../render/backend.js';
 // sky({ dim }) (SkyPictureOptions.dim in types/world.d.ts): each picture decision the sky makes for every game, on unless the game turns it off (engine.sky.dim is the live value)
 const DIM_PARAMS = {
   tint: { type: 'bool', default: true, desc: 'a sky.tint color (weather grey, a cave tint) dims with the sky\'s own light, so a grey rain tint stays dark at night' },
-  stars: { type: 'bool', default: true, desc: 'stars fade with the weather\'s cloud cover (uCloud), not only behind drawn clouds' },
+  stars: { type: 'bool', default: true, desc: 'stars fade with the weather\'s cloud cover (uWeatherCloud), not only behind drawn clouds' },
 };
 /** @import { Object3D, Vector3 } from '../../types/common' */
 /** @import { SkyOptions } from '../../types/world' */
@@ -37,7 +37,6 @@ export class Sky {
   constructor(engine, { time = 0.33, ...over } = {}) {
     /** @internal */ this.engine = engine;
     const st = over;
-    if (st.environment) throw codedError('sky-option', 'sky({ environment }) is gone: call engine.sky.environment({ into: engine.scene }) for the sky as a map; an asset map is plain three.js (recipes/34)');
     /**
      * The time of day drawn while no calendar is installed (0-1; sky({ time: '17:30' }) or applyState({ time })); with engine.calendar the sky
      * draws the calendar's time and this is unused @type {number}
@@ -63,7 +62,7 @@ export class Sky {
     const scene = engine.scene;
 
     const domeParts = prepareDome(this, st);   // backdrop, dome layers (dome.js)
-    /** @internal */ this.uniforms = { ...makeSkyUniforms(st, engine.uniforms), ...domeParts.uniforms };
+    /** @internal */ this.uniforms = watchRenamed({ ...makeSkyUniforms(st, engine.uniforms), ...domeParts.uniforms }, 'engine.sky.uniforms', RENAMED_DOME_UNIFORMS);
     /** Dome mesh @type {Object3D} */
     this.dome = makeDome(this.uniforms, st, domeParts, engine);
     scene.add(engineOwned('sky', this.dome));
@@ -78,16 +77,13 @@ export class Sky {
       this._entries?.reapply();
       this._envSwap();
     });
-    // Skybox (panorama): replaces the gradient sky when present
+    // Skybox (panorama) while engine.sky.replace gave one
     /** @internal */ this.skybox = null;
-    if (st.skybox) loadSkybox(this, st.skybox);
 
-    /** Sun direction (unit vector toward the sun) @type {Vector3} */
-    this.sunDir = new THREE.Vector3();
     /**
      * Sun orbit: tilt = north-south tilt, sway = east-west swing, distance = light distance (meters) @type {{ tilt: number, sway: number, distance: number }}
      */
-    this.orbit = { tilt: st.orbitTilt ?? 0.45, sway: st.orbitSway ?? 0.8, distance: 160 };
+    this.orbit = { tilt: 0.45, sway: 0.8, distance: 160 };
     // the engine's own box on its placeholder sun, the sky's one job there: what is written on that light stays (render/lights.js holds the defaults).
     // createEngine({ lights: false }): the sun is not in the scene, nothing to place
     const box = engine.lights.sun.parent ? engine.shadows.sunBox({ follow: 'focus', snap: 0.5, ahead: 0 }, () => this.orbit.distance) : null;
@@ -106,6 +102,7 @@ export class Sky {
     // brightest row of the sky's ambient light (ambient column x the hemi color's brightness, frame.js skyLight): the sky's light now / this is
     // the 0-1 scale the sky.tint color (weather grey) follows
     /** @internal */ this._lightPeak = Math.max(...this.kf.map(k => skyLight(k[1], k[2], k[4])));
+    /** @internal brightest row's ambient column: a skybox is at full brightness there (frame.js) */ this._ambientPeak = Math.max(...this.kf.map(k => k[4]));
   }
 
   /**
@@ -116,6 +113,14 @@ export class Sky {
    * @returns {void}
    */
   keyframes(rows) { checkKeyframes(rows); this._setKeyframes(rows); }
+
+  /**
+   * Sun direction (unit vector toward the sun): the same vector as engine.uniforms.uSunDir. Computed each frame from the time and orbit until a game writes either,
+   * then the value is the game's (the sun at a compass direction of your choice); engine.autoView.manual('sunDir', false) gives it back.
+   * @type {Vector3}
+   */
+  get sunDir() { return this.uniforms.uSunDir.value; }
+  set sunDir(v) { this.uniforms.uSunDir.value.copy(v); }
 
   /**
    * Your own cloud function on the dome: glsl defines `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)`,
@@ -138,12 +143,13 @@ export class Sky {
   layer(name, spec) { this._entries.layer(name, spec); }
 
   /**
-   * Replace or hide the dome: a skybox asset name (equirectangular panorama), a THREE.Texture / CubeTexture, or your own THREE.Object3D sky; null gives the dome back.
+   * Replace or hide the dome: a skybox asset name (equirectangular panorama), a THREE.Texture / CubeTexture, or your own THREE.Object3D sky; null gives the dome back,
+   * false draws no sky (the scene shows its base background, the signals keep running).
    * The engine never writes your object: it hides the dome, adds your object to the scene only when it has no parent, puts a plain texture's panorama
    * mapping on a clone, and keeps feeding engine.uniforms (uSunDir, uWind ...).
    * @example engine.sky.replace(new SkyMesh());
    * @example engine.sky.replace(null);
-   * @param {string | import('three').Texture | Object3D | null} sky
+   * @param {string | import('three').Texture | Object3D | null | false} sky
    * @returns {void}
    */
   replace(sky) { this._entries.replace(sky); }
@@ -158,7 +164,7 @@ export class Sky {
   /** Time of day being drawn, 0-1: engine.calendar.timeOfDay, or fixedTime without a calendar. Read-only: the time itself is the calendar's */
   get drawnTime() { return this.engine.calendar?.timeOfDay ?? this.fixedTime; }
   /** Sun elevation -1 (midnight) ... 0 (horizon) ... 1 (noon) of the drawn sun (the calendar's daylight is the gameplay value) */
-  get sunHeight() { return Math.sin((this.drawnTime - 0.25) * Math.PI * 2); }
+  get sunHeight() { return sunHeightAt(this.drawnTime); }
   /** Whether the drawn sun is above the horizon (picture functions: ({ sky }) => sky.isDay ? ...; gameplay reads engine.calendar.isDay) */
   get isDay() { return this.sunHeight > 0; }
   /** Daylight of the drawn sun 0-1 (0 at night, 1 at noon) */
@@ -173,7 +179,7 @@ export class Sky {
 
   /**
    * Render the sky into an environment map. Only after this call is anything built: a PMREM target, rebuilt when the sky changed and interval seconds passed
-   * (default 1, 4 times longer on a low-tier device). With into, that object's .environment gets the map at each rebuild (a map you wrote there yourself stays); without it nothing
+   * (default 1, 4 on a low-tier device). With into, that object's .environment gets the map at each rebuild (a map you wrote there yourself stays); without it nothing
    * is written anywhere and you read handle.texture. handle.remove() takes the map off and frees it. One at a time. Intensity and rotation are three.js: scene.environmentIntensity.
    * @example const env = engine.sky.environment({ into: engine.scene });
    * @example env.remove();
@@ -182,5 +188,5 @@ export class Sky {
    */
   environment(options) { return environmentMethods._envStart.call(this, options); }
 }
-// Mixed in from shadow.js and environment.js; methods the class already defines are kept
+// Mixed in from environment.js; methods the class already defines are kept
 for (const [k, f] of Object.entries(environmentMethods)) if (!Object.hasOwn(Sky.prototype, k)) Sky.prototype[k] = f;

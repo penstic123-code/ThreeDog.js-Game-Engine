@@ -52,7 +52,7 @@ export const specs = [
       }
       check(`frame cost / JS calibration ${now.ratio} vs baseline ${base.ratio} (limit ×${LIMIT}; frame ${now.frameMs} ms, calibration ${now.calibMs} ms)`,
         now.ratio <= base.ratio * LIMIT,
-        `the reference scene got ${Math.round((now.ratio / base.ratio - 1) * 100)}% costlier. Find which axis: threedog stress (compare with PERF.md "Load budget"); ` +
+        `the reference scene got ${Math.round((now.ratio / base.ratio - 1) * 100)}% costlier. Find which axis: threedog stress (compare with docs/testing/perf.md "Load budget"); ` +
         'if the slowdown is intended, rewrite the baseline: npm test -- slowdown --update-snapshots');
     },
   },

@@ -1,5 +1,7 @@
 # Water and rain/snow: depth color, foam, reflections, particles, lightning
 
+**In this recipe**: water look and material, foam and depth, weather particles, lightning, and a reflecting mirror (WebGL addon and WebGPU node).
+
 ```js
 engine.use(water({ level: 2 }));
 engine.water.material.color.set(0x3070a0);                       // the water's picture is a plain three.js material
@@ -86,7 +88,8 @@ Setting `engine.water.material` swaps it on every water mesh, now and later, and
 stay (pick from the list by `name` for only some: `waves`, `waterSurface`, `fresnel`; `waterSurface` needs `waves` before it). After a later `shader()` call
 patch your material again; the engine only rebuilds its own. Your material reads `engine.water.uniforms` like the built-in one, and the engine still
 builds the meshes, snaps the sea to the focus and scrolls the normal map. Reflections and refraction are not built in (each one renders the scene a
-second time). three's `Reflector` addon works through this exit; the engine water is pre-rotated geometry, so the mirror gets the mesh's
+second time). **The `Reflector` addon below is WebGL only**: on the default WebGPU renderer its `ShaderMaterial` stops the page, so use the WebGPU route
+further down. On WebGL, three's `Reflector` addon works through this exit; the engine water is pre-rotated geometry, so the mirror gets the mesh's
 matrix turned into the XY plane it expects:
 
 ```js
@@ -103,6 +106,21 @@ m.onBeforeRender = (renderer, scene, camera, geometry, mesh) => {
   m.uniforms.textureMatrix.value.multiply(back);                      // undo the turn for the pre-rotated vertices
   busy = false;
 };
+engine.water.material = m;
+```
+**WebGPU route** (default renderer): three's `reflector` node (`three/tsl`) draws the scene into a texture the material samples by screen position, so the mesh
+geometry does not matter. The mirror is the XY plane of `target` (normal +Z): turn it flat, put it at the water level. Plain three.js, not run in this repo's tests.
+
+```js
+import * as THREE from 'three/webgpu';
+import { reflector, mix, color } from 'three/tsl';
+
+const mirror = reflector({ resolutionScale: 0.5 });          // half-size render target
+mirror.target.rotateX(-Math.PI / 2);                          // XY plane -> flat, normal up
+mirror.target.position.y = 0;                                 // the water level
+engine.scene.add(mirror.target);                              // must be in the scene
+const m = new THREE.MeshBasicNodeMaterial();
+m.colorNode = mix(color(0x2a5a7a), mirror, 0.6);              // 0 = water color, 1 = pure reflection
 engine.water.material = m;
 ```
 - Cost: the whole scene drawn once more per frame per water mesh at `textureWidth` x `textureHeight` (shadows are not re-rendered). Use 256-512
@@ -132,7 +150,7 @@ weather({ types,
 - `shape`: `'line'` (rain default; leans with the wind by `slant`, `length` meters) or a sprite: `'round'` (snow default), `'soft'`, `'square'`
   (`size` pixels at 3 m, capped at `maxSize`; drifts `sway` meters). `speed` is the fall in m/s.
 - `density: amount => share`: how many particles show at a weather amount 0..1 (rain `a => min(1, a * 1.2)`, snow `() => 1`); opacity still
-  follows the amount. `count` per system (default `weather({ particles })`, halved on low-tier devices). Coverage is `weather({ area })`.
+  follows the amount. `count` per system (default `weather({ particles })`, else 6000, 3000 on low-tier devices; a number the game gives stands). Coverage is `weather({ area })`.
 
 At run time each system is in `engine.weather.particles`, and every number is a plain write, live on both renderers:
 ```js
@@ -159,7 +177,7 @@ void main(){
 `glsl.vertex` / `glsl.fragment` are the whole shader text; copy `modules/weather/shaders.js` (`lineVert lineFrag pointVert pointFrag`) as the
 start. In scope: `uCam uSize uFallOff uOpacity uColor`; lines add `uWindDir uLen` and the attribute `aEnd` (0 head, 1 tail); sprites add
 `uPx uMaxPx uSway uSwayAmp uMap uUseMap`. Your `uniforms` are declared for you; declare the built-in ones you use, as the copies do. Keep
-the two `#include` lines so the color matches three's materials with and without post-processing. WebGPURenderer does not compile GLSL text: `engine.weather.define(field, { create })` with a node material there.
+the two `#include` lines so the color matches three's materials with and without post-processing. WebGPURenderer does not compile GLSL text: `engine.weather.defineField(field, { create })` with a node material there.
 
 ## Lightning picture
 ```js
@@ -169,14 +187,14 @@ engine.events.on('weather:lightning', () => spawnBolt());          // when it st
 ```
 
 ## Particles of the game's own weather
-A field of the game's own weather table (`ash`, `petals`, `sparks`) gets particles with `engine.weather.define(field, spec)`; the amount is
+A field of the game's own weather table (`ash`, `petals`, `sparks`) gets particles with `engine.weather.defineField(field, spec)`; the amount is
 `engine.weather.current[field]`, so they fade in and out with the weather. The spec takes the rain / snow keys above (default: drifting
 round sprites), or `create` for a system of your own:
 
 ```js
 engine.use(sky(), weather({ types: { clear: {}, ashfall: { ash: 1, grey: 0.5, sun: 0.6 } } }));
-engine.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
-engine.weather.define('rain', { create: (engine, { area, count }) => {   // the same call replaces rain or snow
+engine.weather.defineField('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
+engine.weather.defineField('rain', { create: (engine, { area, count }) => {   // the same call replaces rain or snow
   const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03), new THREE.MeshBasicMaterial({ color: 0x99bbff }), count);
   return { object: drops, update(amount, { camera, time, wind }) { /* move the instances; shown while amount > 0.02 */ } };
 } });
@@ -184,7 +202,7 @@ engine.weather.define('rain', { create: (engine, { area, count }) => {   // the 
 A field no type has throws with the table's fields. `define(field, null)` gives rain and snow back and removes any other field. Rain and snow are built
 only when a type rains or snows, so a desert pays nothing.
 
-The weather's effect on the picture stays on signals: `engine.uniforms.uWeatherLight`, `uWeatherFog`, `uRain`, `uSnow`, `uWind`, `uCloud`. The game's own light,
+The weather's effect on the picture stays on signals: `engine.uniforms.uWeatherLight`, `uWeatherFog`, `uRain`, `uSnow`, `uWind`, `uWeatherCloud`. The game's own light,
 fog and wet-road code reads them; the weather writes no light and no fog.
 
 

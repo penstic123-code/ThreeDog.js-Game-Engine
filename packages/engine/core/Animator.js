@@ -61,7 +61,7 @@ export class Animator {
     if (this.hasClips) {
       this._check();
       this.mixer.addEventListener('finished', ev => this._finished(ev.action));
-      this._hook = engine.onFrame(dt => this.update(dt));
+      this._hook = engine._onAnimate(dt => this.update(engine.still ? 0 : dt));
     }
   }
   /** Dev check at build time: the same problems check() returns, minus the game's action list (the Animator does not know it). */
@@ -222,6 +222,7 @@ export class Animator {
 
   /** @internal Per frame: advance fades, split blend-tree weights by parameter, sync stride, then advance the mixer (the engine calls it). */
   update(dt) {
+    if (this._held) { this.afterPose?.(dt); return; }   // physics owns the bones (a ragdoll): the mixer writes nothing, attachments still follow the pose
     let j = 0;   // fade, stop faded-out layers and compact in place (no arrays per frame)
     for (const l of this._layers) {
       l.w = l.target > l.w ? Math.min(1, l.w + dt * l.rate) : Math.max(0, l.w - dt * l.rate);

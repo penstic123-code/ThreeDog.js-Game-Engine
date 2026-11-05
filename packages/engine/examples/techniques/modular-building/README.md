@@ -4,8 +4,10 @@ Modular buildings on a grid: parameterized wall / window / door / roof / trim mo
 
 A kit of building pieces made in code, snapped to a grid and assembled into buildings and whole streets, with the colours and materials left to
 the game. The pieces are plain on purpose: the same kit draws a cozy town, a gray block-out or a cold sci-fi row by swapping one set of
-materials and one set of trim profiles. Run it with `npm run dev` and open `/modular-building.html` (`?set=gray|warm|cool`, `seed=1`,
-`count=10`, `view=street|close`, `batch=0|merge`). The engine never imports this folder; copy it and change anything.
+materials and one set of trim profiles. `threedog examples pull modular-building` copies this README and `kit.js`, the whole technique: import `kit.js` from your game
+and give it your materials (the code below shows how). The engine never imports this folder; change anything. The engine repository also has a demo page next to them,
+which a pull does not copy: `main.js` and `picture/`, opened at `/modular-building.html` with `npm run dev` (`?set=gray|warm|cool`, `seed=1`, `count=10`,
+`view=street|close`, `batch=0|merge`). Nothing in a game depends on it.
 
 ## The principle
 A town reads from far to near: skyline first, then the rhythm of openings, then trim, then small detail. A grid makes every piece fit every
@@ -53,9 +55,8 @@ vanish at that distance? Does anything flicker at seams when the camera moves?
 - **Merged hero block**: a fixed set piece merged once for the fewest draws, when it never changes.
 
 ## The engine helper (optional convenience)
-`kit.js` is the kit: modules, assembler, manifest entries; it imports only `three` and `three/addons`. `main.js` is the demo page and `picture/` its
-picture in plain three.js (lights, tone curve, one Lambert material per slot, every value in `picture/palette.js`). The page builds the same seed
-three ways (gray block-out, warm with soft cove trims, cool with hard stepped trims and faintly emissive frames; the two coloured
+`kit.js` is the kit: modules, assembler, manifest entries; it imports only `three` and `three/addons`. The demo page in the engine repository (not in a pull)
+has its picture in plain three.js (lights, tone curve, one Lambert material per slot) and builds the same seed three ways (gray block-out, warm with soft cove trims, cool with hard stepped trims and faintly emissive frames; the two coloured
 sets are demo values, not advice). In the kit, the block-out stage is `facade` strings of `.` (blank walls) and `roof`. A style is the slot
 materials (`wall`, `trim`, `roof`, `frame`, `glass`, `accent`, `awning`, `sign`) plus `profiles` plus `windows`. The only textures are gray
 masks (awning stripes, sign text) tinted by the slot material's colour, so a material swap recolours them too. `street` mirrors upper floors
@@ -119,7 +120,7 @@ Limits:
 - Footprints are rectangles of cells (`width` x `depth`); an L-shaped building needs `building` extended to take a cell list (two buildings
   with `gap: 0` meet wall to wall, and their corner pilasters then overlap).
 - Gable ridges run along the building's width; hip roofs, dormers and balconies are not in the kit (each is one more module).
-- The test is `npm test -- "modular building"` (tests/specs/modular-building.mjs): determinism per seed, grid snapping without gaps,
+- The test is `threedog test "modular building"` (tests/specs/modular-building.mjs): determinism per seed, grid snapping without gaps,
   shared geometry, batching under 400 draw calls, params changing shape, the optional AO pass.
 
 Sources: written for this example; no code copied. Background: the grid-snapped kit of reusable pieces is common modular level design practice

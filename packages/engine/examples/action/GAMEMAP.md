@@ -38,6 +38,7 @@ Content: actions 4 · audio 1 · items 1 · places 1 · props 8 (from templates 
 Not used yet (check these before writing the system yourself):
 
 - quests: goals with steps, conditions and rewards: `quests()` + key map presets.bindings.quests, content/quests.js (node_modules/threedog/docs/recipes/04-quests.md)
+- swarm: many same-kind moving things (shots, crowds, flocks, debris) in typed arrays, drawn as one mesh: `swarm()` (node_modules/threedog/docs/recipes/65-swarm.md)
 - grids: cell placement for farming and building: `grids()` (node_modules/threedog/docs/recipes/29-grid.md)
 
 ## Files

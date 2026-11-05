@@ -254,7 +254,7 @@ export async function shots(engine, { size = 256, yaw = -0.6, only = null, modes
 export async function openGallery(engine) {
   THREE = engine.THREE;
   const { models, textures } = assetNames(engine);
-  const hold = engine.pause('gallery');   // the game stands still behind the overlay (its own pause owner: the game's pauses are untouched)
+  const hold = engine.haltLoop('gallery');   // the game stands still behind the overlay (its own halt owner: nothing of the game's is touched)
   const host = document.createElement('div');
   host.style.cssText = 'position:fixed;inset:0;z-index:2000;overflow:auto;background:#2a2c30;color:#eee;font:12px/1.4 sans-serif';
   const canvas = document.createElement('canvas');   // the renderer's own, off the page: each cell gets a copy of its picture

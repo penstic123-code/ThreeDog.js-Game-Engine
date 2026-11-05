@@ -61,10 +61,6 @@ export interface Collision {
   walkableWaterMargin: number;
   /** What camera occlusion checks (see CollisionOptions.cameraOcclusion) */
   cameraOcclusion: 'colliders' | 'meshes' | 'both';
-  /** Circle colliders added by hand */
-  circles: Set<CircleCollider>;
-  /** Box colliders added by hand */
-  boxes: Set<BoxCollider>;
   /** +1 each time a static collider is added or removed */
   version: number;
   /** Add a circle collider (pillar, campfire): position is the center, e.g. addCircle(mesh, { radius: 1 }). Returns a handle { remove() } */
@@ -154,7 +150,7 @@ export interface RigidEntry extends Handle {
   collider: any;
   /** The matching three.js model (position is written by physics every step) */
   mesh: Object3D;
-  /** Same as mesh (the name consistent with player.object, ent.object) */
+  /** Same as mesh */
   object: Object3D;
   /** Whether it is being simulated (frozen when too far from the player) */
   enabled: boolean;
@@ -165,6 +161,30 @@ export interface RigidEntry extends Handle {
   wet?: boolean;
   /** Remove this rigid body (the model was passed in by you and is not deleted; call engine.remove(entry.object) when done). Casting / receiving shadows follows the model's own castShadow / receiveShadow */
   remove(): void;
+}
+
+/** Options of engine.rigid.ragdoll @experimental */
+export interface RagdollOptions {
+  /** A push (kg*m/s) on the part nearest position, else on hips. A hit stronger than the part can take spreads to the whole body, total momentum unchanged */
+  impulse?: Vec3Like;
+  /** Where the push lands (world) */
+  position?: PositionLike;
+  /** Part -> bone name or bone, over the auto-detection. Parts: hips, chest, head, upperArmL, lowerArmL, upperArmR, lowerArmR, upperLegL, lowerLegL, upperLegR, lowerLegR */
+  bones?: Record<string, string | Object3D>;
+  /** Part or kind ('lowerLeg', 'upperArm', 'chest', 'head'...) -> [min, max] radians from the bind pose: bend forward (a knee: backward), side, twist along the bone */
+  limits?: Record<string, { bend?: [number, number]; side?: [number, number]; twist?: [number, number] }>;
+  /** Whole body, kg (default 70) */
+  mass?: number;
+}
+
+/** What engine.rigid.ragdoll returns. remove() gives the character back; safe to call twice @experimental */
+export interface Ragdoll extends Handle {
+  /** False once removed (remove(), a load, the character deleted) */
+  readonly active: boolean;
+  /** Every part is at rest (asleep or frozen). Nothing is written to the bones then, so a game's own bone write stays */
+  readonly settled: boolean;
+  /** Part name -> its rigid entry: entry.body for forces, entry.object is the bone; engine.raycast hits carry the same entry. The bones stay plain three.js */
+  readonly parts: Record<string, RigidEntry>;
 }
 
 /** engine.rigid (real physics; bodies can only be added after start(), or in the engine:ready event) */
@@ -179,27 +199,32 @@ export interface RigidBodies {
   buoyancyForce: number;
   waterDrag: number;
   floatLine: number; floatDepth: number; treeColliderHeight: number; treeRadius: number;
-  /** Rapier library */
-  R: any;
-  /** Rapier world */
+  /** The Rapier library itself: its shape follows the Rapier version @experimental */
+  rapier: any;
+  /** The Rapier world: its shape follows the Rapier version @experimental */
   world: any;
   /** Add a box (crate). Physics is ready after engine.start() (or on engine:ready): called before, it throws in development, a release build warns once and returns null */
   addBox(mesh: Object3D, opts?: RigidBoxOptions): RigidEntry | null;
-  /** Add a ball */
+  /** Add a ball; null only as in addBox: a release build, called before physics is ready */
   addBall(mesh: Object3D, opts?: RigidBallOptions): RigidEntry | null;
-  /** Add a convex hull (irregular objects such as rocks and barrels) */
+  /** Add a convex hull (irregular objects such as rocks and barrels); null only as in addBox: a release build, called before physics is ready */
   addHull(mesh: Object3D, opts?: RigidBodyOptions): RigidEntry | null;
+  /**
+   * Turn a skinned character limp in one call; rd.remove() returns it to animation. who: a Character, an NPC handle, a character id or a skinned Object3D.
+   * Its mover, animator, capsule and camera yield until then; calling again on the same one pushes it again and returns the same ragdoll.
+   * Not saved: any load ends it. A skeleton it cannot read throws, naming the missing parts. @experimental
+   */
+  ragdoll(who: any, opts?: RagdollOptions): Ragdoll | null;
   /** Give it a push: impulse vector impulse (Vector3 / [x, y, z] / { x, y, z }), e.g. impulse(ball, [0, 3, 5]) */
   impulse(entry: RigidEntry, impulse: Vec3Like): void;
   /** Teleport to position (velocity is zeroed) */
   setPosition(entry: RigidEntry, position: PositionLike): void;
-  /** The player's Rapier kinematic body and capsule collider (follow the player position every step; used for collision when mover: 'rapier'; the capsule is off while driving) */
+  /** The player's Rapier kinematic body and capsule collider (follow the player position every step; used for collision when mover: 'rapier'; the capsule is off while driving) @experimental */
   playerBody: any;
+  /** The capsule collider on playerBody @experimental */
   playerCollider: any;
   /** Player capsule size (meters) */
   playerCapsule: { halfHeight: number; radius: number };
-  /** Is the physics ground under position built (always true without chunked terrain; with mover: 'rapier' and not yet built, 'simple' is used temporarily) */
-  groundReady(position: PositionLike): boolean;
   /** All vehicles */
   vehicles: Vehicle[];
   /**
@@ -625,7 +650,7 @@ export interface RtsCameraOptions {
   minHeight?: number;
   maxHeight?: number;
   /** Pitch down angle (radians, π/2 = straight down), default 0.95 */
-  angle?: number;
+  pitch?: number;
   /** Initial horizontal heading (radians) */
   yaw?: number;
   /** Pan speed multiplier */

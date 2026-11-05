@@ -25,11 +25,13 @@ export class Music {
     /** 0-1: how loud each stem of the playing track is (see the stems `at` range); fades in about half a second @type {number} */
     intensity: number;
     /**
-     * Register tracks: { name: url | { url, volume, loop, stems } }
-     * @param {Record<string, MusicTrack>} map
-     * @returns {this}
+     * Define a track: a url, or { url, volume, loop, stems }. The same name again replaces it
+     * @example engine.music.define('town', '/music/town.ogg')
+     * @param {string} name
+     * @param {MusicTrack} track
+     * @returns {void}
      */
-    addTracks(map: Record<string, MusicTrack>): this;
+    define(name: string, track: MusicTrack): void;
     /**
      * Whether audio is usable
      * @returns {boolean}

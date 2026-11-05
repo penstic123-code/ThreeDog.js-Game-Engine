@@ -19,7 +19,7 @@ function nodeSide(engine, name) {
 export class Effect {
   constructor(sys, name, o) {
     this.sys = sys; this.name = name; this.o = o;
-    const N = this.max = Math.max(1, Math.round(o.max * (sys.engine.tier === 'low' ? 0.5 : 1)));
+    const N = this.max = Math.max(1, Math.round(o.max));
     this.pos = new Float32Array(N * 3); this.vel = new Float32Array(N * 3);
     this.age = new Float32Array(N); this.life = new Float32Array(N).fill(0);   // life 0 = empty slot
     this.spinV = new Float32Array(N);

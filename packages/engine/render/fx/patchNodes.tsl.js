@@ -22,16 +22,12 @@
 import * as TSL from 'three/tsl';
 import { NodeMaterial, LightingNode } from 'three/webgpu';
 import { codedError } from '../../core/errorHints.js';
-import { wind } from './wind.tsl.js';
-import { cloudShadow } from './cloudShadow.tsl.js';
-import { season } from './season.tsl.js';
-import { objectOrigin } from './objectOrigin.tsl.js';
-import { detailNoise, detailBump } from './detail.tsl.js';
-import { wrapDiffuse, shadowTint, rim } from './lighting.tsl.js';
-import { waterWave, waterSurface, waterFresnel } from './water.tsl.js';
+import * as LIBRARY from './library.tsl.js';
+import { lit } from '../lit.js';
 import { engineNodes, valueNode } from './uniforms.tsl.js';
 import { registerWebGPUPart } from '../backend.js';
 import { engineUniformName } from '../engineUniforms.js';
+import { noteRenamed } from '../uniformRenames.js';
 import { SLOTS, LIGHT_HOOKS as HOOKS } from '../slots.js';
 import { notePatch } from '../../core/threePatches.js';
 import { nameNodeBuild, lostStatements } from './nodeErrors.tsl.js';
@@ -40,6 +36,7 @@ const { Fn, positionLocal, modelViewProjection, materialColor, materialRoughness
 
 /** One engine uniform as a node, looked up from the renderer compiling it (same as the Fn library) */
 const engineUniform = name => Fn((_, builder) => {
+  noteRenamed(name, 'c.fx.uniform()');
   const n = engineNodes(builder, 'patch')[name];
   if (!n) throw codedError('tsl-misuse', `threedog/tsl: engine.uniforms has no '${name}'`);
   return n;
@@ -63,8 +60,7 @@ const patchTexture = (o, uv) => {
   return n;
 };
 /** What a patch's tsl code gets besides the slot value: the threedog/tsl functions and three/tsl itself (so engine files need no import) */
-const FX = Object.freeze({ wind, cloudShadow, season, objectOrigin, detailNoise, detailBump, wrapDiffuse, shadowTint, rim,
-  waterWave, waterSurface, waterFresnel, uniform: engineUniform, patchUniform, patchTexture });
+const FX = Object.freeze({ ...LIBRARY, uniform: engineUniform, patchUniform, patchTexture });
 
 // slot -> [property, default value when the material has none]; built from the slot table's node column (render/slots.js), so the table cannot
 // list a mapping this file lacks. The default is what three uses without the property.
@@ -141,10 +137,6 @@ const chain = (list, slot, value, extra) => list.reduce((v, p) => { const fn = c
 /** lighting hooks of a patch, normalised: a function is the end-of-lighting code */
 const hooksOf = h => typeof h === 'function' ? { after: h } : h;
 
-// a classic material has no `lights` flag (that is a ShaderMaterial / NodeMaterial field): the lit classic types are the ones three's node
-// twins light
-const lit = m => m.isNodeMaterial ? !!m.lights && !m.isMeshBasicNodeMaterial
-  : !!(m.isMeshLambertMaterial || m.isMeshPhongMaterial || m.isMeshStandardMaterial || m.isMeshToonMaterial);
 /**
  * Why this material cannot take the patch on the TSL side ('' = fine). patches.js throws it (strict) or skips with a warning, like a missing GLSL anchor.
  * m is a NodeMaterial, or a classic material whose node twin three builds (same lit / roughness facts).

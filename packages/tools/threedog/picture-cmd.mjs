@@ -1,4 +1,4 @@
-// picture-palette / picture-compare as bridge-layer commands (dispatch.mjs EXTRA), so the MCP server runs the same code as `threedog picture palette|compare`.
+// picture-palette / picture-compare as bridge-layer commands (command-table.mjs EXTRA), so the MCP server runs the same code as `threedog picture palette|compare`.
 // They read picture files only: no game, no dev server. Relative paths are taken from the game folder (the MCP server's cwd may be elsewhere).
 import { resolve } from 'node:path';
 import { paletteText, compareText, pictureArgs } from '../picture.mjs';

@@ -68,20 +68,20 @@ export const specs = [
       const r = await ev(async () => {
         engine.timeline.skip(); engine.step(1, { render: false });
         const o = {};
-        engine.pause('threedog', { kind: 'test' }); o.test = engine.runState;
-        engine.pause('player'); o.two = engine.runState;
-        engine._resume('threedog'); o.after = engine.runState; engine._resume('player');
+        engine.haltLoop('threedog'); o.test = engine.runState;
+        engine.haltLoop('player'); o.two = engine.runState;
+        engine._unhalt('threedog'); o.after = engine.runState; engine._unhalt('player');
         engine.freeze('ui-help'); engine.freeze('ui-inventory'); engine.stacks.get('freeze').release('ui-help'); o.still = engine.runState;
-        engine.stacks.get('freeze').release('ui-inventory'); engine.pause('threedog', { kind: 'test' }); engine._resume('threedog'); o.run = engine.runState.state;
+        engine.stacks.get('freeze').release('ui-inventory'); engine.haltLoop('threedog'); engine._unhalt('threedog'); o.run = engine.runState.state;
         const h = engine.freeze({ owner: 'menu' }); o.handle = engine.runState.owners.join(); h.remove(); o.handleGone = engine.runState.owners.join();
-        engine.pause({ owner: 'obj' }); engine._resume({ owner: 'obj' }); o.objForm = engine.runState.state; o.blocked = engine.runState.blockedBy;
+        engine.haltLoop({ owner: 'obj' }); engine._unhalt({ owner: 'obj' }); o.objForm = engine.runState.state; o.blocked = engine.runState.blockedBy;
         o.desc = engine.describe().time.run.state; o.pl = engine.describe().camera.pointerLock;
         return o;
       });
       const J = JSON.stringify(r);
-      check('only the bridge paused: test-paused', r.test.state === 'test-paused', J);
-      check('a player pause on top is paused(by both); resuming the bridge keeps the player pause', r.two.state === 'paused' && r.two.owners.join() === 'threedog,player' && r.after.state === 'paused' && r.after.owners.join() === 'player', J);
-      check('closing help releases only help: inventory still holds the freeze', r.still.state === 'paused' && r.still.owners.join() === 'ui-inventory', J);
+      check('only the bridge halted: halted', r.test.state === 'halted', J);
+      check('a second halt on top lists both; ending the bridge keeps the other', r.two.state === 'halted' && r.two.owners.join() === 'threedog,player' && r.after.state === 'halted' && r.after.owners.join() === 'player', J);
+      check('closing help releases only help: inventory still holds the freeze', r.still.state === 'frozen' && r.still.owners.join() === 'ui-inventory', J);
       check('freeze returns a handle: remove() releases only that owner; { owner } works for pause / resume too', r.handle === 'menu' && r.handleGone === '' && r.objForm === 'running', J);
       check('blockedBy is a list of input contexts / error / loading', Array.isArray(r.blocked), J);
       check('everyone released: running; describe carries it; the pointer-lock block always has a state', r.run === 'running' && r.desc === 'running' && typeof r.pl?.state === 'string', J);

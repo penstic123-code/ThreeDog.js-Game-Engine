@@ -45,7 +45,7 @@ function arrayBytes(v, depth) {
   return n;
 }
 
-export class ApplyCost {
+class ApplyCost {
   /** @internal */
   constructor() {
     /** @internal */ this.t = {};
@@ -151,7 +151,7 @@ export class Budget {
   /** @internal Called by the engine after each rendered frame: records frame time, checks once a second, and warns once per category over its limit */
   sample(dt) {
     if (!this.enabled) return;
-    this._dts.push(dt); this._cpu.push(this.engine.cpuMs ?? 0);
+    this._dts.push(dt); this._cpu.push(this.engine._cpuMs ?? 0);
     if (this._dts.length > WINDOW) { this._dts.shift(); this._cpu.shift(); }
     if ((this._t += dt) < 1) return;
     this._t = 0;

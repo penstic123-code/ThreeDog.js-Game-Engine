@@ -4,7 +4,7 @@
 //
 // In a test (engine specs or a game's tests/specs/*.mjs); the page must already be in the state you want to freeze:
 //   import { expectDescribe } from '@threedog/tools/describe-snapshot';
-//   await ev(() => { engine.pause(); engine.step(1); });
+//   await ev(() => { engine.haltLoop(); engine.step(1); });
 //   await expectDescribe({ check, ev }, 'market-noon', { only: ['player', 'quests', 'nearby'], tolerance: 0.5 });
 // On the dev bridge:
 //   threedog snap-describe save market-noon --only player,quests     (write / overwrite the baseline)
@@ -14,7 +14,10 @@ import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Paths dropped before saving / comparing: timing and performance numbers are not gameplay */
-export const DEFAULT_IGNORE = ['perf', 'time.tick', 'time.real', 'time.ambient', 'loading'];   // loading: file versions and on-demand counts are not gameplay
+// loading: file versions and on-demand counts; picture.writers: how many frames each writer has run, which moves with every frame and says nothing about the game
+export const DEFAULT_IGNORE = ['perf', 'time.tick', 'time.real', 'time.ambient', 'loading', 'picture.writers'];
+/** Also dropped when a command says what it changed: these move on their own in any step, and a list of them would bury the change */
+const MOVES_ALONE = ['time', 'camera', 'nearby', 'actions', 'ops', 'holds', 'shared', 'input', 'picture', 'render', 'weather.progress'];
 const MAX_LINES = 20;
 const isObj = v => v !== null && typeof v === 'object';
 
@@ -62,6 +65,7 @@ function keysOf(arr) {
   return arr.map((_, i) => String(i));
 }
 
+const leaves = v => isObj(v) ? Object.values(v).reduce((n, x) => n + leaves(x), 0) : 1;
 const short = v => { const s = JSON.stringify(v); return s.length > 70 ? s.slice(0, 67) + '...' : s; };
 
 /**
@@ -73,7 +77,8 @@ const short = v => { const s = JSON.stringify(v); return s.length > 70 ? s.slice
  */
 export function diffDescribe(base, cur, { tolerance = 0.5 } = {}) {
   const tol = path => {
-    if (typeof tolerance === 'number') return tolerance;
+    if (typeof tolerance === 'number') return matches(path, ['vars']) ? 0 : tolerance;
+    if (matches(path, ['vars'])) return 0;   // story counters are whole facts: a tolerance would hide one bump
     let best = tolerance.default ?? 0.5, len = -1;
     for (const k in tolerance) if (k !== 'default' && matches(path, [k]) && k.length > len) { best = tolerance[k]; len = k.length; }
     return best;
@@ -104,6 +109,19 @@ export function diffDescribe(base, cur, { tolerance = 0.5 } = {}) {
   return out;
 }
 
+/**
+ * What changed between two describe() results, as one line: the answer of press and op, read from the same differ snapshots use.
+ * @param {any} before
+ * @param {any} after
+ * @returns {string}
+ */
+export function changeLine(before, after) {
+  const pick = d => pickGameplay(d, { ignore: MOVES_ALONE }), found = diffDescribe(pick(before), pick(after), { tolerance: 0.05 });
+  if (!found.length) return 'Changed: nothing describe() shows';
+  const shown = found.slice(0, 4).map(l => l.replace(/ \(changed .*\)$/, ''));
+  return `Changed: ${shown.join('; ')}${found.length > 4 ? `; … ${found.length - 4} more (threedog describe --all)` : ''}`;
+}
+
 /** Baseline file path: <dir>/<name>.describe.json (dir is <workspace>/tests/snapshots) */
 export const snapshotFile = (dir, name) => join(dir, `${String(name).replace(/[^\w一-龥.-]+/g, '-')}.describe.json`);
 
@@ -131,14 +149,17 @@ export function saveSnapshot(dir, name, d, opts) {
  * @param {string} name scenario name
  * @param {any} d result of engine.describe()
  * @param {{ only?: string[], ignore?: string[], tolerance?: number | Record<string, number> }} [opts]
- * @returns {{ ok: boolean, text: string }} text: empty when equal, otherwise the differences, one per line
+ * @returns {{ ok: boolean, text: string, values?: number }} text: empty when equal, otherwise the differences, one per line; values: how many were compared
  */
 export function compareSnapshot(dir, name, d, opts = {}) {
   const file = snapshotFile(dir, name);
   if (!existsSync(file)) return { ok: false, text: `no baseline for describe snapshot "${name}" (${file}). Create it once: threedog snap-describe save ${name}  (or run the test with --update-snapshots)` };
-  const base = pickGameplay(JSON.parse(readFileSync(file, 'utf8')), opts);
-  const lines = diffDescribe(base, pickGameplay(d, opts), opts);
-  if (!lines.length) return { ok: true, text: '' };
+  const saved = JSON.parse(readFileSync(file, 'utf8')), base = pickGameplay(saved, opts), cur = pickGameplay(d, opts);
+  // an --only path found on neither side compares nothing, and nothing always matches
+  const empty = (opts.only ?? []).filter(p => pickGameplay(saved, { only: [p] })[p.split('.')[0]] === undefined && pickGameplay(d, { only: [p] })[p.split('.')[0]] === undefined);
+  if (empty.length) return { ok: false, text: `describe "${name}": nothing to compare at ${empty.join(', ')}: neither the baseline nor the page has it. Top-level fields: ${Object.keys(d).join(', ')}` };
+  const lines = diffDescribe(base, cur, opts);
+  if (!lines.length) return { ok: true, text: '', values: leaves(cur) };
   const shown = lines.slice(0, MAX_LINES);
   if (lines.length > MAX_LINES) shown.push(`... ${lines.length - MAX_LINES} more`);
   return { ok: false, text: `describe "${name}" differs from the baseline in ${lines.length} place${lines.length > 1 ? 's' : ''}:\n  ` + shown.join('\n  ')

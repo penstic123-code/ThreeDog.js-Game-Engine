@@ -2,7 +2,7 @@
 // Split by responsibility: World.js keeps the public API and its documentation; nothing here is public.
 import { DEV, fmt } from '../../core/validate.js';
 import { STRINGS as RECORD_STRINGS, restRecord, orphanIds } from './records.js';
-import { saveWorld, loadWorld, renamePending } from './persist.js';
+import { saveWorld, loadWorld, renamePending, isPlain } from './persist.js';
 import { Cells } from '../../core/cells.js';
 import { centerOf } from './pos.js';
 import { codedError } from '../../core/errorHints.js';
@@ -33,6 +33,11 @@ class Internals {
    * moved is left alone.
    */
   rest(id, position, tolerance = 0) { restRecord(this, id, position, tolerance); }
+  /**
+   * @internal The dev editor changed the design itself: the entry's old content is gone, not removed in play, so no baseline and no "removed" mark stay behind for
+   * the save to pin. The record is already gone (thing.remove); the content loader puts the new one in as an authored record again.
+   */
+  forget(id) { this._base.delete(id); this._removed.delete(id); this._origin.delete(id); }
   /** @internal Content / level loaders say where an authored record was defined (dev only; merged into what is there) */
   setOrigin(id, info) {
     if (info?.level != null) this._levels.add(info.level);
@@ -86,8 +91,10 @@ class Internals {
   /** Tear down all models (called by engine.dispose) @internal */
   dispose() { this._v.clear(); }
 
+  /** @internal whether a value can go into a save, for a module that sorts its options (npcs.add) */
+  isPlain(v) { return isPlain(v); }
   /** @internal */
-  _inZone(rec) { return this.zone == null || rec.zone == null || rec.zone === this.zone; }
+  inZone(rec) { return this.zone == null || rec.zone == null || rec.zone === this.zone; }
   /** @internal */
   _need(id, fn) { const r = this.records.get(id); if (!r) throw codedError('world-record', fmt(RECORD_STRINGS.noId, { fn, id })); return r; }
   /** Copy the original initial record and apply the changes from the save @internal */

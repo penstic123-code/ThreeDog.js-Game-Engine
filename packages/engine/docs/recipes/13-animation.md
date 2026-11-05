@@ -4,7 +4,7 @@ There is a single entry point: `engine.assets.animate(model, config)` -> Animato
 For characters (player, NPCs), passing `model` builds the Animator automatically and switches clips by character state (idle walk run swim jump fall drive).
 
 ## 1. The model
-Export a glTF with animations from Blender, put it in `art/models/` -> `npm run assets` -> `public/optimized/hero.glb`. Register it and fetch a copy (the
+Export a glTF with animations from Blender, put it in `art/models/` -> `npm run assets -- optimize` -> `public/optimized/hero.glb`. Register it and fetch a copy (the
 skeleton is cloned correctly; clips are in `userData.animations`):
 ```js
 engine.assets.manifest({ models: { hero: '/models/hero.glb', dog: '/models/dog.glb' } });
@@ -163,17 +163,17 @@ engine.onFixed(() => {                                              // one call 
 Use `anim:end` only for presentation (change an expression, play the next clip). Native objects: `anim.mixer` (AnimationMixer), `anim.actions` (clip
 name -> AnimationAction). Things without a skeleton that only move/rotate as a whole use `engine.timeline.tween`, not an Animator.
 
-Bones after the pose: `const h = player.onPose((c, dt) => { sword.position.copy(hand.getWorldPosition(v)); })` runs every frame right after the character's pose is
+Footsteps: `engine.events.on('character:step', ({ character }) => ...)` hears each foot come down (`character.groundType()` is what it stepped on), and `character:land` each landing; the engine's own footstep sound listens the same way, so yours adds to it. Bones after the pose: `const h = player.onPose((c, dt) => { sword.position.copy(hand.getWorldPosition(v)); })` runs every frame right after the character's pose is
 applied (clips or procedural rig); `h.remove()` stops it. Presentation only.
 
 ## 6. Verify
 - `anim.describe()` -> `{ state, clip, time, progress, driven, t, weights }` (clip seconds, 0-1 progress, whether sync drives it, the last gameplay t,
   each fading state's share); the player's is in `describe().player.anim`.
-- In a test: `engine.pause(); anim.go('move'); engine.step(0.4)`, then look at `anim.state` and `anim.actions.get('Walk').getEffectiveWeight()` (all
+- In a test: `engine.haltLoop(); anim.go('move'); engine.step(0.4)`, then look at `anim.state` and `anim.actions.get('Walk').getEffectiveWeight()` (all
   clip weights sum to 1).
 - Characters: `describe().player.state` (idle/walk/run...) matches `engine.player.anim.state`.
 - `anim.check([...actions])` is `[]`.
-- Related tests: `npm test -- "Animation state machine"` (in the engine repository: two-bone figure built in code by `makeRig()`, in
-  `packages/engine/tests/vehicle/`), `npm test -- 骨骼动画链路` (a real CC0 glTF character, `packages/engine/tests/anim/`: manifest mapping, cross-fade, sync, alignment of the
-  slash with the hit phase, dev warnings) and `npm test -- 骨骼动画最小链路` (a skinned GLB generated in code by `tests/anim/rig.js` through GLTFExporter,
+- Related tests: `threedog test "Animation state machine"` (in the engine repository: two-bone figure built in code by `makeRig()`, in
+  `packages/engine/tests/vehicle/`), `threedog test 骨骼动画链路` (a real CC0 glTF character, `packages/engine/tests/anim/`: manifest mapping, cross-fade, sync, alignment of the
+  slash with the hit phase, dev warnings) and `threedog test 骨骼动画最小链路` (a skinned GLB generated in code by `tests/anim/rig.js` through GLTFExporter,
   loaded like a file: manifest mapping, `check`, sync holding the pose against frame time).

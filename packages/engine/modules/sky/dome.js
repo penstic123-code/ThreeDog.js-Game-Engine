@@ -12,13 +12,13 @@ import { isWebGPU } from '../../render/backend.js';
 
 const isColorLike = v => typeof v === 'number' || typeof v === 'string' || !!v?.isColor;
 
-/** The fog band's uniforms and the dome layers for a new Sky: the extra dome uniforms and GLSL ({ uniforms, decl, body }), and the layers for a node dome */
+/** The fog band's uniforms and GLSL for a new Sky: the extra dome parts ({ uniforms, decl, body }); it starts with no layers, engine.sky.layer adds them */
 export function prepareDome(sky, st) {
   sky._backdrop = resolveBackdrop(st);
-  const f = DOME_FOG, l = resolveDomeLayers(st.layers, { gpu: isWebGPU(sky.engine.renderer) });
+  const f = DOME_FOG;
   // the fog object belongs to the game and may be replaced: read its color at draw time (fog.js fogBand turns the band on)
-  const uniforms = { ...l.uniforms, uFogBand: { value: 0 }, uFogColor: { get value() { return sky.engine.scene.fog?.color ?? sky.uniforms.uHorizon.value; } } };
-  return { uniforms, decl: [f.decl, l.decl].filter(Boolean).join('\n'), body: f.body + l.body, layers: l.layers };
+  const uniforms = { uFogBand: { value: 0 }, uFogColor: { get value() { return sky.engine.scene.fog?.color ?? sky.uniforms.uHorizon.value; } } };
+  return { uniforms, decl: f.decl, body: f.body, layers: [] };
 }
 
 // backdrop: one flat color instead of the dome: no gradient, horizon, sun / moon disk, stars or clouds. The color goes straight to scene.background
@@ -37,7 +37,7 @@ export function resolveBackdrop(st) {
 export function domeEntries(sky, st) {
   const e = sky.engine, scene = e.scene, U = sky.uniforms;
   let cloudsHook = null, added = null, addedHere = false;
-  const layers = new Map((Array.isArray(st.layers) ? st.layers : []).map((l, i) => [l?.name ?? `layer${i}`, l]));
+  const layers = new Map();
 
   // The dome shader from a clouds function and layers; throws (changing nothing) when a hook is not valid for its contract
   const rebuild = (hook, map) => {
@@ -64,26 +64,27 @@ export function domeEntries(sky, st) {
     reapply() { apply(rebuild(cloudsHook, layers)); },
     clouds(spec) { apply(rebuild(spec, layers)); cloudsHook = spec ?? null; },
     layer(name, spec) {
-      if (typeof name !== 'string' || !/^[\w-]+$/.test(name)) throw codedError('sky-option', `engine.sky.layer(name, spec): name is a word such as 'aurora'; got ${JSON.stringify(name)}`);
+      if (typeof name !== 'string' || !name) throw codedError('sky-option', `engine.sky.layer(name, spec): name is a non-empty string such as 'aurora'; got ${JSON.stringify(name)}`);
       const next = new Map(layers);
       if (spec == null) next.delete(name); else next.set(name, spec);
       apply(rebuild(cloudsHook, next));   // throws before anything changes when the layer's GLSL is not valid
       layers.clear(); for (const [k, v] of next) layers.set(k, v);
     },
     backdrop(v) {
-      if (v == null) { sky._backdrop = null; sky.dome.visible = !sky.skybox && !added; scene.background = sky.skybox ?? null; sky._oBg.mark(); return; }
+      if (v == null) { sky._backdrop = null; sky.dome.visible = !sky.skybox && !added && !sky._noSky; scene.background = sky.skybox ?? null; sky._oBg.mark(); return; }
       if (sky._backdrop && isColorLike(v)) { sky._backdrop.color.set(v); return; }
-      sky._backdrop = resolveBackdrop({ backdrop: v, skybox: sky.skybox });   // the sky writes scene.background and hides the dome each frame (frame.js)
+      sky._backdrop = resolveBackdrop({ backdrop: v });   // the sky writes scene.background and hides the dome each frame (frame.js)
     },
     // The game's own sky (three/addons Sky, a ShaderMaterial dome, a skybox texture) is never written: the engine only hides its dome, adds the
     // object to the scene when it has no parent yet (and takes it out again on hand-back only then), and keeps feeding time / weather / season
-    // through engine.uniforms (uSunDir, uDaylight, uTimeOfDay, uWind, uCloud ...) and the day / season / weather events. A plain Texture gets its
+    // through engine.uniforms (uSunDir, uDaylight, uTimeOfDay, uWind, uWeatherCloud ...) and the day / season / weather events. A plain Texture gets its
     // panorama mapping on a clone, so the game's texture object stays as it was.
     replace(impl) {
-      if (impl === false) throw codedError('sky-option', 'engine.sky.replace(false): false is not a sky; give the dome back with engine.sky.replace(null)');
-      if (impl != null && typeof impl !== 'string' && !impl.isTexture && !impl.isObject3D) throw codedError('sky-option', 'engine.sky.replace(sky): sky is a skybox asset name, a THREE.Texture or a THREE.Object3D; null gives the dome back');
+      if (impl !== false && impl != null && typeof impl !== 'string' && !impl.isTexture && !impl.isObject3D) throw codedError('sky-option', 'engine.sky.replace(sky): sky is a skybox asset name, a THREE.Texture or a THREE.Object3D; null gives the dome back, false draws no sky');
       if (added) { if (addedHere) scene.remove(added); added = null; addedHere = false; }
-      sky._ownSky = null;
+      sky._ownSky = null; sky._noSky = impl === false;
+      // false: no drawn sky. The signals keep running and the scene shows its base background (a game's palette color lives there)
+      if (impl === false) { sky.skybox = null; sky._backdrop = null; sky.dome.visible = false; scene.background = e.baseBackground; sky._oBg.manual(false); sky._oBg.mark(); return; }
       if (impl == null) { sky.skybox = null; scene.background = sky._backdrop?.color ?? null; sky.dome.visible = !sky._backdrop; sky._oBg.manual(false); sky._oBg.mark(); return; }
       sky.dome.visible = false;
       if (typeof impl === 'string') loadSkybox(sky, impl);

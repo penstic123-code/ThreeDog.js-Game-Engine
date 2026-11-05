@@ -3,18 +3,22 @@
 // and without batching, long runs, create/destroy loops, saves, many modules) on WebGPU or WebGL2, in system Chrome on the real GPU.
 import * as THREE from 'three';
 import 'threedog/tsl';
+import { WebGPURenderer } from 'three/webgpu';
 import { createEngine, world, terrain, vegetation, sky, particles, weather } from '../../index.js';
 import { terrainPreset } from '@threedog/terrain-noise';
+import { cityMethods } from './city.js';
+import { lightMethods } from './lights.js';
+import { soakMethods } from './soak.js';
 
 const q = new URLSearchParams(location.search);
-const backend = q.get('backend') === 'webgl' ? 'webgl' : 'webgpu';
+const backend = ['webgl', 'webgpu-gl'].includes(q.get('backend')) ? q.get('backend') : 'webgpu';
 const DT = 1 / 60, r2 = v => Math.round(v * 100) / 100;
 const heap = () => performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576 * 10) / 10 : null;   // MB
 const gc = async () => { try { window.gc?.(); } catch {} await new Promise(r => setTimeout(r, 30)); try { window.gc?.(); } catch {} };
 const KINDS = ['crate', 'fence', 'ac', 'post'];
 
 const mkEngine = (extra = {}, canvas = document.getElementById('view')) => createEngine({ canvas, headless: true, ui: { loading: false }, pixelRatio: 1, adaptiveResolution: false,
-  urlState: false, saveKey: 'field-' + Math.random(), renderer: backend === 'webgpu' ? 'webgpu' : undefined, ...extra });
+  urlState: false, saveKey: 'field-' + Math.random(), renderer: backend === 'webgpu' ? 'webgpu' : backend === 'webgpu-gl' ? new WebGPURenderer({ canvas, antialias: true, powerPreference: 'high-performance', forceWebGL: true }) : undefined, ...extra });
 
 /** Wait until the GPU has finished what was queued: WebGPU queue drain, or gl.finish() */
 async function gpuDone(e) {
@@ -29,7 +33,7 @@ function frame(e) { e.input.poll(DT); e._fixedStep(); e._frameHooks(DT); e._rend
 async function measure(e, K = 40) {
   let renderMs = 0; const orig = e._render.bind(e);
   e._render = dt => { const t = performance.now(); orig(dt); renderMs += performance.now() - t; };
-  e.pause();
+  e.haltLoop();
   for (let i = 0; i < 6; i++) frame(e);
   await gpuDone(e);
   e.profile(true);
@@ -80,7 +84,7 @@ window.sf = {
   /** Record sweep (render/recordSweep.js): ms per frame step and in all, with n records, nothing to free and then all of them to free */
   async sweepCost({ n }) {
     const e = await ready(mkEngine({ batching: false })), s = e._records, mat = new THREE.MeshBasicMaterial(), geo = new THREE.BoxGeometry(), ms = [];
-    e.pause();
+    e.haltLoop();
     for (let i = 0; i < n; i++) { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; m.position.x = i % 200; m.position.z = Math.floor(i / 200); e.scene.add(m); ms.push(m); }
     e.scene.add(new THREE.Mesh(geo, mat));
     frame(e); await gpuDone(e);
@@ -99,7 +103,7 @@ window.sf = {
   /** Plain three.js game: meshes added and removed, one material for all, sweep on or off; heap after a forced gc */
   async plainDrop({ frames = 3000, per = 20, sweep = true, disposeGeometry = true, every = 500 }) {
     const e = await ready(mkEngine({ batching: false })), mat = new THREE.MeshBasicMaterial(), rows = [];
-    e.pause();
+    e.haltLoop();
     e._records.off = !sweep;
     e.scene.add(new THREE.Mesh(new THREE.BoxGeometry(), mat));
     await gc(); rows.push({ frame: 0, heapMB: heap(), records: e.renderer._objects._renderObjects.size });
@@ -115,7 +119,7 @@ window.sf = {
   /** What a pool pays for coming back after its records were freed: first frame ms, material used by nothing else */
   async poolReturn({ n = 50 }) {
     const e = await ready(mkEngine({ batching: false })), s = e._records, geo = new THREE.BoxGeometry(), ms = [];
-    e.pause();
+    e.haltLoop();
     e.scene.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial()));
     const mat = new THREE.MeshStandardMaterial({ color: 0x3366aa });
     for (let i = 0; i < n; i++) { const m = new THREE.Mesh(geo, mat); m.frustumCulled = false; ms.push(m); }
@@ -183,7 +187,7 @@ window.sf = {
     e.camera.position.set(0, 40, 60); e.camera.lookAt(0, 0, 0);
     window.rows = [];
     const t0 = performance.now(); let frames = 0, last = performance.now(), worst = 0, sumCpu = 0, since = performance.now();
-    const raf = () => { const now = performance.now(); const d = now - last; last = now; frames++; if (d > worst) worst = d; sumCpu += e.cpuMs; requestAnimationFrame(raf); };
+    const raf = () => { const now = performance.now(); const d = now - last; last = now; frames++; if (d > worst) worst = d; sumCpu += e._cpuMs; requestAnimationFrame(raf); };
     requestAnimationFrame(raf);
     const sample = async () => {
       const secs = (performance.now() - since) / 1000, fr = frames, w = worst, sc = sumCpu; frames = 0; worst = 0; sumCpu = 0;
@@ -216,7 +220,7 @@ window.sf = {
     const e = window.engine, cam = e.camera, x0 = window.flyX;
     const ivs = [], cpus = []; let last = performance.now(); const t0 = last;
     await new Promise(res => { const tick = now => {
-      const d = now - last; last = now; ivs.push(d); cpus.push(e.cpuMs);
+      const d = now - last; last = now; ivs.push(d); cpus.push(e._cpuMs);
       const x = window.flyX += speed * d / 1000; cam.position.set(x, 60, x * 0.3); cam.lookAt(x + 50, 55, x * 0.3 + 15);
       if (now - t0 < seconds * 1000) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); });
     const s = [...ivs].sort((a, b) => a - b), med = s[s.length >> 1];
@@ -262,4 +266,9 @@ window.sf = {
     e.dispose(); return out;
   },
 };
+Object.assign(window.sf, cityMethods({ mkEngine, ready, heap, gc, r2 }));
+Object.assign(window.sf, lightMethods({ mkEngine, ready, frame, measure, gpuDone, r2, THREE }));
+Object.assign(window.sf, soakMethods({ mkEngine, ready, heap, gc }));
 window.sfReady = true;
+// the spec runner (tests/specs/soak-guard.mjs) waits for window.engine like on any game page: a bare engine on the page canvas stands in (the soak makes its own)
+if (q.has('guard')) mkEngine({ renderer: undefined }).start().then(e => { window.engine = e; });

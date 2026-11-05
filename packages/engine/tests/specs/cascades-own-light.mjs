@@ -27,7 +27,7 @@ export const specs = [
         const make = (o = {}) => createEngine({ canvas: document.createElement('canvas'), headless: true, ui: { loading: false }, saveKey: 'cascades-own-light', pixelRatio: 1, ...o });
         const e = make({ lights: false });
         e.tier = 'high';   // a headless page detects low; the tier's own check is below
-        e.pause?.();
+        e.haltLoop?.();
         const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0xbbbbbb, roughness: 1 }));
         ground.receiveShadow = true;
         const box = new THREE.Mesh(new THREE.BoxGeometry(6, 10, 6), new THREE.MeshStandardMaterial({ color: 0x808080 }));

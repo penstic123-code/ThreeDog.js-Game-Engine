@@ -25,7 +25,7 @@ const STRINGS = {
   'zh-CN': { 'module.hud': '目标指示', 'hud.distance': '{m} 米' },
   en: { 'module.hud': 'objective markers', 'hud.distance': '{m} m' },
 };
-const MARKER_KEYS = ['label', 'icon', 'offscreen', 'distance', 'height'];
+const MARKER_KEYS = ['label', 'icon', 'offscreen', 'distance', 'height'], ITEM_KEYS = ['label', 'icon', 'value', 'max', 'anchor'], BAR_KEYS = ['label', 'value', 'max', 'anchor'];
 const _size = new THREE.Vector2();
 const EDGE = 28;   // how far the arrow sits from the screen edge (px)
 
@@ -152,28 +152,28 @@ export function hud(opts = {}) {
      * status: a clock, a quest step); no value = the label alone; anchor: 'top-left' (default) | 'top' | 'top-right' |
      * 'left' | 'right' | 'bottom-left' | 'bottom' | 'bottom-right', the screen corner / edge its column sits at
      */
-    counter(id, o) { item('counter', id, o); },
+    counter(id, o) { readParams('hud.counter()', keysSchema(ITEM_KEYS), o); item('counter', id, o); },
     /**
      * Add n (default 1; negative takes away) to a number counter and return the new value. A counter not declared yet starts at 0 with its id as the label, so
      * declare it with counter() for a player-facing label and max
-     * @example engine.hud.counter('shells', { label: 'Shells', value: 0, max: 4 }); engine.hud.add('shells');
+     * @example engine.hud.counter('shells', { label: 'Shells', value: 0, max: 4 }); engine.hud.bump('shells');
      */
-    add(id, n = 1) {
+    bump(id, n = 1) {
       const it = items.get(id), v = it?.o.value ?? 0;
-      if (typeof v !== 'number') throw codedError('hud-option', `hud.add('${id}'): this counter shows text (${JSON.stringify(v)}), not a number`, TypeError);
+      if (typeof v !== 'number') throw codedError('hud-option', `hud.bump('${id}'): this counter shows text (${JSON.stringify(v)}), not a number`, TypeError);
       item('counter', id, it ? { value: v + n } : { label: id, value: n });
       return v + n;
     },
     /** Current value of a counter or bar (a number or text); undefined when there is none. This is also where an interaction's `counter` total is read */
     value(id) { return items.get(id)?.o.value; },
     /** Progress bar (calling again with the same id = update): { value, max = 1, label, anchor } (anchor as for counter) */
-    bar(id, o) { item('bar', id, o); },
+    bar(id, o) { readParams('hud.bar()', keysSchema(BAR_KEYS), o); item('bar', id, o); },
     /** Remove a counter or bar */
     remove(id) { items.get(id)?.part?.dispose(); items.delete(id); },
   };
 
   return {
-    name: 'hud', type: 'ui', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['inventory', 'pickups', 'content', 'level', 'quests'], stage: 'effects', after: ['particles', 'settings'],
+    name: 'hud', type: 'ui', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['pickups', 'content', 'level', 'quests'], stage: 'effects', after: ['particles', 'settings'],
     install(engine, ctx) {
       e = engine;
       e.i18n.add(STRINGS);

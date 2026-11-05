@@ -7,6 +7,7 @@
 import { uniform, renderGroup } from 'three/tsl';
 import { codedError } from '../../core/errorHints.js';
 import { boundUniforms } from '../engineUniforms.js';
+import { watchRenamed } from '../uniformRenames.js';
 
 /**
  * A uniform node that reads `read()` again on every render and uploads it in the shared render group. The one way the engine's TSL files turn a
@@ -22,7 +23,7 @@ import { boundUniforms } from '../engineUniforms.js';
  * @param {any} [initial]  value that fixes the uniform's type (default: read() now)
  * @returns {any} the uniform node; its node type (float, vec2/3/4, color) follows the value at run time, so it is not typed statically
  */
-export function readBack(read, initial = read()) {
+function readBack(read, initial = read()) {
   return uniform(initial).setGroup(renderGroup).onRenderUpdate(read);
 }
 
@@ -35,14 +36,14 @@ const CACHE = new WeakMap();   // engine.uniforms object -> { uTime: node, uWind
 function nodesOf(U) {
   let n = CACHE.get(U);
   if (n) return n;
-  n = {};
+  n = watchRenamed({}, 'threedog/tsl uniforms()');
   for (const [k, o] of Object.entries(U)) n[k] = valueNode(o);
   CACHE.set(U, n);
   return n;
 }
 
 /**
- * The engine's uniforms as TSL nodes (same names as engine.uniforms: uTime, uWind, uCloud, uFoliageTint...), cached per engine
+ * The engine's uniforms as TSL nodes (same names as engine.uniforms: uTime, uWind, uWeatherCloud, uFoliageTint...), cached per engine
  * @param {{ uniforms: Record<string, { value: any }> }} engine
  * @returns {Record<string, any>}
  */
@@ -62,6 +63,6 @@ export function uniforms(engine) {
  */
 export function engineNodes(builder, fn) {
   const U = boundUniforms(builder?.renderer);
-  if (!U) throw codedError('tsl-misuse', `threedog/tsl ${fn}(): the renderer compiling this material belongs to no engine, so there is no uTime / uWind / uCloud to read`);
+  if (!U) throw codedError('tsl-misuse', `threedog/tsl ${fn}(): the renderer compiling this material belongs to no engine, so there is no uTime / uWind / uWeatherCloud to read`);
   return nodesOf(U);
 }

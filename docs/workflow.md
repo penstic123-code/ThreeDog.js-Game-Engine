@@ -21,8 +21,8 @@ How the coordinator and helper agents work on the engine. The owner pushes and p
 
 ## Testing
 
-- Run only related tests: `npm test -- "<name>"`. The filter matches test NAMES (any case), not file names. Every word must match some test: a word that matches nothing prints "NOTHING MATCHED" and exits 1, so a typo never looks like a pass.
-- Output is short by default: each failed item with its failed checks, a progress line, then the list of failed items and the `Total:` line. `npm test -- --verbose` (or `-v`) prints every passing check too. Never paste whole logs into context. On a page error read `.threedog/errors.log` first.
+- Run only related tests: `threedog test "<name>"`. The filter matches test NAMES (any case), not file names. Every word must match some test: a word that matches nothing prints "NOTHING MATCHED" and exits 1, so a typo never looks like a pass.
+- Output is short by default: each failed item with its failed checks, a progress line, then the list of failed items and the `Total:` line. `threedog test --verbose` (or `-v`) prints every passing check too. Never paste whole logs into context. On a page error read `.threedog/errors.log` first.
 - A new test file is just a new `packages/engine/tests/specs/<name>.mjs` exporting `specs`; the runner finds it (there is no list to register it in). A file that exports no items, or a test name used twice, stops the run before any browser opens.
 - Rendering: specs that read pixels run on software rendering; tests wait on conditions (`frames`, `until`), never fixed sleeps. A failure that appears only under load must be reproduced alone before it is called flaky, and the evidence goes into the log.
 - Real WebGPU: the suite's Chromium lands on WebGPURenderer's WebGL2 backend. `node packages/tools/real-webgpu.mjs` runs specs or pages in system Chrome and fails any page that is not on a real device. Run it by hand after changes to shaders, cascades or the first frame; it needs a GPU and Chrome, so it cannot be in `npm test`.

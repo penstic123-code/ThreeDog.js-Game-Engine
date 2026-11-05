@@ -1,6 +1,6 @@
 # engine.swarm — swarm()
 
-Makes a swarm of same-kind gameplay objects (swarm() module): engine.swarm({ name, capacity, geometry, material, fields })
+(experimental) Makes a swarm of same-kind gameplay objects (swarm() module): engine.swarm({ name, capacity, geometry, material, fields })
 
 
 ## Methods and properties
@@ -22,7 +22,7 @@ Makes a swarm of same-kind gameplay objects (swarm() module): engine.swarm({ nam
   - `channel: string` Time channel of the onStep dt
   - `saved: boolean` Whether this swarm is kept in saves
   - `dropped: number` Spawns refused because the swarm was full, since it was made
-  - `data: SwarmData` The columns: data.x[row], data.y[row], data.z[row], one Float32Array per field, and data.id[row], the handle of that row (Float64Array). Rows 0 to count - 1 are live. The same object onStep and near pass as d
+  - `data: SwarmData` The columns: data.x[row], data.y[row], data.z[row] (Float32Array), one Float64Array per field, so a field can hold a handle, and data.id[row], the handle of that row (Float64Array). Rows 0 to count - 1 are live. The same object onStep and near pass as d
   - `mesh: THREE.InstancedMesh | null` The swarm's plain THREE.InstancedMesh (null when made without geometry and material); instance index = row. castShadow, layers and the rest are yours
   - `count: number` Objects alive now
   - `spawn(o?: Record<string, number>) → number` — Add one object. Fields left out start at 0 (scale at 1, colour at white). Returns its handle, or -1 when the swarm is full: the object is not added, dropped goes up, and one [swarm-full] warning is printed. May be called from onStep and near callbacks; an object spawned there first moves in the next step. Example: `const h = bullets.spawn({ x: 0, y: 1, z: 0, vx: 8, life: 2 });`

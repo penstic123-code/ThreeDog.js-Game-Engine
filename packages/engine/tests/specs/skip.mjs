@@ -6,7 +6,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const W = engine.world, cal = engine.calendar, P = engine.player.position;
         engine.mod('clock.rate', { owner: 'test', set: 10 });                       // 12 sky hours = 180 game seconds = 18 fixed seconds
         cal.timeOfDay = 0.75; engine.step(0.05, { render: false });
@@ -55,7 +55,7 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         const cal = engine.calendar, log = [];
         cal.day = 7; cal._season = cal.season; cal.timeOfDay = 23 / 24; engine.step(0.05, { render: false });
         const startSeason = cal.season;
@@ -81,7 +81,7 @@ export const specs = [
     url: '/',
     async run({ check, ev, page }) {
       await ev(() => {
-        engine.timeline.skip(); engine.pause();
+        engine.timeline.skip(); engine.haltLoop();
         engine.calendar.timeOfDay = 0.5; engine.step(0.1, { render: false });
         window.__sk = { p0: { ...engine.player.position }, done: false, t0: engine.clock.now };
         engine.saves.remove('sk-auto');

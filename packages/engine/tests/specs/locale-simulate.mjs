@@ -37,7 +37,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const { mk } = threedogThreads, T = threedogThreads.all;
-        // the key is part of the setup: interactions stop the game when an action has no key (interaction-no-key)
+        // the key is part of the setup: this test presses nothing, but the prompts it reads name the key
         const E = mk(T.createEngine, 'locale-zh', { locale: 'zh', bindings: { ...T.presets.bindings.interact } });
         E.use(T.world(), T.sky(), T.weather(), T.interactions({ ...T.presets.interactions.nearest }), T.pickups(), T.characters());
         await E.start();
@@ -72,7 +72,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player, inp = engine.input, out = {};
         try { inp.simulate('forward', true); } catch (err) { out.code = err.code; out.msg = String(err.message); }
         engine.step(10 / 60, { render: false });

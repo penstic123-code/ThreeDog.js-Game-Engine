@@ -8,11 +8,11 @@ export const specs = [
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE, Character = engine.player.constructor;
         const model = window.makeRig();   // skinned dummy with Idle / Walk / Run / Wave clips
         let crouch = true;
-        const c = new Character(engine, { model, clips: { crouch: 'Wave' }, states: (ch, f) => crouch && f.grounded && f.base !== 'run' ? 'crouch' : null }).addTo();
+        const c = new Character(engine, { model, clips: { crouch: 'Wave' }, states: (ch, f) => crouch && f.grounded && f.base !== 'run' ? 'crouch' : null }); engine.add(c.root);
         c.placeAt({ x: 10, z: 10 });
         for (let i = 0; i < 10; i++) { c.move(0, 0, false, 1 / 60); c.animate(1 / 60); }
         const out = { state: c.state, anim: c.anim?.state ?? null };
@@ -34,7 +34,7 @@ export const specs = [
     url: '/tests/nav/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player, events = [];
         const off = engine.events.on('character:water', ({ character, in: inn, mode }) => { if (character === p) events.push(`${inn ? 'in' : 'out'}:${mode}`); });
         // deep water east of x = 20 (south of the maze wall), dry land west of it
@@ -60,18 +60,18 @@ export const specs = [
     async run({ check, ev }) {
       await ev(() => __t.until(() => window.car?.seatPosition, 15000).catch(() => {}));
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player, car = window.car, Character = p.constructor;
         car.hideDriver = false; car.seats = 2;
         const h = engine.control.take(p, { owner: 'test', layer: 'script' });
         p.enter(car); h.move(0, 0, false, 1 / 60);
-        const rider = new Character(engine, {}).addTo(); rider.enter(car); rider.move(0, 0, false, 1 / 60);
-        const third = new Character(engine, {}).addTo(); third.enter(car);
-        const out = { visible: p.object.visible, onSeat: p.position.distanceTo(car.seatPosition(0)) < 0.01, seat: p.seat, riderSeat: rider.seat,
+        const rider = new Character(engine, {}); engine.add(rider.root); rider.enter(car); rider.move(0, 0, false, 1 / 60);
+        const third = new Character(engine, {}); engine.add(third.root); third.enter(car);
+        const out = { visible: p.root.visible, onSeat: p.position.distanceTo(car.seatPosition(0)) < 0.01, seat: p.seat, riderSeat: rider.seat,
           passengers: car.passengers.length, full: third.vehicle === null, driver: car.driver === p };
         rider.exit(); p.exit(); h.remove();
-        out.after = { visible: p.object.visible, driver: car.driver, passengers: car.passengers.length };
-        car.hideDriver = true; p.enter(car); out.hidden = !p.object.visible; p.exit();
+        out.after = { visible: p.root.visible, driver: car.driver, passengers: car.passengers.length };
+        car.hideDriver = true; p.enter(car); out.hidden = !p.root.visible; p.exit();
         rider.dispose(); third.dispose(); car.seats = 1;
         return out;
       });
@@ -85,7 +85,7 @@ export const specs = [
     url: '/tests/vehicle/index.html',
     async run({ check, ev, page }) {
       await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         window.__step = n => { for (let i = 0; i < n; i++) engine.step(1 / 60, { render: false, describe: false }); };
         const p = engine.player; p.placeAt({ x: 30, z: 30 });
         window.__hold = { used: 0, events: [] };
@@ -114,7 +114,7 @@ export const specs = [
     url: '/tests/vehicle/index.html',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const p = engine.player; p.placeAt({ x: 20, z: 20 });
         let usedAt = null;
         const h = engine.interactions.add({ x: 26, y: 0, z: 20 }, { id: 'clerk', label: 'Talk', radius: Infinity, approach: true, onUse: () => { usedAt = Math.hypot(p.position.x - 26, p.position.z - 20); return 'served'; } });

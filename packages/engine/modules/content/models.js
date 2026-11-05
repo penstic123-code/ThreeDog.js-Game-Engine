@@ -1,8 +1,9 @@
 // Models of placed content records: clone the shared prototype of a model name (core/namedModel.js protoOf, the one path every system uses),
 // align it and its collision to the record (props and template instances).
 import { protoOf } from '../../core/namedModel.js';
+import { wrapLod } from '../../core/assetLod.js';
 import { Vector3 } from 'three';
-import { list } from './rules.js';
+import { list } from '../../core/util.js';
 
 const BASE_BAND = 0.2;   // the share of the model's height above the ground that counts as its base
 
@@ -73,7 +74,9 @@ export const fitKey = (rec, mul = 1) => `${rec.position.x},${rec.position.z},${r
 
 /** Clone the shared prototype of a model for one record and align it (props and template instances) @internal */
 export async function buildModel(e, api, rec, model, solid, mul = 1) {
-  const proto = await protoOf(e, api, model), o = proto.obj.clone(), name = list(model)[0];
+  const proto = await protoOf(e, api, model), name = list(model)[0], lod = rec.lod ?? solid.lod;
+  // settle below measures proto, never o, so collision stays the full model's; the record keeps only the word `lod`, so a save holds no level
+  const o = lod ? await wrapLod(e.assets, name, proto.obj.clone(), { distances: Array.isArray(lod) ? lod : undefined, scale: (rec.scale ?? 1) * mul }) : proto.obj.clone();
   o.name ||= name; o.userData.name ??= name;
   o.userData.proto = proto; o.userData.colliders = [];
   if (rec.batch === false) o.userData.batch = false;   // opt out of engine.batching for this record

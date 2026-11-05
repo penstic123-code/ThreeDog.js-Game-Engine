@@ -20,7 +20,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        await engine.loading.settled(); engine.pause();
+        await engine.loading.settled(); engine.haltLoop();
         const { ShaderPass, CopyShader } = threedogTest, out = {};
         const fx = n => ({ name: n, slot: 'ldr', create: () => new ShaderPass(CopyShader) });   // no order of its own: ties decide
         engine.plugins.add({ './plugins/60-pa.js': { default: fx('pa') }, './plugins/61-pb.js': { default: fx('pb') } });
@@ -77,7 +77,7 @@ export const specs = [
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(async PIX => {
-        await engine.loading.settled(); engine.pause();
+        await engine.loading.settled(); engine.haltLoop();
         const { THREE, postEffects: E, applyEffects } = threedogTest, out = {};
         const hold = engine.freeze('pc-pixels', { ambient: true }), px = (0, eval)(PIX);   // wind, clouds, weather stand still: two reads differ only by the plugins
         // material + wind + cloud shadow: a crate in front of the camera with both effects

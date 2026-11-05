@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 import { contentWrite, lit, stats } from '../content-write.mjs';
+import { writeChecked } from '../lib/atomic.mjs';
 import { checkGame } from '../content-check.mjs';
 import { loadGame, partOf } from '../content-check/load.mjs';
 
@@ -59,6 +60,16 @@ export async function run({ check }) {
     check('a value computed by code is refused with its line', /computed by code.*line 4/.test((await w({ op: 'set', id: 'b', fields: { scale: 2 } })).error ?? ''));
     const g = await w({ op: 'set', id: 'g1', fields: { x: 1 } });
     check('an entry built by code (after a spread) is refused with the line of the code', !g.ok && g.generated && /props\.js:\d+.*built by code/.test(g.error), g.error);
+    // the editor's expect: JSON has no undefined, so null means "not set"; and a field an undo put back sits at the end of the entry
+    const held = props();
+    const nulled = await w({ op: 'set', id: 'c', fields: { scale: null } }), edited = await w({ op: 'set', id: 'c', fields: { scale: 2 }, expect: { scale: undefined } });
+    check('a field written as null can be edited: null from the page means not set', nulled.ok && edited.ok, JSON.stringify([nulled, edited]));
+    await w({ op: 'set', id: 'c', fields: { size: { w: 1, h: 2 } }, unset: ['scale'] });
+    check('key order is not a value: an expect with equal fields in another order goes through', (await w({ op: 'set', id: 'c', fields: {}, unset: ['size'], expect: { size: { h: 2, w: 1 } } })).ok && props() === held, props());
+    const hand = join(root, 'hand.txt');
+    writeFileSync(hand, 'old');
+    await writeChecked(hand, 'old', 'new', () => { writeFileSync(hand, 'saved by hand'); return ['bad']; });
+    check('a failed check does not overwrite a hand save made during it', readFileSync(hand, 'utf8') === 'saved by hand');
     check('an unknown id is explained', /no content entry with id 'zzz'/.test((await w({ op: 'set', id: 'zzz', fields: { x: 1 } })).error ?? ''));
     const t = await w({ op: 'set', id: 'crate', fields: { model: 'box' } });
     check('a named entry (template key) is edited when no placed entry has that id', t.ok && readFileSync(join(dir, 'content/templates.js'), 'utf8').includes("crate: { model: 'box' }"), t.error);
@@ -67,7 +78,31 @@ export async function run({ check }) {
     check('add appends after the last literal on its own line, trailing comma kept', a.ok && props().includes("  ...gen,\n  { id: 'd', template: 'crate', x: 5, z: 5 },\n];"), a.error ?? props());
     check('add without an id is refused (a position id shifts)', /needs an id/.test((await w({ op: 'add', kind: 'props', entry: { template: 'crate', x: 1, z: 1 } })).error ?? ''));
     check('add with an id that exists is refused', /already used/.test((await w({ op: 'add', kind: 'props', entry: { id: 'a', template: 'crate', x: 1, z: 1 } })).error ?? ''));
+    const whole = props();
+    await w({ op: 'set', id: 'a', fields: { note: 1 } });
+    check('[guard] unset refused by a stale expect', (await w({ op: 'set', id: 'a', unset: ['note'], expect: { note: 2 } })).conflict === true && props() !== whole);
+    check('[guard] a field added at the end comes off byte for byte', (await w({ op: 'set', id: 'a', unset: ['note'], expect: { note: 1 } })).ok && props() === whole, props());
+    // a field cut from the middle goes back in front of the one that followed it (spot), and a field with no such neighbour still goes to the end
+    const mid = props();
+    const took = await w({ op: 'set', id: 'c', unset: ['x'], expect: { x: 3 } }), midGone = props();
+    const put = await w({ op: 'set', id: 'c', fields: { x: 3 }, spot: { x: 'z' }, expect: { x: undefined } });
+    check('[guard] set with spot puts a cut field back in its place, before the field that followed it', took.ok && midGone !== mid && put.ok && /id: 'c',\s+template: 'crate', x: 3, z: 2/.test(props()), props());
+    check('set with a spot that is not there falls back to the end', (await w({ op: 'set', id: 'c', fields: { rot: 1 }, spot: { rot: 'nope' } })).ok && /rot: 1 \}/.test(props()));
+    await w({ op: 'set', id: 'c', unset: ['rot'] });
+    writeFileSync(join(dir, 'content/props.js'), mid);   // the c line lost its double space to the separator: the later byte checks start from the file as it was
+    // an entry with a value computed by code can be cut: the comparison is on what is written out, and restore puts all of it back
+    const lineB = props().split('\n').find(l => l.includes("id: 'b'")), nowB = props();
+    const cutB = await w({ op: 'remove', id: 'b', expect: { id: 'b', template: 'fence', x: 12.5, z: 1 } });
+    check('remove of an entry with a computed value: compared on its written values, cut whole', cutB.ok && !props().includes("id: 'b'") && nowB.includes(lineB), cutB.error ?? props());
+    check('restore brings the computed entry back byte for byte', (await w({ op: 'restore', id: 'b', ...cutB.restore })).ok && props() === nowB, props());
+    const cut = await w({ op: 'remove', id: 'a' }), gone = props();
+    check('[guard] restore puts the cut bytes back in the same spot', (await w({ op: 'restore', id: 'a', ...cut.restore })).ok && props() === whole, props());
+    check('[guard] restore refuses an entry that is there again', (await w({ op: 'restore', id: 'a', ...cut.restore })).conflict === true && props() === whole);
+    check('[guard] restore stays inside content/', /only edits/.test((await w({ op: 'restore', id: 'a', ...cut.restore, file: 'main.js' })).error ?? ''));
     const r = await w({ op: 'remove', id: 'a' });
+    writeFileSync(join(dir, 'content/props.js'), gone.replace(r.restore.after.slice(0, 12), r.restore.after.slice(0, 12) + ' '));
+    check('[guard] restore refuses when the text around the cut changed: no guessing a spot', (await w({ op: 'restore', id: 'a', ...r.restore })).conflict === true);
+    writeFileSync(join(dir, 'content/props.js'), gone);
     check('remove cuts the entry, its comma and its line (comment of that line too), nothing else', r.ok && !props().includes("id: 'a'") && props().startsWith("const gen = [{ id: 'g1', template: 'crate', x: 9, z: 9 }];\nexport default [\n  { id: 'b',"), r.error ?? props());
     const pr = await w({ op: 'remove', id: 'pickup:apple:0' });
     check('remove refuses when later entries take their id from their position', !pr.ok && /shift the ids/.test(pr.error), pr.error);

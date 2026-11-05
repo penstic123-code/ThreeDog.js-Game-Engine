@@ -58,7 +58,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `height?: number` Camera height above the focus (meters), default 30
   - `minHeight?: number` Zoom range (meters)
   - `maxHeight?: number`
-  - `angle?: number` Pitch down angle (radians, π/2 = straight down), default 0.95
+  - `pitch?: number` Pitch down angle (radians, π/2 = straight down), default 0.95
   - `yaw?: number` Initial horizontal heading (radians)
   - `panSpeed?: number` Pan speed multiplier
   - `dragPan?: boolean` Drag with the mouse to pan, default true

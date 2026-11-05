@@ -143,7 +143,7 @@ export const specs = [
         await frames(3);
         const c0 = engine.clock.now;
         dispatchEvent(new Event('blur'));
-        const held = engine.page.held;
+        const pageFrozen = () => engine.stacks.get('freeze').has('page'), held = pageFrozen();
         await frames(20);   // frame hooks keep running while held; only fixed steps (and the game clock) stop
         const during = engine.clock.now - c0;
         const c1 = engine.clock.now;
@@ -164,9 +164,9 @@ export const specs = [
         engine.page.pauseOnBlur = true;
         const lost = engine.renderer.domElement;
         lost.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
-        const gpuHeld = engine.page.held;
+        const gpuHeld = pageFrozen();
         lost.dispatchEvent(new Event('webglcontextrestored'));
-        return { held, during, burst, stall, kept, gpuHeld, after: engine.page.held, scale: engine.clock.rate };
+        return { held, during, burst, stall, kept, gpuHeld, after: pageFrozen(), scale: engine.clock.rate };
       });
       const s = r.scale || 1;
       check('blur holds gameplay: the game clock does not move while away', r.held === true && r.during === 0, JSON.stringify(r));

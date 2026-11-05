@@ -9,12 +9,13 @@ import { pathToFileURL } from 'node:url';
 import { ROOT, TOOLS, MODE, command, findWorkspace, workspaces, rel, ENGINE, ownViteConfig, VITE_DEFAULT_CONFIG } from '../paths.mjs';
 import { parseOptions, pagePath } from '../lib/cli-args.mjs';
 import { nodeProblem, NODE_FIX } from '../lib/node-version.mjs';
+import { COMMANDS, EXTRA } from '../threedog/command-table.mjs';
 
 /** Commands that run one script of this package (with the remaining arguments) */
 export const SCRIPTS = { test: 'run.mjs', check: 'check.mjs', types: 'types.mjs', shot: 'shot.mjs', perf: 'perf.mjs', stress: 'stress.mjs', capture: 'capture.mjs', bake: 'bake.mjs', assets: 'assets.mjs',
   doctor: 'doctor.mjs', 'new-game': 'new-game.mjs', init: 'init.mjs', picture: 'picture.mjs', content: 'content-ids.mjs', tune: 'tune.mjs', gallery: 'gallery.mjs', how: 'how.mjs', relay: 'net-relay.mjs', art: 'art.mjs', lib: 'lib.mjs', examples: 'examples.mjs', mcp: 'threedog/mcp.mjs', 'api-count': 'api-count.mjs' };
 /** Dev bridge commands: drive the page running under `npm run dev` (recipes/16-dev-bridge.md) */
-export const BRIDGE = ['describe', 'step', 'press', 'hold', 'state', 'eval', 'js', 'snap', 'snap-describe', 'errors', 'reload', 'resume', 'op', 'skip', 'ops', 'catalog', 'scenario', 'session', 'inspect', 'scene', 'explain', 'loading', 'pick', 'thing', 'play', 'status', 'verify'];
+export const BRIDGE = [...Object.keys(COMMANDS), ...Object.keys(EXTRA).filter(c => !c.startsWith('picture-')), 'session'];   // picture-* are the MCP's spelling of `threedog picture`
 /** vite commands on one workspace */
 export const VITE = ['dev', 'build', 'preview'];
 /** Commands that start vite (or a page under it): they check the Node version first, since vite's own failure on an old Node names neither */
@@ -22,7 +23,7 @@ export const NEEDS_NODE = [...VITE, 'test', 'shot', 'perf', 'stress', 'capture',
 /** Doc generators: the engine generators only run in the monorepo; a game regenerates its GAMEMAP */
 const MAP = MODE === 'monorepo' ? ['gentypes.mjs', 'codemap.mjs', 'apidoc.mjs', 'gamemap.mjs'] : ['gamemap.mjs'];
 export const USAGE = `Usage: threedog ${VITE.join('|')} [game | -w game] · threedog test [-w game] [test name…] · threedog check|types|map · ` +
-  `threedog shot|perf|bake|assets [-w game] … [--gpu|--software] · threedog bake light [-w game] [--out f] [--size n] [--spacing m] [--samples n] [--page url] · threedog stress [--only axis,…] · threedog new-game name · threedog init [folder] · threedog picture palette|compare … · threedog content ids [-w game] [--write] · threedog content set|add|remove|stamp|capture … · threedog tune show|write [file] [--apply] · threedog gallery [-w game] [--shots] · threedog how "task" · threedog art list <source> · threedog art copy <source> [names…] [--to art/] [--force] [--dry] · threedog art board [-w game] [--out file.html] [--json] [--live] · threedog lib add|list|status|check|pull|page … (your own art and systems library, ~/.threedog/library) · threedog examples list|pull <name> [--out dir] [--force] · threedog doctor · threedog api-count [--unused] [--json] [--games dirA,dirB] (engine repo) · threedog relay [port] · threedog mcp [-w game] [--allow-js] · dev bridge: threedog ${BRIDGE.join('|')}`;
+  `threedog shot|perf|bake|assets [-w game] … [--gpu|--software] · threedog bake light [-w game] [--out f] [--size n] [--samples n] [--page url] · threedog stress [--only axis,…] · threedog new-game name · threedog init [folder] · threedog picture palette|compare … · threedog content ids [-w game] [--write] · threedog content set|add|remove|stamp|capture … · threedog tune show|write [file] [--apply] · threedog gallery [-w game] [--shots] · threedog how "task" · threedog art list <source> · threedog art copy <source> [names…] [--to art/] [--force] [--dry] · threedog art board [-w game] [--out file.html] [--json] [--live] · threedog lib add|list|status|check|pull|page … (your own art and systems library, ~/.threedog/library) · threedog examples list|pull <name> [--out dir] [--force] · threedog doctor · threedog api-count [--unused] [--json] [--games dirA,dirB] (engine repo) · threedog relay [port] · threedog mcp [-w game] [--allow-js] · dev bridge: threedog ${BRIDGE.join('|')}`;
 
 const node = (script, args, cwd = process.cwd()) => spawnSync(process.execPath, [join(TOOLS, script), ...args], { stdio: 'inherit', cwd }).status ?? 1;
 /** --help / -h: print the script's header comment instead of running it (`threedog test --help` used to start the whole suite) */
@@ -53,7 +54,7 @@ export function main([cmd, ...rest]) {
       name = !picked.named && args[0] && !args[0].startsWith('-') ? args[0] : undefined;
       if (name) { dir = findWorkspace(name); args = args.slice(1); } else dir = picked.dir;
       // --base /my-game/ (deploying under a sub-path): Git Bash rewrote it into "C:/Program Files/Git/my-game/", which vite then wrote into
-      // every asset URL of the build; it is a URL path like a page path, so the same undo applies (recipes/34-deploy.md)
+      // every asset URL of the build; it is a URL path like a page path, so the same undo applies (recipes/61-deploy.md)
       args = args.map((a, i) => args[i - 1] === '--base' ? pagePath(a) : a.startsWith('--base=') ? '--base=' + pagePath(a.slice(7)) : a);
     } catch (e) { console.error(e.message); return 1; }
     if (!dir) { console.error(`"${name}" not found. Available: ${workspaces().map(rel).join(', ')}`); return 1; }
@@ -81,6 +82,7 @@ export function main([cmd, ...rest]) {
     for (const s of m.workspace !== undefined ? ['gamemap.mjs'] : MAP) { const c = node(s, argsOf[s] ?? check); if (c) return c; }
     return 0;
   }
+  if (cmd === '--help' || cmd === '-h' || cmd === 'help') { console.log(USAGE); return 0; }   // asked for: not a failure, a script reading the exit code must see that
   if (BRIDGE.includes(cmd)) return node('threedog/cli.mjs', [cmd, ...rest]);
   if (cmd === 'bake' && rest[0] === 'light') return node('bake-light.mjs', rest.slice(1));   // a sub-command, so a baked model can never be named after it
   if (SCRIPTS[cmd]) return node(SCRIPTS[cmd], rest);

@@ -8,7 +8,7 @@ const READY = { timeout: 60000 };
 // crate moved along the walk and where the player ended up relative to it (pushed ahead = crate stays in front, moved forward)
 async function walkIntoCrate() {
   const e = window.engine, R = e.rigid, T = e.THREE;
-  e.pause();
+  e.haltLoop();
   e.input.autopilot = { x: 0, y: 1, speed: 1 };
   const p0 = e.player.position.clone();
   e.step(0.5, { render: false, describe: false });

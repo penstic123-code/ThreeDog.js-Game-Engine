@@ -89,9 +89,9 @@ export class I18n {
    * @param {string} key
    * @param {Record<string, any>} [params]
    * @returns {string}
-   * @example engine.i18n.t('shop.buy', { name: '鱼' });
+   * @example engine.t('shop.buy', { name: '鱼' });
    */
-  t(key, params = {}) {
+  _t(key, params = {}) {
     const raw = this._raw(key);
     if (raw == null) {
       // Looks like a key (a.b form) but has no text: probably misspelled or never registered

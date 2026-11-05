@@ -8,6 +8,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { diagnose } from '../threedog/diagnose.mjs';
+import { execute } from '../threedog/dispatch.mjs';
 
 export const name = 'busy dev server: a live pid whose port does not answer the ping is reported as busy, not as "No dev server is running"';
 
@@ -20,5 +21,9 @@ export async function run({ check }) {
     writeFileSync(join(dir, '.threedog', 'dev.json'), JSON.stringify({ port: srv.address().port, token: 't', pid: process.pid }));
     const d = await diagnose(dir);
     check('names the live server and says wait, not "No dev server is running"', d?.kind === 'busy' && /is running/.test(d.text) && !/No dev server is running/.test(d.text) && /retry/.test(d.text), d?.text);
+    // a record whose process is gone: the words of connect.mjs differ from "no dev server", the code must not
+    writeFileSync(join(dir, '.threedog', 'dev.json'), JSON.stringify({ port: 1, token: 't', pid: 2 ** 22 + 1 }));
+    const stale = await execute(dir, 'describe');
+    check('a stale record answers no-server, not command-error', stale.code === 'no-server', JSON.stringify(stale));
   } finally { srv.closeAllConnections?.(); srv.close(); rmSync(dir, { recursive: true, force: true }); }
 }

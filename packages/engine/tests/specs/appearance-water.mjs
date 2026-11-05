@@ -147,7 +147,7 @@ export const specs = [
   },
   {
     software: true,   // reads rendered pixels (through a helper): stays on software rendering (same pixels on every machine)
-    name: '[守] 天气粒子：默认雨雪和旧着色器逐像素一致；形状 / 大小 / 密度曲线 / 速度 / 颜色生效；glsl 替换带 uniform 能编译；闪电外观可换；engine.weather.define 注册自己的粒子；写错报错给改法',
+    name: '[守] 天气粒子：默认雨雪和旧着色器逐像素一致；形状 / 大小 / 密度曲线 / 速度 / 颜色生效；glsl 替换带 uniform 能编译；闪电外观可换；engine.weather.defineField 注册自己的粒子；写错报错给改法',
     url: '/tests/perf/index.html?mode=world',
     async run({ check, ev }) {
       const r = await ev(page(() => {
@@ -179,19 +179,24 @@ export const specs = [
         out.lightning = Math.abs((zap.stacks.get('sky.flash').holders().find(h => h.owner === 'weatherDraw')?.value ?? NaN) - 0.25) < 1e-6;
         // game-defined systems
         const g = at({}).e;
-        const ash = g.weather.define('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
+        const ash = g.weather.defineField('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
         g.weather.set('ashfall', { seconds: 0.01 }); g.step(0.2, { render: false }); g.weatherDraw.apply(cam);
         out.ash = ash.object.parent === g.scene && ash.object.name === 'weather-ash' && ash.object.visible && !px(ash.object).err;
         let seen = -1; const own = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
-        g.weather.define('ash', { create: () => ({ object: own, update(a) { seen = a; } }) }); g.weatherDraw.apply(cam);
+        g.weather.defineField('ash', { create: () => ({ object: own, update(a) { seen = a; } }) }); g.weatherDraw.apply(cam);
         out.own = !ash.object.parent && own.parent === g.scene && seen > 0.9;
         const drops = new THREE.Points(new THREE.BufferGeometry());
-        g.weather.define('rain', { create: () => ({ object: drops }) });
+        g.weather.defineField('rain', { create: () => ({ object: drops }) });
         out.replaced = !g.scene.getObjectByName('weather-rain') || g.scene.getObjectByName('weather-rain') === drops;
         out.zero = at({}, { types: { clear: {}, dusk: { grey: 0.4 } }, start: 'clear' }).e.weatherDraw.systems.size === 0;
+        // no sky module: the particles still fall, and a count the game gave stands on every tier (this page is low tier)
+        const bare = make({}, [weather({ types, start: 'wet', particles: 40, rain: { count: 30 } })]);
+        if (bare.e) { bare.e.step(0.3, { render: false }); bare.e.weatherDraw.flash = 1; bare.e.weatherDraw.apply(cam); }
+        out.noSky = { error: bare.error, tier: bare.e?.tier, rain: sys(bare.e, 'rain')?.count, snow: sys(bare.e, 'snow')?.count, shown: sys(bare.e, 'rain')?.object.visible };
+        bare.e?.dispose();
         // wrong settings
         const err = fn => { try { fn(); return ''; } catch (e) { return e.message; } };
-        out.badField = err(() => g.weather.define('ahs', {}));
+        out.badField = err(() => g.weather.defineField('ahs', {}));
         out.badShape = at({ snow: { shape: 'sqare' } }).error;
         out.badDensity = at({ rain: { density: 0.5 } }).error;
         // an unknown key throws in dev at the first one, so each typo is its own engine
@@ -203,7 +208,8 @@ export const specs = [
       check('密度曲线、长度、颜色、大小、飘移、soft 形状生效；square 形状把雨换成点', r.density && r.params && r.points, JSON.stringify([r.density, r.params, r.points]));
       check('glsl.fragment 替换带自定义 uniform 能编译且画面不同', r.glsl, r.glslErr);
       check('weather({ lightning }) 换闪电亮度曲线', r.lightning);
-      check('weather.define：自己的字段画粒子；create 整体替换；同名替换内置雨；不用就不建', r.ash && r.own && r.replaced && r.zero, JSON.stringify([r.ash, r.own, r.replaced, r.zero]));
+      check('weather.defineField：自己的字段画粒子；create 整体替换；同名替换内置雨；不用就不建', r.ash && r.own && r.replaced && r.zero, JSON.stringify([r.ash, r.own, r.replaced, r.zero]));
+      check('[guard] weather without a sky module draws its particles; weather({ particles }) and rain.count stand as given', !r.noSky.error && r.noSky.rain === 30 && r.noSky.snow === 40 && r.noSky.shown, JSON.stringify(r.noSky));
       check('写错：字段不存在列出可用字段；形状拼错给近似名；density 不是函数给写法', /ashfall: \{ ahs: 1 \}/.test(r.badField) && /did you mean 'square'/.test(r.badShape || '') && /density: a => a \* a/.test(r.badDensity || ''), `${r.badField} | ${r.badShape} | ${r.badDensity}`);
       check('写错键：weather({ rain }) / weather() 拼错提示近似名', /`color`/.test(r.badKey) && /lightning/.test(r.badKey), r.badKey);
     },

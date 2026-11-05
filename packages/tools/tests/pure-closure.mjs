@@ -15,4 +15,6 @@ export async function run({ check }) {
   check('[guard] terrain height reading an outer variable: says closures are not supported and shows terrain({ params }) / n.params',
     /closures are not supported/.test(m) && /terrain\(\{ params:/.test(m) && /n\.params\./.test(m) && /'hill'/.test(m), m);
   check('a self-contained height compiles', msg((x, z, n) => 4 + 30 * n.fbm(x * 0.004, z * 0.004)) === '');
+  check('[guard] a number is not a variable: 1e9, 1.5e3, 0xff, 0b11, 10n, 1_000 compile, and a real outer name beside one is still named',
+    msg(() => 1e9 + 1.5e3 + 0xff + 0b11 + Number(10n) + 1_000) === '' && /'hill'/.test(msg(() => 1e9 + hill)) && !/e9/.test(msg(() => 1e9 + hill)), msg(() => 1e9));
 }

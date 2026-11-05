@@ -25,7 +25,7 @@
 - Not for this game: (not written yet)
 
 ## Picture and controls
-<!-- Chosen with the user in the first session (see CLAUDE.md "First session"); nothing here is a default to keep silently. -->
+<!-- Settled in the first session (see CLAUDE.md "First session"); nothing here is a default to keep silently. -->
 <!-- Optional: the one line the shot's picture check reads a wish from (the table below is for people, it is not read). Words:
      bright, dark, high-contrast, low-contrast, saturated, muted, strong-light, dark-nights, bright-nights, no-glare, no-pitch-black. -->
 Picture intent (optional): (none)

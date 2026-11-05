@@ -14,9 +14,10 @@ export const name = 'named camera views: define / show / release';
 
 export async function run({ check }) {
   // a minimal engine with the real camera takeover (holds.js), so views cannot bypass it
-  const engine = Object.defineProperties({ camera: new THREE.PerspectiveCamera(60) }, Object.getOwnPropertyDescriptors(holdMethods));
+  const engine = Object.defineProperties({ camera: new THREE.PerspectiveCamera(60), focus: new THREE.Vector3() }, Object.getOwnPropertyDescriptors(holdMethods));
   engine.stacks = new Stacks(engine); engine.stacks.define('camera', { kind: 'top', save: false });
   engine.events = new Events();
+  engine._oFov = { drive(v) { engine.camera.fov = v; } };   // the fov owner (core/view.js): views write through it
   const cuts = []; engine.events.on('camera:shot', c => cuts.push(c.name));
   const v = new Views(engine);
   const def = v.define('gate', { position: [0, 2, 10], target: [0, 2, 0], fov: 35 });
@@ -24,10 +25,13 @@ export async function run({ check }) {
   const shown = v.show('gate');
   check('show places the camera and takes it over', shown && engine.camera.position.z === 10 && engine.camera.fov === 35 && engine.cameraOverride?.owner === 'views');
   check('show announces the cut, so the light pool settles at once', cuts.join() === 'gate');
+  check('[guard] the world loads around what the view looks at: the claim carries the target as focus, and engine.focus moves at once',
+    engine.cameraOverride?.focus?.z === 0 && engine.cameraOverride?.focus?.y === 2 && engine.focus.y === 2);
   const dir = new THREE.Vector3(); engine.camera.getWorldDirection(dir);
   check('the camera looks at the target (down -z)', dir.z < -0.99);
   shown.remove();
   check('the handle show returns gives the camera back', engine.cameraOverride === null && v.current === null);
+  check('release gives the fov back', engine.camera.fov === 60, String(engine.camera.fov));
   // a cutscene held the camera first: a view on top, then release, hands it back to the cutscene (not to nobody)
   const cut = engine.takeCamera('timeline', { focus: null });
   v.show('gate');

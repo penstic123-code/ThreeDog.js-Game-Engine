@@ -12,7 +12,7 @@
 //   engine.particles.count('dust')   // live particle count; no name = all
 //
 // Params (all optional; below are the neutral fallback values):
-//   max 120         max particles alive at once (halved when engine.tier is 'low')
+//   max 120         max particles alive at once (the default is 60 when engine.tier is 'low'; a number the game gives stands)
 //   lifetime [1,2]  seconds each particle lives (random range)
 //   rate 10         particles per second by default for attach
 //   speed [0.5,1.5] initial speed (m/s); direction [0,1,0] emit direction; spread 0.5 max angle off the direction (radians, pi = all directions)
@@ -87,7 +87,7 @@ export class Particles {
   define(name, opts = {}) {
     readParams(`particles.define('${name}')`, FX_PARAMS, opts);
     const old = this.effects.get(name);
-    const o = { ...NEUTRAL, ...this._fallback, ...this._given[name], ...opts };
+    const o = { ...NEUTRAL, max: this.engine.tier === 'low' ? NEUTRAL.max / 2 : NEUTRAL.max, ...this._fallback, ...this._given[name], ...opts };
     const fx = new Effect(this, name, o);
     this.effects.set(name, fx);
     // emitters attached to the old effect keep running on the new one (redefining tunes an effect, it does not stop it)
@@ -162,6 +162,7 @@ export class Particles {
    * @internal
    */
   update(dt) {
+    if (this.engine.still) dt = 0;   // freeze(owner, { ambient: true }): sparks hold in the air
     const cam = this.engine.camera, pr = this.engine.renderer.getPixelRatio(), scale = this.engine.renderer.getSize(_vs).y * pr / (cam.orthoSize ? cam.orthoSize / cam.zoom : 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));   // orthographic: pixels per world unit
     for (const h of this.emitters) {
       if (!h.active) continue;

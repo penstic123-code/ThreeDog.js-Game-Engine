@@ -8,13 +8,13 @@
 // Acceleration uses three-mesh-bvh: importing this file patches three's prototypes the way it recommends (Mesh.prototype.raycast etc.),
 // after which any mesh with geometry.boundsTree takes the fast path and the rest fall back to three's per-triangle check.
 // By default only visible objects are hit (itself and every parent visible) and they must be in the scene; occluders: true hits only camera blockers (including hidden col_ collision meshes).
-// Exception: an object with userData.rayVisible = true still counts as visible while hidden, for hiding that merely swaps in something else on screen (hlod marks the original this way when it hides it far away and shows the merged proxy).
 // A registered mesh is unregistered automatically when its geometry is disposed; engine.remove unregisters too.
 // Terrain chunks and instanced vegetation are not registered (use engine.surface for ground height and vegetation.instanceAt for trees).
 /** @import { Handle, Vec3Like } from '../types/common' */
 /** @import { RaycastOptions, RayHit, RayProvider } from '../types/core' */
 import * as THREE from 'three';
 import { vec3 } from './math.js';
+import { isUnder } from './util.js';
 import { acceleratedRaycast, computeBoundsTree } from 'three-mesh-bvh';
 import { thingOf } from './Inspect.js';
 import { RESERVED_LAYERS } from '../render/layers.js';
@@ -55,7 +55,7 @@ export class Rays {
   }
   /**
    * Register a static object and every mesh under it (an array also works; meshes over 256 triangles get a BVH); occluder: true also blocks the camera. Returns a handle { remove() }.
-   * Only visible objects are hit; hiding that just swaps in something else on screen (such as the far-away hlod original) is marked userData.rayVisible = true and is still hit.
+   * Only visible objects are hit. Something that is merely not drawn is still hit: batched originals, far hlod originals and the full model of a far assets.lod sit on a reserved layer, with their visible true.
    * Unregisters automatically on geometry dispose or engine.remove.
    * @param {THREE.Object3D | THREE.Object3D[]} obj
    * @param {{ occluder?: boolean }} [opts]
@@ -67,7 +67,7 @@ export class Rays {
     const added = [];
     for (const o of [].concat(obj)) o.traverse(m => {
       if (DEV && (m.isInstancedMesh || m.isSkinnedMesh)) warnOnce(`engine.rays.addStatic: skipped ${m.isInstancedMesh ? 'an InstancedMesh' : 'a SkinnedMesh'} ("${m.name}"): rays do not hit these and they do not block the camera. Use a collider, or register a plain stand-in mesh.`, 'rays-skip-' + m.type);
-      if (!m.isMesh || m.isInstancedMesh || m.isSkinnedMesh || !m.geometry?.attributes.position) return;
+      if (!m.isMesh || m.isInstancedMesh || m.isSkinnedMesh || m.userData.lodLevel || !m.geometry?.attributes.position) return;   // a low level stands in on screen only: rays use the full model
       if (!m.geometry.boundsTree && triangles(m.geometry) >= BVH_MIN) computeBoundsTree.call(m.geometry);
       if (m.geometry.boundsTree && m.raycast === THREE.Mesh.prototype.raycast) m.raycast = acceleratedRaycast;   // a game's own raycast override wins
       let s = this.statics.get(m);
@@ -108,7 +108,7 @@ export class Rays {
    * @param {RaycastOptions} [opts]
    * @returns {RayHit | null}
    */
-  cast(origin, dir, opts = {}) {
+  _ray(origin, dir, opts = {}) {
     const { far = Infinity, targets = 'static', filter = null, occluders = false } = opts;
     const o = vec3(origin, _v), d = vec3(dir, _d).normalize();
     this.ray.set(o, d); this.ray.near = 0; this.ray.far = far;
@@ -121,7 +121,7 @@ export class Rays {
    * @param {RaycastOptions} [opts]
    * @returns {RayHit | null}
    */
-  pick(ndcX, ndcY, opts = {}) {
+  _rayAt(ndcX, ndcY, opts = {}) {
     const { far = Infinity, targets = 'static', filter = null } = opts;
     this.ray.setFromCamera(_ndc.set(ndcX, ndcY), this.engine.camera);
     this.ray.far = far;
@@ -142,7 +142,7 @@ export class Rays {
       for (const [m, s] of this.statics) {
         if (occluders && !s.occ) continue;   // first: a camera ray then pays one flag check for every mesh that is no blocker
         if (!mayHit(ray, m, far)) continue;   // most statics are nowhere near the ray: skip them before walking parents
-        if (occluders ? !inScene(m, scene) : !shown(m, scene)) continue;
+        if (occluders ? !isUnder(m, scene) : !shown(m, scene)) continue;
         hits.length = 0; m.raycast(this.ray, hits);
         for (const h of hits) take(toHit(h));
       }
@@ -153,12 +153,12 @@ export class Rays {
   }
 }
 
-// Shown: itself and all parents visible (or marked userData.rayVisible); with a scene given it must also be in that scene
+// Shown: itself and all parents visible; with a scene given it must also be in that scene
 function shown(o, scene) {
-  for (let p = o; p; p = p.parent) { if (!p.visible && !p.userData.rayVisible) return false; if (p === scene) return true; }
+  if (o.userData.lodLevel) return false;   // a low level of a THREE.LOD (assetLod.js) stands in on screen only: the full model answers for it
+  for (let p = o; p; p = p.parent) { if (!p.visible) return false; if (p === scene) return true; }
   return !scene;
 }
-function inScene(o, scene) { for (let p = o; p; p = p.parent) if (p === scene) return true; return false; }
 function toHit(h) {
   const normal = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : null;
   return { point: h.point, distance: h.distance, normal, object: h.object, face: h.face };

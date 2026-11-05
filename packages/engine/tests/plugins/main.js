@@ -8,4 +8,4 @@ const canvas = document.body.appendChild(Object.assign(document.createElement('c
 const engine = window.engine = createEngine({ canvas, pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, urlState: false, saveKey: 'test-plugins' });
 window.threedogTest = { THREE };
 await engine.start();
-engine.pause();
+engine.haltLoop();

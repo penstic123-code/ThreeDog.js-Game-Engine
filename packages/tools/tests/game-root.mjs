@@ -36,6 +36,17 @@ export async function run({ check }) {
     check('init <folder> writes the game into that folder', existsSync(join(game, 'main.js')) && existsSync(join(game, 'package.json')));
     check('init <folder> leaves the repo root alone (no main.js, package.json byte-identical)', !existsSync(join(repo, 'main.js')) && readFileSync(join(repo, 'package.json'), 'utf8') === rootPkg);
     check('the game is named after its folder', JSON.parse(readFileSync(join(game, 'package.json'), 'utf8')).name === 'farm');
+    // ── a newcomer's folder: tools installed with -D first, nothing else there ──
+    const fresh = join(repo, 'fresh');
+    mkdirSync(fresh);
+    writeFileSync(join(fresh, 'package.json'), JSON.stringify({ name: 'fresh', devDependencies: { '@threedog/tools': '^0.7.1' } }));
+    const first = cli(fresh, 'init', '--open-world');
+    check('init on a new folder says it kept nothing it made itself', first.status === 0 && !/existing files kept \(.*main\.js/.test(first.stdout), first.stdout);
+    const freshPkg = JSON.parse(readFileSync(join(fresh, 'package.json'), 'utf8'));
+    check('a package already in devDependencies is not added to dependencies too', !freshPkg.dependencies['@threedog/tools'] && !!freshPkg.devDependencies['@threedog/tools'], JSON.stringify(freshPkg));
+    check('init writes GAMEMAP.md, or says when to', existsSync(join(fresh, 'GAMEMAP.md')) || first.stdout.includes('npx threedog map'), first.stdout);
+    const board = cli(repo, 'art', 'board');
+    check('art board in a workspaces root refuses and writes nothing there', board.status !== 0 && /repository root/.test(board.stdout + board.stderr) && !existsSync(join(repo, '.threedog')), (board.stdout + board.stderr).slice(-300));
     const atRoot = cli(repo, 'init');
     check('init in a workspaces root refuses and names the fix', atRoot.status === 1 && /repository root.*threedog init games\/my-game/.test(atRoot.stderr), atRoot.stderr.slice(-300));
 

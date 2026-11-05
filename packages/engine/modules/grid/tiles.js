@@ -58,7 +58,7 @@ export function layerTiles(e, layer, st) {
   return {
     mesh,
     frame() {
-      mesh.visible = g.zone == null || e.world?.zone == null || e.world.zone === g.zone;
+      mesh.visible = e.world?.inZone(g) ?? true;
       if (layer._ver !== ver || ground !== built) { ver = layer._ver; built = ground; rebuild(); }
     },
     dispose() { off.remove(); e.remove(mesh); geo.dispose(); own.dispose(); },   // a material the game set stays the game's

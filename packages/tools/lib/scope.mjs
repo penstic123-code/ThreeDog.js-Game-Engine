@@ -1,11 +1,11 @@
 // Scoped check (check -w <game>, or check run from inside a game folder): problems in that workspace's files are reported in full and decide the exit
-// code; problems elsewhere are only counted, then summed into one line for other games and one for the engine and shared packages.
+// code. tsc and R18 read only that workspace; what the other rules find elsewhere is only counted, then summed into one line for other games and one for the engine and shared packages.
 // check.mjs filters the rule runner through this; types.mjs does the same for tsc errors and hands its counts back to check with
 // --tally-json (one TALLY line that check parses and merges).
 import { resolve } from 'node:path';
 import * as P from '../paths.mjs';
 
-export const TALLY = 'THREEDOG_TALLY ';
+const TALLY = 'THREEDOG_TALLY ';
 
 /**
  * The scope of a check on workspace dir, as paths.mjs command(argv, { workspace: 'scope' }) picked it (the named workspace, else the game

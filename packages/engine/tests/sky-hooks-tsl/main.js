@@ -24,9 +24,9 @@ async function make(kind) {
   const e = createEngine({ canvas: canvas(), ...(kind === 'webgpu' ? { renderer: kind } : {}), pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, saveKey: 'test-sky-hooks-' + kind, urlState: false });
   e.use(sky({ time: 0.33, keyframes: KF, clouds: { coverage: 1 } }));
   e.scene.fog = new THREE.FogExp2(0xcccccc, 0.01); e.sky.layer('band', STYLE_LAYER);
-  await e.start(); e.pause();
+  await e.start(); e.haltLoop();
   e.renderer.toneMapping = THREE.NoToneMapping;
-  e.uniforms.uCloud.value = 0.55; e.uniforms.uTime.value = 12;
+  e.uniforms.uWeatherCloud.value = 0.55; e.uniforms.uTime.value = 12;
   // a ground and a tall box towards the sun: the fog shows on them, the clouds and the band above
   const M = kind === 'webgpu' ? TG.MeshBasicNodeMaterial : THREE.MeshBasicMaterial, m = new M({ color: 0x3a7a3a });
   e.scene.add(new THREE.Mesh(new THREE.PlaneGeometry(800, 800).rotateX(-Math.PI / 2), m));

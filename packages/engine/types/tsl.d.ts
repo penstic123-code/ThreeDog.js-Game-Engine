@@ -10,13 +10,15 @@ type Node = any;
  * position: object space before the instance transform (positionGeometry); origin: the object's world origin (objectOrigin());
  * amplitude: metres per metre of height. Reads uTime, uWind, uWindFreq.
  * @example
- * mat.positionNode = positionLocal.add(wind(positionGeometry, objectOrigin(), float(0.3)));   // plain Mesh (InstancedMesh: rotate the offset by the instance)
+ * mat.positionNode = positionLocal.add(wind(positionGeometry, objectOrigin(), float(0.3)));   // plain Mesh (InstancedMesh: wrap the offset in instanceOffset())
+ * @experimental
  */
 export function wind(position: Node, origin: Node, amplitude: Node | number): Node;
 /**
- * GLSL float threedogCloudShadow(vec3 worldPos): light factor 0-1 under the drifting clouds (1 = no shadow). Reads uTime, uCloud*, uCloudSpeed.
+ * GLSL float threedogCloudShadow(vec3 worldPos): light factor 0-1 under the drifting clouds (1 = no shadow). Reads uTime, uWeatherCloud, uCloudShadow*, uCloudShadowSpeed.
  * @example
  * mat.colorNode = color(0x88aa66).mul(cloudShadow(positionWorld));
+ * @experimental
  */
 export function cloudShadow(worldPos: Node): Node;
 /**
@@ -24,19 +26,42 @@ export function cloudShadow(worldPos: Node): Node;
  * A vec4 color is read as its rgb.
  * @example
  * mat.colorNode = season(texture(map), 0);
+ * @experimental
  */
 export function season(color: Node, kind: Node | 0 | 1): Node;
 /**
  * World position of the drawn object's origin (an InstancedMesh: of each instance), vec3. Works for any Mesh / InstancedMesh sharing the material;
  * BatchedMesh throws [tsl-misuse].
+ * @experimental
  */
 export function objectOrigin(): Node;
 /**
- * engine.uniforms as TSL uniform nodes (uTime, uWind, uCloud, uFoliageTint, uSunDir, uDaylight ...), cached per engine. They read the same
+ * An object-space offset carried through the drawn instance's rotation and scale (a plain Mesh: the offset as it is). A positionNode runs after the instance transform, so an
+ * offset meant for before it, like wind()'s, goes through this. BatchedMesh throws [tsl-misuse].
+ * @example
+ * mat.positionNode = positionLocal.add(instanceOffset(wind(positionGeometry, objectOrigin(), float(0.3))));
+ * @experimental
+ */
+export function instanceOffset(offset: Node): Node;
+/**
+ * GLSL float threedogHash(vec2 p): a repeatable random number 0-1 from a 2D position.
+ * @experimental
+ */
+export function hash(p: Node): Node;
+/**
+ * GLSL float threedogNoise(vec2 p): smooth value noise 0-1, the one behind the engine's clouds and cloud shadows. No uniforms.
+ * @example
+ * mat.colorNode = color(0x88aa66).mul(noise(positionWorld.xz.mul(0.5)).mul(0.4).add(0.8));
+ * @experimental
+ */
+export function noise(p: Node): Node;
+/**
+ * engine.uniforms as TSL uniform nodes (uTime, uWind, uWeatherCloud, uFoliageTint, uSunDir, uDaylight ...), cached per engine. They read the same
  * { value } objects, so engine.uniforms.uWind.value = 2 changes GLSL and TSL materials alike.
  * @example
  * const u = uniforms(engine);
  * mat.emissiveNode = color(0xffcc66).mul(float(1).sub(u.uDaylight));
+ * @experimental
  */
 export function uniforms(engine: { uniforms: object }): Record<string, Node>;
 /**
@@ -44,6 +69,7 @@ export function uniforms(engine: { uniforms: object }): Record<string, Node>;
  * No uniforms: p is any 2D pattern position you choose (world xz times a scale, a uv...). octaves: up to 4 (dabs: 3).
  * @example
  * mat.colorNode = color(0xb09070).mul(detailNoise(positionWorld.xz.mul(4), 1, 2).rgb.mul(2));
+ * @experimental
  */
 export function detailNoise(p: Node, kind: Node | 0 | 1 | 2 | 3, octaves: Node | number): Node;
 /**
@@ -51,21 +77,25 @@ export function detailNoise(p: Node, kind: Node | 0 | 1 | 2 | 3, octaves: Node |
  * View space; the result is a normal for material.normalNode.
  * @example
  * mat.normalNode = detailBump(positionView, normalView, detailNoise(positionWorld.xz.mul(4), 0, 2).a, 1, faceDirection);
+ * @experimental
  */
 export function detailBump(surfPos: Node, surfNorm: Node, h: Node, k: Node | number, faceDir: Node | number): Node;
 /**
  * GLSL vec3 threedogWrapDiffuse(float nl, float wrap, vec3 lightColor, float shadow, vec3 albedo): the half-lambert light beyond plain Lambert,
  * to add to directDiffuse. nl = dot(normal, sunDir). Call it from your LightingModel's direct() (lightColor there already carries the shadow: pass shadow 1).
+ * @experimental
  */
 export function wrapDiffuse(nl: Node, wrap: Node | number, lightColor: Node, shadow: Node | number, albedo: Node): Node;
 /**
  * GLSL vec3 threedogShadowTint(vec3 ambient, vec3 tint, float strength, float soft, float nl, float shadow): the ambient with the shaded side's hue moved
  * toward tint (brightness kept). shadow: 1 lit / 0 shadowed (the sun's lightNode.shadowNode); soft: terminator width in n.l.
+ * @experimental
  */
 export function shadowTint(ambient: Node, tint: Node, strength: Node | number, soft: Node | number, nl: Node, shadow: Node | number): Node;
 /**
  * GLSL vec3 threedogRim(vec3 normal, vec3 viewDir, vec3 color, float strength, float power, float shadowSide, float nl): edge light to add
  * (viewDir from the surface to the eye, e.g. normalView and positionViewDirection); shadowSide 1 = only on the side facing away from the sun.
+ * @experimental
  */
 export function rim(normal: Node, viewDir: Node, color: Node, strength: Node | number, power: Node | number, shadowSide: Node | number, nl: Node): Node;
 /**
@@ -74,6 +104,7 @@ export function rim(normal: Node, viewDir: Node, color: Node, strength: Node | n
  * @example
  * const mat = new MeshToonNodeMaterial({ color: 0xe08050, gradientMap: rampTexture([0x4a5a9a, 0xc0c8e0, 0xffffff]) });
  * mat.setupLightingModel = celLighting;
+ * @experimental
  */
 export function celLighting(): import('three/webgpu').LightingModel;
 /**
@@ -81,14 +112,16 @@ export function celLighting(): import('three/webgpu').LightingModel;
  * @example
  * const h = waterWave(modelWorldMatrix.mul(vec4(positionGeometry, 1)).xyz, uniforms(engine).uTime).toVarying();
  * mat.positionNode = positionLocal.add(vec3(0, h, 0));
+ * @experimental
  */
 export function waterWave(p: Node, t: Node | number): Node;
 /**
  * The built-in water surface as TSL: returns a function with the GLSL signature threedogWaterSurface(base, wave, facing, worldPos, time) -> vec4 (rgb, opacity).
  * Only the parts given exist (depth: shallow / deep by viewing angle or wave height; foam on crests); values are numbers / colors or nodes.
  * wave is waterWave's height, facing = 1 looking straight down.
+ * @experimental
  */
 export function waterSurface(spec?: { depth?: { shallow?: any, deep?: any, curve?: any, by?: 'view' | 'wave' }, foam?: { color?: any, start?: any, end?: any, opacity?: any }, waveMax?: number }):
   (base: Node, wave: Node, facing: Node, worldPos: Node, time: Node) => Node;
-/** The water's fresnel blend: color mixed toward `towards` (the engine uses the fog color) by pow(1 - |viewDir . normal|, 3) * strength, view space */
+/** The water's fresnel blend: color mixed toward `towards` (the engine uses the fog color) by pow(1 - |viewDir . normal|, 3) * strength, view space @experimental */
 export function waterFresnel(color: Node, normal: Node, viewDir: Node, strength: Node | number, towards: Node): Node;

@@ -76,6 +76,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - assetEntry.js: The life of one engine.assets entry, split from Assets.js (…
 - assetHot.js: Asset hot swap (dev): an edited generator (art/tree.js, a f…
 - assetLoad.js: File loading for engine.assets, split into the phases engin…
+- assetLod.js: engine.assets.lod(name) and a prop's `lod: true` (helper of…
 - assetManifest.js: engine.assets.manifest(pack) (helper of Assets.js): registe…
 - assetReport.js: Import report of a loaded glTF (engine.assets.report): what…
 - audioRules.js: Audio rule data: conditions and measures
@@ -105,7 +106,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - gridLoad.js: Load an image file as grid data (assets.gridFromImage)
 - ground.js: Ground API (part of Engine, mixed into Engine.prototype): w…
 - headlessLoad.js: Headless loading after start: a headless engine (?threedog-…
-- holds.js: Who holds the engine still: pause, freeze (each ends with i…
+- holds.js: Who holds the engine still: freeze and the loop halt (each …
 - inputContext.js: Input contexts
 - inputDefaults.js: The one default key preset and its labels
 - inputPad.js: Gamepad buttons
@@ -168,7 +169,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - uiClock.js: UI timers on the page clock
 - util.js: Small shared core helpers
 - validate.js: Runtime checks: when an option or name is misspelled, print…
-- view.js: engine.view: the camera and drawing-buffer values the engin…
+- view.js: engine.autoView: the camera and drawing-buffer values the e…
 - wrap.js: engine.wrap: the one entry for changing what a module's pub…
 
 **modules/** (one line per folder: what it does; its files besides the index.js / contract.js every module has)
@@ -178,7 +179,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - characters/ Characters module: player (keyboard/stick control, camera follo… — Character.js, NPC.js, assetModel.js, astar.js, behaviors.js, footsteps.js, moveHelpers.js, movers/common.js, movers/manual.js, movers/rapier.js, movers/simple.js, movers/support.js, npcAvoid.js, npcSim.js, npcView.js, pathAsync.js, pathJob.js, pathWorker.js, playerStrings.js, proceduralRig.js, useModel.js, vehicle.contract.js, walkTo.js
 - collision/ Lightweight collision: characters are upright cylinders, trees/… — Collision.js, grid.js
 - content/ Content loader: game data files into the engine — explain.js, fields.js, ids.js, loader.js, models.js, packs.js, parts.js, props.js, rules.js, stages.js, templates.js
-- debug/ Performance panel + time/weather debugging + stress test — DebugPanel.js
+- debug/ Performance panel + time/weather debugging — DebugPanel.js
 - flow/ Game flow: states and scene transitions — 
 - gameplay/ Interactions module: a prompt appears near an object ("E · Talk… — Container.js, Containers.js, Dialogue.js, Interactions.js, Inventory.js, Quests.js, boxOps.js, dialogue.contract.js, dialogueBox.js, dialogueBubbles.js, interactionPrompt.js, interactions.contract.js, inventory.contract.js, inventoryOps.js, pickups.js, questLog.js, questSave.js, quests.contract.js
 - grid/ grids() module: placement grids — Grid.js, Layer.js, ops.js, preview.js, strings.js, tiles.js
@@ -191,7 +192,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - net/ net() module: optional co-op multiplayer, host-authoritative st… — Client.js, Host.js, Net.js, sync.js, transports.js
 - particles/ Particles module: dust, falling leaves, splashes, chimney smoke… — Particles.js, effect.js, shaders.js
 - photo/ Photo mode: a sharper shot, then restore — Photo.js
-- rigid/ Real physics (Rapier): objects that topple, roll, get pushed an… — RigidBodies.js, Vehicles.js, sync.js
+- rigid/ Real physics (Rapier): objects that topple, roll, get pushed an… — RigidBodies.js, Vehicles.js, ragdoll.js, ragdollBones.js, sync.js
 - settings/ Settings menu module entry — Settings.js, apply.js, sections.js, strings.js, view.js
 - sky/ Sky module: signals (engine.uniforms: uSunDir, uSunColor, uSkyT… — Sky.js, clouds.js, dome.js, domeLayers.js, environment.js, fog.js, frame.js, season.js, shader.js, skyModule.js, tint.js
 - swarm/ Swarm module: many same-kind gameplay objects (bullets, enemy c… — Swarm.js, draw.js, grid.js
@@ -213,14 +214,16 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - effects.js: Built-in shader effects
 - engineUniforms.js: Engine uniforms (helper of patches.js)
 - fuse.js: Fused post pass
-- fx/ threedog/tsl entry: the TSL Fn library — cel.tsl.js, cloudShadow.tsl.js, detail.tsl.js, lighting.tsl.js, nodeErrors.tsl.js, noise.tsl.js, objectOrigin.tsl.js, particles.tsl.js, patchNodes.tsl.js, postWebGPU.tsl.js, season.tsl.js, sky.tsl.js, uniforms.tsl.js, water.tsl.js, wind.tsl.js
+- fx/ threedog/tsl entry: the TSL Fn library — cel.tsl.js, cloudShadow.tsl.js, detail.tsl.js, library.tsl.js, lighting.tsl.js, nodeErrors.tsl.js, noise.tsl.js, objectOrigin.tsl.js, particles.tsl.js, patchNodes.tsl.js, postWebGPU.tsl.js, season.tsl.js, sky.tsl.js, uniforms.tsl.js, water.tsl.js, wind.tsl.js
 - fxNumbers.js: The numbers inside the engine's shared shader functions, wr…
 - hotGlsl.js: Shader hot reload in dev
 - layers.js: The three.js layers the engine keeps for itself, in one tab…
 - lighting.js: The `lighting` patch (applyEffects(mat, { lighting })) and …
 - lightmap.js: Baked lightmaps: reads the file `threedog bake light` write…
 - lights.js: Placeholder lights (engine.lights): a directional "sun" + h…
+- lit.js: What counts as a lit material, and what adds light a bake a…
 - materials.js: Shader effects on plain three.js materials (shadows, fog an…
+- mergeCommon.js: Merge geometries that came from different meshes: hlod prox…
 - modeling.js: Modeling gaps three lacks
 - neutral.js: The one way engine code makes a material of its own: plain …
 - occlusion.js: Occlusion culling for the engine's own big things (hlod cel…
@@ -230,9 +233,11 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - probes.js: Baked light probes
 - recordSweep.js: WebGPURenderer keeps one RenderObject per drawn mesh in a s…
 - shaderErrors.js: Shader errors naming the patch and slot
+- shadowCache.tsl.js: Kept shadows on WebGPURenderer: what stays still is drawn i…
 - slots.js: Semantic patch slots
 - terms.js: Built-in material terms a game can take over whole: the clo…
 - uniformDecl.js: Declares style-supplied GLSL uniforms
+- uniformRenames.js: The engine uniforms renamed for 0.8 (MIGRATING-0.8.md)
 
 **ui/**
 - Focus.js: UI focus stack and choice cursor
@@ -254,9 +259,10 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 | camera:shot | core/Views.js, camera | lights |
 | character:fall | characters | — |
 | character:jump | characters | — |
-| character:land | characters | — |
+| character:land | characters | characters |
 | character:launch | characters | — |
 | character:model | characters | — |
+| character:step | characters | characters |
 | character:water | characters | — |
 | day:start | calendar | — |
 | dialogue:bubble | gameplay | — |
@@ -288,7 +294,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 | page:contextlost | core/page.js | — |
 | page:contextrestored | core/page.js | sky |
 | page:focus | core/page.js | — |
-| page:pointerlock | core/page.js | ui/Focus.js |
+| page:pointerlock | core/page.js | camera, ui/Focus.js |
 | photo:denied | photo | — |
 | photo:taken | photo | — |
 | pickup:take | gameplay | — |
@@ -297,7 +303,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 | quest:part | gameplay | — |
 | quest:start | gameplay | — |
 | quest:step | gameplay | — |
-| rigid:rebuilt | rigid | — |
+| rigid:rebuilt | rigid | rigid |
 | save:imported | core/saveFiles.js | photo |
 | save:loaded | core/saveApply.js | characters |
 | save:written | core/Saves.js | — |
@@ -306,7 +312,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 | session:failed | core/session.js | flow, rigid |
 | session:start | core/session.js | core/things.js, camera, flow |
 | settings:change | settings | — |
-| settings:shadows | core/shadows.js | terrain |
+| settings:shadows | core/shadows.js | vegetation |
 | state:applied | core/UrlState.js | — |
 | state:placed | core/UrlState.js | camera |
 | template:stage | content | — |

@@ -123,7 +123,8 @@ export const specs = [
           engine.step(1 / 30);
           const lv = engine.level, mats = new Set();
           lv.root.traverse(o => { if (o.isMesh) mats.add(o.material.type + ':' + (o.material.userData.purpose ?? '')); });
-          return { boxes: engine.collision.boxes.size, markers: Object.keys(lv.markers).sort().join(','), calls: engine.renderer.info.render.calls, mats: [...mats].sort().join(','),
+          let boxes = 0; engine.collision.forEachStatic(k => { if (k === 'box') boxes++; });
+          return { boxes, markers: Object.keys(lv.markers).sort().join(','), calls: engine.renderer.info.render.calls, mats: [...mats].sort().join(','),
             spawn: lv.spawn.toArray().map(v => +v.toFixed(2)).join(','), height: +engine.surface(0, -14).toFixed(2) };
         };
         engine.player.placeAt([1000, 0, 1000]); engine.focus.set(1000, 0, 1000); engine.step(0.2);   // both stream sources leave: unload streamed blocks first so they do not affect draw calls

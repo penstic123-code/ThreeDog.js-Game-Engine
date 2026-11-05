@@ -110,7 +110,7 @@ export class Ops {
 
   /**
    * Run an op now (synchronously): checks args (dev), calls can, then run, and logs it. Returns { ok: true, value, revision } or { ok: false, code, facts, nextActions, revision } (revision = ops.revision, counts committed ops); can may also return { code, facts?, nextActions? }.
-   * Pass a fresh args object each call (it is kept in the history; in dev it is frozen). opts.source: 'player' | 'game' | 'bridge' | 'test' | 'replay' | 'net'
+   * Pass a fresh args object each call (it is kept in the history; in dev it is frozen). opts.source: 'player' | 'game' | 'bridge' | 'test' | 'replay' | 'net' | 'editor'
    * (default: 'game' inside a fixed step, 'player' between steps); opts.actor: who does it (world record id, default engine.actor, which is 'player' unless the game hands control elsewhere).
    * @param {string} name
    * @param {object} [args]
@@ -238,9 +238,9 @@ export class Ops {
    * @param {{ reason: string, actor?: string, source?: string }} why  source defaults to 'net'
    * @returns {void}
    */
-  refused(name, args, { reason, actor = '', source = 'net' }) { this._log(name, args, { source, actor, tick: this.engine.tick }, false, reason, 0); }
+  refused(name, args, { reason, actor = '', source = 'net' }) { this._log(name, args, { source, actor, tick: this.engine.time.tick }, false, reason, 0); }
   /** @internal A separator in the history (save load): later entries belong to a different world state */
-  _mark(label) { this._log(label, null, { tick: this.engine.tick, source: 'game', actor: '' }, true, null, 0); }
+  _mark(label) { this._log(label, null, { tick: this.engine.time.tick, source: 'game', actor: '' }, true, null, 0); }
   /**
    * Run fn with guarded writes allowed (loading a save, applying a scenario, net sync); works for an async fn too (allowed until its Promise settles). Returns what fn returns.
    * @experimental
@@ -274,7 +274,7 @@ export class Ops {
       if (!SOURCES.includes(source)) throw devError(fmt(STRINGS.badSource, { name, source }));
       if (args) checkArgs(e, this.defs.get(name), args);
     }
-    return { source, actor: opts?.actor ?? parent?.actor ?? e.actor, tick: e.tick, frozen: e.frozen };
+    return { source, actor: opts?.actor ?? parent?.actor ?? e.actor, tick: e.time.tick, frozen: e.frozen };
   }
   /** @internal returns true or a reason string */
   _can(d, args, ctx) {

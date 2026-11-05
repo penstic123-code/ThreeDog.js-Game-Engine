@@ -2,6 +2,7 @@
 //   shot waits for loading and fails naming what is pending; a page error stops the wait at once; shot file names never start with '-';
 //   picture palette --json is JSON only; picture compare never enlarges a picture before measuring detail and says regions are positional;
 //   describe text is English under a zh-CN game; new-game neither builds nor rewrites the lock; R40's documented switches all work (or say why not).
+import { parseResult } from '../lib/result.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -42,7 +43,7 @@ export async function run({ check }) {
   check('tier: ?threedog-tier=high|low is read, anything else ignored; Engine takes it only headless; shot / gallery / capture pass it',
     forcedTier('?threedog-headless&threedog-tier=high') === 'high' && forcedTier('?threedog-tier=low') === 'low' && forcedTier('?threedog-tier=ultra') === null && forcedTier('') === null
     && /\(headless && forcedTier\(\)\) \|\| \(owned \? tierBeforeRenderer\(\) : null\);[^]*this\.tier = tierFirst \|\| detectTier\(r\)/.test(readFileSync(join(ENGINE, 'core/Engine.js'), 'utf8'))
-    && /'threedog-tier': tier/.test(src('shot.mjs')) && /threedog-tier=high/.test(src('gallery.mjs')) && /'threedog-tier': 'high'/.test(src('capture.mjs')));
+    && /'threedog-tier': tier/.test(src('shot.mjs')) && /'threedog-tier': 'high'/.test(src('gallery.mjs')) && /'threedog-tier': 'high'/.test(src('capture.mjs')));
   // content check's browser stand-in answered window.__THREE__ with a truthy stand-in: "Multiple instances of Three.js" on every check
   const { withDomStub } = await import('../content-check/dom-stub.mjs');
   check('content check DOM stand-in: "__x__" probe flags read unset (no false "Multiple instances of Three.js")',
@@ -61,7 +62,7 @@ export async function run({ check }) {
   check('loading waiting line names the module id, not its translated label', view.waiting === 'waiting for module terrain' && !CJK.test(view.waiting));
   let txt = '';
   try {
-    txt = describeText({ ready: true, time: { t: 1, paused: false, headless: true }, loading: view, player: { x: 0, y: 0, z: 0, ground: 'default', groundName: '默认', inWater: false, state: 'idle' },
+    txt = describeText({ ready: true, time: { t: 1, halted: false, headless: true }, loading: view, player: { x: 0, y: 0, z: 0, ground: 'default', groundName: '默认', inWater: false, state: 'idle' },
       weather: { name: 'clear', label: '晴', rain: 0, snow: 0, fog: 0 }, nearby: [], nearbyRadius: 20, modules: [], perf: {}, actions: [], camera: { type: 'follow', x: 0, y: 5, z: 5, focus: { x: 0, z: 0 } }, ui: { windows: [] } });
   } catch (e) { txt = 'threw: ' + e.message; }
   check('describeText prints ground and weather ids, no translated (zh-CN) names', /ground default/.test(txt) && /Weather: clear/.test(txt) && !CJK.test(txt), txt.slice(0, 300));
@@ -187,6 +188,13 @@ export async function run({ check }) {
   const env = { ...process.env }; delete env.THREEDOG_RENDER;
   const p = spawnSync(process.execPath, ['--input-type=module', '-e', probe], { encoding: 'utf8', env, timeout: 60000 });
   check('[guard] the GPU fallback note goes to stderr, so a --json command\'s stdout stays one JSON object', !p.stdout.includes('Note:') && /Note: the GPU launch failed/.test(p.stderr), JSON.stringify({ out: p.stdout, err: p.stderr.slice(0, 300) }));
+
+  // 为什么：doctor --json 以前是自己的形状，读工具结果的代码要认两种；bare `assets` 以前直接写文件
+  const dr = spawnSync(process.execPath, [join(TOOLS, 'bin', 'threedog.mjs'), 'doctor', '--json', '--ci'], { cwd: ROOT, encoding: 'utf8', timeout: 120000 });
+  const verdict = parseResult(dr.stdout);
+  check('[guard] doctor --json is the one result shape { ok, summary, items }', !!verdict && typeof verdict.summary === 'string' && !('healthy' in verdict), dr.stdout.slice(0, 200));
+  const bare = spawnSync(process.execPath, [join(TOOLS, 'bin', 'threedog.mjs'), 'assets', '-w', 'engine'], { cwd: ROOT, encoding: 'utf8', timeout: 60000 });
+  check('[guard] `threedog assets` with no verb refuses instead of writing files', bare.status === 1 && /assets optimize/.test(bare.stderr), bare.stderr.slice(0, 200));
 
   // round-4 demo: every shot printed "Picture: skipped (no pixels read)": Playwright evaluates a string as an expression, so the probe's
   // function source came back uncalled. Source checks passed; only a real shot shows it, so this runs one end to end

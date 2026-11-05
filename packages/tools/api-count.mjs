@@ -12,6 +12,8 @@ import { ROOT, ENGINE, TOOLS, MODE, addonDir, cli } from './paths.mjs';
 
 const require = createRequire(import.meta.url);
 const relp = p => relative(ROOT, p).split(sep).join('/');
+/** How a lock line says "may still change" (a trailing word: the file merges by line, so only the marked lines move) */
+export const EXPERIMENTAL = '@experimental';
 
 /** All public items: { group, name, decl, kind } (decl: repo-relative file of the declaration) */
 export function collect() {
@@ -23,7 +25,13 @@ export function collect() {
   const fromLib = s => s?.declarations?.some(d => /node_modules[\\/](@types[\\/]three|typescript[\\/]lib)[\\/]/.test(d.getSourceFile().fileName));
   // what: the first sentence of the declaration's doc comment (the list of candidates says what each one is)
   const what = s => (s ? ts.displayPartsToString(s.getDocumentationComment(ch)) : '').split(/\n|(?<=[.;:])\s/)[0].slice(0, 120);
-  const add = (group, name, s, kind) => items.push({ group, name, decl: declOf(s), kind, what: what(s) });
+  // sig: the type as the editor shows it (the API lock compares it: a changed parameter or option type is a break); '?' marks an optional member
+  // a type from a package prints as an absolute path: keep only the package part, so the lock does not hold this machine's folders
+  const portable = text => text.replace(/import\("[^"]*\/node_modules\/(?:@types\/)?([^"]+)"\)/g, 'import("$1")');
+  const sigOf = s => { const d = s?.declarations?.[0]; if (!d) return ''; try { return (s.flags & ts.SymbolFlags.Optional ? '?' : '') + portable(ch.typeToString(ch.getTypeOfSymbolAtLocation(s, d), d, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope).replace(/\s+/g, ' ')); } catch { return ''; } };
+  // experimental: the name carries @experimental, or its parent does (a module, an engine member); one tag covers what hangs off it
+  const tagged = s => !!s?.getJsDocTags?.(ch).some(t => t.name === 'experimental');
+  const add = (group, name, s, kind, parent = false) => items.push({ group, name, decl: declOf(s), kind, what: what(s), sig: sigOf(s), experimental: parent || tagged(s) });
   const propsOf = t => t ? ch.getPropertiesOfType(ch.getNonNullableType(t)).filter(p => !p.name.startsWith('_') && !p.name.startsWith('#') && !p.name.startsWith('__@')) : [];
   const typeOf = (s, at) => ch.getTypeOfSymbolAtLocation(s, at);
   const isCallable = t => ch.getNonNullableType(t).getCallSignatures().length > 0;
@@ -47,18 +55,18 @@ export function collect() {
   // property that holds it (engine.cameraRig for the four cameras: one API type is counted once)
   const engineSym = exportsOf(entries[0]).find(s => s.name === 'Engine' && s.flags & ts.SymbolFlags.Class);
   const engineProps = propsOf(ch.getDeclaredTypeOfSymbol(engineSym));
-  const holder = new Map(engineProps.map(p => [ch.getNonNullableType(typeOf(p, index)).symbol, p.name]).filter(([s]) => s));
+  const holder = new Map(engineProps.map(p => [ch.getNonNullableType(typeOf(p, index)).symbol, p]).filter(([s]) => s));
   const apiSyms = new Set();
   for (const s of exp) {
     const sig = typeOf(s, index).getCallSignatures()[0], ret = sig && sig.getReturnType();
     if (!ret || ret.aliasSymbol?.name !== 'ModuleDef' && ret.symbol?.name !== 'ModuleDef') continue;
     const api = ret.aliasTypeArguments?.[0] ?? ret.typeArguments?.[0] ?? ch.getTypeArguments?.(ret)?.[0];
     const opt = sig.parameters[0] && typeOf(sig.parameters[0], index);
-    if (opt && !(ch.getNonNullableType(opt).flags & ts.TypeFlags.Any)) for (const p of propsOf(opt)) add('module options', `${s.name}.${p.name}`, p, 'option');
+    if (opt && !(ch.getNonNullableType(opt).flags & ts.TypeFlags.Any)) for (const p of propsOf(opt)) add('module options', `${s.name}.${p.name}`, p, 'option', tagged(s));
     if (!api || api.flags & ts.TypeFlags.Any || !api.symbol || apiSyms.has(api.symbol)) continue;
     apiSyms.add(api.symbol);
-    const at = holder.get(api.symbol) ?? s.name;
-    for (const p of propsOf(api)) add('module APIs', `${at}.${p.name}`, p, 'member');
+    const at = holder.get(api.symbol), whole = tagged(s) || tagged(at) || tagged(api.symbol);
+    for (const p of propsOf(api)) add('module APIs', `${at?.name ?? s.name}.${p.name}`, p, 'member', whole);
   }
 
   // engine.*: members, and one level into core sub-objects (not three.js / DOM / built-in objects or module APIs)
@@ -67,7 +75,7 @@ export function collect() {
     const t = typeOf(p, index);
     const nt = ch.getNonNullableType(t);
     if (!isObj(t) || fromLib(nt.symbol) || apiSyms.has(nt.symbol) || nt.flags & ts.TypeFlags.Any) continue;
-    for (const q of propsOf(t)) if (!fromLib(q)) add('engine sub-objects', `${p.name}.${q.name}`, q, 'member');
+    for (const q of propsOf(t)) if (!fromLib(q)) add('engine sub-objects', `${p.name}.${q.name}`, q, 'member', tagged(p));
   }
   return items;
 }
@@ -85,6 +93,12 @@ export async function cliItems() {
     }
   }
   return items;
+}
+
+/** The API lock: one sorted line per public name, `group | name | signature`, with EXPERIMENTAL after the signature of a name that may still change. The committed snapshot is docs/api-surface.txt (rules/R55-api-lock.mjs compares it) */
+export async function surfaceLines() {
+  const items = [...collect(), ...await cliItems(), ...await errorItems()];
+  return [...new Set(items.map(i => `${i.group} | ${i.name} | ${[i.sig, i.experimental && EXPERIMENTAL].filter(Boolean).join(' ')}`.trimEnd()))].sort();
 }
 
 export async function errorItems() {
@@ -154,7 +168,7 @@ export function usage(items, texts) {
 // live in the terminal, not in code; error codes are what a game reads when something fails; an option with a default is tuning a game reaches
 // for when it needs it. Except the picture parameters below: they still sit on module options and wait for the owner's call on moving them
 // elsewhere (the proposal on that page), so they stay candidates.
-const PICTURE_MOVE = new Set(['sky.moonSize', 'sky.orbitTilt', 'sky.orbitSway', 'sky.starScale', 'sky.dim', 'sky.gradientCurve', 'sky.skybox',
+const PICTURE_MOVE = new Set(['sky.dim', 'sky.skybox',
   'water.waveScale', 'water.waveSpeed', 'water.normalScale', 'water.normalRepeat', 'water.normalSpeed']);
 
 // Kept on purpose after the 0.7 audit (docs/testing/api-count.md): name -> why. Read-only facts and the other half of a pair stay because plain
@@ -163,7 +177,7 @@ const KEPT_API = new Map();
 const keep = (why, ...names) => { for (const n of names) KEPT_API.set(n, why); };
 keep('read-only fact for debugging, UI or tests', 'slope', 'stateApplied', 'player.radius', 'player.water', 'player.gravity', 'player.channel', 'player.support', 'player.groundType',
   'player.ready', 'player.whenReady', 'saves.ready', 'input.contexts', 'audio.value', 'post.list', 'plugins.list', 'threads.shared', 'runState.owners', 'random.state',
-  'startup.startMs', 'startup.preloadMs', 'startup.streamMs', 'startup.modules', 'cpuPhases.render', 'cpuPhases.afterRender', 'cameraOverride.focus', 'lightPool.lights', 'lightPool.focus',
+  'startup.startMs', 'startup.preloadMs', 'startup.streamMs', 'startup.modules', 'cameraOverride.focus', 'lightPool.lights', 'lightPool.focus',
   'vegetation.get', 'vegetation.list', 'vegetation.isRemoved', 'rigid.stats', 'dialogue.speaking', 'inventory.list', 'inventory.get', 'quests.state', 'interactions.current', 'interactions.get',
   'triggers.list', 'grids.list', 'water.bodies', 'net.actor', 'net.pending', 'net.stats', 'ambience.position', 'particles.has', 'music.current', 'music.ready', 'music.pick',
   'timeline.playing', 'hud.markers', 'content.ready', 'content.markers', 'nav.agent', 'settings.values', 'settings.isOpen', 'views.current', 'views.has', 'batching.root');
@@ -208,12 +222,19 @@ export async function apiCount() {
   const n = (list, g) => list.filter(i => i.group === g).length;
   const groups = Object.fromEntries(GROUPS.map(g => [g, { total: n(items, g), unused: n(unused, g), kept: n(kept, g) }]));
   const row = ({ group, name, decl, what }) => ({ group, name, decl, what });
-  return { total: items.length, unusedTotal: unused.length, keptTotal: kept.length, groups, unused: unused.map(row), kept: kept.map(i => ({ ...row(i), why: keptWhy(i) })) };
+  return { total: items.length, experimental: items.filter(i => i.experimental).map(i => `${i.group} | ${i.name}`), unusedTotal: unused.length, keptTotal: kept.length, groups, unused: unused.map(row), kept: kept.map(i => ({ ...row(i), why: keptWhy(i) })) };
 }
 
 if (import.meta.url === new URL('file:///' + process.argv[1].replace(/\\/g, '/')).href || process.argv[1]?.endsWith('api-count.mjs')) {
   if (MODE !== 'monorepo') { console.error('api-count reads the engine sources: run it in the threedog repository'); process.exit(1); }
-  const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['json', 'unused'], values: ['games'] });
+  const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['json', 'unused', 'lock'], values: ['games'] });
+  if (opt.lock) {   // regenerate the API lock snapshot (see surfaceLines); then add a CHANGELOG line under "## Unreleased" for every removed or changed name
+    const { writeFileSync } = await import('node:fs');
+    const lines = await surfaceLines();
+    writeFileSync(join(ROOT, 'docs/api-surface.txt'), ['# Public names and signatures, one per line (threedog api-count --lock rewrites it; rule R55 compares it). group | name | signature [@experimental]', ...lines, ''].join(String.fromCharCode(10)));
+    console.log(`docs/api-surface.txt: ${lines.length} lines`);
+    process.exit(0);
+  }
   if (opt.games) {
     const dirs = opt.games.split(',').filter(Boolean).map(d => resolve(d));
     const items = dailySurface(dirs), used = items.filter(i => i.games > 0), most = items.filter(i => i.games > dirs.length / 2);
@@ -232,7 +253,7 @@ if (import.meta.url === new URL('file:///' + process.argv[1].replace(/\\/g, '/')
   else {
     const w = Math.max(...GROUPS.map(g => g.length)), kept = k => k ? `   kept ${k}` : '';
     for (const g of GROUPS) console.log(`${g.padEnd(w)}  ${String(r.groups[g].total).padStart(4)}   unused ${r.groups[g].unused}${kept(r.groups[g].kept)}`);
-    console.log(`${'total'.padEnd(w)}  ${String(r.total).padStart(4)}   unused ${r.unusedTotal}${kept(r.keptTotal)}`);
+    console.log(`${'total'.padEnd(w)}  ${String(r.total).padStart(4)}   unused ${r.unusedTotal}${kept(r.keptTotal)}   experimental ${r.experimental.length}`);
     if (opt.unused) for (const g of GROUPS) { const u = r.unused.filter(i => i.group === g); if (u.length) console.log(`\n${g}: ${u.map(i => i.name).join(', ')}`); }
     else console.log('(unused = candidates; kept = unused but kept on purpose: tuning options, CLI commands, error codes; --unused lists the candidates; --json for data)');
   }

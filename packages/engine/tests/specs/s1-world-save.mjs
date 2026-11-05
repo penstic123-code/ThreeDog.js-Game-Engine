@@ -8,7 +8,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ page, check, ev }) {
       const r1 = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, a = W.get('prop:rock:3').position, X = Math.round(a.x), Z = Math.round(a.z);
         const C = extra => ({ props: [{ id: 's1-ia', model: 'rock', x: X + 5, z: Z }, { id: 's1-ib', model: 'rock', x: X + 6, z: Z }, ...extra] });
         engine.content.load(C([]));
@@ -36,7 +36,7 @@ export const specs = [
       check('a record newly added by content after a game update: exists after loading the old save', r1.same.c);
       await reload(page);
       const r2 = await ev(async ({ X, Z }) => {
-        engine.pause();
+        engine.haltLoop();
         const W = engine.world, C = extra => ({ props: [{ id: 's1-ia', model: 'rock', x: X + 5, z: Z }, { id: 's1-ib', model: 'rock', x: X + 6, z: Z }, ...extra] });
         const ret = engine.saves.load('s1-init'); if (ret?.then) await ret;
         const mid = { flower: !!W.get('prop:flower:5'), a: !!W.get('s1-ia'), b: !!W.get('s1-ib'), run: W.get('s1-run')?.n };

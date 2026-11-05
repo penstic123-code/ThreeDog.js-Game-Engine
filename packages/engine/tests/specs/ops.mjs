@@ -31,11 +31,11 @@ export const specs = [
         const ring = O.recent().map(h => h.seq), ringLen = ring.length;
         O.historySize = 256;
         // phase: inside a fixed step vs between steps
-        engine.pause();
+        engine.haltLoop();
         const fh = engine.onFixed(() => { if (!fh.done) { fh.done = true; O.run('test.ping'); } });
         engine.step(1 / 60, { render: false }); fh.remove();
         O.run('test.ping');
-        const ph = O.recent('test.ping').slice(-2).map(h => h.phase + '/' + h.source + '/' + (h.tick === engine.tick));
+        const ph = O.recent('test.ping').slice(-2).map(h => h.phase + '/' + h.source + '/' + (h.tick === engine.time.tick));
         for (const h of hs) h.remove();
         return { a, b, c, npc, asked, before, hist, avail, names, log, ring, ringLen, ph, after: O.list().some(x => x.name.startsWith('test.')) };
       });
@@ -126,7 +126,7 @@ export const specs = [
         // allowed: inside an op, a fixed step, save load, applyState
         const h = engine.ops.define('test.give', { run: e => { e.world.add({ id: 'guard_crate', kind: 'crate', position: [0, 0, 0] }, { save: false }); e.inventory.add('film', 1, { silent: true }); } });
         engine.ops.run('test.give'); h.remove(); quiet.op = n();
-        engine.pause();
+        engine.haltLoop();
         const fh = engine.onFixed(() => { if (!fh.n) { fh.n = 1; W.set('guard_crate', { hp: 1 }); I.add('film', 1, { silent: true }); } });
         engine.step(1 / 30, { render: false }); fh.remove(); quiet.fixed = n();
         // reported: a frame callback and a timer write gameplay state
@@ -137,7 +137,7 @@ export const specs = [
         engine.saves.save('guard'); engine.saves.load('guard'); quiet.load = n() - reported.length;
         await engine.applyState({ time: '10:00' }); quiet.apply = n() - reported.length;
         console.warn = orig;
-        engine._resume();
+        engine._unhalt();
         return { quiet, warns: reported };
       });
       check('[guard] fixed step, op, save load and applyState write without a warning', Object.values(r.quiet).every(n => n === 0), JSON.stringify(r.quiet));
@@ -150,7 +150,7 @@ export const specs = [
     url: '/?cutscene=skip',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const I = engine.interactions, inp = engine.input, used = [];
         const p = engine.player.position, h = I.add([p.x + 0.5, p.y, p.z], { id: 'test-lever', label: 'lever', onUse: () => used.push('lever') });
         engine.step(0.1, { render: false });
@@ -188,7 +188,7 @@ export const specs = [
         let typo = null;
         try { engine.content.load({ dialogues: { opst: { nodes: { start: { text: 'z', choices: [{ text: 'go', do: { op: ['test.cuont'] } }] } } } } }); } catch (e) { typo = e.message; }
         hd.remove();
-        engine._resume();
+        engine._unhalt();
         return { used, key: key && `${key.source}/${key.phase}/${key.args.id}`, click: click && click.source, gone, chose: chose && `${chose.args.index}/${chose.ok}`, line, noDlg, t1, t2, t3, n, shown, hidden, typo, acts, actText };
       });
       check('[guard] pressing E runs interaction.use (source player, phase fixed) with the interaction id; the prompt click runs it too', r.key === 'player/fixed/test-lever' && r.click === 'player' && r.used.length === 2, JSON.stringify(r));
@@ -219,7 +219,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const E = engine, got = [];
-        E.pause();
+        E.haltLoop();
         await E.saves.save('t-epoch');
         E.jobs.add(function* () { for (let i = 0; i < 3; i++) yield; return 'job'; }, { apply: v => got.push(v), lag: 3 });
         E.commits.request({ lag: 3, apply: () => got.push('plain'), fallback: () => 0 });
@@ -243,7 +243,7 @@ export const specs = [
     software: false,   // takes a photo, compares no pixels
     url: '/?cutscene=skip',
     async run({ page, check, ev, frames }) {
-      await ev(() => { engine.pause(); window._denied = []; engine.events.on('photo:denied', d => window._denied.push(d.reason)); });
+      await ev(() => { engine.haltLoop(); window._denied = []; engine.events.on('photo:denied', d => window._denied.push(d.reason)); });
       const film0 = await ev(() => engine.inventory.count('film'));
       await page.keyboard.down('KeyP'); await ev(() => engine.step(1 / 30)); await page.keyboard.up('KeyP');
       const r = await ev(() => {
@@ -292,13 +292,13 @@ export const specs = [
         const lst = O.list({ available: true }).find(x => x.name === 'test.o');
         const hist = O.recent('test.o').at(-1).code; const noReason = !('reason' in s);   // a failed result has code, never a reason field
         hs.forEach(h => h.remove());
-        const t0 = E.tick; let at = -1;
-        const p = E.nextFixed(() => { at = E.tick; return 7; });
+        const t0 = E.time.tick; let at = -1;
+        const p = E.nextFixed(() => { at = E.time.tick; return 7; });
         const before = at; E.step(2);
         const val = await p;
-        const was = E.paused; E.pause('a'); E.pause('b'); E._resume('a');
-        const stillPaused = E.paused; E._resume('b');
-        const wasOwner = E.paused; E.pause('x'); E._resume('y'); const kept = E.paused; E._resume('x'); E.paused = was;
+        const was = E.halted; E.haltLoop('a'); E.haltLoop('b'); E._unhalt('a');
+        const stillPaused = E.halted; E._unhalt('b');
+        const wasOwner = E.halted; E.haltLoop('x'); E._unhalt('y'); const kept = E.halted; E._unhalt('x'); E.halted = was;
         return { s: { ...s, noReason }, o, c, lstFacts: lst?.facts, hist, before, at, t0, val, stillPaused, wasOwner, kept };
       });
       check('string failure normalized: code only (no reason field), facts {}, nextActions []', r.s.code === 'noMoney' && r.s.noReason && Object.keys(r.s.facts).length === 0 && r.s.nextActions.length === 0, JSON.stringify(r.s));

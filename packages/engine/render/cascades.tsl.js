@@ -14,7 +14,7 @@
 //   built first and would keep drawing the old one.
 import { Object3D } from 'three/webgpu';
 import { CSMShadowNode } from 'three/addons/csm/CSMShadowNode.js';
-import { setShadowUpdate, shadowUpdatePending, registerWebGPUPart } from './backend.js';
+import { setShadowUpdate, shadowUpdatePending, registerWebGPUPart, rebuildShadow, projectionKey } from './backend.js';
 
 class CascadeNode extends CSMShadowNode {
   /** @param {any} e @param {any} light @param {any} S the cascade fields */
@@ -69,7 +69,7 @@ class CascadeNode extends CSMShadowNode {
     const e = this._engine, cam = e.camera;
     this.shadowParams();
     if (this.camera === null) return;   // not built yet: setup() takes engine.camera
-    const proj = cam.isPerspectiveCamera ? `${cam.fov},${cam.aspect},${cam.near},${cam.far},${cam.zoom}` : `${cam.left},${cam.right},${cam.near},${cam.far},${cam.zoom}`;
+    const proj = projectionKey(cam);
     let force = false;
     if (this.camera !== cam || proj !== this._proj) { this.camera = cam; this._proj = proj; this.updateFrustums(); force = true; }
     cam.updateMatrixWorld();
@@ -88,9 +88,6 @@ class CascadeNode extends CSMShadowNode {
     rebuildShadow(light);
   }
 }
-
-/** Make three's light node drop the shadow it cached (AnalyticLightNode listens for the light's 'dispose'; its version bump recompiles) */
-function rebuildShadow(light) { light.dispatchEvent({ type: 'dispose' }); }
 
 // cascades.js looks this up when the renderer is a WebGPURenderer (the WebGL bundle never imports three/webgpu); nothing to call
 registerWebGPUPart('cascades', Object.freeze({ create: (e, light, S) => new CascadeNode(e, light, S) }));

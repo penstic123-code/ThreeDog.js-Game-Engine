@@ -66,6 +66,9 @@ export function runOp(ops, name, args, opts) {
   } catch (err) {
     if (snap) { undoWrites(ops, e, snap, where, seq, depth); ops._txAfter.length = mark; }
     if (err?.opsDevError) throw err;
+    // a bad value that came in as an argument is the caller's mistake, not a broken game: refused like a can that said no, so gameplay does not freeze on it.
+    // Only that one: a NaN the op worked out itself is a bug in the game, and goes on to stop it where it happened
+    if (err?.code === 'bad-position' && Object.values(args ?? {}).includes(err.value)) return failed(failure({ code: 'badPosition', facts: { message: err.message } }), h?.seq === seq ? h : null);
     if (h?.seq === seq) { h.ok = false; h.code = 'error'; } else ops._log(name, args, ctx, false, 'error', depth);
     reportError(e, err, where);
     if (e.error?.where === where && !e.error.ops) e.error.ops = ops.recent().slice(-5).map(r => `${r.name}${r.ok ? '' : ' x ' + r.code}`);

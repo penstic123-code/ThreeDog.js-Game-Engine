@@ -2,7 +2,8 @@
 // from says who made it: 'engine' (neutralMaterial and the like, render/patches.js keeps the mark) or 'game' (any other three.js material).
 import { isEngineMade } from '../render/patches.js';
 
-const hex = c => '#' + c.getHexString();
+/** A three.js color as '#rrggbb' @param {any} c */
+export const hex = c => '#' + c.getHexString();
 const MAPS = ['map', 'normalMap', 'bumpMap', 'roughnessMap', 'metalnessMap', 'emissiveMap', 'alphaMap', 'aoMap', 'lightMap', 'gradientMap'];
 const SIDES = ['front', 'back', 'double'];
 

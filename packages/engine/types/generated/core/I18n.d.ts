@@ -18,13 +18,5 @@ export class I18n {
     get languages(): string[];
     /** Whether the key exists @param {string} key @returns {boolean} */
     has(key: string): boolean;
-    /**
-     * Fetch text; params replace {name}, {key:action} shows the key label
-     * @param {string} key
-     * @param {Record<string, any>} [params]
-     * @returns {string}
-     * @example engine.i18n.t('shop.buy', { name: '鱼' });
-     */
-    t(key: string, params?: Record<string, any>): string;
 }
 import type { StringTables } from '../../core';

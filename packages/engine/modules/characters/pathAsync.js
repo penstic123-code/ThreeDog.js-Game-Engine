@@ -5,6 +5,8 @@
 // if that changed before it lands, it is recomputed here on the current state, so threads on / off / slow / crashed give identical paths.
 // A request belongs to the world it was asked in, like any background result: one still queued when a save load, new game or level change
 // invalidates engine.commits is dropped (its done never runs), the same as a batch already sent.
+// done stays a callback on purpose: it runs inside the fixed step. A Promise's then runs after the whole frame's steps, so a write there would depend on how many
+// steps a frame ran, and a dropped request would leave the Promise pending forever.
 import { xzOf } from '../../core/math.js';
 import { solveBatch, pathHandler, astarDefaults, RES, TILE, tileOf } from './pathJob.js';
 import { codedError } from '../../core/errorHints.js';
@@ -73,7 +75,7 @@ export class AsyncPaths {
   tile(k, tx, tz) {
     const e = this.e, c = this.tiles.get(k);
     const bv = e.collision.blockedVersion;
-    if (c && c.bv === bv && e.tick - c.at < TILE_TTL) return c;
+    if (c && c.bv === bv && e.time.tick - c.at < TILE_TTL) return c;
     const data = new Uint8Array(TILE * TILE), col = e.collision, trees = [], span = TILE * RES, blocked = col._blocked.length > 0;
     // addBlocked fields are functions and cannot go to a worker: they are sampled into this same raster (the worker sees blocked cells as unwalkable).
     // A cell counts as blocked if fn is true at its centre or on a ring of half a cell (blockedAt), so a 1 m cell never hides a thin river; bounds skip the sampling outside.
@@ -83,9 +85,9 @@ export class AsyncPaths {
     }
     // every collider that can touch a point of the tile: half diagonal + the largest character radius we expect + 1 (the same reach walkableAt uses)
     e.ground.forEachCollider?.((tx + 0.5) * span, (tz + 0.5) * span, span * 0.71 + 3, (x, z, r) => { trees.push(x, z, r); });
-    const v = { data, trees, at: e.tick, bv };
+    const v = { data, trees, at: e.time.tick, bv };
     this.tiles.set(k, v);
-    if (this.tiles.size > 4096) for (const [kk, o] of this.tiles) if (e.tick - o.at >= TILE_TTL) this.tiles.delete(kk);
+    if (this.tiles.size > 4096) for (const [kk, o] of this.tiles) if (e.time.tick - o.at >= TILE_TTL) this.tiles.delete(kk);
     return v;
   }
   /** Forget cached tiles overlapping a world box (ground:change) */

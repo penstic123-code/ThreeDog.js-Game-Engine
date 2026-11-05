@@ -29,11 +29,10 @@ function bodyBox(mesh, wheelObjs) {
 
 /** Create a vehicle (called by RigidBodies.addWheeled) */
 export function createVehicle(rigid, mesh, { wheels, mass = 800, engineForce = 800, brakeForce = 20, maxSteer = 0.5, suspension = {}, seats, hideDriver = true, camera, size, friction = 1.5, exitOffset = 0.8 }, id) {
-  const e = rigid.engine, R = rigid.R, w = rigid.world;
+  const e = rigid.engine, R = rigid.rapier, w = rigid.world;
   const box = bodyBox(mesh, new Set(wheels.map(x => x.object).filter(Boolean)));
   const s = size ? new THREE.Vector3().fromArray(size) : box.getSize(new THREE.Vector3()), c = size ? new THREE.Vector3() : box.getCenter(new THREE.Vector3());
   const entry = rigid._add(mesh, R.ColliderDesc.cuboid(s.x / 2, s.y / 2, s.z / 2).setTranslation(c.x, c.y, c.z), { id, mass, friction: 0.5, damping: 0.1, angularDamping: 0.5 });
-  entry.volume = s.x * s.y * s.z;
   const ctl = w.createVehicleController(entry.body);
   ctl.indexUpAxis = 1; ctl.setIndexForwardAxis = 2;   // up = Y, forward = Z
   const { rest = 0.3, stiffness = 30, damping = 4 } = suspension;

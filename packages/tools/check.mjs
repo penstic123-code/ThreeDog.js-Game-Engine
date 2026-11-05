@@ -22,7 +22,7 @@ import { checkScope } from './lib/scope.mjs';
 import { item, result, parseResult, startJson } from './lib/result.mjs';
 
 const MONO = P.MODE === 'monorepo';
-// Scoped check (lib/scope.mjs): -w <game>, or run from inside a game folder. Every check still runs, but only that game's errors and warnings are
+// Scoped check (lib/scope.mjs): -w <game>, or run from inside a game folder. Only the rules for a game run, tsc and R18 read that game alone, and only its errors and warnings are
 // printed and decide the exit code; other games and the engine are one count line each. Plain check at the repo root stays repo-wide.
 // --r10-anon: read by R10 itself (duplicates with renamed variables)
 const { dir: scopeDir, opt } = P.cli(process.argv.slice(2), { workspace: 'scope', flags: ['verbose', 'all', 'r10-anon', 'json'], values: ['rule'], lists: ['rule'] });
@@ -47,17 +47,14 @@ if (opt.rule) {
 // a line per stage as it happens: a check that prints nothing for two minutes reads as hung, and the part results below are only printed once all are done
 const t0 = Date.now(), stage = s => opt.json || console.log(`… ${s} (${((Date.now() - t0) / 1000).toFixed(1)} s)`);
 // scoped: only the rules that apply to a game. The others read the engine and its docs (R18 alone takes 14 s) and their results were dropped anyway
-const ruleErrors = await runRules({ only: onlyRules, all: !!opt.all, verbose: !!opt.verbose, game: !MONO || !!scope, scope, items: jsonItems });
-
 // Generated docs and game maps up to date; game content validation; types. Run in parallel, printed in a fixed order.
-// Scoped: that game's GAMEMAP, content and types (types.mjs filters to the game and hands back its other counts); the engine generators only add to
-// the engine count (types.mjs covers the generated declarations). They run at the root: a repo-wide check stays repo-wide wherever it was started
+// Scoped: that game's GAMEMAP, content and types only; the engine's generated docs are the root check's business. They run at the root: a repo-wide check stays
+// repo-wide wherever it was started. They start before the rules: an AI runs check constantly, and rules-then-the-rest cost the sum of both
 const w = scope ? ['-w', scope.rel] : [];
 const NAMES = { 'gentypes.mjs': 'generated declarations', 'codemap.mjs': 'code map', 'gamemap.mjs': 'GAMEMAP', 'content-check.mjs': 'content',
   'types.mjs': 'type check', 'apidoc.mjs': 'API docs' };
 const SUB = onlyRules ? [] : MONO && !scope ? [['gentypes.mjs', '--check'], ['codemap.mjs', '--check'], ['gamemap.mjs', '--check'], ['content-check.mjs'], ['types.mjs'], ['apidoc.mjs', '--check']]
   : [['gamemap.mjs', '--check', ...w], ['content-check.mjs', ...w], ['types.mjs', ...w, ...(scope && !opt.json ? ['--tally-json'] : [])]];
-const ENGINE_SUB = scope && MONO && !onlyRules ? [['codemap.mjs', '--check'], ['apidoc.mjs', '--check']] : [];
 const JSON_SUB = new Set(['types.mjs', 'content-check.mjs']);   // these two print the result shape themselves
 const runSub = ([file, ...args]) => new Promise(res => {
   const c = spawn(process.execPath, [join(P.TOOLS, file), ...args, ...(opt.json && JSON_SUB.has(file) ? ['--json'] : [])], { cwd: P.ROOT });
@@ -65,10 +62,12 @@ const runSub = ([file, ...args]) => new Promise(res => {
   c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d);
   c.on('close', code => { stage(`${NAMES[file]} finished`); res({ out, code }); });
 });
+if (SUB.length) stage(`running beside the rules: ${SUB.map(([f]) => NAMES[f]).join(', ')}`);
+const subs = Promise.all(SUB.map(runSub));
+const ruleErrors = await runRules({ only: onlyRules, all: !!opt.all, verbose: !!opt.verbose, game: !MONO || !!scope, scope, items: jsonItems });
 let bad = ruleErrors;
 stage('rules finished');
-if (SUB.length) stage(`running in parallel: ${[...SUB, ...ENGINE_SUB].map(([f]) => NAMES[f]).join(', ')}`);
-const [mine, eng] = await Promise.all([Promise.all(SUB.map(runSub)), Promise.all(ENGINE_SUB.map(runSub))]);
+const mine = await subs;
 // The last line names every part that failed: "Rule checks: 0 errors" above is only the rules, and a failed type check printed far up the
 // output read as a pass
 const failed = ruleErrors ? [`rules ${ruleErrors} error${ruleErrors > 1 ? 's' : ''}`] : [];
@@ -84,7 +83,6 @@ mine.forEach((r, i) => {
   const n = [...r.out.matchAll(/^(\d+) errors?\b/gm)].at(-1)?.[1];
   failed.push(NAMES[SUB[i][0]] + (n ? ` ${n} error${n === '1' ? '' : 's'}` : ''));
 });
-for (const r of eng) if (r.code) scope.engine(1);
 if (opt.json) process.exit(bad ? 1 : 0);   // the result is written at exit
 if (scope) {
   console.log(`\ncheck ${scope.rel}: ${bad ? 'FAILED' : 'passed'} (only this workspace's problems count; run plain npm run check at the root before committing engine changes)`);

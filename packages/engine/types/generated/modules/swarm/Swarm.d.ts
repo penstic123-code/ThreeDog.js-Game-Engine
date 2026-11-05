@@ -5,6 +5,7 @@
  * @example engine.use(swarm());
  * const coins = engine.swarm({ name: 'coins', capacity: 500, geometry, material, fields: ['yaw'], save: true });
  * @returns {import('../../../core').ModuleDef}
+ * @experimental
  */
 export function swarm(): import("../../../core").ModuleDef;
 /** One swarm: what engine.swarm(options) returns. See the top of modules/swarm/Swarm.js for the handle / row rule */
@@ -15,7 +16,7 @@ export class Swarm {
     /** Whether this swarm is kept in saves @type {boolean} */ saved: boolean;
     /** Spawns refused because the swarm was full, since it was made @type {number} */ dropped: number;
     /**
-     * The columns: data.x[row], data.y[row], data.z[row], one Float32Array per field, and data.id[row], the handle of that row (Float64Array).
+     * The columns: data.x[row], data.y[row], data.z[row] (Float32Array), one Float64Array per field, so a field can hold a handle, and data.id[row], the handle of that row (Float64Array).
      * Rows 0 to count - 1 are live. The same object onStep and near pass as d
      * @type {SwarmData}
      */

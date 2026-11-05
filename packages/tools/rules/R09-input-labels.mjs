@@ -1,6 +1,6 @@
 // R9 display-text keys for key actions must exist in every locale table (error)
 // The label of input.action('action', { label: 'textKey' }), the 2nd argument of input.touchButton('action', 'textKey'),
-// and the label in demo/<game>/content/actions.js are the text shown on the key-rebinding page of the settings menu / on touch buttons:
+// and the label in <game>/content/actions.js are the text shown on the key-rebinding page of the settings menu / on touch buttons:
 //   - written as a key name (a.b form) → both the zh-CN and the en table must have it; missing one is an error (after switching language it would show as "inventory.action")
 //   - plain text (no dot) in packages/engine/ → error (the engine hard-codes no UI text); plain text in game content is fine (the game picks its own language)
 //   - input.action in packages/engine/ without a label → warning (the action name is shown as is)

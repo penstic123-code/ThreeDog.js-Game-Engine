@@ -53,6 +53,12 @@ function explainShaderError(stage, source, log) {
   return out.join('\n');
 }
 
+/** The stages that failed or left a message, each with its log @param {any} gl @param {any} vs @param {any} fs */
+function stageLogs(gl, vs, fs) {
+  return /** @type {const} */ ([['vertex', vs], ['fragment', fs]]).map(([stage, sh]) => ({ stage, sh, log: gl.getShaderInfoLog(sh) || '' }))
+    .filter(({ sh, log }) => !gl.getShaderParameter(sh, gl.COMPILE_STATUS) || log.trim());
+}
+
 /**
  * Hook renderer.debug.onShaderError (when nothing else holds it) so compile errors name the patch and slot.
  * @internal core/Engine.js
@@ -64,9 +70,7 @@ export function nameShaderErrors(renderer) {
   if (!d || d.onShaderError) return;
   d.onShaderError = (gl, program, vs, fs) => {
     const parts = [];
-    for (const [stage, sh] of /** @type {const} */ ([['vertex', vs], ['fragment', fs]])) {
-      const log = gl.getShaderInfoLog(sh) || '';
-      if (gl.getShaderParameter(sh, gl.COMPILE_STATUS) && !log.trim()) continue;
+    for (const { stage, sh, log } of stageLogs(gl, vs, fs)) {
       // always append the full original log after the explanation: the explanation picks only `ERROR: n:m:` lines and drops warnings and others; the file header promised "no line of the original error is lost"
       const why = explainShaderError(stage, gl.getShaderSource(sh) || '', log);
       parts.push(why ? `${why}\n[threedog] ${stage} shader log:\n${log.trim()}` : `[threedog] ${stage} shader: ${log.trim()}`);
@@ -95,11 +99,10 @@ function nodeOwner(ro) {
 
 /**
  * The explanation for one three console message, or '' (not a pipeline failure)
- * @internal exported for tests/backend; three reaches it through the console hook
  * @param {string} message
  * @returns {string}
  */
-export function explainPipelineError(message) {
+function explainPipelineError(message) {
   const m = /Render pipeline creation failed \(renderPipeline_.*_(\d+)\)/.exec(message);
   if (!m) return '';
   const ro = findNodeBuild(x => x.material?.id === +m[1]);
@@ -139,9 +142,7 @@ function nameNodeErrors(r) {
     // _nodeBuilderState, not getNodeBuilderState(): reading must never start a build from inside an error report
     const ro = findNodeBuild(x => { const s = x._nodeBuilderState; return !!s && (s.vertexShader === src[0] || s.fragmentShader === src[1]); });
     const logs = [];
-    for (const [stage, sh] of /** @type {const} */ ([['vertex', vs], ['fragment', fs]])) {
-      const log = gl.getShaderInfoLog(sh) || '';
-      if (gl.getShaderParameter(sh, gl.COMPILE_STATUS) && !log.trim()) continue;
+    for (const { stage, sh, log } of stageLogs(gl, vs, fs)) {
       const lines = (gl.getShaderSource(sh) || '').split('\n');
       const rows = log.split('\n').filter(l => /ERROR:/.test(l)).map(l => { const n = /ERROR:\s*\d+:(\d+):/.exec(l)?.[1]; return n ? `${l.trim()} | ${lines[+n - 1]?.trim() ?? ''}` : l.trim(); });
       logs.push(`[threedog] ${stage} shader log:\n${rows.join('\n') || log.trim()}`);

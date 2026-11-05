@@ -14,7 +14,7 @@ import { readParams } from 'threedog';
 
 export function stamina(opts = {}) {
   const PARAMS = { max: { type: 'number', default: 100 }, drain: { type: 'number', default: 20 }, regen: { type: 'number', default: 10 } };
-  const { max, drain, regen } = readParams('stamina', PARAMS, opts);   // a misspelled option throws in dev with the fix; put PARAMS on the module as params to show it in engine.catalog()
+  const { max, drain, regen } = readParams('stamina', PARAMS, opts);   // a misspelled option throws in dev with the fix (a release build warns once), a wrong type or a missing required option throws in every build; put PARAMS on the module as params to show it in engine.catalog()
   let e = null, ctx = null, tired = null, shown = -1;
   const api = {
     value: max, max,
@@ -87,7 +87,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
   (`module:disabled`, listed in `engine.disabledModules`); in any other type it freezes the game in development/tests and is recorded in `engine.error`.
 - Listeners and timers the module adds go through `ctx.track(...)`: `ctx.track(e.events.on('item:add', fn))`, also `onFixed` / `onFrame` /
   `clock.after` / `audio.measure` / a `makeWindow` window, anything with `remove()`. They leave with the module: when its `engine.use(...)` batch
-  rolls back, when its `init` fails, and on `engine.dispose()` before its `dispose` hook (the spec `npm test -- "Lifecycle: every built-in"`
+  rolls back, when its `init` fails, and on `engine.dispose()` before its `dispose` hook (the spec `threedog test "Lifecycle: every built-in"`
   checks every engine module). A class the module builds takes `ctx.track` as a constructor argument. DOM listeners use
   `addEventListener(type, fn, { signal: engine.signal })`, and UI elements attach to `engine.uiRoot` (not `document.body`); scene GPU memory,
   jobs and stream entries are collected by `engine.dispose()`. The `dispose(e)` hook only collects what the core can't, such as Workers, the
@@ -110,7 +110,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
   hand. What cannot be saved ends with its playthrough: a background result goes through `engine.commits` (a load or new game drops old ones;
   keep `e.commits.epoch` on a queued request and drop it when that changed), and an effect of a running playthrough (an open dialogue, a
   running cutscene, the music playing) stops on `ctx.track(e.events.on('session:end', ...))`. What is derived from save parts is rebuilt on
-  `'session:start'` and `'save:loaded'`. A module's `describe()` should show such state: the session spec (`npm test -- Session`) compares every
+  `'session:start'` and `'save:loaded'`. A module's `describe()` should show such state: the session spec (`threedog test Session`) compares every
   installed module's describe after two new games, and the Lifecycle spec round-trips the engine's own.
 - When you only need a per-frame callback and no module structure: `const h = engine.onFrame(dt => ...)` / `engine.onFixed`, and `h.remove()` cancels it.
 
@@ -121,4 +121,4 @@ A module that does two kinds of thing is two definitions returned together (`wea
 ## 4. Verify
 - `npm run check` (hard rules + types + generated docs up to date).
 - In a test: watch `stamina.value` in the describe returned by `engine.step(2)`; `engine.saves.collect().parts.stamina` shows the save content.
-- Add an automated test: write one entry like those in `tests/specs/*.mjs` and run only it with `npm test -- name`.
+- Add an automated test: write one entry like those in `tests/specs/*.mjs` and run only it with `threedog test name`.

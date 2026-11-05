@@ -32,7 +32,7 @@ function fake() {
   e.stacks = new Stacks(e); e.mod = (n, o) => e.stacks.mod(n, o);
   e.clock = new Clock(e); e.time = new Time(e);
   e.control = new Control(e);   // NPC behaviors run through the character control slot (core/control.js)
-  defineHoldStacks(e);   // the engine's own hold stacks (pause does the loop side effect itself)
+  defineHoldStacks(e);   // the engine's own hold stacks (halt does the loop side effect itself)
   defineSkipOp(e);
   e.onFixed = (fn, { channel } = {}) => { e._fixed.push(channel ? () => fn(e.time.dt(channel)) : fn); };   // same as Engine.onFixed
   e.steps = n => { for (let i = 0; i < n; i++) e._fixedStep(); };
@@ -114,16 +114,16 @@ export async function run({ check }) {
     e3.steps(119); const s1 = e3.stacks.get('time.local').size('e3'); e3.steps(1);
     check('for on a channel clock counts channel seconds (1 enemy second at 0.5 = 2 real seconds)', s1 === 1 && e3.stacks.get('time.local').size('e3') === 0);
     // channel timer: clock.after(..., { channel })
-    let fired = 0; e3.clock.after(1, () => fired++, null, { channel: 'enemies' });
+    let fired = 0; e3.clock.after(1, () => fired++, { channel: 'enemies' });
     e3.steps(119); const f1 = fired; e3.steps(1);
-    check('clock.after(s, fn, data, { channel }) fires after s channel seconds', f1 === 0 && fired === 1);
+    check('clock.after(s, fn, { channel }) fires after s channel seconds', f1 === 0 && fired === 1);
     // skip == stepping: the same mod:end events in the same order, the same clocks
     const setup = () => {
       const x = fake(); x.time.channel('enemies');
       x.mod('time.enemies', { owner: 'bullet-time', mul: 0.35, for: 2 });
       x.mod('time.player', { owner: 'haste', mul: 1.2, for: 5 });
       x.mod('time.local', { owner: 'status:slow', id: 'e3', mul: 0.5, for: 1.5, clock: 'enemies' });
-      x.clock.after(4, 'poison:tick', { id: 'e3' }, { channel: 'enemies' });
+      x.clock.after(4, 'poison:tick', { data: { id: 'e3' }, channel: 'enemies' });
       return x;
     };
     const A = setup(); A.steps(600);
@@ -143,7 +143,7 @@ export async function run({ check }) {
   { // npcs.add({ channel }): a far NPC (data only) walks by its channel's dt, so bullet time on 'enemies' slows it while far too
     const e = fake(); e.time.channel('enemies', { parent: 'world' });
     let sim = null;
-    e.world = { present() {}, simulate: (k, o) => { sim = o; }, view: () => null, move: (id, p) => Object.assign(recs[id].position, p), zone: null };
+    e.world = { present() {}, simulate: (k, o) => { sim = o; }, view: () => null, move: (id, p) => Object.assign(recs[id].position, p), zone: null, inZone: () => true };
     e.surface = () => 0; e.events.traceSize = 0;
     const npcs = new NPCManager(e, h => h); npcs.setup();
     const rec = (id, look) => ({ id, behavior: 'schedule', look, schedule: [{ at: 0, x: 100, z: 0 }], position: { x: 0, y: 0, z: 0 }, speed: 2,
@@ -157,7 +157,7 @@ export async function run({ check }) {
   }
   { // world.simulate(kind, { channel }): far turns and the skip catch-up hand far the channel's dt; without channel dt stays real seconds
     const e = fake(); e.time.channel('enemies');
-    const w = { engine: e, farMaxPerTick: 1e9, farEvery: STEP, radius: 60, _cells: { forEach() {} }, _inZone: () => true, _v: { presenters: new Map() }, view: () => null };
+    const w = { engine: e, farMaxPerTick: 1e9, farEvery: STEP, radius: 60, _cells: { forEach() {} }, inZone: () => true, _v: { presenters: new Map() }, view: () => null };
     const S = new Sim(w), slime = { id: 's', kind: 'slime', t: 0 }, crop = { id: 'c', kind: 'crop', t: 0 };
     S.simulate('slime', { far: (r, dt) => { r.t += dt; }, channel: 'enemies' });
     S.simulate('crop', { far: (r, dt) => { r.t += dt; } });

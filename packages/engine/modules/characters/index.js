@@ -1,5 +1,5 @@
 // Characters module: player (keyboard/stick control, camera follow, footsteps, enter/exit vehicles) and NPCs (schedule, pathfinding, dialogue).
-// The only pathfinding entry is engine.characters.findPath: uses the navmesh if nav is installed and ready, else A* (astar.js is an internal fallback, not
+// The pathfinding entry for game code is engine.characters.findPath: uses the navmesh if nav is installed and ready, else A* (astar.js is an internal fallback, not
 // exported).
 // NPC facts live in engine.world (kind 'npc'), the model is just a presentation when near (see the top of NPC.js): NPCs need world() installed (openWorld
 // already does).
@@ -15,6 +15,7 @@ import { findPath } from './astar.js';
 import { findSpawn, moveInput } from './moveHelpers.js';
 import { AsyncPaths } from './pathAsync.js';
 import { warnOnce, DEV } from '../../core/validate.js';
+import { engineOwned } from '../../core/things.js';
 import { builtInSounds } from '../../core/assetManifest.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { codedError, coded } from '../../core/errorHints.js';
@@ -30,9 +31,9 @@ export { Character, NPC };
 /**
  * Characters module. Once installed:
  *   engine.characters.createPlayer({ spawn: {x, z}, colors, model, clips })  → player
- *   engine.npcs.add({ id, name, schedule, talk, ... })                       → NPC handle (needs npcs: true, on by default; data lives in engine.world)
+ *   engine.npcs.add({ id, name, schedule, interact, ... })                       → NPC handle (needs npcs: true, on by default; data lives in engine.world)
  *   engine.npcs.remove(npc or name); engine.characters.removePlayer()
- *   three.js object of player and NPC: .object (= .root, Group), position .position (Vector3); spawn / position accept a Vector3 directly
+ *   three.js object of player and NPC: .root (Group), position .position (Vector3); spawn / position accept a Vector3 directly
  *   When an NPC is far it has no model: npc.root is null, npc.position is the data position
  */
 const PLAYER = 'player';
@@ -81,6 +82,9 @@ export function characters(opts = {}) {
       const share = m => { e.assets.shared.add(m); return m; };   // every capsule draws with it: removing one character must not dispose it
       // control (core/control.js) finds a held character by id: the player, else an NPC's model (null while it is far)
       e.control.resolveWith(id => (id === PLAYER ? e.player : mgr?.character(id)) ?? null);
+      // the player's footsteps: plain listeners, so a game's own listener adds to them instead of taking the one slot (silent until audio.sounds names a sound)
+      ctx.track(e.events.on('character:step', ({ character }) => { if (character === e.player) e.audio.sfx(stepSound(e, character.groundType())); }));
+      ctx.track(e.events.on('character:land', ({ character, impact }) => { if (character === e.player && impact > 3) e.audio.sfx(stepSound(e, character.groundType()), { volume: Math.min(2, impact / 6) }); }));
       ctx.track(e.events.on('ground:change', b => paths.dropTiles(b)));   // dug or raised ground: resample the path rasters there
       ctx.track(e.events.on('level:loaded', () => paths.tiles.clear()));   // another level: none of the cached rasters describe it
       const api = {
@@ -152,6 +156,8 @@ export function characters(opts = {}) {
          * attacking
          */
         moveInput() { return moveInput(e); },
+        /** @internal outside a fixed step: the rig calls it before it reads a rider's position (camera/common.js) */
+        carryRiders() { carryRiders(e, true); },
         /**
          * Remove the current player (exit the vehicle first, stop responding to keys, dispose the model: animation, geometry, materials; the 'player' record in
          * world is removed too)
@@ -206,9 +212,7 @@ export function characters(opts = {}) {
           };
           if (had && !opts.spawn) apply(had);
           else { p.recordId = PLAYER; p.placeAt(opts.spawn || api.findSpawn()); }
-          p.addTo();
-          p.onStep = type => e.audio.sfx(stepSound(e, type));
-          p.onLand = impact => { if (impact > 3) e.audio.sfx(stepSound(e, p.groundType()), { volume: Math.min(2, impact / 6) }); };
+          e.scene.add(engineOwned('characters', p.root));
           // a touch jump button only when the game bound jump (a game without jumping gets no button)
           if (p.canJump && e.input.keysOf('jump').length) e.input.touchButton('jump', 'input.jump');
           e.player = p;
@@ -268,7 +272,7 @@ export function characters(opts = {}) {
     describe(e, ctx) {
       // with a model report by the model (merged with interaction points and world's own report for the same object into one), without a model report by data
       // position
-      for (const r of mgr && e.world ? e.world.query({ kind: 'npc', near: ctx.center, radius: ctx.radius, where: r => e.world.zone == null || r.zone == null || r.zone === e.world.zone }) : []) {
+      for (const r of mgr && e.world ? e.world.query({ kind: 'npc', near: ctx.center, radius: ctx.radius, where: r => e.world.inZone(r) }) : []) {
         ctx.near(e.world.view(r.id) ?? r.position, { id: r.id, name: r.name, kind: 'npc', state: r.state });
       }
       if (ctx.out.player) Object.assign(ctx.out.player, { swimming: e.player.swimming, grounded: e.player.grounded, facing: Math.round(e.player.facing * 100) / 100,

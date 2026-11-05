@@ -6,7 +6,7 @@
 //   no-bridge   a dev server answers, but it has no dev bridge (its vite config lacks the plugin) -> use gameConfig
 import { basename } from 'node:path';
 import { devServerInfo } from '../devinfo.mjs';
-import { allErrors, isError } from './errorlog.mjs';
+import { currentErrors, isError } from './errorlog.mjs';
 import { oneLine } from '../lib/oneline.mjs';
 import { rel } from '../paths.mjs';
 
@@ -42,7 +42,7 @@ export async function probe(dir) {
   return plain ? { state: 'missing', port: plain.port, scanned: true } : { state: 'none', ...(other.length && { otherPorts: other }) };
 }
 
-/** { kind, text } for a failure, or null when the cause is none of the four (the caller keeps its own message) */
+/** { kind, text } for a failure, or null when the cause is none of the five (the caller keeps its own message) */
 export async function diagnose(dir, err) {
   const msg = String(err?.message ?? err ?? ''), ws = rel(dir) || basename(dir), p = await probe(dir);
   if (p.state === 'none' && p.otherPorts) return { kind: 'no-server', text: `✗ A threedog dev server answers on port ${p.otherPorts.join(', ')}, but ${ws} has no .threedog/dev.json for it: `
@@ -55,7 +55,7 @@ export async function diagnose(dir, err) {
   if (p.state === 'missing') return { kind: 'no-bridge', text: `✗ A dev server answers on port ${p.port} but it has no dev bridge.\n`
     + 'Next: make the workspace vite.config.js use gameConfig() from @threedog/tools/vite (it installs the bridge), then restart the server.' };
   if (!/engine|start\(\)|window\.engine|did not respond|timed out|blocked/i.test(msg)) return null;
-  const errs = allErrors(dir).filter(isError), last = errs.at(-1);
+  const errs = currentErrors(dir).filter(isError), last = errs.at(-1);
   if (errs.length || /blocked/.test(msg)) return { kind: 'page-error', text: `✗ The page's script failed before the engine was ready${last ? `: ${oneLine(last.message)}` : ' (startup is blocked)'}.\n`
     + `Next: threedog ${last ? 'errors latest' : 'loading'} ${last ? '(shows the cause and the doc page)' : '(shows the failed asset)'}.` };
   return { kind: 'starting', text: `✗ The dev server is up but the page has no ready engine yet and logged no error.\n`

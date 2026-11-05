@@ -31,11 +31,11 @@ export class Jobs {
     /** @internal */ this.engine = engine;
     /** Milliseconds allowed per frame, default 3 */
     this.budgetMs = 3;
-    /** Milliseconds allowed per frame while the loading screen is up, default 12 */
+    /** Milliseconds allowed per frame while the loading screen is up, default 12 @experimental */
     this.loadingMs = 12;
-    /** Max steps per deterministic run (stops jobs that keep adding jobs from hanging), default 100000 */
+    /** Max steps per deterministic run (stops jobs that keep adding jobs from hanging), default 100000 @experimental */
     this.maxSteps = 100000;
-    /** A step slower than this many ms warns in dev (default 8) */
+    /** A step slower than this many ms warns in dev (default 8) @experimental */
     this.slowStepMs = 8;
     /** @internal */ this.heap = [];
     /** @internal */ this._seq = 0;
@@ -68,7 +68,9 @@ export class Jobs {
   /** @internal Not done by the due tick: run the remaining steps now and return the result */
   _finishNow(j) {
     while (!j.finished && !j.failed) this._step(j);
-    if (j.failed) throw j.error;
+    // A job that fails here already told its caller through the promise (j.rej). Throwing again from the fixed step would freeze the game a second time
+    // for the same error, and apply(undefined) must not run: cancel the ticket, and Commits.tick drops a canceled request after its fallback
+    if (j.failed) { j.ticket?.remove(); return undefined; }
     return j.value;
   }
   /**

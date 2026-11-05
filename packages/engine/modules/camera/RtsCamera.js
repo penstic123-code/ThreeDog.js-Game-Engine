@@ -7,7 +7,7 @@
 //     To not follow: call engine.cameraRig.follow(null) after creating the player, and WASD pans the camera
 // Cutscene takeover: while someone holds engine.takeCamera (engine.cameraOverride is not null) the camera is left alone (see common.js).
 //
-//   engine.use(rtsCamera({ height: 30, angle: 0.95, panSpeed: 1, edgePan: true, bounds: { minX: -100, maxX: 100, minZ: -100, maxZ: 100 } }));
+//   engine.use(rtsCamera({ height: 30, pitch: 0.95, panSpeed: 1, edgePan: true, bounds: { minX: -100, maxX: 100, minZ: -100, maxZ: 100 } }));
 //   const p = engine.cameraRig.screenToGround(engine.input.pointer.ndcX, engine.input.pointer.ndcY);
 //   engine.cameraRig.moveTo(position);   // move the view somewhere; { instant: true } skips smoothing
 import * as THREE from 'three';
@@ -18,16 +18,16 @@ import { surfaceOr } from '../../core/ground.js';
 
 export class RtsCamera {
   /**
-   * height camera height above the focus (zoom changes this); minHeight/maxHeight zoom range; angle pitch-down angle (radians, pi/2 = straight down);
+   * height camera height above the focus (zoom changes this); minHeight/maxHeight zoom range; pitch pitch-down angle (radians, pi/2 = straight down);
    * yaw initial horizontal facing; panSpeed pan speed multiplier (actual speed scales with height); dragPan drag-to-pan with the mouse;
    * edgePan pan at screen edges; edgeSize edge width (fraction of the screen); bounds { minX, maxX, minZ, maxZ } focus range;
    * rotate false: no turning (default true: the camera module declares the actions rotateLeft / rotateRight, which the game binds); rotateSpeed rotation speed (radians/second);
    * zoomStep zoom ratio per wheel notch; smoothing smoothness; fov field of view (unchanged if omitted); followLock disallow manual pan while following; start initial focus (position)
    */
-  constructor(engine, { height = 30, minHeight = 8, maxHeight = 90, angle = 0.95, yaw = 0, panSpeed = 1, dragPan = true, edgePan = false, edgeSize = 0.02,
+  constructor(engine, { height = 30, minHeight = 8, maxHeight = 90, pitch = 0.95, yaw = 0, panSpeed = 1, dragPan = true, edgePan = false, edgeSize = 0.02,
     bounds = null, rotate = true, rotateSpeed = 1.8, zoomStep = 0.12, smoothing = 10, fov = null,
     followLock = false, start = null } = {}) {
-    Object.assign(this, { engine, height, minHeight, maxHeight, angle, yaw, panSpeed, dragPan, edgePan, edgeSize, bounds, rotateSpeed, zoomStep, smoothing, followLock });
+    Object.assign(this, { engine, height, minHeight, maxHeight, pitch, yaw, panSpeed, dragPan, edgePan, edgeSize, bounds, rotateSpeed, zoomStep, smoothing, followLock });
     this.target = null;
     this.following = false;
     const [sx, sz] = start ? xzOf(start) : [0, 0];
@@ -104,7 +104,7 @@ export class RtsCamera {
     const cam = this.engine.camera, f = this._f;
     const g = this.engine.surface(f.x, f.z);
     if (g > -Infinity) f.y = g;                    // focus sticks to the ground; over the void of terrain({ shape }) it keeps its last height
-    const a = Math.min(Math.PI / 2 - 1e-3, Math.max(0.05, this.angle));
+    const a = Math.min(Math.PI / 2 - 1e-3, Math.max(0.05, this.pitch));
     const back = this._h / Math.tan(a);             // horizontal back-off distance
     cam.position.set(f.x + Math.sin(this._yaw) * back, f.y + this._h, f.z + Math.cos(this._yaw) * back);
     cam.lookAt(f);
@@ -117,7 +117,7 @@ for (const k of ['forward', 'right']) RtsCamera.prototype[k] = YAW_RIG[k];
 
 /**
  * Strategy top-down camera module. Installs engine.cameraRig (pick it or followCamera).
- * rtsCamera({ height: 30, angle: 0.95, panSpeed: 1, edgePan: true, bounds }) + createEngine({ bindings: { ...presets.bindings.rtsRotate } })
+ * rtsCamera({ height: 30, pitch: 0.95, panSpeed: 1, edgePan: true, bounds }) + createEngine({ bindings: { ...presets.bindings.rtsRotate } })
  * Actions: rotateLeft / rotateRight (no keys of their own)
  */
 export function rtsCamera(opts = {}) { return rigModule('rts', opts); }
@@ -129,5 +129,5 @@ defineRig('rts', (e, opts, input) => {
     input.action('rotateRight', { label: 'camera.rotateRight', optional: true });
   }
   return new RtsCamera(e, opts);
-}, ['height', 'minHeight', 'maxHeight', 'angle', 'yaw', 'panSpeed', 'dragPan', 'edgePan', 'edgeSize', 'bounds', 'rotate',
+}, ['height', 'minHeight', 'maxHeight', 'pitch', 'yaw', 'panSpeed', 'dragPan', 'edgePan', 'edgeSize', 'bounds', 'rotate',
     'rotateSpeed', 'zoomStep', 'smoothing', 'fov', 'followLock', 'start']);

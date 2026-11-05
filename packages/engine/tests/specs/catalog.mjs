@@ -25,7 +25,7 @@ export const specs = [
     url: '/tests/city/index.html',
     async run({ check, ev }) {
       const r = await ev(() => {
-        engine.pause();
+        engine.haltLoop();
         const R = engine.renderer, S = engine.scene, out = {}, fog = S.fog, base = R.toneMappingExposure;
         const code = engine.onRender(() => { R.toneMappingExposure = 0.5; });   // the game's picture code, writing every frame
         engine.step(1 / 30, { render: true });

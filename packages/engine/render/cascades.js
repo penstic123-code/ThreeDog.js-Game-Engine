@@ -27,7 +27,7 @@ import { patchMaterial, unpatchMaterial, isEngineMade } from './patches.js';
 import { warnOnce } from '../core/validate.js';
 import { sceneVisitor } from '../core/sceneDelta.js';
 import { codedError } from '../core/errorHints.js';
-import { setShadowUpdate, shadowUpdatePending, shadowsOn, isWebGPU, webgpuPart } from './backend.js';
+import { setShadowUpdate, shadowUpdatePending, shadowsOn, isWebGPU, webgpuPart, projectionKey } from './backend.js';
 
 export const CASCADE_SPLITS = ['practical', 'uniform', 'logarithmic'];
 /** Fields of a cascade set besides its count; both entries start from these */
@@ -144,7 +144,7 @@ class LightCSM extends CSM {
     const e = this.engine, cam = e.camera, light = this.light;
     this.view.sync();
     this.shadowParams();
-    const proj = cam.isPerspectiveCamera ? `${cam.fov},${cam.aspect},${cam.near},${cam.far},${cam.zoom}` : `${cam.left},${cam.right},${cam.near},${cam.far},${cam.zoom}`;
+    const proj = projectionKey(cam);
     let force = false;
     if (this.camera !== cam || proj !== this.proj) { this.camera = cam; this.proj = proj; this.updateFrustums(); force = true; }
     this.lightDirection.copy(lightDir).negate();   // CSM points from the light into the scene

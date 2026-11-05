@@ -3,6 +3,8 @@
 import * as THREE from 'three';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { RESERVED_LAYERS } from 'threedog/layers';
+import { codedError } from 'threedog/error-hints';
+import { FULLSCREEN_VERT, DEPTH_GLSL, depthUniforms, writeDepthUniforms, depthNodes } from './depth.js';
 /** @import { PostEffect } from 'threedog' */
 
 /** Layer number to put on objects that should get no outline: mesh.layers.enable(OUTLINE_OFF_LAYER), with outline({ offLayer: OUTLINE_OFF_LAYER }) */
@@ -19,24 +21,22 @@ class OutlinePass extends Pass {
     this.normalRT = null; this.maskRT = null;
     this.material = new THREE.ShaderMaterial({
       uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, tNormal: { value: null }, tMask: { value: null }, tMaskDepth: { value: null },
-        uTexel: { value: new THREE.Vector2() }, uNear: { value: 0.3 }, uFar: { value: 1000 }, uOrtho: { value: 0 }, uColor: { value: new THREE.Color(p.color) },
+        uTexel: { value: new THREE.Vector2() }, ...depthUniforms(), uColor: { value: new THREE.Color(p.color) },
         uThick: { value: 1 }, uStrength: { value: 1 }, uMode: { value: 0 }, uFade: { value: 1 }, uWobble: { value: 0 }, uTime: { value: 0 }, uUseMask: { value: 0 } },
-      vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+      vertexShader: FULLSCREEN_VERT,
       fragmentShader: `uniform sampler2D tDiffuse; uniform sampler2D tDepth; uniform sampler2D tNormal; uniform sampler2D tMask; uniform sampler2D tMaskDepth;
-        uniform vec2 uTexel; uniform float uNear; uniform float uFar; uniform float uOrtho; uniform vec3 uColor; uniform float uThick; uniform float uStrength;
+        uniform vec2 uTexel; uniform vec3 uColor; uniform float uThick; uniform float uStrength;
         uniform float uMode; uniform float uFade; uniform float uWobble; uniform float uTime; uniform float uUseMask;
         varying vec2 vUv;
-        float lin(sampler2D t, vec2 uv){ float z = texture2D(t, uv).x * 2.0 - 1.0; if (uOrtho > 0.5) return uNear + (z * 0.5 + 0.5) * (uFar - uNear); return 2.0 * uNear * uFar / (uFar + uNear - z * (uFar - uNear)); }
-        float h2(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-        float vn(vec2 p){ vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
-          return mix(mix(h2(i), h2(i + vec2(1, 0)), f.x), mix(h2(i + vec2(0, 1)), h2(i + vec2(1, 1)), f.x), f.y); }
+        ${DEPTH_GLSL}
+        #include <threedog_noise>
         // object in the exempt layer at this pixel: its own render is not behind what the scene depth saw
         float masked(vec2 uv){ return texture2D(tMask, uv).r > 0.5 && lin(tMaskDepth, uv) <= lin(tDepth, uv) + 0.05 ? 1.0 : 0.0; }
         void main(){
           vec4 c = texture2D(tDiffuse, vUv);
           vec2 o = uTexel * uThick;
           vec2 uv = vUv;
-          if (uWobble > 0.0) uv += (vec2(vn(vUv / uTexel * 0.04 + uTime), vn(vUv / uTexel * 0.04 + 17.3 + uTime)) - 0.5) * 2.0 * uWobble * uTexel;
+          if (uWobble > 0.0) uv += (vec2(threedogNoise(vUv / uTexel * 0.04 + uTime), threedogNoise(vUv / uTexel * 0.04 + 17.3 + uTime)) - 0.5) * 2.0 * uWobble * uTexel;
           vec2 nb[4] = vec2[4](vec2(o.x, 0.0), vec2(-o.x, 0.0), vec2(0.0, o.y), vec2(0.0, -o.y));   // the four neighbors, thickness apart
           float d = lin(tDepth, uv), edge = 0.0;
           if (uMode != 1.0) {
@@ -60,15 +60,12 @@ class OutlinePass extends Pass {
   // Render the scene once with an override material into a target the size of the input
   _pass(renderer, rt, mat, layer) {
     const { scene, camera } = this, bg = scene.background, fog = scene.fog, mask = camera.layers.mask, color = renderer.getClearColor(new THREE.Color()), alpha = renderer.getClearAlpha();
-    const shadows = renderer.shadowMap.autoUpdate;
-    renderer.shadowMap.autoUpdate = false;   // an override material is unlit: redrawing the shadow maps for it would be pure waste
     scene.overrideMaterial = mat; scene.background = null; scene.fog = null;
     if (layer != null) camera.layers.set(layer);
     // linear (0.5, 0.5, 1): an empty pixel reads as a normal facing the camera, and for the mask its red 0.5 stays below the > 0.5 test
     renderer.setClearColor(new THREE.Color().setRGB(0.5, 0.5, 1, THREE.LinearSRGBColorSpace), 1);
     renderer.setRenderTarget(rt); renderer.clear(); renderer.render(scene, camera);
     scene.overrideMaterial = null; scene.background = bg; scene.fog = fog; camera.layers.mask = mask; renderer.setClearColor(color, alpha);
-    renderer.shadowMap.autoUpdate = shadows;
   }
   _target(rt, w, h, depth) {
     if (rt && (rt.width !== w || rt.height !== h)) { rt.setSize(w, h); return rt; }
@@ -86,7 +83,7 @@ class OutlinePass extends Pass {
     if (useMask) { this.maskRT = this._target(this.maskRT, w, h, true); this._pass(renderer, this.maskRT, this.maskMat, p.offLayer); u.tMask.value = this.maskRT.texture; u.tMaskDepth.value = this.maskRT.depthTexture; }
     u.tDiffuse.value = readBuffer.texture; u.tDepth.value = readBuffer.depthTexture;
     u.uTexel.value.set(1 / w, 1 / h);
-    u.uNear.value = this.camera.near; u.uFar.value = this.camera.far; u.uOrtho.value = this.camera.isOrthographicCamera ? 1 : 0;   // ortho depth is linear already
+    writeDepthUniforms(u, this.camera);
     u.uMode.value = mode; u.uUseMask.value = useMask ? 1 : 0; u.uTime.value = Math.floor(this.time * 8);
     renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
     this.quad.render(renderer);
@@ -95,7 +92,7 @@ class OutlinePass extends Pass {
 }
 
 function apply(pass, p) {
-  if (!(p.mode in MODES)) throw new Error(`outline: unknown mode '${p.mode}', use 'depth' | 'normal' | 'both'`);
+  if (!(p.mode in MODES)) throw codedError('post-effect', `outline: unknown mode '${p.mode}', use 'depth' | 'normal' | 'both'`);
   pass.p = p;
   const u = pass.material.uniforms;
   u.uColor.value.set(p.color); u.uThick.value = p.thickness; u.uStrength.value = p.strength; u.uFade.value = p.fadeWithDistance ? 1 : 0; u.uWobble.value = p.wobble;
@@ -106,8 +103,8 @@ function apply(pass, p) {
  * mode 'depth' (default): silhouettes where depth jumps; 'normal': creases where surface normals turn (the scene is drawn once more with
  * normals; heavy on weak devices); 'both': either. Objects can opt out of the lines with offLayer.
  * @example
- * engine.post.add(outline({ enabled: true, color: 0x222222, thickness: 1.5 }))
- * engine.post.add(outline({ enabled: true, mode: 'both', wobble: 1.5, offLayer: OUTLINE_OFF_LAYER }))   // hand-drawn; then: sky.layers.enable(OUTLINE_OFF_LAYER)
+ * engine.post.add(outline({ color: 0x222222, thickness: 1.5 }))
+ * engine.post.add(outline({ mode: 'both', wobble: 1.5, offLayer: OUTLINE_OFF_LAYER }))   // hand-drawn; then: sky.layers.enable(OUTLINE_OFF_LAYER)
  * @param {{ color?: any, thickness?: number, strength?: number, mode?: 'depth' | 'normal' | 'both', fadeWithDistance?: boolean, wobble?: number,
  *   offLayer?: number | null, enabled?: boolean, order?: number }} [o]
  *   fadeWithDistance: lines fade out in the far 40..90% of the camera range (default true); wobble: line jitter in pixels (0 = straight);
@@ -126,24 +123,18 @@ export function outline({ color = 0x222222, thickness = 1, strength = 0.8, mode 
  * imports three/webgpu. Number / boolean params are live uniforms (ctx.p); mode and offLayer on / off rebuild the node, as any non-number param does.
  * @param {any} input @param {any} ctx
  */
-function outlineNode(input, { tsl: T, display, scenePass, scene, camera, params, p }) {
+function outlineNode(input, { tsl: T, fx, display, scenePass, scene, camera, params, p }) {
   const mode = MODES[params.mode];
-  if (mode === undefined) throw new Error(`outline: unknown mode '${params.mode}', use 'depth' | 'normal' | 'both'`);
-  const near = T.uniform(camera.near).onRenderUpdate(() => camera.near), far = T.uniform(camera.far).onRenderUpdate(() => camera.far);
-  const ortho = T.uniform(0).onRenderUpdate(() => (camera.isOrthographicCamera ? 1 : 0));
+  if (mode === undefined) throw codedError('post-effect', `outline: unknown mode '${params.mode}', use 'depth' | 'normal' | 'both'`);
+  const { far, lin } = depthNodes(T, camera);
   // the color param may be a number (then ctx.p holds a float uniform, not a color) or a Color: read the param itself every render
   const tint = new THREE.Color(), col = T.uniform(tint).onRenderUpdate(() => { tint.set(params.color); });
-  // distance from the camera, from a depth texture; the depth -> view z helpers follow the backend's depth range, the GLSL does it by hand
-  const lin = (tex, uv) => { const d = tex.sample(uv).x; return T.select(ortho.greaterThan(0.5), T.orthographicDepthToViewZ(d, near, far), T.perspectiveDepthToViewZ(d, near, far)).negate(); };
   const depthTex = scenePass.getTextureNode('depth');
   const texel = T.vec2(1).div(T.screenSize), o = texel.mul(p.thickness), base = T.screenUV;
   const nb = [T.vec2(o.x, 0), T.vec2(o.x.negate(), 0), T.vec2(0, o.y), T.vec2(0, o.y.negate())];   // the four neighbors, thickness apart
   // wobble: value noise on the pixel grid, redrawn 8 times a second (flip-book trembling); the GLSL counts its own clock modulo 64 s the same way
-  const h2 = q => T.fract(T.sin(T.dot(q, T.vec2(127.1, 311.7))).mul(43758.5453));
-  const vn = q => { const i = T.floor(q), f0 = T.fract(q), f = f0.mul(f0).mul(f0.mul(-2).add(3));
-    return T.mix(T.mix(h2(i), h2(i.add(T.vec2(1, 0))), f.x), T.mix(h2(i.add(T.vec2(0, 1))), h2(i.add(T.vec2(1, 1))), f.x), f.y); };
   const tick = T.floor(T.mod(T.time, 64).mul(8)), px = base.div(texel).mul(0.04);
-  const jitter = T.vec2(vn(px.add(tick)), vn(px.add(17.3).add(tick))).sub(0.5).mul(2).mul(p.wobble).mul(texel);
+  const jitter = T.vec2(fx.noise(px.add(tick)), fx.noise(px.add(17.3).add(tick))).sub(0.5).mul(2).mul(p.wobble).mul(texel);
   const uv = T.select(p.wobble.greaterThan(0), base.add(jitter), base);
   const d = lin(depthTex, uv);
   let edge = T.float(0);

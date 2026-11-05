@@ -40,13 +40,14 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async src => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         const { data, places, x, z } = (0, eval)(src)();
         const W = engine.world, settled = async () => { engine.step(0.5); await W.whenReady; engine.step(0.1); engine.step(0.1); };
         await settled();
         const n = v => +v.toFixed(3), at = id => ({ x: n(W.get(id).position.x), z: n(W.get(id).position.z), rot: W.get(id).rot === undefined ? null : n(W.get(id).rot) });
-        const box = (bx, bz) => [...engine.collision.boxes].filter(b => Math.hypot(b.x - bx, b.z - bz) < 0.2).length;
-        const circle = (cx, cz) => [...engine.collision.circles].filter(c => Math.hypot(c.x - cx, c.z - cz) < 0.2).length;
+        const statics = t => { const out = []; engine.collision.forEachStatic((k, o) => { if (k === t) out.push(o); }); return out; };
+        const box = (bx, bz) => statics('box').filter(b => Math.hypot(b.x - bx, b.z - bz) < 0.2).length;
+        const circle = (cx, cz) => statics('circle').filter(c => Math.hypot(c.x - cx, c.z - cz) < 0.2).length;
         const view = id => { const o = W.view(id); return o ? { x: n(o.position.x), z: n(o.position.z), rot: n(o.rotation.y) } : null; };
         const first = {
           wall: at('nest-1-wall'), turret: at('nest-1-turret'), turretView: view('nest-1-turret'), counter: at('stall-1-counter'),
@@ -95,7 +96,7 @@ export const specs = [
     async run({ page, check, ev }) {
       await ev(async src => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         (0, eval)(src)();
         const W = engine.world;
         engine.step(0.5); await W.whenReady; engine.step(0.1);
@@ -106,7 +107,7 @@ export const specs = [
       await page.waitForFunction(() => window.engine?.stateApplied, null, READY);
       const r = await ev(async src => {
         'use strict';
-        engine.pause();
+        engine.haltLoop();
         const warns = [], warn = console.warn; console.warn = (...a) => { warns.push(a.join(' ')); warn(...a); };
         (0, eval)(src)(['stall-1-chest']);
         const W = engine.world, ok = await engine.saves.load('fc1');

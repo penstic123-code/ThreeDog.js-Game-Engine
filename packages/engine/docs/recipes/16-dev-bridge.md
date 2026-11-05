@@ -27,7 +27,7 @@ game only advances on step); once you open the page in a browser, commands go to
 | `describe render` | How the picture is set: tone mapping, exposure, shadow filter, post effects with params, default lights, each tagged `engine` (default), `style` or `game` (changed after). Also the `renderer:` lines of `describe --full`. Information only, never warns | `{ "toneMapping": { "value": "aces", "by": "style" }, ... }` |
 | `describe player.position` | Player coordinates { x, y, z } (numbers) | `{ "x": 4, "y": 1.2, "z": 7 }` |
 | `describe player.state` | Just one item of `engine.describe()` (dotted path, `--max characters`) | `"idle"` |
-| `step 2` | Advance 2 game seconds (deterministic; a real-time page is paused first) | `✓ Stepped 2 s · player (4.0, 7.0) in forest · 07:20 day 1` |
+| `step 2` | Advance 2 game seconds (deterministic; a real-time page is halted first) | `✓ Stepped 2 s · player (4.0, 7.0) in forest · 07:20 day 1` |
 | `press interact` | Press an action name or key once (`KeyE`, `e`, `Escape`). **It advances game time**: 0.1 s held + one rendered frame of 1/60 s, about 0.117 s in total; shorten the hold with `--for 0.02` when timing matters | `✓ Pressed menu (Escape) · … · window open: settings` |
 | `hold moveForward 1.5` | Hold for 1.5 seconds | `✓ Held moveForward (KeyW) for 1.5 s · player (-0.6, 3.0) …` |
 | `skip to=06:00` / `skip seconds=600` | Jump the clock like sleeping (`engine.skip`) | `✓ Skipped to 06:00 → 21600 · … 06:00 day 2` |
@@ -36,8 +36,8 @@ game only advances on step); once you open the page in a browser, commands go to
 | `inspect` / `inspect npc_3` / `inspect 10,-4` | What is around the player and which ops it can do now, with reasons (`engine.inspect`, recipes/23-ops.md section 8) | `player at (4, 7) · near: guard 1 m` / `✗ shop.buy shop=trader item=ammo (soldOut: …)` |
 | `pick 480,270` | What is at that screen pixel: record id, kind, template, the content file and line that defines it, its fields (recipes/30-templates.md section 5) | `✓ chest-home (kind chest, template chest) …` / `defined in content/props.js:14: edit it there …` |
 | `explain op shop.buy shop=trader item=ammo` / `explain quest my-quest` | Why an op cannot run now (the reason and the op's note on fixing it first; `--full` adds the last attempt and events around it), or where a quest is stuck (`engine.explain`) | `✗ shop.buy {...} cannot run now: noMoney (Not enough gold)` |
-| `scenario barter` | Run `tests/scenarios/barter.json` (recipes/23-ops.md section 7); prints failed checks, leaves it paused | `✓ barter: 6 checks passed` |
-| `state time=18:30 weather=rain pos=40,-20` | Set the scene (like URL parameters: time weather pos save wait cutscene state play fresh) | `✓ Set · 18:30 day 1 · rain` |
+| `scenario barter` | Run `tests/scenarios/barter.json` (recipes/23-ops.md section 7); prints failed checks, leaves it halted | `✓ barter: 6 checks passed` |
+| `state time=18:30 weather=rain pos=40,-20` | Set the scene (like URL parameters: time weather pos save wait cutscene state play fresh). A weather name must be in the game's table (`describe weather`; `weather({ types: presets.weather.temperate })`, which `--open-world` games start with): what could not be applied fails with the reason and exit 1 | `✓ Set · 18:30 day 1 · rain` |
 | `js "engine.calendar.timeOfDay"` (alias `eval`) | Evaluate an expression in the page; `engine` is available directly and `await` works inside; multi-line statements need their own `return` (e.g. `js "const p = engine.player.position; return p.x + p.z"`). Long scripts: `js --file script.js` | `✓ 0.77` |
 | `snap name` | Screenshot to `.threedog/shots/name.png`, saying which backend drew it; `--play` first leaves the title, as `shot --play` | `✓ Screenshot .threedog/shots/t1.png (163 KB, drawn by WebGL2 (fallback: WebGPU was asked for, this is not a WebGPU picture))` |
 | `snap-describe save` / `snap-describe diff` + name | Describe snapshot instead of a screenshot: save the gameplay part of `describe()` as a baseline, or print how the running page differs from it (section 7) | `✗ describe "market" differs from the baseline in 1 place:` |
@@ -48,15 +48,16 @@ game only advances on step); once you open the page in a browser, commands go to
 ## 2. Notes
 - **Smallest scenario** (`tests/scenarios/coins.json` <!-- r18-ignore-line -->, then `threedog verify coins` or `scenario coins`; `verify` with no file says "Have: none"):
   `{ "name": "coins", "url": "/", "state": { "pos": "6,4" }, "steps": [ { "step": 1 }, { "expect": { "inventory.items.coin": 1 } } ] }`
+- **Position formats**: `pos=x,z` (state, shot, `applyState`) is two numbers on the ground plane, and the height is looked up; an op argument such as `position=3,0,-2` is `x,y,z`. Both are meters, north is -z. `describe` reports the player as `{ x, y, z }` (`describe player.position`).
 - **Teleport the player**: `threedog state "pos=40,-20"` on the bridge, `await engine.applyState({ pos: '40,-20' })` in a test or `js` (both wait for the
   ground there to load). A bare `player.placeAt` from the bridge or a test is a gameplay write outside an op and prints the ops-guard warning; in the
   game itself it belongs in an op (a teleporter pad). `step 1` after it collects `auto` pickups: the pickup check runs in the fixed step after any move.
 - **Ops with a reach** (`interaction.use`, `pickup.take`) check the player's distance as a key press would, also from the bridge: put the player next
   to the thing first (`threedog state "pos=x,z"`), then `threedog op interaction.use id=gate`. A `tooFar` result carries `facts: { distance, radius, at }`.
-- **`shot` always starts a fresh game** (`?save=slot1` loads one); after playing use `snap name`. `shot --keep` adds a timestamp to the file name (no overwrite); every shot prints the picture numbers and hints (recipes/35 "Picture check after every shot"; `--no-picture` skips them).
-- **`step` / `press` pause the real page**; resume with `threedog resume` when done (they pause as owner `threedog`, so a game's own pause stays). A headless page only advances on step anyway.
-- **Run state** is printed after `step` / `press` / `skip` / `resume` and by `threedog status`: `running`, `title-frozen` (title screen waiting for start), `test-paused` (only the bridge paused it), `paused(by owners)` (every `pause` / `freeze` owner, e.g. `ui-inventory`) or `loading`. The same object is `engine.runState` and `describe().time.run`: `{ state, owners, blockedBy }`, where `blockedBy` lists what keeps input from driving the game (opaque input contexts such as `win-settings`, `ui-title`, `dialogue`, `cutscene`, plus `error` and `loading`); the bridge and the MCP tools copy it as-is. A test that pauses passes `pause(owner, { kind: 'test' })` to read as `test-paused`.
-- **Who holds what**: `describe().holds` lists every holder in one place: `pause / freeze / camera / debugView` as `[{ owner, at }]` (`at` = game clock time of the take, `engine.clock.now`, so two new games read the same), `input` (pushed contexts `[{ context, owner, pass }]`), `gates` (`input.gate` owners by action) and `stacks` (every other `engine.mod` quantity), so a stuck pause, a closed jump or a camera nobody gave back has a name.
+- **`shot` always starts a fresh game** (`?save=slot1` loads one); after playing use `snap name`. `shot --keep` adds a timestamp to the generated file name (with `--out name.png` the name is used as given) (no overwrite); every shot prints the picture numbers and hints (recipes/35 "Picture check after every shot"; `--no-picture` skips them).
+- **`step` / `press` halt the real page's loop**; resume with `threedog resume` when done (they halt as owner `threedog`, so nothing of the game's is touched). A headless page only advances on step anyway.
+- **Run state** is printed after `step` / `press` / `skip` / `resume` and by `threedog status`: `running`, `title-frozen` (title screen waiting for start), `halted` (the loop is stopped: the bridge, a test or a headless page), `frozen(by owners)` (every `freeze` owner, e.g. `ui-inventory` or `page`) or `loading`. The same object is `engine.runState` and `describe().time.run`: `{ state, owners, blockedBy }`, where `blockedBy` lists what keeps input from driving the game (opaque input contexts such as `win-settings`, `ui-title`, `dialogue`, `cutscene`, plus `error` and `loading`); the bridge and the MCP tools copy it as-is.
+- **Who holds what**: `describe().holds` lists every holder in one place: `halt / freeze / camera / debugView` as `[{ owner, at }]` (`at` = game clock time of the take, `engine.clock.now`, so two new games read the same), `input` (pushed contexts `[{ context, owner, pass }]`), `gates` (`input.gate` owners by action) and `stacks` (every other `engine.mod` quantity), so a stuck pause, a closed jump or a camera nobody gave back has a name.
 - **`snap` on a real page captures only the canvas** (not the HTML UI); on a headless page it captures the whole page. To see UI state use `describe`
   (`ui.windows`, dialogue).
 - **Keys go through `engine.input` like a real keyboard**: action names are translated to keyboard keys (gamepad buttons are ignored); when a window
@@ -117,9 +118,9 @@ Where the time goes: `npx` itself costs about 2.5 s on Windows (npm starts, reso
 
 ```js
 step(2);
-const before = engine.tick;
+const before = engine.time.tick;
 step(1);
-expect(engine.tick).toBeGreaterThan(before, 'time advanced');
+expect(engine.time.tick).toBeGreaterThan(before, 'time advanced');
 ```
 
 ## 4. Let describe see the game's own state
@@ -133,7 +134,7 @@ or a module name; if the callback throws, only this item shows `{ error }` and t
 into `describe().<module name>`, and `ctx.near()` can report "things nearby".
 
 ## 5. Safety
-The bridge exists only in the dev server (`apply: 'serve'`); built and preview output contains no bridge code (`npm test -- "dev bridge"` checks
+The bridge exists only in the dev server (`apply: 'serve'`); built and preview output contains no bridge code (`threedog test "dev bridge"` checks
 this). The command entry point `POST /__threedog/cmd` accepts only local connections, requires the random token in `.threedog/dev.json`, the Host must
 be localhost, and anything carrying an Origin (sent from a web page) is rejected.
 
@@ -154,7 +155,7 @@ threedog snap-describe diff market-noon --only player,quests,nearby     # compar
 Options: `--only a,b.c` (compare just these fields; dotted paths allowed), `--ignore x.y` (extra fields to skip), `--tolerance 1`. Use the same
 `--only` for save and diff.
 
-In a test, one line (the page must already be in the state to freeze; use `engine.pause()` and `engine.step()` first):
+In a test, one line (the page must already be in the state to freeze; use `engine.haltLoop()` and `engine.step()` first):
 ```
 import { expectDescribe } from '@threedog/tools/describe-snapshot';   // in the engine's own specs: '../../../tools/describe-snapshot.mjs'
 await expectDescribe({ check, ev }, 'market-noon', { only: ['player', 'quests', 'nearby'], tolerance: { default: 0.5, player: 1 } });
@@ -181,7 +182,7 @@ combination so tests and scenarios reuse it.
 `threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`play`, `status`, `describe`, `step`, `press`, `hold`, `skip`, `state`, `ops`,
 `op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `picture_palette`, `picture_compare`, `scenario`, `verify`, `reload`, `resume`, and the static `how`, `check`, `art_list` and `lib_list`;
 tests/mcp.mjs fails when this list and the server's tools differ) and returns the same text as the
-command line (every default answer fits in about 4 KB, `tests/tool-output-sizes.mjs` guards it; a `data` payload over 3 KB keeps its small fields and names `threedog <cmd> --json` for the rest); `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `style_palette` and `style_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
+command line (every default answer fits in about 4 KB, `tests/tool-output-sizes.mjs` guards it; a `data` payload over 3 KB keeps its small fields and names `threedog <cmd> --json` for the rest); `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `picture_palette` and `picture_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
 (or start `npm run dev` yourself; a tool call without a server answers with that fix). It is only a local client of the bridge and opens no port; every check in section 5 still applies. As
 with the command line, the `op` and `step` tools change the current session and its saves; the level itself changes only by editing content files.
 
@@ -208,7 +209,7 @@ Tools: MCP, or `node node_modules/@threedog/tools/bin/threedog.mjs <cmd>` (`COMM
 - Placeholders (gray picture, capsule, boxes) -> the picture is not made yet: `picture/` (recipes 62, 09), code models (05), tuning (35).
 - The picture looks wrong -> `engine.debug.view('lighting')`, `describe().picture`, `threedog inspect materials`.
 - Slow or stutters -> `threedog inspect perf`, `debug.view('shaderCost')`.
-- "... so the engine stopped writing it" -> your direct write owns it now: `engine.view.manual(key)`, `describe().owned` (recipe 52).
+- "... so the engine stopped writing it" -> your direct write owns it now: `engine.autoView.manual(key)`, `describe().owned` (recipe 52).
 - Models made in code -> hot swap, `threedog gallery --shots` (recipe 05 §2c); another game's art -> `threedog art copy`.
 - Verifying a change -> `describeText()` for logic, shots for the picture, `threedog verify <scenario>` (read "not proven").
 - Saves or time skips broken -> `checkSave`, `checkSkip`.

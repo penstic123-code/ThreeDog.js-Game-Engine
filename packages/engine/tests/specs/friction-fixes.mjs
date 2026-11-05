@@ -27,7 +27,7 @@ export const specs = [
         return out;
       });
       check('pauseGame: true freezes while open and unfreezes on close; false does not freeze', r.frozenOpen === true && r.frozenClosed === false && r.frozenOff === false, JSON.stringify(r));
-      check('trade works in a full bag, and fails with notEnough when A is missing', r.fullAdd === false && r.can.ok && r.trade.ok && r.trade.key1 === 0 && r.trade.key2 === 1 && r.trade.gem === 1 && r.badReason === 'notEnough', JSON.stringify(r));
+      check('trade works in a full bag, and fails with notEnough when A is missing', r.fullAdd?.ok === false && r.fullAdd.code === 'full' && r.can.ok && r.trade.ok && r.trade.key1 === 0 && r.trade.key2 === 1 && r.trade.gem === 1 && r.badReason === 'notEnough', JSON.stringify(r));
       check('trade undo gives A back with its data and takes B away', r.undo.ok && r.undo.key1 === 1 && r.undo.key2 === 0 && r.undo.data?.rust === 3, JSON.stringify(r.undo));
       check('failed trade (does not fit) changes nothing and says full', r.fullReason === 'full' && r.afterFull.gem === 1 && r.afterFull.key1 === 1 && r.afterFull.key2 === 0, JSON.stringify(r.afterFull));
     },
@@ -59,7 +59,7 @@ export const specs = [
     url: '/tests/cameras/index.html?cam=follow',
     async run({ check, ev }) {
       const r = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         engine.setCamera('firstPerson', { height: 1.6 });
         const P = engine.player; P.placeAt([60, 0, 80]);
         const eyeY = P.root.position.y + 1.6;

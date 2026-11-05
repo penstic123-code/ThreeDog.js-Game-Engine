@@ -16,7 +16,7 @@ const W = 200, H = 150;
 const engine = window.engine = createEngine({ canvas: document.getElementById('view'), lights: false, pixelRatio: 1, adaptiveResolution: false,
   ui: { loading: false }, saveKey: 'test-post-webgpu', urlState: false });
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 const canvas = () => Object.assign(document.createElement('canvas'), { width: W, height: H });
 const look = r => { r.setPixelRatio(1); r.setSize(W, H, false); r.toneMapping = THREE.ACESFilmicToneMapping; r.outputColorSpace = THREE.SRGBColorSpace;
@@ -226,6 +226,11 @@ window.postWebGPU = async () => {
     return { dim: +dim.toFixed(2), lit: +lit.toFixed(2), ratio: +(lit / Math.max(1e-6, dim)).toFixed(3) };
   };
   out.plainParam = { gl: plain(gl), gpu: plain(gpu) };
+  // outline's color starts as a number, so its uniform is a float: a Color rebuilds the chain instead of writing into it
+  const lined = postOn(gpu, [outline({ thickness: 1.5, strength: 1 })]);
+  shot(lined);
+  out.colorParam = thrown(() => { lined.get('outline').set({ color: new THREE.Color(0xff0000) }); shot(lined); });
+  lined.dispose();
 
   // ---------- post.own(): the engine stops rebuilding the chain (both backends); own(false) rebuilds ----------
   const manual = (renderer, read) => {

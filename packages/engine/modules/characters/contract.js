@@ -3,9 +3,9 @@
 // modules listen to, fired by the character itself (not exercised by the shared check: they need a player on ground).
 export default {
   name: 'characters',
-  api: ['createPlayer', 'removePlayer', 'findSpawn', 'findPath', 'findPathAsync', 'support', 'moveInput'],
+  api: ['createPlayer', 'removePlayer', 'findSpawn', 'findPath', 'findPathAsync', 'support', 'moveInput', 'carryRiders'],
   ops: [],
-  events: ['character:jump', 'character:land', 'character:launch', 'character:fall'],
+  events: ['character:jump', 'character:step', 'character:land', 'character:launch', 'character:fall'],
   saves: {},
   describe: true,
   options: { npcs: false },

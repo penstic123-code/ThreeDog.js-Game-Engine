@@ -1,20 +1,20 @@
-import { join, basename } from 'node:path';
+import { basename } from 'node:path';
 import { rel, MODE, ENGINE } from '../paths.mjs';
 import { devServerInfo } from '../devinfo.mjs';
 
-export { devServerInfo };
-
+/** A failure of the way to the server, not of the command: `bridge` marks it, and dispatch.mjs answers it with the diagnosis */
+const bridgeError = text => Object.assign(new Error(text), { bridge: true });
 const startHint = dir => `npm run dev${MODE === 'monorepo' && dir !== ENGINE ? ' -- ' + basename(dir) : ''}`;
 
 /** { port, token } of the dev server running for this workspace; throws an English "how to fix" message when none is running */
 export function devServer(dir) {
   const info = devServerInfo(dir), ws = rel(dir) || basename(dir);
-  if (info.state === 'none') throw new Error(`no dev server is running for ${ws}
+  if (info.state === 'none') throw bridgeError(`no dev server is running for ${ws}
 Start it in another terminal first: ${startHint(dir)} (then retry)`);
-  if (info.state === 'unreadable') throw new Error(`${rel(info.file)} cannot be read (the dev server may be writing it right now)
+  if (info.state === 'unreadable') throw bridgeError(`${rel(info.file)} cannot be read (the dev server may be writing it right now)
 Retry in a moment; if it stays like this delete the file and run ${startHint(dir)}`);
   // A leftover file from a server that died: its port may now belong to ANOTHER game's server, so never talk to it
-  if (info.state === 'stale') throw new Error(`the dev server recorded for ${ws} (pid ${info.pid}) is no longer running (stale .threedog/dev.json)
+  if (info.state === 'stale') throw bridgeError(`the dev server recorded for ${ws} (pid ${info.pid}) is no longer running (stale .threedog/dev.json)
 Start it again: ${startHint(dir)}`);
   return info;
 }
@@ -28,7 +28,7 @@ export function bridgeDriver(dir, { page } = {}) {
     const { port, token } = devServer(dir);
     let res;
     try { res = await fetch(`http://localhost:${port}/__threedog/cmd`, { method: 'POST', headers: { 'x-threedog-token': token }, body: JSON.stringify({ ...body, page }) }); }
-    catch { throw new Error(`cannot reach the dev server (port ${port})\nIt may have been closed: run npm run dev again and retry`); }
+    catch { throw bridgeError(`cannot reach the dev server (port ${port})\nIt may have been closed: run npm run dev again and retry`); }
     const r = await res.json();
     if (!r.ok) throw new Error(r.error);
     return r.value;

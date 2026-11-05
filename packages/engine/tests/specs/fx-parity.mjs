@@ -8,7 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 const ENGINE = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // engine files threedog/tsl may import: plain data / plain functions with no three.js WebGL parts
-const SAFE = new Set(['core/errorHints.js', 'core/errorCodes.js', 'render/engineUniforms.js', 'render/backend.js', 'render/slots.js', 'render/fxNumbers.js', 'core/threePatches.js', 'core/validate.js', 'render/layers.js']);
+const SAFE = new Set(['core/errorHints.js', 'core/errorCodes.js', 'render/engineUniforms.js', 'render/backend.js', 'render/slots.js', 'render/fxNumbers.js', 'core/threePatches.js', 'core/validate.js', 'render/layers.js',
+  'render/uniformRenames.js', 'render/lit.js']);   // uniformRenames.js: a table of renamed uniform names + dev warnings; its only import is core/validate.js (already on this list), no three; lit.js imports nothing
 const THREE_OK = new Set(['three/tsl', 'three/webgpu']);
 // three's TSL display nodes (bloom, ao for the WebGPU post chain): they import only three/tsl and three/webgpu themselves
 // plus CSMShadowNode (render/cascades.tsl.js): three/webgpu, three/tsl and CSMFrustum, which takes only Vector3 / Matrix4 from 'three'

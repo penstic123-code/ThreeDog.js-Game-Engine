@@ -22,20 +22,17 @@ import { Source, SOURCE_KEYS, SOURCE_STRINGS } from './streamSources.js';
 
 const KEYS = ['position', 'radius', 'build', 'dispose', 'keep', 'priority'];
 const FULL = { detail: 'full' };
+const UNLOAD = -1e6;   // job priority: behind any build (a build runs at its entry's priority minus 0..1)
 
 /** engine.stream builds on demand by space: only entries near the focus get built. */
 export class Stream {
   /** @internal */
   constructor(engine) {
     /** @internal */ this.engine = engine;
-    /**
-     * Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the fog distance
-     * the fog distance without terrain) @type {number | null}
-     */
-    this.radius = null;
+    /** @internal */ this._radius = null;
     /** Grid cell edge in meters, shared with hlod, default 64 */
     this.cellSize = 64;
-    /** Unload only beyond radius x this (walking back and forth does not rebuild), default 1.25 */
+    /** Unload only beyond radius x this (walking back and forth does not rebuild), default 1.25 @experimental */
     this.unloadFactor = 1.25;
     /** @internal */ this.entries = new Set();
     /** @internal 'cx,cz' -> Set<handle> */ this.cells = new Map();
@@ -53,7 +50,7 @@ export class Stream {
     this.player = this.source(() => engine.player?.position ?? engine.focus, { name: 'player' });
     /** Built-in source at the camera focus engine.focus: full detail, no physics @type {StreamSource} */
     this.camera = this.source(engine.focus, { name: 'camera', physics: false });
-    this.readyCheck('stream', s => s.detail !== 'full' || this.ready);
+    this.addReadyCheck('stream', s => s.detail !== 'full' || this.ready);
   }
   /** The build radius actually in use, in meters @returns {number} */
   get activeRadius() {
@@ -85,8 +82,15 @@ export class Stream {
     for (const s of [...this._sources]) if (s !== this.player && s !== this.camera) s.remove();
     this._checks.clear();
   }
+  /**
+   * Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the fog distance
+   * without terrain). Writing it takes effect like setRadius.
+   * @type {number | null}
+   */
+  get radius() { return this._radius; }
+  set radius(m) { this._radius = m; this._dirty = true; }
   /** Set the build radius in meters @param {number} m */
-  setRadius(m) { this.radius = m; this._dirty = true; }
+  setRadius(m) { this.radius = m; }
   /** Everything registered within radius is built (start() waits for it before the loading screen goes away) @returns {boolean} */
   get ready() { return this.queued === 0; }
   /** entries is the registered count, built the built count, queued the queued count @returns {{ entries: number, built: number, queued: number }} */
@@ -148,13 +152,13 @@ export class Stream {
   /**
    * Register a readiness check for loaders: fn(source) returns whether this loader finished what that source asks for.
    * For module authors whose loader reads stream sources; games only read source.ready.
-   * @example engine.stream.readyCheck('props', s => s.detail !== 'full' || props.queued === 0)
+   * @example engine.stream.addReadyCheck('props', s => s.detail !== 'full' || props.queued === 0)
    * @param {string} name
    * @param {(source: StreamSource) => boolean} fn
    * @returns {{ remove(): void }}
    * @experimental
    */
-  readyCheck(name, fn) { this._checks.set(name, fn); return { remove: () => { if (this._checks.get(name) === fn) this._checks.delete(name); } }; }
+  addReadyCheck(name, fn) { this._checks.set(name, fn); return { remove: () => { if (this._checks.get(name) === fn) this._checks.delete(name); } }; }
 
   /**
    * Sources with fresh positions, filtered: { detail: 'full' } for models and stream entries, { physics: true } for colliders, no filter for terrain
@@ -233,10 +237,9 @@ export class Stream {
     this._dirty = false;
     // full-detail sources only: a 'simple' source (far view) gets terrain and hlod proxies, not props
     const src = this.sources(FULL), R = this.activeRadius;
-    // distance past each source's reach, shifted so it compares against R (a source radius below R shrinks its reach)
-    const dist = h => { let d = Infinity; for (const s of src) d = Math.min(d, Math.hypot(h.x - s.x, h.z - s.z) - (h.def.radius ?? 0) - s.reach(R) + R); return d; };
+    const dist = h => this._dist(h, src, R);
     // unload what is far from every source
-    for (const h of this.live) if (!h.def.keep && dist(h) > R * this.unloadFactor) this._unload(h);
+    for (const h of this.live) if (!h.def.keep && dist(h) > R * this.unloadFactor) this._leave(h);
     // build what is near: look only at cells within each source's reach
     for (const s of src) {
       const r = s.reach(R), n = Math.ceil((r + this._maxRadius) / cs), cx = Math.floor(s.x / cs), cz = Math.floor(s.z / cs);
@@ -245,6 +248,24 @@ export class Stream {
         for (const h of cell) if (!h.want) { const d = dist(h); if (d < R) this._build(h, d / R); }
       }
     }
+  }
+
+  /** @internal Distance past each source's reach, shifted so it compares against R (a source radius below R shrinks its reach) */
+  _dist(h, src, R) { let d = Infinity; for (const s of src) d = Math.min(d, Math.hypot(h.x - s.x, h.z - s.z) - (h.def.radius ?? 0) - s.reach(R) + R); return d; }
+  /**
+   * @internal A built entry out of range goes through engine.jobs, behind every build: crossing a street puts a whole row of blocks out of range in one frame, and each unload is
+   * real work (meshes leave their batches, the object leaves the scene), so that one frame paid for all of them. Nothing waits for an unload, so it can take its turn; engine.step
+   * still drains it in the same frame. Checked again when its turn comes: the source may have come back.
+   */
+  _leave(h) {
+    if (!h.built) { this._unload(h); return; }   // still queued: only the wish changes
+    if (h.leaving) return;
+    h.leaving = true;
+    this.engine.jobs.add(() => {
+      h.leaving = false;
+      const R = this.activeRadius;
+      if (h.built && !h.def.keep && this._dist(h, this.sources(FULL), R) > R * this.unloadFactor) this._unload(h);
+    }, { priority: UNLOAD }).catch(err => reportError(this.engine, err, 'stream unload', { soft: true }));
   }
 
   /** @internal */

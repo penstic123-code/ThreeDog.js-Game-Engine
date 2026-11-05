@@ -65,7 +65,7 @@ export const specs = [
       check('点"开始"关闭标题、解冻、解锁输入', !after.open && !after.dom && !after.frozen && after.input, JSON.stringify(after));
 
       const t = await ev(async () => {
-        engine.pause();
+        engine.haltLoop();
         engine.quests.start('walk'); engine.step(0.6);
         engine.hud.counter('fish', { label: 'Fish', value: 2, max: 5 }); engine.hud.bar('hp', { value: 0.5, label: 'HP' });
         engine.step(0.1);
@@ -118,7 +118,7 @@ export const specs = [
     url: '/tests/ui/index.html?mode=off',
     async run({ check, ev }) {
       const r = await ev(async (DOM) => {
-        engine.pause();
+        engine.haltLoop();
         engine.quests.start('walk'); engine.step(0.6);
         engine.hud.counter('fish', { value: 3 }); engine.hud.bar('hp', { value: 0.2 });
         engine.inventory?.add('x');
@@ -148,7 +148,7 @@ export const specs = [
     url: '/tests/ui/index.html?mode=custom',
     async run({ check, ev }) {
       const r = await ev(async (DOM) => {
-        engine.pause();
+        engine.haltLoop();
         const tv = uiLog.find(x => x[0] === 'touch' && x[1] === 'show')?.[2];   // shown at start()
         const startLog = uiLog.map(x => x[0] + '.' + x[1]);
         uiLog.length = 0;

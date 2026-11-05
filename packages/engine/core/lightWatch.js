@@ -7,7 +7,7 @@ import { warnOnce } from './validate.js';
 import { coded } from './errorHints.js';
 import { programCount } from '../render/backend.js';
 
-const MANY = 8;   // above this many real-time lights every material's fragment shader loops over all of them: mobile GPUs slow down first
+export const MANY = 8;   // above this many real-time lights every material's fragment shader loops over all of them: mobile GPUs slow down first
 
 const STRINGS = {
   many: '{n} real-time lights are in the scene (more than {max}, not counting lightPool lights). Every lit material pays for every light in every pixel. ' +

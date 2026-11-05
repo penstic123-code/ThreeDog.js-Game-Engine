@@ -24,8 +24,6 @@ Lightweight collision (collision() module): no clipping while walking, the camer
 - `collision.lineClear(a: PositionLike, b: PositionLike, opts?: { radius?, who? }) → boolean` — Line of sight with height: is the 3D segment a -> b free of boxes, circles and terrain trees? radius fattens the line; addBlocked water is ignored. Give eye heights in a / b
 - Properties:
   - `cameraOcclusion: 'colliders' | 'meshes' | 'both'` What camera occlusion checks (see CollisionOptions.cameraOcclusion)
-  - `circles: Set<CircleCollider>` Circle colliders added by hand
-  - `boxes: Set<BoxCollider>` Box colliders added by hand
   - `version: number` +1 each time a static collider is added or removed
 
 ## Data structures

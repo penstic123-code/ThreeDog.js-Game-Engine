@@ -1,4 +1,4 @@
-// Swarm against one Mesh per object (docs/PERF.md "Swarm"): the same bouncing objects, the same lit box. ?mode=swarm|mesh&n=10000&renderer=webgpu
+// Swarm against one Mesh per object (docs/testing/perf.md "Swarm"): the same bouncing objects, the same lit box. ?mode=swarm|mesh&n=10000&renderer=webgpu
 // Numbers come from window.measure(); run on a real GPU with:
 //   node packages/tools/real-webgpu.mjs --urls="/tests/swarm-perf/index.html?mode=swarm&n=10000&renderer=webgpu" --eval=<file holding: window.measure()>
 //   add --webgl and drop renderer=webgpu for the WebGL renderer.
@@ -14,7 +14,7 @@ document.body.appendChild(canvas);
 const engine = window.engine = createEngine({ canvas, pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, urlState: false, saveKey: 'test-swarm-perf', renderer: q.get('renderer') ?? undefined });
 engine.use(swarm());
 await engine.start();
-engine.pause();
+engine.haltLoop();
 engine.camera.position.set(0, 120, 150);
 engine.camera.lookAt(0, 0, 0);
 engine.camera.far = 1000;

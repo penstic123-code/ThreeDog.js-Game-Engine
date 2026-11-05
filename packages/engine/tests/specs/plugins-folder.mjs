@@ -35,7 +35,6 @@ export const specs = [
         out.bad = err(() => engine.plugins.add({ './plugins/50-oops.js': { default: 42 } }));
         out.badFn = err(() => engine.plugins.add({ './plugins/51-factory.js': { default: () => ({}) } }));
         out.namedFn = err(() => engine.plugins.add({ './plugins/52-water.js': { makeWater: function makeWater() { return {}; } } }));
-        out.noType = err(() => engine.plugins.add({ './plugins/53-score.js': { default: { name: 'score', install() {} } } }));
         out.noHook = err(() => engine.plugins.add({ './plugins/54-idle.js': { default: { name: 'idle', type: 'rules' } } }));
         out.material = err(() => engine.plugins.add({ './plugins/56-wood.js': { default: new THREE.MeshLambertMaterial() } }));
         out.patch = err(() => engine.plugins.add({ './plugins/57-dim.js': { default: { slot: 'color', glsl: 'diffuseColor.rgb *= 0.5;' } } }));
@@ -69,11 +68,10 @@ export const specs = [
       check('an off plugin stays in describe().slots as off with no effects', r.offRow?.on === false && r.offRow.affects.length === 0, JSON.stringify(r.offRow));
       check('a wrong shape or name is a coded error naming the file and the accepted shapes',
         /plugins\/50-oops\.js: the default export is a number \(42\).*Fix: export default.*Object3D.*Pass.*module/.test(r.bad) && /plugin-shape/.test(r.bad) && /51-factory\.js: the default export is a function.*Fix: make it a named export.*name: 'glow', node/.test(r.badFn) && /no plugin '99-nope'/.test(r.unknown), [r.bad, r.badFn, r.unknown].join(' | '));
-      check('plugin-shape errors name the file, what was found and the exact fix: a named factory, a module with no type, one with no hook, an effect with no name',
+      check('plugin-shape errors name the file, what was found and the exact fix: a named factory, a module with no hook, an effect with no name',
         /plugins\/52-water\.js: the export 'makeWater' is a function.*Fix: .*export default makeWater\(\{ \.\.\. \}\).*lib pull/.test(r.namedFn)
-        && /plugins\/53-score\.js: the default export is a module 'score' \(install\) with no type\. Fix: add type to it: \{ name: 'score', type: 'rules'.*'world' \| 'picture'/.test(r.noType)
         && /plugins\/54-idle\.js: the default export is a module 'idle' \(type 'rules'\) with no install.*Fix: add the hook/.test(r.noHook)
-        && /plugins\/55-glow\.js: the default export looks like a post effect \(keys: create\) but has no name\. Fix: add one/.test(r.noName), [r.namedFn, r.noType, r.noHook, r.noName].join(' | '));
+        && /plugins\/55-glow\.js: the default export looks like a post effect \(keys: create\) but has no name\. Fix: add one/.test(r.noName), [r.namedFn, r.noHook, r.noName].join(' | '));
       check('a Material or a ShaderPatch is no plugin: the error says where each goes', /56-wood\.js: the default export is a Material.*engine\.water\.material = mat/.test(r.material) && /57-dim\.js: the default export is a ShaderPatch.*applyEffects\(material, \{ patches: \[patch\] \}\)/.test(r.patch) && /plugin-shape/.test(r.material), [r.material, r.patch].join(' | '));
       check('plain PointLight / SpotLight (even inside a group) are counted by the light budget and listed as light slots',
         r.lights.added === 2 && r.lights.shadow === 1 && r.lights.limit === 8 && r.lights.rows.length === 2 && r.lights.render === 2 && r.gone === 0, JSON.stringify({ ...r.lights, gone: r.gone }));

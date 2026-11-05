@@ -14,7 +14,7 @@ const canvas = () => { const c = Object.assign(document.createElement('canvas'),
 // the page's own engine (the test runner waits for window.engine); the cases below build one engine per backend
 const engine = window.engine = createEngine({ canvas: canvas(), ...base, lights: false, saveKey: 'test-render-once' });
 await engine.start();
-engine.pause();
+engine.haltLoop();
 
 /** A small scene: three colored unlit boxes in a row and a red wall on +x (the probe bake must see red) */
 function fill(e) {
@@ -58,7 +58,7 @@ async function cases(opts) {
   e.use(photo());
   fill(e);
   await e.start();
-  e.pause();
+  e.haltLoop();
   const r = e.renderer, out = { backend: e.describe().renderer.backend };
   const Target = r.isWebGPURenderer ? TG.RenderTarget : THREE.WebGLRenderTarget;
 
@@ -111,7 +111,7 @@ async function cases(opts) {
  *  advance). It must repeat the first picture, or the guard above would pass on a backend where the bug cannot happen */
 async function control() {
   const e = createEngine({ canvas: canvas(), ...base, saveKey: 'test-render-once-control', renderer: 'webgpu' });
-  fill(e); await e.start(); e.pause();
+  fill(e); await e.start(); e.haltLoop();
   e.post.add(vignette({ enabled: true }));
   e.renderOnce();   // build the pipeline outside the frozen part
   const f = e.renderer._nodes.nodeFrame, update = f.update;

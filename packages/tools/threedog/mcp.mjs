@@ -47,7 +47,7 @@ const TOOLS = {
     args: a => [...(a.full ? ['--full'] : []), ...(a.all ? ['--all'] : []), ...(a.path ? [a.path] : []), ...opt('--max', a.max)],
   },
   step: {
-    description: 'Advance game time N seconds, deterministically (a real page is paused first; resume afterwards). Changes this session only, not the level (edit content/*.js for that).',
+    description: 'Advance game time N seconds, deterministically (a real page is halted first; resume afterwards). Changes this session only, not the level (edit content/*.js for that).',
     schema: obj({ seconds: num('Game seconds to advance (default 1)') }),
     args: a => [String(a.seconds ?? 1)],
   },
@@ -155,7 +155,7 @@ const TOOLS = {
     args: a => [a.mode, a.name, ...opt('--only', a.only?.join(',')), ...opt('--ignore', a.ignore?.join(',')), ...opt('--tolerance', a.tolerance)],
   },
   scenario: {
-    description: 'Run one scenario file on the running page; returns failed checks or a pass count. Leaves the page paused. verify adds what it never touched.',
+    description: 'Run one scenario file on the running page; returns failed checks or a pass count. Leaves the page halted. verify adds what it never touched.',
     schema: obj({ name: str('Scenario file name without .json (tests/scenarios/<name>.json)') }, ['name']),
     args: a => [a.name],
   },
@@ -165,7 +165,7 @@ const TOOLS = {
     args: () => [],
   },
   resume: {
-    description: 'Resume real-time running of a page paused by step, press, hold or scenario.',
+    description: 'Resume real-time running of a page halted by step, press, hold or scenario.',
     schema: obj(),
     args: () => [],
   },

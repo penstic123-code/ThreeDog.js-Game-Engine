@@ -6,7 +6,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         await engine.loading.settled();
-        engine.pause();
+        engine.haltLoop();
         const T = engine.THREE, light = new T.DirectionalLight(0xffffff, 1), goal = new T.Object3D(), mover = new T.Object3D();
         light.position.set(10, 20, 5); light.target = goal; engine.scene.add(light, goal, mover);
         const other = new T.DirectionalLight(0xffffff, 0.5); engine.scene.add(other);

@@ -5,7 +5,7 @@
 //   const s = engine.stream.source([800, 0, 300], { radius: 64 }); await s.whenReady; ... s.remove();
 //   await engine.stream.teleport([800, 0, 300]);   // the player moves only after the destination is loaded (terrain, collision, nearby models)
 // Display, physics and world data are three separate things: a source decides what is shown and what has colliders; world records are never deleted by unloading,
-// and near / far simulation follows world.anchor (recipe 18). Readiness is per source: each loader registers a check with readyCheck.
+// and near / far simulation follows world.anchor (recipe 18). Readiness is per source: each loader registers a check with addReadyCheck.
 import { checkOptions } from './validate.js';
 import { xzOf } from './math.js';
 import { codedError } from './errorHints.js';

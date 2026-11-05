@@ -15,10 +15,13 @@ export const STRINGS = {
   setKey: 'world.set("{id}", patch): patch must not contain id / kind (they are the identity of the record). To change the kind, remove then add',
 };
 
+// { save: false } records never reach a save and are cleared on load, so a mesh on one is harmless. The exception: a kind simulated with worker: true is copied to a thread
+const mustBePlain = (w, kind, saved) => saved || !!w._s.sims.get(kind)?.worker;
+
 export function addRecord(w, def, opts) {
   DEV && w.engine.ops.guard('world.add');
   if (!def?.kind) throw codedError('world-add', STRINGS.noKind);
-  if (DEV) { readParams('world.add(def, opts)', keysSchema(['initial', 'save']), opts); checkPlain({ ...def, position: undefined }, def.kind); }
+  if (DEV) { readParams('world.add(def, opts)', keysSchema(['initial', 'save']), opts); if (mustBePlain(w, def.kind, opts?.save !== false)) checkPlain({ ...def, position: undefined }, def.kind); }
   const { id: given, kind, position, ...rest } = def, initial = !!opts?.initial;
   if (initial && given == null) throw codedError('world-add', fmt(STRINGS.initialId, { kind }));
   const id = given ?? `${kind}#${++w._seq}`, have = w.records.get(id), p = { x: 0, y: 0, z: 0 };
@@ -35,7 +38,7 @@ export function addRecord(w, def, opts) {
   if (have) throw codedError('world-id', fmt(STRINGS.dupId, { id }));
   claimId(w.engine, id);
   if (opts?.save === false) w._unsaved.add(id);
-  if (DEV) w._origin.set(id, { spawned: { op: w.engine.ops.running, tick: w.engine.tick } });   // who made it (inspect / pick)
+  if (DEV) w._origin.set(id, { spawned: { op: w.engine.ops.running, tick: w.engine.time.tick } });   // who made it (inspect / pick)
   return w._insert(rec, true);
 }
 
@@ -74,7 +77,7 @@ export function orphanIds(w) {
 export function setRecord(w, id, patch) {
   DEV && w.engine.ops.guard('world.set');
   const rec = w._need(id, 'set');
-  if (DEV) { if ('id' in patch || 'kind' in patch) throw codedError('world-add', fmt(STRINGS.setKey, { id })); checkPlain({ ...patch, position: undefined }, id); }
+  if (DEV) { if ('id' in patch || 'kind' in patch) throw codedError('world-add', fmt(STRINGS.setKey, { id })); if (mustBePlain(w, w.records.get(id).kind, !w._unsaved.has(id))) checkPlain({ ...patch, position: undefined }, id); }
   const { position, ...rest } = patch;
   Object.assign(rec, rest);
   if (position) w.move(id, position);

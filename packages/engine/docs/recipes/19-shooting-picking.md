@@ -33,7 +33,7 @@ for (let i = 0; i < 6; i++) addTarget(p0.x + (i - 2.5) * 3, p0.z - 15);
 
 let score = 0;
 engine.hud.counter('score', { label: 'Hits', value: 0 });
-engine.describe.add('range', () => ({ score, targets: targets.length }));   // visible with the dev bridge: threedog describe range
+engine.describe.add('range', () => ({ score, targets: targets.length }));   // dev bridge: threedog describe range; in code the part sits under its name: engine.describe('range').range.score
 
 engine.onFixed(() => {                                   // firing is gameplay: read it in fixed so the result is independent of frame rate
   if (!engine.input.pressed('shoot')) return;            // "just pressed" from the fixed-step snapshot; one click counts once
@@ -68,7 +68,7 @@ engine.onFixed(() => {                                   // firing is gameplay: 
 
 ## 3. Testing
 ```js
-engine.pause();
+engine.haltLoop();
 engine.input.simulate('shoot'); engine.step(0.1); engine.input.simulate('shoot', false);   // simulate a click on the action bound to Mouse0 (use your action name)
 // To hit a specific target: first aim the camera at it with engine.cameraRig.lookAt(target), then click
 ```

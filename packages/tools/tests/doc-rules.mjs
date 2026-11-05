@@ -15,8 +15,12 @@ export async function run({ check }) {
   const ctx = await context(), doc = `${RECIPES_REL}/99-fixture.md`;
   const errs = text => checkDoc(doc, text, ctx);
   const has = (r, re) => r.some(x => re.test(x.msg));
+  // why: a plan is where future files get named, and docs cannot break a game; the same text in an engine doc stays an error
+  const later = 'See `content/later.js`, then `npm test -- zzz-none`, `threedog zzz-none` and `npm run zzz-none`.', plan = checkDoc('games/zz/DESIGN.md', later, ctx);
+  check('[guard] R18: names that do not exist yet in a game doc warn, in an engine doc they fail', plan.length >= 3 && plan.every(r => r.level === 'warn') && errs(later).some(r => r.level === 'error'), JSON.stringify(plan));
   check('R18: a stale test name is an error with close names', has(errs('Run `npm test -- zzz-no-such-test`.'), /matches no test/));
   check('R18: a real test name passes', !errs('Run `npm test -- "dev bridge"`.').length);
+  check('R18: a test name after threedog test is read the same way', has(errs('Run `threedog test zzz-no-such-test`.'), /matches no test/) && !errs('Run `threedog test "dev bridge" --verbose`.').length);
   check('R18: an unknown event warns, a real one passes', has(errs('Listen to `quest:doen`.'), /did you mean `quest:done`/) && !errs('Listen to `quest:done`.').length);
   check('R18: placeholder paths and clock times pass', !errs('Edit `games/<game>/content/npcs.js` or `recipes/NN-x.md`; open at `18:30`.').length);
   check('R18: a monorepo path in a shipped doc is an error', has(errs('See `packages/engine/docs/AI.md`.'), /monorepo path/));
@@ -34,6 +38,7 @@ export async function run({ check }) {
   const exists = r => r === 'recipes/02-npc.md';
   check('R22: a namespace without a row is named', entryTable(table('| Talk | `engine.dialogue` | `recipes/02-npc.md` |'), ['dialogue', 'quests'], exists).some(x => /engine\.quests/.test(x.msg)));
   check('R22: a row pointing at a missing recipe is an error', entryTable(table('| Talk | `engine.dialogue` | `recipes/03-nope.md` |'), ['dialogue'], exists).some(x => /does not exist/.test(x.msg)));
+  check('R22: every recipe of a row is checked, not only the first', entryTable(table('| Talk | `engine.dialogue` | `recipes/02-npc.md`, `recipes/03-nope.md` |'), ['dialogue'], exists).some(x => /03-nope/.test(x.msg)));
   check('R22: a complete table passes', !entryTable(table('| Talk | `engine.dialogue` | `recipes/02-npc.md` |'), ['dialogue'], exists).length);
   check('R22: sentences of 12+ words are compared, short ones and code are not',
     sentences('One two three four five six seven eight nine ten eleven twelve.\nShort one.\n```\na b c d e f g h i j k l m\n```').length === 1);

@@ -55,7 +55,7 @@ engine.player.mover = 'manual'; /* a cutscene, your own physics */ engine.player
 - **Bullet time / time channels**: a character the engine drives moves and animates on `character.channel` (player `'player'`, NPCs `'world'`), so
   `engine.mod('time.enemies', { owner: 'bullet-time', mul: 0.35 })` slows NPCs added with `npcs.add({ channel: 'enemies' })` (far ones too) and
   `onFixed(fn, { channel: 'enemies' })` code; world records follow only with `world.simulate(kind, { near, channel: 'enemies' })` (without it they
-  keep the 'world' pace while everything else slows); `clock.after(1, 'poison:tick', data, { channel: 'enemies' })` slows a timer with them. The player keeps
+  keep the 'world' pace while everything else slows); `clock.after(1, 'poison:tick', { data, channel: 'enemies' })` slows a timer with them. The player keeps
   full speed unless you mod `'time.player'`. Your own `player.move(x, z, run, dt)` uses the dt you pass. Effects end in any order (recipe 55).
 - **Platforms**: `characters.support(object, { id?, safe?, carry?: 'position' | 'position+yaw', inherit? })` returns `{ id, remove() }`. The rider
   compares the platform's matrix with the one it recorded, so it does not matter whether the platform moves in your `onFixed` before or after the
