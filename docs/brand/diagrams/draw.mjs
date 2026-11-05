@@ -29,9 +29,9 @@ const T = {
       { x: 60, y: 30, w: 800, h: 100, title: 'Your game', sub: 'rules · content · picture · plugins · plain three.js', fill: C.blue },
       { x: 60, y: 165, w: 800, h: 100, title: 'Modules', sub: 'world · picture · actor · rules · ui · net · tool', fill: C.green },
       { x: 60, y: 300, w: 800, h: 130, title: 'Core', sub: 'lifecycle · one time source · shared values\ninput by context · character control · saves · actions', fill: C.yellow },
-      { x: 60, y: 465, w: 800, h: 100, title: 'Rendering', sub: 'WebGL or WebGPU, chosen at start', fill: C.orange },
+      { x: 60, y: 465, w: 800, h: 100, title: 'Rendering', sub: 'WebGPU by default, WebGL by choice', fill: C.orange },
       { x: 60, y: 600, w: 800, h: 90, title: 'three.js + Rapier', sub: '', fill: C.gray },
-      { x: 930, y: 30, w: 270, h: 200, title: 'Agent tools', sub: 'how · describe\ntest · shot · MCP\ndrive and read the game', fill: C.purple },
+      { x: 930, y: 30, w: 270, h: 200, title: 'Agent tools', sub: 'how · check · play\ndescribe · shot · verify\neditor · MCP', fill: C.purple },
     ], arrows: [
       { from: [460, 130], to: [460, 165] }, { from: [460, 265], to: [460, 300] }, { from: [460, 430], to: [460, 465] }, { from: [460, 565], to: [460, 600] },
       { from: [930, 80], to: [860, 80], dashed: true },
@@ -74,8 +74,8 @@ const zh = JSON.parse(JSON.stringify(T.en));
 const tr = (b, title, sub) => { b.title = title; b.sub = sub; };
 { const b = zh.design.boxes; tr(b[0], ZH.design[0], ZH.design[1]); tr(b[1], ZH.design[2], ZH.design[3]); tr(b[2], ZH.design[4], ZH.design[5]); tr(b[3], ZH.design[6], ZH.design[7]); zh.design.arrows[3].label = ZH.design[8]; }
 { const b = zh.arch.boxes; tr(b[0], '你的游戏', '规则 · 内容 · 画面 · 插件 · 原生 three.js'); tr(b[1], '模块', 'world · picture · actor · rules · ui · net · tool');
-  tr(b[2], '核心', '生命周期 · 统一的时间 · 共享数值\n按场合分组的按键 · 角色控制权 · 存档 · 玩家操作'); tr(b[3], '渲染', 'WebGL 或 WebGPU，开局选定'); tr(b[4], 'three.js + Rapier', '');
-  tr(b[5], '给 AI 的工具', 'how · describe\ntest · shot · MCP\n操作和读取游戏'); }
+  tr(b[2], '核心', '生命周期 · 统一的时间 · 共享数值\n按场合分组的按键 · 角色控制权 · 存档 · 玩家操作'); tr(b[3], '渲染', '默认 WebGPU，可选 WebGL'); tr(b[4], 'three.js + Rapier', '');
+  tr(b[5], '给 AI 的工具', 'how · check · play\ndescribe · shot · verify\n编辑器 · MCP'); }
 { const b = zh.module.boxes; tr(b[0], '一个模块', ''); tr(b[1], '一种类型', 'world · picture · actor · …'); tr(b[2], '插槽', '提供 · 需要'); tr(b[3], 'install(engine, ctx)', '');
   tr(b[4], 'ctx', '监听 · 共享数值\n按键动作 · 控制权'); tr(b[5], '引擎', '核心 · 其他模块\n经过公开约定'); tr(b[6], '随模块一起离开', '卸载、出错\n或销毁时'); }
 zh.layers.steps = [['engine', '默认值', C.gray], ['game', '游戏自己的值', C.green], ['effect', '天气\n慢动作：乘或加', C.yellow],
