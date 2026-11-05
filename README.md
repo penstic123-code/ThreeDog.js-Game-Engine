@@ -2,7 +2,7 @@
   <img src="docs/brand/threedog-square.png" alt="ThreeDog.js logo: three cartoon dogs" width="200">
 </p>
 
-<h1 align="center">ThreeDog.js</h1>
+<h1 align="center">Threedog.js</h1>
 
 <p align="center">
   An engine for AI agents to build web games on three.js.
