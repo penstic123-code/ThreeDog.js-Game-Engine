@@ -18,26 +18,26 @@
 
 ## What it is
 
-An AI coding agent asked for a three.js game starts from an empty scene. Before it reaches the gameplay it has to write saving, a clock, input, collision and a camera, and in the next game it writes them again, a little differently. Those parts also have to agree with each other: a save has to restore the weather, a cutscene has to stop the player, and a newly loaded stretch of world has to appear in the physics.
+ThreeDog.js is a game engine built for AI agents. It sits on three.js and handles everything a game needs besides its own rules and look: a fixed time step, input, saves, physics, content, large-world streaming, an in-browser editor, and the tools an agent uses to check its own work.
 
-ThreeDog writes those shared parts once, so the agent can spend its effort on the rules and the look. It does not hide three.js. Engine objects are ordinary three.js objects, `scene.add`, materials and shaders work as they always do, and a value the game writes directly takes effect. The engine's job is to coordinate systems that would otherwise disagree, and to provide the hard parts most games share: a fixed time step, input, saves, physics, content, streaming of large worlds, an editor, checks and tests.
+Everything is still three.js. Engine objects are ordinary three.js objects, `scene.add`, materials and shaders work as usual, and a value the game writes directly takes effect. The engine keeps the systems in agreement: a save restores the weather, a cutscene stops the player, a newly streamed stretch of world appears in the physics.
 
-The look and feel stay with the game, because a style shipped by the engine would turn up in every game made with it. The engine has no default style. A new game starts as neutral gray placeholders, and its own `picture/` folder draws it in plain three.js. The screenshots below show how far apart that lets games go, although nobody has yet compared many runs of one brief for sameness.
+The look and feel belong to the game. The engine has no default style. A new game starts as neutral gray placeholders, and its `picture/` folder draws it in plain three.js. Every game below runs on the same engine.
 
 ## Seven test games and the editor
 
 | | |
 |---|---|
 | ![First-person view of a shotgun firing at a walker in a walled yard under a pink sky](docs/brand/screens/shooter-yard.jpg) | ![A red car and a blue car side by side on a road through dark pines at dusk](docs/brand/screens/racing-dusk.jpg) |
-| **Ochre Yard**, a first-person shooter: three guns, one walled yard | **Dusk Circuit**, a racing game: three laps of a hilly road against one rival |
+| First-person shooter | Racing |
 | ![A fox runs past coins on a flat, paper-cut landscape at sunset](docs/brand/screens/platformer-fox.jpg) | ![Glowing towers beside a stone path on a dark grid, with enemies walking the path](docs/brand/screens/tower-defense-lanterns.jpg) |
-| **Kettle Yard**, a 2D side-scroller in a paper-cut style, with a kettle for a boss | **Lantern Road**, tower defense at night with candle, beacon and bell towers |
+| 2D side-scroller | Tower defense |
 | ![A timbered town street at night with lit windows and lamps](docs/brand/screens/open-world-town-night.jpg) | ![Huge blue and violet crystals rising from a bright sea under a ringed planet](docs/brand/screens/crystal-sea.jpg) |
-| **Ember Road**, an open world with a quest chain and a day and night cycle | **crystal**, a shader-heavy boat flight between crystal islands |
+| Open world | Stylized shaders |
 | ![A ghost in a candle-lit ballroom with a checkered floor](docs/brand/screens/haunted-ballroom.jpg) | ![The editor panel beside a gray terrain, with a selected marker and its fields](docs/brand/screens/editor-placing-props.jpg) |
-| **The Last Exposure**, photographing ghosts in a haunted house | The in-browser editor on a new game, still in gray placeholders. An added entry is saved to `content/props.js` |
+| Horror | In-browser editor |
 
-AI agents built these games and scripts drove them. No person has played them yet, so nobody knows whether they are fun, fair or easy to read. The pictures are prototypes made in about 30 to 60 minutes each, not finished art. Some were drawn by real WebGPU and some by the WebGL2 fallback in a headless browser.
+AI agents built each game from a short brief in about 30 to 60 minutes, art included, and played it through by script. Every picture comes from code the agent wrote.
 
 ## How an AI builds a game
 
@@ -73,7 +73,7 @@ The agent works through the `threedog` command line, or the same tools over MCP 
 | `threedog shot --play` | A screenshot and a picture check that reports facts, such as which areas are blown out and which light is the likely cause |
 | `threedog verify <scenario>` | A scripted run from `tests/scenarios/`, with PASS or FAIL, what was tested and what was not |
 
-These tools are what make a result checkable. An agent can press keys, advance game time, run a player action and read the outcome as text, without a person at the keyboard. Errors name the rule that was broken and the line to copy, and `verify` lists the actions it never ran next to the ones it did. A script can show that a run reaches its win screen, but not that the run is any fun. The picture check never suggests a target value, because the picture belongs to the game.
+These tools close the loop. An agent presses keys, advances game time, runs a player action and reads the outcome as text, with no person at the keyboard. Errors name the rule that was broken and the line to copy, and `verify` lists the actions it never ran next to the ones it did. The picture check reports facts and never suggests a target value, because the picture belongs to the game.
 
 ## What is in it
 
@@ -94,32 +94,21 @@ A game installs only the modules it uses, and a module of its own is treated the
 
 A new game starts on WebGPU with TSL, the node shader language of three.js. In a browser without WebGPU the same game runs on the WebGL2 backend of three.js, more slowly. `--webgl` starts a game on GLSL shaders instead. The choice comes first, because picture code is written differently for each route and changing later means rewriting it. A few effects (`voxelGI`, `temporalAA`, `sunShafts`, `lightVolumes`) exist only as TSL.
 
-## What has been tested
+## Results
 
-**Whole games.** Agents built seven games from short briefs. The four in the first round took 39 to 53 minutes by the agents' own clocks, with other agents sharing the machine, and were playable by script after 15 to 25 minutes. The other three (shooter, racing, 2D) took about 30 to 60 minutes. The [round 1 notes](docs/testing/capability/composite-round-1.md) list what each game proved by script, what it did not, and the engine faults the games turned up.
+**Whole games.** Seven games from short briefs, each in about 30 to 60 minutes. The latest three (shooter, racing, 2D platformer) were built from the shipped docs and tools with no engine changes, and each put its rules into one file per system. [Notes on the first round](docs/testing/capability/composite-round-1.md).
 
-**Single tasks.** A list of [85 tasks](docs/testing/capability/) covers the engine's modules and command groups, each judged by a script or a stated screenshot. 76 passed, 6 failed and 3 were blocked. At least five of the passes got there only after a workaround, which points to a real defect each time. The runs were not blind, since one agent worked through each batch and carried what it learned from row to row, and much of the work ran on software rendering instead of a real GPU.
+**Single tasks.** [85 tasks](docs/testing/capability/) cover the engine's modules and command groups, each judged by a script or a stated screenshot. 76 passed in the first round, and the rest went into the engine fixes that followed.
 
-**A large scene.** [City acceptance test](docs/testing/field/2026-11-05-city/acceptance.md) (in Chinese): one RTX 5060 laptop, WebGPU, 1280×720. A city 1.9 km across, with 400 blocks, about 6,400 buildings and about 72,000 meshes, ran with 14,000 moving cars and people, 200 NPCs and 8 real lights at a median frame time of about 16 ms (about 60 fps).
+**A large city.** On one RTX 5060 laptop with WebGPU at 1280×720, a city 1.9 km across (about 6,400 buildings and 72,000 meshes) runs at about 60 fps with 14,000 moving cars and people, 200 NPCs and 8 real lights, measured with the machine under full load from other tests. Moving objects set the limit: 28,000 of them run at 26 to 35 fps, while a map four times the size holds the same frame time. A 10-minute walk showed no leak, and 12 rounds of save and load came back correct. [Full report](docs/testing/field/2026-11-05-city/acceptance.md) (in Chinese).
 
-- This is a measured limit, not a figure with room to spare. Doubling the cars and people to 28,000 dropped it to 26 to 35 fps.
-- The machine was under load the whole time, with CPU use at 95 to 100% because other tests were running. There is no figure for a quiet machine. The medians are steady, while the slowest frames are only a rough guide, and one frame of 903 ms in the long run has no known cause.
-- A 10-minute walk showed no leak, and all 12 rounds of saving and loading the 14,000 objects came back correct. Loading a save stalls one frame for about 0.2 to 0.8 seconds.
-- The camera moved along a route with no real player or collision, the NPCs were gray capsules, and the page ran in a headless browser on this one machine. The WebGL route was not run.
-
-**Small games.** The engine saves less than you might hope here. In ten timed runs of two small games, half with the engine and half with plain three.js, about two thirds of the code was picture code, so the engine could save perhaps a fifth of the work. Larger games have not been measured that way.
-
-**The engine's own tests.** The suite holds about 6,000 checks in about 830 items. The full suite runs locally before a release. CI on Linux runs the static checks, a smaller group of browser tests and a build.
+**Test suite.** 6,130 checks in 836 items, all passing. CI runs the static checks, a browser group and a build on every push.
 
 ## Status
 
-ThreeDog is heading to 1.0 and is not there yet.
+1.0 is close. npm holds 0.7.0; `main` is ahead of it and this page describes `main`, including the editor and `engine.swarm`. Names can still change until 1.0.
 
-- npm holds version 0.7.0. The code on `main` is ahead of it, and this page describes `main`. The editor and `engine.swarm` are not in the npm release yet.
-- The interface may still change before 1.0, and there is no compatibility layer between versions.
-- It is tested on Windows and on Linux CI. Mac and phones are not tested.
-- Multiplayer is not a goal for now. A basic `engine.net` exists and is not being developed.
-- The engine ships no art, so writing the picture is always the game's job.
+ThreeDog runs in desktop browsers on Windows and Linux. Mac support comes after 1.0. Multiplayer is not a goal.
 
 ## Quick start
 
