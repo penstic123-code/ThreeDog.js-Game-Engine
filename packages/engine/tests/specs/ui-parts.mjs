@@ -76,6 +76,9 @@ export const specs = [
         };
         engine.hud.remove('hp');
         o.barGone = !document.querySelector('.threedog-hud-bar');
+        engine.hud.counter('gun', { value: 12, max: 48 }); engine.step(0.1);
+        o.noLabel = [...document.querySelectorAll('.threedog-hud-counter')].at(-1)?.textContent;
+        engine.hud.remove('gun');
         o.prompt = document.querySelector('.threedog-prompt')?.textContent; o.stick = !!document.querySelector('.threedog-stick');
         document.querySelector('.threedog-prompt')?.click(); o.lever = window.leverUsed;
         engine.quests.win.toggle(true); engine.step(0.1);   // input contexts switch at the next fixed step
@@ -84,6 +87,7 @@ export const specs = [
         o.logClosed = !engine.ui.isOpen('questLog') && document.querySelector('.threedog-win-quests')?.hidden && engine.input.enabled;
         return o;
       });
+      check('a counter with no label shows its value alone, not its id', t.noLabel === '12 / 48', JSON.stringify(t));
       check('任务开始弹默认提示（kind quest）', /Walk/.test(t.toast), t.toast);
       check('交互提示默认件画出"键 · 标签"，点它走 interaction.use；默认摇杆画出', /Lever/.test(t.prompt || '') && t.lever === 1 && t.stick, JSON.stringify(t));
       check('任务日志默认件：打开时列出任务并锁输入，关上后隐藏解锁', t.log.open && /Walk[\s\S]*Go north/.test(t.log.text || '') && t.log.locked && t.logClosed, JSON.stringify(t));

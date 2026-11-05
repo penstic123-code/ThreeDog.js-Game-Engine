@@ -101,7 +101,3 @@ Loading a save replaces the whole inventory, and refreshing every frame follows 
 ## 5. Saving
 The inventory (gold included) and every container with contents are saved automatically; a shelf that was sold out is remembered too (`{}`), and
 loading does not restock it. You write nothing.
-
-## 6. Verification
-The "shop" case in `tests/specs/containers.mjs` runs the whole flow: buy -> consign -> choice disappears when money is short -> save -> refresh and
-load, with the shelf and gold consistent.

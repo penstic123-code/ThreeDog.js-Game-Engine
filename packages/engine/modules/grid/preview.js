@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { neutralMaterial } from '../../render/neutral.js';
 import { screenToGround } from '../../core/screenToGround.js';
-import { warnOnce } from '../../core/validate.js';
+import { warnOnce, needMaterial } from '../../core/validate.js';
 import { failure } from '../../core/opsFail.js';
 import { codedError } from '../../core/errorHints.js';
 
@@ -21,7 +21,7 @@ function boxPart(e, st) {
   return {
     get material() { return mesh.material; },
     set material(m) {
-      if (!m?.isMaterial) throw codedError('grids-misuse', `pv.material takes a three.js material, got ${m}`);
+      needMaterial('grids-misuse', 'pv.material', m);
       mesh.material = m;
     },
     update(v) {

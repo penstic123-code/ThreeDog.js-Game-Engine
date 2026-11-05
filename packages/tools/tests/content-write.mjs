@@ -76,6 +76,11 @@ export async function run({ check }) {
 
     const a = await w({ op: 'add', kind: 'props', entry: { id: 'd', template: 'crate', x: 5, z: 5 } });
     check('add appends after the last literal on its own line, trailing comma kept', a.ok && props().includes("  ...gen,\n  { id: 'd', template: 'crate', x: 5, z: 5 },\n];"), a.error ?? props());
+    const pickupsFile = join(dir, 'content/pickups.js'), keptPickups = readFileSync(pickupsFile, 'utf8');
+    writeFileSync(pickupsFile, "// on the ground\nexport default [{ id: 'p0', item: 'apple', x: 0, z: 0 }];\n");
+    const open1 = await w({ op: 'add', kind: 'pickups', entry: { id: 'p1', item: 'apple', x: 1, z: 1 } }), open2 = await w({ op: 'add', kind: 'pickups', entry: { id: 'p2', item: 'apple', x: 2, z: 2 } });
+    check('add to a list written on one line opens it: one entry per line from then on, the old entry untouched', open1.ok && open2.ok && readFileSync(pickupsFile, 'utf8') === "// on the ground\nexport default [\n  { id: 'p0', item: 'apple', x: 0, z: 0 },\n  { id: 'p1', item: 'apple', x: 1, z: 1 },\n  { id: 'p2', item: 'apple', x: 2, z: 2 },\n];\n", open1.error ?? readFileSync(pickupsFile, 'utf8'));
+    writeFileSync(pickupsFile, keptPickups);
     check('add without an id is refused (a position id shifts)', /needs an id/.test((await w({ op: 'add', kind: 'props', entry: { template: 'crate', x: 1, z: 1 } })).error ?? ''));
     check('add with an id that exists is refused', /already used/.test((await w({ op: 'add', kind: 'props', entry: { id: 'a', template: 'crate', x: 1, z: 1 } })).error ?? ''));
     const whole = props();

@@ -39,7 +39,7 @@ export const ERROR_HINTS = [
     cause: 'A value was null where code read a property: a lookup or helper returned null (document.querySelector found nothing; ' +
       'three.js BufferGeometryUtils.mergeGeometries returns null when the geometries have different attributes and logs which one in the ' +
       'console just before). Check the stack for the line and what produced the value.',
-    docs: ['recipes/54-three-idioms.md', 'recipes/16-dev-bridge.md'] },
+    docs: ['THREE.md', 'recipes/16-dev-bridge.md'] },
   { id: 'not-function', match: /[\w$.]+ is not a function/,
     cause: 'The method name is wrong, or the module is not installed (the property is then undefined). Check spelling against api/<module>.md.',
     docs: ['api/engine.md', 'CODEMAP.md'] },

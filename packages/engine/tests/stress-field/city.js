@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { BundleGroup } from 'three/webgpu';
 import { swarm, sky } from '../../index.js';
 
-const P = 96, ROAD = 16, HALF = (P - ROAD) / 2;   // block pitch, road width, half the block's own ground
+export const P = 96; const ROAD = 16, HALF = (P - ROAD) / 2;   // block pitch, road width, half the block's own ground
 const rng = seed => () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 
 /** The kit every block shares, like a game's asset set: unit box and street props, six facades */
@@ -54,11 +54,11 @@ export function makeBlock(K, x, z, seed, downtown) {
 }
 
 /** Traffic and crowds over the whole district, bouncing at its edge: cars in lanes, pedestrians on pavements. Each pedestrian looks at its neighbours one step in 16 */
-function makeTraffic(e, N, nCars, nPeople, K) {
+export function makeTraffic(e, N, nCars, nPeople, K, save = false) {
   const span = N * P / 2, r = rng(7);
   const carM = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.5 }), manM = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.9 });
-  const cars = e.swarm({ name: 'cars', capacity: nCars, geometry: K.parked, material: carM, fields: ['vx', 'vz', 'yaw'], color: true, cell: 8 });
-  const people = e.swarm({ name: 'people', capacity: nPeople, geometry: new THREE.CapsuleGeometry(0.24, 1.2, 2, 6).translate(0, 0.84, 0), material: manM, fields: ['vx', 'vz', 'yaw'], color: true, cell: 2 });
+  const cars = e.swarm({ name: 'cars', capacity: nCars, geometry: K.parked, material: carM, fields: ['vx', 'vz', 'yaw'], color: true, cell: 8, save });
+  const people = e.swarm({ name: 'people', capacity: nPeople, geometry: new THREE.CapsuleGeometry(0.24, 1.2, 2, 6).translate(0, 0.84, 0), material: manM, fields: ['vx', 'vz', 'yaw'], color: true, cell: 2, save });
   cars.mesh.castShadow = true;
   const line = () => (Math.floor(r() * (N + 1)) - N / 2) * P;
   const heading = (onX, v) => onX ? Math.sign(v) * Math.PI / 2 : (v > 0 ? 0 : Math.PI);
@@ -81,14 +81,14 @@ function makeTraffic(e, N, nCars, nPeople, K) {
 }
 
 /** A serpentine along the streets, arc length to position: the same route for walking and flying, so it crosses the whole district */
-function route(N) {
+export function route(N) {
   const span = (N / 2 - 1) * P, pts = []; let flip = false;
   for (let k = -(N / 2 - 1); k <= N / 2 - 1; k += 2) { const z = k * P; pts.push([flip ? span : -span, z], [flip ? -span : span, z]); flip = !flip; }
   const seg = []; let total = 0;
   for (let i = 0; i + 1 < pts.length; i++) { const [ax, az] = pts[i], [bx, bz] = pts[i + 1], len = Math.hypot(bx - ax, bz - az); seg.push({ ax, az, dx: (bx - ax) / len, dz: (bz - az) / len, len, at: total }); total += len; }
   return { total, at(s, out) { s %= total; let i = seg.length - 1; while (seg[i].at > s) i--; const g = seg[i], t = s - g.at; out.x = g.ax + g.dx * t; out.z = g.az + g.dz * t; out.dx = g.dx; out.dz = g.dz; return out; } };
 }
-const pct = (s, p) => s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : 0;
+export const pct = (s, p) => s.length ? s[Math.min(s.length - 1, Math.floor(s.length * p))] : 0;
 
 /** @param {{ mkEngine: Function, ready: Function, heap: Function, gc: Function, r2: Function }} h the page's helpers */
 export function cityMethods({ mkEngine, ready, heap, gc, r2 }) {

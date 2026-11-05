@@ -1,10 +1,10 @@
 # Templates: reusable objects, definition vs instance state
 
-**In this recipe**: 1. Define a template · 2. Place instances · 3. What belongs to the definition, what to the instance · 4. Tests ·
+**In this recipe**: 1. Define a template · 2. Place instances · 3. What belongs to the definition, what to the instance ·
 5. Point -> thing · 6. When to use a template · 7. A group of things
 
 Requires `world()` (in `openWorld()`); a template with `interact` needs `interactions({ ...presets.interactions.nearest })`, with `container` needs
-`inventory()`. The code is `modules/content/templates.js`.
+`inventory()`.
 
 A **template** describes one kind of object once: its model, collision, interaction, container, sound, animation and the default values of its saved
 state. Every chest, campfire or bed you place is an **instance**: a world record that names the template (its `kind` is the template name) and holds
@@ -153,11 +153,6 @@ value on the record instead (`engine.world.set(id, { opened: true })`). Read a d
 `engine.inventory.item(id)`. For your own tables of kinds (enemy types, crop types), the same split applies: keep the table in content, store `kind`
 plus the changing values on the record, and wrap the table with `Object.freeze` if you like. <!-- r18-ignore-line -->
 
-## 4. Tests
-`tests/specs/templates.mjs`: two chests of one template share the model, open / goods per instance, save and reload restores each, the definition
-never changes. `tests/specs/template-stages.mjs`: stages grow over game time near and far and survive save / load, `update` runs on the
-fixed step, an interaction runs its op, and the engine root has no second placement path (no entities module, no root-level spawn). `tests/specs/single-source.mjs` (`threedog test "Single source"`): ids, duplicates, baseline + diff, orphans, level nodes, source lines, pick.
-
 ## 5. Point -> thing: where is this defined
 Runtime ops change only the current session and its saves. To change the level itself, edit the content files or the level model, then reload. To find
 the entry, ask the engine what a thing is:
@@ -174,11 +169,7 @@ line numbers); a release build has none and pays nothing. From a terminal or an 
 top-left) or the MCP tool `pick { x, y }`.
 
 ## 6. When to use a template
-Two doors lead into one scene. Plain three.js, `engine.add(mesh, { id })`, is fine for anything your code rebuilds on every start: a code-built
-windmill, colliders, interactions. A template plus a placement with an `id` in `content/props.js` (or `pickups`, `npcs`, `containers`, a game kind
-from `rules.js`, the level model) is what you want when the thing must be saved with its own state, edited without touching code, or copied many
-times. Both land in the same registry: `engine.thing(id)` answers for either and says what a save keeps (recipe 40). Game code keeps the rules: ops,
-`world.simulate` / `world.present`, conditions and UI. Something that appears during play is created inside an op with `engine.content.spawn`.
+Plain three.js or a template: recipe 40 sections 1 and 2 decide. Game code keeps the rules: ops, `world.simulate` / `world.present`, conditions and UI. Something that appears during play is created inside an op with `engine.content.spawn`.
 
 `npm run check` (rule R33) flags only what can break, in examples, templates and `games/*` alike. Warning, with `// runtime: <reason>` as the way to say it is fine (no saves, a new run only): `world.add` (without `{ save: false }`),
 `engine.content.spawn`, `pickups.spawn` or `npcs.add` at module top level or in an `engine:ready` / `level:loaded` / `session:start`

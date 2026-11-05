@@ -1,7 +1,7 @@
 # Ops: one entry point for what players and NPCs do (engine.ops)
 
 **In this recipe**: 1. Define and run · 2. Who calls it, and when · 3. Built-in ops · 4. Read the log · 5. The guard · 6. Testing ·
-7. Scenario tests · 8. Inspect and explain · 9. Randomness · 10. Property tests · 11. Structured failures, nextFixed, and who halted the loop ·
+7. Scenario tests · 8. Inspect and explain · 9. Randomness · 11. Structured failures, nextFixed, and who halted the loop ·
 12. Failing in run, atomic ops, revision
 
 **What is an op**: one discrete thing an actor decides to do: buy, talk, attack, roll, fire, reload, craft, build, demolish. Write one with
@@ -125,6 +125,7 @@ Put `<workspace>/tests/scenarios/<name>.json` in the engine package or a game; `
 - `op` steps run with `source: 'test'` (`actor` optional); `expect` is `"ok"` (default) or the failure code. A failure prints the `engine.explain` sentence.
 - `expect` maps `describe()` paths to values (`nearby[0].name` works; numbers within 0.01; `null` = absent). `snapshot` compares with
   `tests/snapshots/<name>.describe.json` (`only` / `ignore` / `tolerance`; write it with `threedog test <name> --update-snapshots`).
+- A file has 120 s under `threedog test`; a long one sets `"timeout"` at the top, in milliseconds, as a spec does.
 - Before any step runs, every op name and step field is checked; a typo fails with "did you mean". The run stops at the first failed step.
 - Use `press` only for the one test per key that proves "key -> op". Examples in the engine repository: `packages/engine/tests/scenarios/`.
 
@@ -147,11 +148,6 @@ op's `run` emitted it, seq is the history seq); `chain` walks up to the root as 
 Gameplay randomness uses `engine.random` (`next / range / int / pick / chance`): it is saved with the game and `createEngine({ seed })` fixes it, so a
 scenario replays the same. `Math.random` breaks both.
 
-## 10. Property tests: random op sequences
-The engine repository's `Properties` specs (fast-check, a devDependency) runs random sequences of ops / saves / newGame inside the page in one `ev()` and checks the state rules (item totals kept, a refused op changes nothing, save then load is identical, newGame leaves nothing behind, a failed `engine.use` batch changes nothing).
-A failure prints the shrunk minimal sequence and the seed. Replay: `FC_SEED=<seed> threedog test "Properties: random op"`; more cases: `FC_RUNS=300` (default 25). Without fast-check installed the specs skip and say why.
-To check a new rule, add a step kind to `stepArb` and a check in `pageRun`; turn every found sequence into a fixed regression spec.
-
 ## 11. Structured failures, nextFixed, and who halted the loop
 `can` may return a reason string (`'noMoney'`) or a structured failure. Every failed result from `run` / `can` / `undo` has `{ ok: false, code, facts, nextActions }`; a string failure becomes `code = that string`, `facts = {}`, `nextActions = []`, so read `.code` without checking the shape. `engine.inspect()`, `ops.list({ available: true })`, `engine.describe()` actions and `engine.explain({ op })` carry `facts` / `nextActions` too.
 ```js
@@ -163,7 +159,7 @@ const r = engine.ops.run('shop.buy', {});   // r.ok === false, r.code === 'noMon
 ```
 `engine.nextFixed(fn)` runs `fn` at the start of the next fixed step and returns a Promise of its value, so a UI click or a promise callback can safely write gameplay state: `await engine.nextFixed(() => engine.ops.run('door.open', { id: 'gate' }))`. It is built on `engine.commits` and waits while frozen or loading.
 
-Tests that halt the loop name themselves (default `'game'`) and end their own halt with the handle: `const h = engine.haltLoop('my-test'); ... h.remove()`. The loop stays halted until every owner has removed theirs, so one helper cannot end another's halt
+Tests that halt the loop name themselves (default `'game'`) and end their own halt with the handle: `const h = engine.haltLoop('my-test'); ... h.remove()`. The loop stays halted until every owner has removed theirs, so one helper cannot end another's halt.
 
 ## 12. Failing in run, atomic ops, revision
 `run` can fail like `can`: return or throw `{ ok: false, code, facts, nextActions }` (a value that merely has a `code` field is not a failure; `ok: false` is required). `facts` is an object (`{ need: 5 }`) or a list of `{ id, field, actual, expected? }` naming the record and field that were wrong. The engine never invents `nextActions`; only the op definition declares them. Every result carries `revision` (`engine.ops.revision`), a counter bumped once per committed op: "did anything change since I looked" is one compare.
@@ -178,7 +174,7 @@ engine.ops.define('craft.bread', {
   after: (e) => e.audio.sfx('ding'),   // sound / animation: runs only after the op committed
 });
 ```
-What atomic covers, honestly: it copies the save parts that declared `saves.register(key, { atomic: true })` (the built-ins above; a game's own part can opt in) before `run` and loads them back on failure, so it costs one save of those per run (fine for a craft op, wrong for a per-frame op in a huge world). Events already emitted, sound, animation and any other module's state are not undone; keep such effects in `after`. Ops called from an atomic run join it (their `after` hooks wait for the outermost commit, and a rolled-back outer also takes back their revision). `ops.list()` and `engine.explain({ op })` report `atomic`.
+What atomic covers: it copies the save parts that declared `saves.register(key, { atomic: true })` (the built-ins above; a game's own part can opt in) before `run` and loads them back on failure, so it costs one save of those per run (fine for a craft op, wrong for a per-frame op in a huge world). Events already emitted, sound, animation and any other module's state are not undone; keep such effects in `after`. Ops called from an atomic run join it (their `after` hooks wait for the outermost commit, and a rolled-back outer also takes back their revision). `ops.list()` and `engine.explain({ op })` report `atomic`.
 
 Causal trace (`events.traceSize > 0`, recipe 06): failed ops are noted as `op:<name>` with their `code`; `collision.lineClear(a, b, { who })` as `sight` (blocked lines always, clear ones for the focused object only); NPC state changes as `npc:state`. A game's behavior notes its own mode switch with `engine.events.note('npc:mode', { obj: rec.id, data: { from: 'patrol', to: 'investigate' } })`; `events.traceFocus('guard-1')` makes one object verbose.
 

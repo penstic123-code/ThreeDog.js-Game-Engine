@@ -32,6 +32,9 @@ export async function run({ check, browser }) {
   try {
     const dev = JSON.parse(readFileSync(join(dir, '.threedog/dev.json'), 'utf8'));
     check('after start .threedog/dev.json is written (port + token)', dev.port && dev.token?.length >= 16);
+    // a fresh server on a loaded machine can sit past wrongServer's five seconds on its first request: wait for any answer, so the check reads what the server says.
+    // No answer in 30 s falls through, and the check below fails on "unknown"
+    for (const end = Date.now() + 30000; Date.now() < end;) { try { await fetch(`http://localhost:${dev.port}/__threedog/root`, { signal: AbortSignal.timeout(10000) }); break; } catch { /* not answering yet */ } }
     const owner = await wrongServer(`http://localhost:${dev.port}/`, dir), foreign = await wrongServer(`http://localhost:${dev.port}/`, join(dir, 'another-game'));
     check('the server names its folder: shot <url> passes its own game and refuses another', !owner.wrong && !owner.unknown && /serves/.test(foreign.wrong ?? ''), JSON.stringify({ owner, foreign }));
 
@@ -94,6 +97,7 @@ export async function run({ check, browser }) {
     const checks = await threedog('js', '--file', script);
     check('js checks: expect(v, msg) and expect(v).toBe(x, msg) failures print the message', checks.code === 1 && checks.out.startsWith('✗ 3 of 4 checks failed')
       && checks.out.includes('#1 on expect → expected 2, got 1') && checks.out.includes('#2 on matcher') && checks.out.includes('#3 on assert'), checks.out);
+    check('js: a script may declare its own log, step or engine', (await threedog('js', 'const log = 2; const step = 3; return log + step')).out === '✓ 5');
     rmSync(script, { force: true });
     const rawClock = async () => +(await threedog('eval', 'engine.time.now("real")')).out.replace('✓ ', ''),
       tp0 = await rawClock(); await threedog('press', 'KeyJ', '--for', '0.02'); const tp1 = await rawClock();

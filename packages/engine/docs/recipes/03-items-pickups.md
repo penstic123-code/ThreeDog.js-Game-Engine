@@ -19,10 +19,9 @@ A hidden mesh is only hidden: a collider it had is yours to remove in `onUse`. T
 | `pickups.spawn` (below) | it goes in a bag, respawns, is taken by walking into it (`auto`), is laid out in `content/`, or a net host must decide who got it |
 
 ## Items and pickups
-Modules needed: `inventory()` (inventory; the window is the UI part `inventory`, opened with the key the game gives:
-`inventory()`; its open key is the game's: `presets.bindings.inventory` is I / gamepad Y, `inventory: []` none; no module binds a key by itself) +
-`pickups()` (things lying on the ground; needs `world()`, which `openWorld()` includes) + `interactions({ ...presets.interactions.nearest })` (walk up
-to a pickup and press E). "Already picked up / how long until it grows back" is data in world and is saved with the game.
+Modules needed: `inventory()` (its window is the UI part `inventory`; the open key is the game's: `presets.bindings.inventory` is I / gamepad Y,
+`inventory: []` none) + `pickups()` (things lying on the ground; needs `world()`, which `openWorld()` includes) +
+`interactions({ ...presets.interactions.nearest })` (walk up to a pickup and press E). "Already picked up / how long until it grows back" is data in world and is saved with the game.
 
 **Every actor has its own bag**: the container whose id is the actor's id (`inventory.of(actor)`): `'player'` for the local user, each net peer's actor
 id on the host, an NPC's id. "The player inventory" (`inventory.add / count / list ...`) is the bag of `engine.actor`. Whoever takes a pickup gets it in
@@ -42,7 +41,7 @@ export const startItems = { coin: 3 };          // what the inventory holds at t
 `content/pickups.js` (a list):
 ```js
 export default [
-  { item: 'mushroom', place: 'home', x: 8, z: 3, respawn: 120 },   // respawn: after how many game seconds it grows back (omitted = never again)
+  { item: 'mushroom', place: 'home', x: 8, z: 3, respawn: 120 },   // respawn: after how many calendar seconds it grows back (omitted = never again)
   { item: 'coin', x: 40, z: -12, count: 5, auto: true },           // without place it is a world coordinate; count = how many at once; auto = taken by walking into it
   { item: 'sword', x: 12, z: 4, data: { durability: 60 } },        // data = this piece's own data (see "Single pieces"); radius = reach in meters (default 2)
 ];
@@ -54,26 +53,21 @@ is built only near the player and removed when far.
 Id: if you write an `id` it is used; otherwise it is `pickup:<item>:<index in the pickups array>`, the same every time for the same content, and
 distinguishes the same item placed at the same coordinates. **Write an `id` if the content will keep changing** (inserting a new one in the middle
 shifts the later indices).
-When picked up, the record is removed from world; one with `respawn` stays and gets an `until` (respawn time, game seconds); while waiting it has no
-model, and at that time (also when far away with no model) `until` is cleared and it returns to the ground.
-Pickups in content are the world's **initial data**: the save records only what was picked up and what is waiting to respawn; it makes no difference
-whether `content.load` runs before or after loading, and picked-up items do not reappear; positions that use a level marker carry a `zone`, so after
-changing level and coming back they are still picked up.
+When picked up, the record is removed from world; one with `respawn` stays and gets an `until` (calendar seconds); while waiting it has no model,
+and at that time (also when far away with no model) it returns to the ground. Pickups in content are initial data, like props (recipe 18 §4).
 `engine.world.remove(id)` deletes one directly.
 
 ## 2. In code (dynamic drops, custom models, instant effects)
 ```js
 engine.inventory.define('gem', { name: 'Gem', icon: '💎', color: 0x66ccff });   // shape: model: 'gemModel' (an asset name), else an asset named 'pickup:gem' / 'pickup', else a gray box (spawn { mesh } puts one object of the game's own down instead)
 const gem = engine.pickups.spawn(engine.player.position, { give: 'gem', count: 1 });   // returns a handle; gem.remove() deletes data and model together
-// handle: { id: id in world, give, object: current model (null when far), remove() }; opts.id lets you write a stable id (spawning again with the same id reuses the existing one)
-engine.inventory.add('coin', 2);                // give directly to the local bag; returns { ok: true, key: 'coin', added: 2 }, or { ok: false, code: 'full' } if none fit
-engine.inventory.remove('coin', 1);             // returns false if there isn't enough
-engine.inventory.has('coin', 2);                // at least 2?
+// opts.id writes a stable id (spawning again with the same id reuses the existing one)
+engine.inventory.add('coin', 2);                // the local bag; { ok: true, key: 'coin', added: 2 }, or { ok: false, code: 'full' } if none fit
 engine.pickups.spawn([8, 0, 2], { give: 'ammo', count: 30, auto: true, radius: 1.2 });   // taken on touch by whoever touches it (pickups.takers), no key, no prompt
 engine.pickups.spawn(p, { give: (e, { actor }) => e.ops.run('hp.heal', { n: 25 }, { actor }), name: 'Medkit', model: 'medkit', auto: true });   // instant effect, no inventory needed
 engine.events.on('pickup:take', ({ actor, x, z }) => engine.particles?.emit('dust', { x, y: engine.surface(x, z), z }, { count: 10 }));   // also item:add / item:remove (with container, actor) / item:use
 ```
-The default reach is `pickups({ radius: 2 })`; each pickup can set its own `radius`. Taking one is the op `pickup.take { id }` (net: `'peer'`): the
+The default reach is `pickups({ radius: 2 })`; each pickup can set its own `radius`. Reach is a sphere around the pickup, so a coin on a ledge less than `radius` above the player is taken from under it: give it a smaller `radius`. Taking one is the op `pickup.take { id }` (net: `'peer'`): the
 interact key, auto pickups, a net client's press (sent to the host, which puts the item into that peer's bag) and tests all run it as `ctx.actor`.
 A give function is not saved data: code that spawns one spawns it again on load (content and setup code do); a runtime drop gives an item id.
 
@@ -86,9 +80,6 @@ also takes a key.
 const I = engine.inventory;
 I.define('sword', { name: 'Sword', stack: 1 });
 const { key } = I.add('sword', 1, { data: { durability: 80, level: 3 } });   // 'sword#7' (add returns { ok: false, code: 'full' } when it does not fit)
-I.count('sword');                               // every sword, with or without data
-I.get(key);                                     // { key, id: 'sword', count: 1, data: { durability: 80, level: 3 }, def }
-I.list();                                       // every entry: [{ key, id, count, data, def }] for your own UI
 // change it inside an op or fixed step (data objects are frozen: always pass a new one; the key stays the same)
 const s = I.get(key); I.setData(key, { ...s.data, durability: s.data.durability - 1 });
 I.transfer('player', 'chest-1', key);           // exactly this sword; it keeps its data and key
@@ -100,8 +91,7 @@ Data and keys are saved with the container. Which piece a player means is chosen
 
 ## Limits (all optional, none by default)
 `inventory({ capacity, maxWeight })` for the player and `inventory.container(id, { capacity, maxWeight })` for others:
-`capacity` = slots (an entry uses `ceil(count / stack)`), `maxWeight` = sum of item `weight` × count. `room(item)` says how many more fit; `weight`
-and `slotsUsed` read the totals. Locks, prices and "only one equipped" are game rules: check them in your op's `can`.
+`capacity` = slots (an entry uses `ceil(count / stack)`), `maxWeight` = sum of item `weight` × count.
 
 ## Using and dropping (ops)
 ```js
@@ -131,19 +121,17 @@ The window is a UI part (recipe 26): the engine opens and closes it (the bound `
 ```js
 engine.ui.set('inventory', false);                         // no window at all (the key does nothing, no DOM)
 engine.ui.set('inventory', { drop: true });               // default window plus a Drop button per row (Use appears for items with use)
-engine.ui.set('inventory', (engine) => {                  // your own: grid, drag and drop, anything
+engine.ui.set('inventory', (engine) => {                  // your own: grid, drag and drop, anything; buttons run ops with an entry's key
   const el = document.createElement('div'); engine.uiRoot.appendChild(el);
-  el.onclick = ev => { const key = ev.target.dataset.key; if (key) engine.ops.run('inventory.use', { item: key }); };   // buttons run ops
-  return { show: d => { el.hidden = false; el.innerHTML = d.items.map(i => `<button data-key="${i.key}">${i.def.name} ×${i.count}</button>`).join(''); },
-    update: d => { el.innerHTML = d.items.map(i => `<button data-key="${i.key}">${i.def.name} ×${i.count}</button>`).join(''); },
-    hide: () => { el.hidden = true; }, dispose: () => el.remove() };
+  el.onclick = ev => { const key = ev.target.dataset.key; if (key) engine.ops.run('inventory.use', { item: key }); };
+  const draw = d => { el.innerHTML = d.items.map(i => `<button data-key="${i.key}">${i.def.name} ×${i.count}</button>`).join(''); };
+  return { show: d => { el.hidden = false; draw(d); }, update: draw, hide: () => { el.hidden = true; }, dispose: () => el.remove() };
 });
 engine.ui.open('inventory'); engine.ui.close('inventory');   // open / close from code
 ```
-The shape of an item on the ground is a model name from an asset pack, built through the same path as content props and templates (one build per
-name, cached / baked, the same shadow rule): the item's `model`, else a model named `pickup:<item id>`, else one named `pickup`, else a neutral gray
-box. A generator that returns bare geometry is drawn with `engine.pickups.material` in the item's own `color` (a coin, a gem, a medkit or a paper
-note are all just models).
+The shape of an item on the ground is a model name from an asset pack, built through the same path as content props (recipe 05 §1): the item's `model`,
+else a model named `pickup:<item id>`, else one named `pickup`, else a neutral gray box. A generator that returns bare geometry is drawn with
+`engine.pickups.material` in the item's own `color`.
 ```js
 engine.use(pickups({ color: 0xd8c070, size: 0.3, lift: 0.5 }));                         // default color, placeholder box, height above the ground
 engine.pickups.material = new THREE.MeshStandardMaterial({ metalness: 0.8, roughness: 0.3 });   // swaps every box and geometry-only model; used as given
@@ -154,9 +142,8 @@ To give / take items in content use the effect words: `{ give: { coin: 2 } }`, `
 `{ has: { mushroom: 3 } }`, `{ lacks: { coin: 1 } }`.
 
 ## Chests / corpses / shelves (multiple containers)
-The player inventory is just one container (the bag of `engine.actor`, id `'player'` locally). Chests, corpses, shelves and ammo boxes all use `inventory.container(id, { capacity })` to
-get or create one (calling again with the same id returns the same one); limits as above. A container has the same
-`add / remove / count / has / get / list / setData` as the inventory, plus `room(id)` (how many more fit) and `on('add' | 'remove', fn)` (returns a handle).
+The player inventory is just one container (the bag of `engine.actor`). Chests, corpses, shelves and ammo boxes use `inventory.container(id, { capacity })`
+to get or create one (the same id returns the same one); it has the inventory's methods plus `room(id)` and `on('add' | 'remove', fn)`.
 ```js
 const I = engine.inventory;
 const chest = I.container('chest-1', { capacity: 8 });
@@ -170,13 +157,10 @@ chest.on('remove', ({ id, count, actor }) => console.log(actor, 'took', id, coun
   initial goods). Loading creates the containers first, and a later `container(id, { capacity })` in code just fills in the slot count, in either order.
 - **Deleting a world record does not delete its container automatically** (whether to keep a searched corpse is up to the game). To clear both:
   `engine.events.on('world:remove', ({ id }) => I.removeContainer(id))`.
-- **Pre-filled contents (initial semantics)**: goods are placed only the **first** time; on load the save wins, and a searched-empty container is not
-  refilled after loading. Write `content/containers.js` in content (`export default { 'chest-1': { capacity: 8, items: { bandage: 2 } } }`, and put it
-  in the export of `content/index.js`), or in code `I.container('chest-1', { capacity: 8, items: { bandage: 2 } })`. For an already existing container
-  (created first by loading, or already created this session) `items` is not placed again; a container that was given goods goes into the save even
-  when searched empty (`{}`), so after a refresh and load it is empty and not refilled. Don't fill with `container(id).add(...)` at startup: a
-  container with nothing in it is not saved, so after a refresh it would be treated as new and filled again. A container id is any string and all are
-  saved ('shop-bakery' and 'prop:chest:3' alike).
+- **Pre-filled contents**: goods are placed only the **first** time; on load the save wins, and a searched-empty container is not refilled. Write
+  `content/containers.js` (`export default { 'chest-1': { capacity: 8, items: { bandage: 2 } } }`, exported from `content/index.js`), or in code
+  `I.container('chest-1', { capacity: 8, items: { bandage: 2 } })`. Don't fill with `container(id).add(...)` at startup: a container with nothing in it is
+  not saved, so after a refresh it would be treated as new and filled again.
 - **UI**: the engine only makes the player inventory window; for a chest UI draw `chest.list()` yourself, and clicking an entry runs
   `engine.ops.run('inventory.transfer', { from: 'chest-1', to: 'player', item: entry.key })`.
 - Non-empty containers appear in `describe()` under `inventory.containers`.

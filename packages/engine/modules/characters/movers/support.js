@@ -35,11 +35,11 @@ export function stateOf(c) {
  * @returns {{ id: string, remove(): void }}
  */
 export function addSupport(e, object, { id, safe = true, carry = 'position', inherit = true } = {}) {
-  if (!object?.isObject3D) throw codedError('bad-arg', `characters.support(object): object is a three.js Object3D (a mesh or group) to stand on, got ${object?.constructor?.name ?? typeof object}`);
-  if (!CARRY.includes(carry)) throw codedError('bad-arg', `characters.support(object, { carry }): carry is ${CARRY.map(c => `'${c}'`).join(' or ')}, got ${JSON.stringify(carry)}`);
+  if (!object?.isObject3D) throw codedError('character-option', `characters.support(object): object is a three.js Object3D (a mesh or group) to stand on, got ${object?.constructor?.name ?? typeof object}`);
+  if (!CARRY.includes(carry)) throw codedError('character-option', `characters.support(object, { carry }): carry is ${CARRY.map(c => `'${c}'`).join(' or ')}, got ${JSON.stringify(carry)}`);
   const R = registry(e);
   id ??= object.name || `support#${++R.n}`;
-  if (R.list.has(id)) throw codedError('bad-arg', `characters.support(object, { id: '${id}' }): id already used by another support; give each a unique id (saves find the platform by it)`);
+  if (R.list.has(id)) throw codedError('character-option', `characters.support(object, { id: '${id}' }): id already used by another support; give each a unique id (saves find the platform by it)`);
   object.updateWorldMatrix(true, true);
   const box = new THREE.Box3(), inv = _inv.copy(object.matrixWorld).invert();
   object.traverse(o => {
@@ -47,7 +47,7 @@ export function addSupport(e, object, { id, safe = true, carry = 'position', inh
     if (!g.boundingBox) g.computeBoundingBox();
     box.union(_b.copy(g.boundingBox).applyMatrix4(_m.multiplyMatrices(inv, o.matrixWorld)));
   });
-  if (box.isEmpty()) throw codedError('bad-arg', `characters.support(object '${id}'): it has no mesh to measure; pass a mesh or a group with meshes`);
+  if (box.isEmpty()) throw codedError('character-option', `characters.support(object '${id}'): it has no mesh to measure; pass a mesh or a group with meshes`);
   const entry = { id, object, safe, carry, inherit, box };
   R.list.set(id, entry);
   return { id, remove: () => {

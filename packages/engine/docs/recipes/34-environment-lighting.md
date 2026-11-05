@@ -1,5 +1,53 @@
-# Environment lighting
+# Lights, fog, exposure and environment lighting
 
+**In this recipe**: Lights · Fog · Exposure and the tone curve · The sky as a map · Light probes · Lightmaps · Real-time bounced light · Light you can see in the air · Occlusion culling
+
+Lights, fog and exposure are your own three.js code ([recipe 62](62-picture-code.md)): the sky computes signals and draws its dome, it writes none of them. The sky itself is `08-weather-sky.md`.
+
+## Lights: the placeholders, and your own
+The engine has one directional light (`engine.lights.sun`) and one hemisphere (`engine.lights.hemi`): still white placeholders (sun 2 at (40, 80, 30) with soft shadows, hemi 1.2), so a scene
+with no picture code is neutral gray and not black. Nothing moves them, with or without a sky.
+
+```js
+const engine = createEngine({ canvas, lights: false });                   // the placeholders stay out of the scene
+const sun = new THREE.DirectionalLight(0xffd0a0, 2); engine.scene.add(sun, sun.target);   // add your own lights before engine.start()
+engine.onRender(() => { sun.position.copy(engine.uniforms.uSunDir.value).multiplyScalar(100); sun.intensity = 2 * engine.uniforms.uDaylight.value * engine.uniforms.uWeatherLight.value; });
+const torch = new THREE.PointLight(0xffa040, 6, 12); engine.add(torch);
+```
+
+- `createEngine({ lights: false })`: the default sun and hemisphere are never put in the scene, `engine.lights.sun` / `hemi`
+  stay as detached objects so nothing reads `undefined`. Use it for a scene lit entirely by your own lights.
+- Shadows: only the engine sun's box is managed. Your own `castShadow` lights work as in three.js, each costing its
+  own shadow pass; `engine.shadows` (recipe 45) takes them when you hand them in, and `engine.shadows.enabled = false` turns every shadow off.
+- Add or remove lights before `engine.start()`; what a change costs mid-play, and many lamps with `lightPool`: recipe 09 "Lights and stalls".
+
+## Fog: plain three.js, signals, your own math
+```js
+const fog = engine.scene.fog = new THREE.Fog(0x99bbbb, 60, 220);        // or new THREE.FogExp2(color, density)
+engine.onRender(() => {                                                 // a fog that follows the day and the weather: your picture/ code
+  fog.color.copy(engine.uniforms.uSkyHorizon.value);
+  fog.far = 220 / engine.uniforms.uWeatherFog.value;
+});
+```
+There is no fog until your code makes one, and nothing writes it after that.
+
+- Signals to read: `uSkyHorizon` is the color at the horizon, so fog in that color hides the line where the dome meets the ground; `uWeatherFog` is what the weather asks for, a
+  multiplier your code applies; `uViewDistance` says how far the world is meant to be seen (`terrain({ viewFog: true })` writes it).
+- A fog color of your own that differs from the horizon: the dome fades its lower band to it, so fogged ground and sky still meet without a line.
+- Color, near, far and density are live. Adding or removing `scene.fog`, or changing its type, recompiles materials once: do it at a scene change, not every frame.
+- Your own fog math (height fog, a warm far haze): the `fogPars` and `fog` slots on a material, WebGL only (recipe 43), or your own `ShaderMaterial`:
+  `applyEffects(material, { patches: [{ name: 'haze', slot: 'fog', glsl: 'float f = 1.0 - exp(-fogDensity * vFogDepth); gl_FragColor.rgb = mix(gl_FragColor.rgb, vec3(1.0, 0.85, 0.7), f * 0.3);' }] })`.
+- Check the result with `engine.describe('picture').picture.fog`; `threedog shot` says how much of the picture the fog makes up.
+
+## Exposure and the tone curve
+```js
+engine.renderer.toneMappingExposure = 1.3;
+engine.onRender(() => { engine.renderer.toneMappingExposure = 1 + 0.5 * (1 - engine.uniforms.uDaylight.value); });   // over the day: your picture/ code
+engine.renderer.toneMapping = THREE.NeutralToneMapping;     // the curve; materials recompile on their next draw
+```
+The engine picks no curve: `renderer.toneMapping` stays three.js's default (`NoToneMapping`) until your code writes it. A curve of your own is a post effect in the `'tone'` slot (recipe 52).
+
+## Environment maps
 `scene.environment` is plain three.js and stays `null` until your code writes it. The background (the sky dome or a skybox) and the environment lighting are two separate fields.
 
 ```js
@@ -15,24 +63,20 @@ engine.scene.environment = myPmremTarget.texture;
 ```
 On `renderer: 'webgpu'` take `PMREMGenerator` from `three/webgpu`. A map you made is yours to dispose.
 
-## The sky as a map: `engine.sky.environment({ into?, interval? })`
+### The sky as a map: `engine.sky.environment({ into?, interval? })`
 - Nothing is built before this call. Without `into` nothing is written anywhere: read `handle.texture` (a live getter) and put it on the materials you choose (`material.envMap`).
 - With `into`, that object's `.environment` gets the map at each rebuild. A map you write there yourself stays: the rebuilds go on, but only `handle.texture` follows them.
 - The dome is rendered into a cube and prefiltered with `PMREMGenerator`. It is rebuilt only when the sky colors, sun direction or cloud
   cover actually changed AND at least `interval` seconds (default 1, 4 on a low-tier device; a number the game gives stands) passed since the last check, never every frame. A fixed time of
-  day builds once. A call before the first frame waits for that frame, so the map uses real colors.
+  day builds once. A call before the first frame waits for that frame, so the map uses real colors. One map at a time: a second call replaces the first.
 - The cube is at least 256 px per face (PMREMGenerator's floor in 0.187), so a low tier saves time by rebuilding less often, or by your `picture/` code skipping the call on `engine.tier === 'low'`.
 - An asset map is a fixed photo: it does not dim at night. Write `scene.environmentIntensity` from your own frame code reading `engine.uniforms.uDaylight`.
 
-## What a MeshLambertMaterial does with it (three 0.187 source, not memory)
-- `WebGLPrograms` hands `scene.environment` to Standard, Lambert and Phong materials; a Lambert material without its own `envMap` uses the PMREM path.
-- `lights_fragment_maps` adds the shader function getIBLIrradiance = PI x (the blurriest PMREM mip in the direction of the world normal) x intensity to the
-  diffuse light. So Lambert gets soft, direction-dependent ambient light colored by the environment (sky blue from above, ground color from below).
-- No specular: the cube reflection mix in `envmap_fragment` only runs for `ENVMAP_TYPE_CUBE`, not for a PMREM map. Lambert surfaces never get
-  reflections from the scene environment (use a Standard / Physical material for that).
-- Intensity is `scene.environmentIntensity`, direction offset is `scene.environmentRotation` (Y only here).
+### What a MeshLambertMaterial does with it (three 0.187)
+The engine's neutral materials are Lambert, so this is what most surfaces do by default.
+- A Lambert material gets soft, direction-dependent ambient light colored by the environment (sky blue from above, ground color from below), and no specular: for reflections use a Standard / Physical material.
 - The hemisphere light stays and adds on top. When you turn the environment on, lower your hemisphere light so shadows do not wash out.
-- The first frame with an environment recompiles every Lambert program once (the program key gains the env map); do it at start-up, not mid-game.
+- The first frame with an environment recompiles every Lambert program once; do it at start-up, not mid-game.
 - Toon, Basic and ShaderMaterial surfaces ignore it.
 
 ## Light probes (baked indirect light)
@@ -91,10 +135,10 @@ engine.post.add(temporalAA());   // clears the dots; it replaces MSAA while it i
 - It bounces direct light only, so sky light stays yours: a low hemisphere or environment light, judged by eye once the bounce is on. How to judge: a colored wall should tint what stands next to it, and a sunlit floor should lift the ceiling, without the shadows turning flat. A cartoon look may want one soft bounce; a realistic interior wants more with less fill.
 - Changing any post effect (add, remove, on / off, a setting that rebuilds) rebuilds the chain, and that voxelizes the scene again: a stall. Set the chain at a scene change, not during play.
 - `occlusion` (0 to 1) darkens corners from the voxels. It darkens direct light too, which is why it starts at 0.
-- It costs real frame time on weak GPUs, so it declares `skipOnLowTier` and is held off on `engine.tier === 'low'`. It is also held on a device that fell back from WebGPU and under `forceWebGL: true`. Nothing breaks, `describe().render.post` says `held` and why, so give those players probes or a lightmap as the base. A game that chose `WebGLRenderer` gets a named error instead, as for the other effects of this page.
+- It costs real frame time on weak GPUs, so it declares `skipOnLowTier` and is held off on `engine.tier === 'low'`. It is also held on a device that fell back from WebGPU and under `forceWebGL: true`. Nothing breaks, `describe().render.post` says `held` and why, so give those players probes or a lightmap as the base.
 - Does not work: metal gets a diffuse bounce instead of a reflection; anything moving is not in the bounce; transparent things are not handled; one volume does not cover a big open world.
 
-What runs where, for the four effects above (`voxelGI`, `temporalAA`, `sunShafts`, `lightVolumes`). Held means the game's `enabled` stays as written, the effect costs nothing, and `describe().render.post` says why:
+What runs where, for `voxelGI` and the three effects around it (`temporalAA`, and `sunShafts` and `lightVolumes` of the next section). Held means the game's `enabled` stays as written, the effect costs nothing, and `describe().render.post` says why:
 
 | Case | voxelGI | temporalAA, sunShafts, lightVolumes |
 |---|---|---|
@@ -123,6 +167,5 @@ engine.post.add(lightVolumes({ bounds: new THREE.Box3(min, max) }));    // spot 
 
 - Three things share the word occlusion and are separate: occlusion culling (this section) skips drawing what is hidden; camera occlusion (`cameraOcclusion` of `collision()`, recipe 21) moves the camera so a wall does not stand between it and the player; `voxelGI`'s `occlusion` only darkens corners of its bounced light.
 - Hidden things stay in shadows, in `engine.rays` and in `voxelGI`'s volume, and `visible` stays yours. Nothing else sees them while hidden: a second camera of yours and a `THREE.Raycaster` of your own do not (their layers lack it; enable `RESERVED_LAYERS.occlusionHidden` from `threedog/layers` if they must).
-- **Step mode hides nothing.** The answers arrive over drawn frames, so under `threedog step` / `engine.step()` (no real frames) `hidden` stays 0 and `inspect perf` counts every draw (about double a real-time run in one test). Judge occlusion with `threedog resume` and real time, never from a step-mode reading.
+- **Step mode hides nothing.** The answers arrive over drawn frames, so under `threedog step` / `engine.step()` (no real frames) `hidden` stays 0 and `inspect perf` counts every draw. Judge occlusion with `threedog resume` and real time, never from a step-mode reading.
 - Answers come a few frames late. Camera moves and cuts are covered. A big occluder that moves fast (a falling wall, a gate thrown open) can show a gap of a few frames.
-

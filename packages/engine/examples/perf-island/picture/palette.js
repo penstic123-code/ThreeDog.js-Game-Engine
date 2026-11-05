@@ -8,7 +8,7 @@ export const COLORS = { leaf: 0x6fa64a, leafLight: 0x8fbf5c, bark: 0x8a6448, woo
 
 /** How the ground is colored, spread into terrain({...}) in main.js: the workers bake these into the chunks, so they go in at the start */
 export const GROUND = {
-  shading: /** @type {const} */ ('texture'), colorResolution: 256,   // crisp river bank and field edge without more triangles (recipe 37); 128 (0.5 m pixels) shows stairs up close
+  shading: /** @type {const} */ ('texture'), colorResolution: 256,   // crisp river bank and field edge without more triangles (recipe 53); 128 (0.5 m pixels) shows stairs up close
   colors: { grassA: 0x92c062, grassB: 0x86b658, river: 0x6aa6d6, riverDeep: 0x5b97ca, wheatA: 0xdcae48, wheatB: 0xd2a442, earth: 0xb98d64, rock: 0x94705a },
   biomeColors: { grass: ['grassA', 'grassB'], river: ['river', 'riverDeep'], wheat: ['wheatA', 'wheatB'], cliff: ['earth'], rock: ['rock'] },
 };

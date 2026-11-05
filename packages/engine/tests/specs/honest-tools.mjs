@@ -105,7 +105,7 @@ export const specs = [
       const dir = mkdtempSync(join(tmpdir(), 'threedog-honest-'));
       const raw = () => ev(() => engine.describe());
       try {
-        await ev(() => { engine.haltLoop(); engine.ops.allow(() => engine.world.add({ id: 'honest-prop', kind: 'marker', position: [1, 0, 1] }, { initial: true })); engine.step(0.1); });
+        await ev(() => { engine.haltLoop(); engine.ops.allow(() => engine.world.add({ id: 'honest-prop', kind: 'marker', position: [1, 0, 1] }, { initial: true })); for (let i = 0; i < 20; i++) engine.step(0.25); });   // five seconds: at 12:00 the quest's NPC walks home, and its marker's whole-metre distance passes 4.5 just after load, so a baseline taken mid-walk flips on one step
         const ignore = ['time', 'picture.lights', 'camera', 'nearby'];   // this page's day moves on; the point here is what is left
         saveSnapshot(dir, 'b', await raw(), { ignore });
         await ev(() => engine.step(1 / 60));

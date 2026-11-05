@@ -42,7 +42,7 @@ export interface TerrainEditOptions {
  * World outline, terrain({ shape }): ground only where mask > 0, cut along straight lines through the cells where it crosses 0, with walls
  * down the rim (side) and optionally a hanging underside (bottom). Off it engine.surface is -Infinity, engine.ground.has false, slope 0,
  * groundType 'void'; nothing grows there; a fall below voidY emits terrain:void. Without shape the terrain is unchanged.
- * Depth and mask functions are pure like height (they run in workers). See recipes/42-terrain-shape.md.
+ * Depth and mask functions are pure like height (they run in workers). See recipes/28-terrain.md.
  * @example terrain({ height: (x, z, n) => 6 * n.fbm(x * 0.02, z * 0.02), shape: { mask: (x, z) => 40 - Math.hypot(x, z),
  *   edge: { noise: 5, size: 14 }, side: { depth: 2, ground: 'cliff' }, bottom: { depth: (x, z, n, m) => 4 + m * 0.6, ground: 'rock' } } })
  */
@@ -111,7 +111,7 @@ export interface TerrainConfig {
   /**
    * How the ground gets its color: 'smooth' (default) blended per grid point | 'flat' one color and normal per triangle (low poly) |
    * 'texture' per-chunk color map sampled per pixel, so color borders (a river bank) are not confined to triangle edges and the mesh can stay coarse.
-   * See recipes/37-terrain-hooks.md.
+   * See recipes/53-ground-up-close.md.
    */
   shading: 'flat' | 'smooth' | 'texture';
   /** Texture shading: color map pixels per chunk edge (default 128, 64 on low-tier devices; independent of `resolution`) */
@@ -520,10 +520,10 @@ export interface SkyPictureOptions {
    */
   keyframes?: SkyKeyframe[];
   /**
-   * A flat background color in place of the dome (no gradient, horizon line, sun / moon disk, stars or clouds), or ({ time, weather, season, state, sky }) => color per
-   * frame. Drawn as written (no tone mapping); a fog asked for in the default horizon color takes it (a
-   * fog.color of your own still wins). Leave out for the dome. Not with skybox. recipes/47
-   * @example backdrop: ({ sky }) => sky.isDay ? 0xefebe4 : 0x2c3346
+   * A flat background color in place of the dome (no gradient, horizon line, sun / moon disk, stars or clouds).
+   * Drawn as written (no tone mapping); a fog asked for in the default horizon color takes it (a
+   * fog.color of your own still wins). Leave out for the dome. recipes/08
+   * @example backdrop: 0xefebe4
    */
   backdrop?: ColorLike;
   /** Sharpness exponent of the sun disk, default 900 (about 2 deg); larger = smaller. Not a size in degrees: 10 is ~20 deg, under ~3 the "disk" washes most of the sky toward the sun color */
@@ -547,10 +547,6 @@ export interface SkyPictureOptions {
   dim?: { tint?: boolean; stars?: boolean };
   /** Clouds in the sky (cloud cover follows the weather); see SkyCloudOptions */
   clouds?: SkyCloudOptions;
-  /** Panorama (equirectangular) replacing the gradient sky, asset name or path (at run time engine.sky.replace(name)) */
-  skybox?: string;
-  /** Extra dome layers drawn after the clouds and stars (rainbow, aurora), default none; see SkyLayerOptions */
-  layers?: SkyLayerOptions[];
 }
 
 /**
@@ -762,7 +758,7 @@ export interface WeatherOptions {
 /**
  * Snow cover (weather({ snow: { cover } })): the season tint of foliage / ground (vegetation, terrain, materials with season) moves toward these colors
  * as the weather's snow amount rises, `strength` of the way at full snow, and melts back as it falls. Leave it out and snow only draws particles.
- * The same cover for anything else (ash, frost): engine.mod('ground.cover', { owner: 'ash', value: { ground: 0x555555, amount: 0.6 } }). recipes/47
+ * The same cover for anything else (ash, frost): engine.mod('ground.cover', { owner: 'ash', value: { ground: 0x555555, amount: 0.6 } }). recipes/44
  * @example cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 }
  */
 export interface SnowCover {

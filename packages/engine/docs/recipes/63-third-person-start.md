@@ -49,7 +49,7 @@ Each part is one line to swap and none of them holds the rest back:
 - Pictures past the start screen: `threedog shot --play`.
 
 ## 4. Talk, press E, a quest, a counter
-Add `THREE, interactions, dialogue, quests` to the import and `interactions({ ...presets.interactions.nearest }), dialogue(), quests()` to `engine.use`; E is already bound in section 1 (any other key works: `interact: ['KeyF']`; with no key at all the game stops in dev with the line to add). Then, before `engine.start()`:
+Add `THREE, interactions, dialogue, quests` to the import and `interactions({ ...presets.interactions.nearest }), dialogue(), quests()` to `engine.use`; E is already bound in section 1 (any other key works: `interact: ['KeyF']`; with no key at all dev warns with the line to add). Then, before `engine.start()`:
 ```js
 const guide = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1, 4, 8), new THREE.MeshStandardMaterial({ color: 0xc89a5a }));   // any three.js object
 guide.position.set(0, 0.9, -8); engine.scene.add(guide);

@@ -84,7 +84,6 @@ or bar in that screen column.
 - After advancing a condition you don't have to wait: `engine.quests.check()` checks immediately.
 
 ## Reading and moving progress from code
-`engine.quests.state(id)` gives `{ step, steps, done, failed, active }` (or null before it starts): a copy, so read it, never write it.
-A step the game finishes from its own code (a cutscene ended, a boss fell) can skip its condition: `engine.quests.advance(id)` moves to the next step
+A step the game finishes from its own code (a cutscene ended, a fight was won) can skip its condition: `engine.quests.advance(id)` moves to the next step
 and completes the quest after the last one (reward, `quest:done`); call it from an op or a fixed step. A replacement quests module meets
 `modules/gameplay/quests.contract.js` (define / start / advance / state / list, events quest:start / quest:step / quest:done, save key quests).

@@ -3,10 +3,9 @@
 **In this recipe**: 1. Write data · 2. Add in code · NPC data and model · Custom behavior · Avoidance · A guard you build yourself · Dialogue choices · 3. Verify · Bubbles
 
 Modules needed: `characters()` (NPCs on by default), `interactions({ ...presets.interactions.nearest })`, `dialogue()`; clock-time schedules need
-`sky()` with a day cycle (`dayLength`, e.g. `presets.calendar.cycle`: without one the clock never moves and the NPC keeps to one stop). The
-`openWorld()` preset already installs `characters()` and `sky()` but not `interactions({ ...presets.interactions.nearest })` or `dialogue()`, so add
-them yourself: `engine.use(openWorld({ camera: 'follow', calendar: presets.calendar.cycle, ...}), interactions({ ...presets.interactions.nearest }),
-dialogue(), content())`.
+`calendar()` with a day cycle (`dayLength`, e.g. `presets.calendar.cycle`: without one the clock never moves and the NPC keeps to one stop). `openWorld()`
+installs `characters()` and the calendar but not the other two: `engine.use(openWorld({ camera: 'follow', calendar: presets.calendar.cycle, ...}),
+interactions({ ...presets.interactions.nearest }), dialogue(), content())`.
 
 ## 1. Write data (recommended)
 `games/<game>/content/npcs.js`:
@@ -128,19 +127,17 @@ NPCs with models nearby avoid each other by default: when closer than the sum of
 each other apart, harder the more they overlap, at most 3 meters per second; the player counts as an obstacle that only NPCs yield to, and the
 player's position is never pushed. After pushing, `engine.collision` (if installed) constrains them back to walkable ground, so they are not pushed
 into walls. The built-in `schedule` and `wander` both avoid.
-- Deterministic and cheap: done only in the fixed step, no random numbers, neighbors computed from "the positions at the start of this step", so after
-  save and load, or with a different `frameEvery`, positions are identical bit for bit; 400 NPCs with models cost less than 1 ms per step (a tight
-  clump only a few ms).
+- Deterministic: done only in the fixed step, no random numbers, neighbors computed from the positions at the start of the step, so a load or a different
+  `frameEvery` gives identical positions.
 - Tune or turn off:
 ```js
 engine.npcs.avoid.set({ radius: 0.6, strength: 2 });   // stand sparser (radius in meters), push slower (strength in meters/second)
 engine.npcs.avoid.set(false);                           // turn off (ghosts, crowds passing through); set(true) turns it on again
 ```
 - Far away (no model) NPCs are simulated from data without per-NPC avoidance; a few steps after a model is built on approach they get pushed apart.
-- Difference from `nav({ crowd: true })`: when crowd is installed the Recast crowd agents take over and this is not applied on top. Crowd routes more
-  cleverly (around obstacles along the navmesh, yields to others) but does not guarantee identical results after loading; the simple push here does
-  not route around anything and only keeps NPCs from overlapping, with results identical after loading. For save replay and determinism use this; for
-  crowds going around big obstacles use crowd.
+- `nav({ crowd: true })` replaces this push with Recast crowd agents: they route around obstacles along the navmesh but do not guarantee identical
+  results after a load. The push routes around nothing and only keeps NPCs from overlapping. For replays and saves use the push; for crowds going
+  around big obstacles use crowd.
 - Behaviors you write are not avoided automatically: after your own `character.move`, call `engine.npcs.avoid.push(rec, npc.character, dt)` once
   (inside `near`, before writing back to the data).
 
@@ -175,7 +172,7 @@ The dialogue's keys go through two ops, so code, tests and the dev bridge drive 
   `npm run map` it shows up in the NPC table and dialogue graph of GAMEMAP.md.
 - State: `npm run shot -- / --time 13:10 --wait 20 --describe-only`; the "nearby" list has an entry for `Gate guard` tagged as an NPC with its distance in
   meters (only listed within 30 meters; add `--pos x,z` to stand by the tower).
-- Console / tests: `engine.npcs.get('guard').position`, `.currentStop()`; during a dialogue `engine.describe().ui.dialogue` = `{ speaker, text, typing, choices: [labels], selected, advance }` (absent when no dialogue runs; the text version prints it as a `Dialogue:` line). `describe` does NOT expose the node id or the NPC id: `speaker` is the display name; to inspect the node, read the content file or listen to `engine.events.on("dialogue:line", ({ script, node, speaker, text }) => ...)` (also `dialogue:start` / `dialogue:end`).
+- Console / tests: `engine.npcs.get('guard').position`, `.currentStop()`; during a dialogue `engine.describe().ui.dialogue` = `{ speaker, text, typing, choices: [labels], selected, advance }`. `describe` shows no node or NPC id: to inspect the node, listen to `engine.events.on("dialogue:line", ({ script, node, speaker, text }) => ...)` (also `dialogue:start` / `dialogue:end`).
 - E opens a conversation; only confirm (Space / Enter) advances it, unless `dialogue({ advanceActions })` adds a key. `describe().ui.dialogue.advance` names the keys. While it is open game input is locked, so E on anything else does nothing: the press is logged as a refused `interaction.use` (`inputLocked`) in `engine.ops.recent()` and `threedog test` prints it under a failed spec.
 - Advancing a dialogue in a headless test (typing and "keys ignored right after opening" both run on game time): press E when near -> `engine.step(1)`
   to finish typing -> press a number key or run `engine.ops.run('dialogue.choose', { index: i })` (while typing it completes the sentence first) ->

@@ -27,6 +27,12 @@ export function walk(d, { exts = /\.(js|mjs)$/, skip = [], skipDir, start = d } 
   return out;
 }
 
+/**
+ * A game's own code files (absolute paths): every .js / .mjs at any depth (main.js, game/, picture/, plugins/, content/), its tests and vite config left out.
+ * The one answer for "the game's code": a scan of the top-level files alone called every action, flag and dialogue of a game built in game/ unused.
+ */
+export const gameCodeFiles = dir => walk(dir, { skip: ['tests', 'vite.config.js', 'vite.config.mjs'] });
+
 /** A keyboard key's KeyboardEvent.code, as a regex source: what content actions bind and `threedog press` sends */
 export const KEYBOARD_CODE = 'Key[A-Z]|Digit\\d|Numpad\\w+|F\\d+|Arrow(Up|Down|Left|Right)|Space|Enter|Escape|Tab|Backspace|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|'
   + 'Minus|Equal|Comma|Period|Slash|Semicolon|Quote|Backquote|BracketLeft|BracketRight|Backslash';

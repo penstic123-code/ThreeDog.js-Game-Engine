@@ -8,6 +8,7 @@
 //   install(e, ctx) { ctx.track(e.vegetation.view({ species(sp) {...}, change(c, name) {...c.plants[name]...}, ring(c, ring) {...}, show(c, v) {...}, drop(c) {...} })); }
 // This file never changes placement data; it only reads it.
 import { engineOwned } from '../../core/things.js';
+import { needMaterial, oneForm } from '../../core/validate.js';
 import * as THREE from 'three';
 import { fromModel } from './modelGeometry.js';
 import { applyEffects, windCustom } from '../../render/materials.js';
@@ -42,7 +43,7 @@ export class VegetationDraw {
   /** @internal engine.vegetation.material: every species with no material or model of its own draws it, as given; null gives the neutral default back */
   get material() { return this._game ?? this._base; }
   set material(m) {
-    if (m != null && !m.isMaterial) throw codedError('vegetation-option', `vegetation.material is a three.js material (or null for the neutral default); got ${m}`);
+    if (m != null) needMaterial('vegetation-option', 'vegetation.material', m, ' (null gives the neutral default back)');
     const was = this._game;
     this._game = m || null;
     for (const sp of this.v.list()) {
@@ -80,8 +81,7 @@ export class VegetationDraw {
   /** Each renderer draws its own form; the one this engine's renderer needs, when missing, is named (else the code would do nothing silently) */
   _needForm(entry, s) {
     const gpu = isWebGPU(this.engine.renderer);
-    if (!gpu && s.glsl == null) throw codedError('vegetation-option', `vegetation.${entry}() has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl })`);
-    if (gpu && s.tsl == null) throw codedError('vegetation-option', `vegetation.${entry}() has only a glsl form, which WebGPURenderer cannot draw: give tsl too ({ glsl, tsl })`);
+    if (gpu ? s.tsl == null : s.glsl == null) throw oneForm('vegetation-option', `vegetation.${entry}()`, !!gpu);
   }
   _windPatch(amplitude) { return EFFECTS.wind(amplitude, this._sway ? windCustom(this._sway) : undefined); }
   /** engine.vegetation.patches: what a game's shared material needs to behave like the engine's (the near fade is per species: define({ material }) gets it) */

@@ -39,7 +39,8 @@ export function inspectPerf(e, { top = 5 } = {}) {
   const programs = programCosts(r, e.scene);   // WebGPU too: the scene's node programs (no program count there, but the costliest still listed)
   const values = {
     drawCalls: s.drawCalls, triangles: s.triangles, programs: s.programs,   // null on WebGPU (no program list): not counted, not budgeted, rather than a 0 that always passes
-    textureMB: r1(mats.textureBytes / 1048576), cpuMs: r1(e._cpuMs ?? 0), compileMs: worst,
+    // only the real-time loop times itself: halted, JS ms and fps have no value (as in describe), and a 0 would read as a good result
+    textureMB: r1(mats.textureBytes / 1048576), cpuMs: e.halted ? null : r1(e._cpuMs ?? 0), compileMs: worst,
   };
   const gpu = e.budget?.values() ?? {};
   for (const k of ['lights', 'shadowLights', 'shadowMaps', 'shadowMapSize']) values[k] = gpu[k];
@@ -55,10 +56,11 @@ export function inspectPerf(e, { top = 5 } = {}) {
   const p = e._cpuPhases ?? {};
   const fmtN = v => v >= 1e6 ? r1(v / 1e6) + 'M' : v >= 1e4 ? Math.round(v / 1000) + 'k' : String(v);
   const hint = e.batching?.stats.hint;
-  const unit = { textureMB: ' MB', cpuMs: ' ms', compileMs: ' ms (worst stall)' };
+  // lights: point and spot only, what costs on every lit pixel (core/gameLights.js); a sun or a hemisphere light is not in this count
+  const unit = { textureMB: ' MB', cpuMs: ' ms', compileMs: ' ms (worst stall)', lights: ' point + spot' };
   const text = [
     measured ? `frame: ${values.drawCalls} draw calls (incl. shadow + post passes), ${fmtN(values.triangles)} triangles, ${values.programs == null ? 'programs not counted (WebGPU)' : values.programs + ' programs'}, ~${mb(mats.textureBytes)} textures `
-      + `(${mats.textures}), JS ${values.cpuMs} ms (fixed ${r1(p.fixed ?? 0)} / frame ${r1(p.frame ?? 0)} / render ${r1(p.render ?? 0)}), fps ${Math.round(e.fps ?? 0)}`
+      + `(${mats.textures}), ${e.halted ? 'JS ms and fps not measured (the loop is halted, only real-time running times them)' : `JS ${values.cpuMs} ms (fixed ${r1(p.fixed ?? 0)} / frame ${r1(p.frame ?? 0)} / render ${r1(p.render ?? 0)}), fps ${Math.round(e.fps ?? 0)}`}`
       : `nothing measured yet: no draw has been counted, so draw calls, triangles, JS ms and compile stalls have no value. Draw a frame first (engine.step(1 / 60), or threedog step 1 / snap --play), then ask again. ~${mb(mats.textureBytes)} textures (${mats.textures})`,
     firstFrameLine(e.startup),
     `compile: startup ${e.startup?.compileMs ?? '?'} ms; ${compiles.length} stall frame${compiles.length === 1 ? '' : 's'} during play${compiles.length ? ` (worst ${worst} ms, last at ${compiles.at(-1).at} s, +${compiles.at(-1).programs} programs)` : ''}`,
@@ -67,6 +69,6 @@ export function inspectPerf(e, { top = 5 } = {}) {
     hint ? `batching: ${hint}` : '',
     programs.length ? `costliest programs (fragment lines + 25 x samplers): ${programs.slice(0, top).map(c => `${c.name} ${c.score} (${c.fragmentLines} lines, ${c.samplers} samplers)`).join(', ')}; see them: engine.debug.view('shaderCost')` : '',
   ].filter(Boolean).join('\n');
-  return { ...values, cpuPhases: { ...p }, fps: r1(e.fps ?? 0), startupCompileMs: e.startup?.compileMs ?? null, compiles: compiles.slice(),
+  return { ...values, cpuPhases: { ...p }, fps: e.halted ? null : r1(e.fps ?? 0), startupCompileMs: e.startup?.compileMs ?? null, compiles: compiles.slice(),
     textureCount: mats.textures, memory: memory(r), programCosts: programs.slice(0, top), budgets, measured, ok: measured && budgets.every(b => b.ok), text };
 }

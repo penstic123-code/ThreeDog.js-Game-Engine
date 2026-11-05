@@ -190,7 +190,7 @@ export class Swarm {
    * @returns {{ remove(): void }}
    */
   onStep(fn) {
-    if (typeof fn !== 'function') throw codedError('module-params', `swarm '${this.name}': onStep(fn): fn must be a function, got ${typeof fn}`);
+    if (typeof fn !== 'function') throw codedError('swarm-step', `swarm '${this.name}': onStep(fn): fn must be a function, got ${typeof fn}`);
     if (this._fn) throw codedError('swarm-step', `swarm '${this.name}': onStep(fn) was called while a function is already set`);
     this._fn = fn;
     return { remove: () => { if (this._fn === fn) this._fn = null; } };
@@ -268,7 +268,7 @@ export class Swarm {
   }
   /** @internal */
   _load(v) {
-    if (!Array.isArray(v?.id) || !v.cols) throw codedError('save-refused', `swarm '${this.name}': the saved swarm is not { id, cols }`);
+    if (!Array.isArray(v?.id) || !v.cols) throw codedError('save-bad-record', `swarm '${this.name}': the saved swarm is not { id, cols } (got ${String(JSON.stringify(v)).slice(0, 120)})`);
     this.clear();
     const at = this._at, d = this.data, ids = v.id;
     let lost = 0;

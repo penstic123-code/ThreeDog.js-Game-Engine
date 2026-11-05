@@ -2079,7 +2079,7 @@ export interface Hud {
   markers: HudMarker[];
   /** Add an objective marker: target is an object, position or place name */
   marker(target: HudTarget, opts?: HudMarkerOptions): HudMarker;
-  /** Counter or text status (calling again with the same id = update; calling every frame is fine): counter('fish', { label: '鱼', value: 2, max: 5 }), counter('clock', { value: '08:30' }); no value = the label alone */
+  /** Counter or text status (calling again with the same id = update; calling every frame is fine): counter('fish', { label: '鱼', value: 2, max: 5 }), counter('clock', { value: '08:30' }); no value = the label alone, no label = the value alone (the id is not shown) */
   counter(id: string, opts: { label?: string; icon?: string; value?: number | string; max?: number; anchor?: HudAnchor }): void;
   /** Add n (default 1) to a number counter, return the new value; one not declared yet starts at 0 with its id as the label */
   bump(id: string, n?: number): number;

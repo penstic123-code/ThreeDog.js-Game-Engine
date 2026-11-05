@@ -39,7 +39,7 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
     if (nx * nz <= maxCells) break;
     cell *= 1.5;
   }
-  if (cell !== cellSize) warnOnce(coded('level-size', `Level too large; heightfield cell enlarged from ${cellSize}m to ${cell.toFixed(2)}m`));
+  if (cell !== cellSize) warnOnce(coded('level-size', `Level too large for cellSize ${cellSize} m: the heightfield cell was enlarged to ${cell.toFixed(2)} m (coarser ground). Pass that cellSize on purpose, or split the level`));
   const minX = bounds.min.x, minZ = bounds.min.z;
   const H = new Float32Array(nx * nz).fill(-Infinity);
   const T = new Uint16Array(nx * nz);          // ground type index into the types array

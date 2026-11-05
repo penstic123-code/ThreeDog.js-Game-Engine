@@ -128,7 +128,7 @@ engine.ops.define('plot.dig', { args: { cell: 'any' },
     e.grids.get('plots').layer('state').set(cell, { dug: true });                          // per-cell game state
   } });
 ```
-Undo with `paint: null` and `raise`. The test "player-changed ground" (`tests/specs/terrain-edit.mjs`) runs this pattern: save, then load into a fresh engine.
+Undo with `paint: null` and `raise`.
 
 ## 6. Verify
-`engine.describe().grids` -> `{ room: { occupied, items: { bed: 1 }, layers: {} }, plot: { ..., layers: { soil: 30 } } }`. Tests: `threedog test "grid:"`.
+`engine.describe().grids` -> `{ room: { occupied, items: { bed: 1 }, layers: {} }, plot: { ..., layers: { soil: 30 } } }`.

@@ -18,7 +18,7 @@ import { neutralMaterial } from '../../render/neutral.js';
 import { copyPatches, isEngineMade, markEngineMade } from '../../render/patches.js';
 import { xzOf } from '../../core/math.js';
 import { placeY } from '../../core/ground.js';
-import { warnOnce } from '../../core/validate.js';
+import { warnOnce, needMaterial } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { copyData } from './Container.js';
 import { failure } from '../../core/opsFail.js';
@@ -73,7 +73,7 @@ export class Pickups {
    */
   get material() { return this._material; }
   set material(m) {
-    if (!m?.isMaterial) throw codedError('pickup-misuse', `engine.pickups.material takes a three.js material, got ${m}. Example: engine.pickups.material = new THREE.MeshStandardMaterial({ color: 0xffd24a })`);
+    needMaterial('pickup-misuse', 'engine.pickups.material', m, '. Example: engine.pickups.material = new THREE.MeshStandardMaterial({ color: 0xffd24a })');
     const old = this._material;
     if (m === old) return;
     this._material = m;
@@ -121,7 +121,7 @@ export class Pickups {
       ...(radius != null && { radius }), ...(auto && { auto: true }), ...(respawnSeconds > 0 && { respawn: respawnSeconds }), ...(zone != null && { zone }),
       position: [x, placeY(e, `pickups.spawn('${what}')`, x, z, refY) + this.lift, z] };
     const rec = initial ? w.add(def, { initial }) : id != null && w.get(id) || w.add(def);   // initial data: world decides whether it exists / was deleted from the save (null)
-    if (rec && (rec.kind !== 'pickup' || (rec.item ?? null) !== item)) throw codedError('pickup-prop-id', `pickup id '${id}' is already used by other data (${rec.kind}${rec.item ? ' ' + rec.item : ''}): use a different id`);
+    if (rec && (rec.kind !== 'pickup' || (rec.item ?? null) !== item)) throw codedError('world-id', `pickup id '${id}' is already used by other data (${rec.kind}${rec.item ? ' ' + rec.item : ''}): use a different id`);
     const wid = rec?.id ?? id;
     if (mesh || !item) this._live.set(wid, { mesh, give: item ? null : give });
     return { id: wid, give, get object() { return w.view(wid); }, remove: () => { w.remove(wid); this._live.delete(wid); } };

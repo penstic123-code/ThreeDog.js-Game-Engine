@@ -141,7 +141,7 @@ Every entry of the UI focus stack (dialogue, `engine.ui.open` parts, `makeWindow
 `makeWindow` is the one window: it opens on top of the UI focus stack, locks game input while open, closes with its close button or Esc
 (pad B), and its buttons take the choice cursor, so it works with the keyboard, a gamepad and the mouse (opening it lets go of a locked mouse; the next click on
 the view locks again). A window that ends something, win or lose, takes `closable: false`: no close button and Esc does nothing, so the player cannot slip back into the
-game past it and only your buttons end it. Its picture is your `ui.css` /
+game past it and only your buttons end it. Nothing else closes a window: a game that restarts by another road (a new game from the title, a load) closes it on `session:start`. Its picture is your `ui.css` /
 `ui.templates[id]`. A level clear, a match score, a day's earnings or a run summary are all this:
 ```js
 import { makeWindow } from 'threedog';
@@ -157,6 +157,7 @@ results.el.addEventListener('click', ev => {                           // one li
 let held = null;                                                       // stop gameplay behind it (the picture keeps drawing)
 engine.events.on('ui:open', id => { if (id === 'results') held = engine.freeze('results'); });
 engine.events.on('ui:close', id => { if (id === 'results') { held?.remove(); held = null; } });
+engine.events.on('session:start', () => results.toggle(false));        // a new run or a load, however it was started
 results.toggle(true);                                                  // when the run ends; results.refresh() after the data changes
 ```
 
@@ -180,7 +181,6 @@ const photoMode = on => { engine.uiRoot.style.display = on ? 'none' : ''; };   /
 engine.photo.take();                                                          // shot.url is the picture, the album keeps it; the DOM was never in it
 photoMode(true);                                                              // the player's screen without interface, e.g. while a photo mode is framing
 ```
-Plain three.js (no engine ui): hide your own DOM overlay the same way (`overlay.style.display = 'none'`), then `renderer.render(scene, camera)` and `renderer.domElement.toDataURL('image/jpeg', 0.92)` in the same frame, before the browser repaints, and show the overlay again after.
 HUD text follows the engine locale (`createEngine({ locale })`, default `'auto'` = the browser language): a game written in English sets `locale: 'en'`, or distance labels read `50 米` on a Chinese browser.
 
 ## 6. Settings menu: only the tabs the game needs
@@ -214,13 +214,6 @@ A completely different menu: don't install `settings()`; open your own with `uiF
 Check what is in use: `engine.ui.describe()` → `{ loading: 'default', toast: 'off', 'hud.bar': 'custom', ... }`.
 
 ## 7. Keys, and UI that follows the world
-- Bind keys once with `engine.input.bind('action', ['KeyX', 'PadY'])` / `engine.input.action('action', { label, keys })` (or content `actions`) and read them by action name: gameplay keys (attack,
-  jump) in the fixed step, UI keys in the frame hook. Never `addEventListener('keydown')`, and never read `pointer.clicked` for gameplay; bind a
-  `Mouse0` action instead.
-- A menu, vehicle or build mode that takes over keys pushes an input context: `const h = engine.input.push('menu')` (opaque) or
-  `push('vehicle', { pass: true })`, then `h.remove()`. Tests and the dev bridge press keys with `engine.input.simulate(action, down)`:
-  action names, not keys (`simulate('moveForward')` walks like a held W until `simulate('moveForward', false)`); an unknown name throws.
+- Bind keys and read them by action name (recipe 58): gameplay keys (attack, jump) in the fixed step, UI keys in the frame hook. Never `addEventListener('keydown')`, and never read `pointer.clicked` for gameplay; bind a `Mouse0` action instead.
 - A label over a world position: `worldToScreen(engine, pos)` gives screen coordinates for an HTML element.
-
-
-Bind a counter to an item count (coins): `engine.onFrame(() => engine.hud.counter('coins', { icon: '🪙', label: 'Coins', value: engine.inventory.count('coin') }));`. Same id = update, unchanged value touches no DOM, and a loaded save follows automatically (recipe 22 section 4).
+- A counter bound to an item count: recipe 22 section 4.

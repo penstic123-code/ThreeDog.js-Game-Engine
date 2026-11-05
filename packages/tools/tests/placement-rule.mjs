@@ -21,6 +21,10 @@ export async function run({ check }) {
   check('[guard] only { initial: true } is an error: setup findings never fail a game', !scanText("engine.world.add({ kind: 'a' });\nengine.content.spawn('b', p);\n").some(r => r.level === 'error'));
   check('[guard] the fix names the // runtime: tag', /\/\/ runtime: <reason>/.test(scanText("engine.content.spawn('b', p);\n")[0]?.fix ?? ''));
 
+  // a save part: the engine calls load(data), a second parameter means the data went to the wrong name
+  check('saves.register with load(e, data) warns, arrow, method and function alike', flagged("engine.saves.register('a', { save, load: (e, d) => go(d) });\nengine.saves.register('b', { save, load(e, d) { go(d); } });\nengine.saves.register('c', { save, load: function (e, d) { go(d); } });\n", 3, 'warn'));
+  check('load(data), an optional second parameter and a part held in a variable are fine', flagged("engine.saves.register('a', { save, load: d => go(d) });\nengine.saves.register('b', { save, load(d, opts = {}) { go(d, opts); } });\nengine.saves.register('c', part);\n", 0));
+
   // allowed: rebuilt by code every start
   check('startup engine.add / scene.add / colliders / rigid / interactions / rays / grids / stream are fine', flagged('engine.add(windmill, { id: \'windmill\' });\nengine.scene.add(sky);\n'
     + "engine.collision.addBox({ x: 0, z: 0 }, { halfWidth: 1, halfDepth: 1 });\nengine.rigid.addBox(m, { mass: 4 });\nengine.interactions.add(m, { label: 'Use' });\n"

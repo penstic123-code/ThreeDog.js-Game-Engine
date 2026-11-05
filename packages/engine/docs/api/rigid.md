@@ -4,7 +4,7 @@ Real physics, Rapier (rigid() module, needs collision)
 
 - Options `RigidOptions`:
   - `gravity?: number` Gravity (m/s², negative points down), default -9.81
-  - `terrainRing?: number` How many rings of chunks around the player get terrain colliders, default 1
+  - `terrainRing?: number` How many rings of chunks around the player get terrain colliders, default 1. A body outside them freezes until the player comes near (entry.enabled false, describe().rigid.frozen), because it would fall through the ground: raise this for a car or ball that must keep moving far away
   - `buoyancy?: boolean` Whether there is buoyancy, default true
   - `buoyancyForce?: number` Buoyancy strength (1 = just floats), default 1.6
   - `waterDrag?: number` Drag in water, default 2.5
@@ -48,7 +48,7 @@ Real physics, Rapier (rigid() module, needs collision)
   - `collider: any` Rapier collider
   - `mesh: Object3D` The matching three.js model (position is written by physics every step)
   - `object: Object3D` Same as mesh
-  - `enabled: boolean` Whether it is being simulated (frozen when too far from the player)
+  - `enabled: boolean` Whether it is being simulated: false while it is outside the terrain colliders (rigid({ terrainRing })), where it would fall through the ground
   - `volume: number` Volume (cubic meters, used for buoyancy)
   - `damping: number`
   - `angularDamping: number`

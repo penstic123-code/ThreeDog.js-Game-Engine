@@ -19,7 +19,7 @@ const WHY = {
   noStart: 'it starts from its schedule, which has no one position: edit the file',
 };
 const LIVE = ['props', 'pickups'];   // kinds the loader can take one entry of; anything else reloads the page
-const HISTORY = 'threedog-editor-history', KEEP = 100, EPS = 1e-4;
+const HISTORY = 'threedog-editor-history', KEEP = 100, EPS = 1e-4, APART = 1;   // APART: metres between entries added from one view
 const round = v => { const r = Math.round(v * 1000) / 1000; return r === 0 ? 0 : r; };   // a millimetre: no 3.4000000000000004 in a hand-kept file
 const fileValues = new WeakMap();   // entry -> { fields, kind, computed, file, line } as read from the file; private so the screen cannot grow a dependency on them
 
@@ -169,7 +169,7 @@ function leave(engine, id) {
 
 const nextFrame = () => new Promise(requestAnimationFrame);
 
-/** Make the running game what the file says for this id; { reload: true } when only a page load can. A file that took the change is never taken back here */
+/** Make the running game what the file says for this id; { reload: true } when only a page load can. A file that took the change is not taken back here: act decides that */
 async function follow(engine, step, r) {
   const id = step.id ?? step.entry.id;
   if (step.op === 'remove') { leave(engine, id); return LIVE.includes(step.kind) ? {} : { reload: true }; }
@@ -191,7 +191,7 @@ async function run(engine, step, id) {
   try {
     const { reload } = await follow(engine, step, r);
     if (reload) { leaving = true; keep(); location.reload(); return { ...out, reloading: true }; }
-  } catch (e) { return { ...out, ok: false, error: `saved, but this page could not follow (${e.message}): reload it` }; }
+  } catch (e) { return { ...out, ok: false, cause: e.message, error: `saved, but this page could not follow (${e.message}): reload it` }; }
   const thing = step.op === 'remove' ? null : thingAt(engine, id);
   return { ...out, entry: thing ? await neutral(engine, thing) : null };
 }
@@ -204,6 +204,8 @@ async function act(engine, fwd, back, id) {
   done.push(pending); history.undone = [];
   const r = await run(engine, fwd, id);
   if (!r.ok && !r.change) { done.pop(); history.undone = before; keep(); return r; }
+  // the file took it and the game cannot load it (a place that does not exist): left there, the next start fails, and with the game down there is no editor to undo in
+  if (!r.ok && back && (await run(engine, back, id)).ok) { done.pop(); history.undone = before; keep(); return { ok: false, error: `not kept: the game cannot load that (${r.cause})` }; }
   pending.back ??= { op: 'restore', id, kind: fwd.kind, ...r.restore };
   if (done.length > KEEP) done.shift();   // only now: a refused step must not cost the oldest good one
   keep();
@@ -228,12 +230,14 @@ export const moveEntry = (engine, held, to) => inTurn(async () => {
   return r;
 });
 
-const inputOf = spec => spec.values ? 'select' : { number: 'number', int: 'number', string: 'text', bool: 'check', boolean: 'check' }[spec.type] ?? 'json';
+// A yes/no is a list with an empty first line, not a checkbox: most of these mean yes when the file says nothing (static, batch, occluder), and an empty box would show the opposite
+const YES_NO = [true, false];
+const inputOf = spec => spec.values || /^bool/.test(spec.type) ? 'select' : { number: 'number', int: 'number', string: 'text' }[spec.type] ?? 'json';
 
 /**
  * The rows of the property panel: the field table of this kind of entry (engine.content.fields, the one the content check reads) plus whatever else the file has.
  * @param {any} engine @param {any} entry
- * @returns {{ key: string, input: 'number' | 'text' | 'check' | 'select' | 'json', value: any, values?: any[], placeholder?: string, desc?: string, locked: boolean }[]}
+ * @returns {{ key: string, input: 'number' | 'text' | 'select' | 'json', value: any, values?: any[], placeholder?: string, desc?: string, locked: boolean }[]}
  */
 export function fieldsOf(engine, entry) {
   const v = fileValues.get(entry);
@@ -243,13 +247,12 @@ export function fieldsOf(engine, entry) {
   if (specs.model && models.length && typeof f.model === 'string') specs.model = { ...specs.model, values: models };
   for (const k of Object.keys(f)) specs[k] ??= { type: typeof f[k] };
   return Object.entries(specs).filter(([k]) => k !== 'id').map(([key, s]) => ({
-    key, input: inputOf(s), value: f[key] ?? null, ...(s.values && { values: s.values }), ...(s.default !== undefined && { placeholder: JSON.stringify(s.default) }),
+    key, input: inputOf(s), value: f[key] ?? null, ...(inputOf(s) === 'select' && { values: s.values ?? YES_NO }), ...(s.default !== undefined && { placeholder: JSON.stringify(s.default) }),
     ...(s.desc && { desc: s.desc }), locked: computed.includes(key) }));
 }
 
 /** The value a row's input means; throws why not */
 function parseRow(row, raw) {
-  if (row.input === 'check') return !!raw;
   if (row.input === 'number') { const n = Number(raw); if (!Number.isFinite(n)) throw new Error(`${row.key}: not a number`); return n; }
   if (row.input === 'json') {
     try { return JSON.parse(raw); } catch { if (/^\s*[[{"]/.test(raw)) throw new Error(`${row.key}: not valid JSON`); return raw; }   // a bare word is a string; a broken list is a typo
@@ -292,9 +295,12 @@ export function catalog(engine) {
 
 /**
  * Write a new entry into the game's props (or pickups, for an item) and place it in the running game.
- * @param {any} engine @param {{ name: string, model: boolean, pickup?: boolean }} what  from catalog @param {{ x: number, z: number }} at  world position
+ * @param {any} engine @param {{ name: string, model: boolean, pickup?: boolean }} what  from catalog @param {{ x: number, z: number }} near  world position
  */
-export const addEntry = (engine, what, at) => inTurn(async () => {
+export const addEntry = (engine, what, near) => inTurn(async () => {
+  // beside whatever already stands here: Add twice from one view would put the second exactly inside the first, and nothing on screen would change
+  const at = { x: near.x, z: near.z }, taken = engine.world.query({}).map(r => r.position).filter(Boolean);
+  while (taken.some(p => Math.hypot(p.x - at.x, p.z - at.z) < APART / 2)) at.x += APART;
   let n = 1;
   // the file too: an entry collected in play or in another zone has no live record, and its id is still taken
   while (engine.world.get(`${what.name}-${n}`) || (await post({ op: 'read', id: `${what.name}-${n}` })).ok) n++;

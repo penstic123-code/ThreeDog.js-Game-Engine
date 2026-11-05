@@ -1,10 +1,12 @@
-# Terrain: your own generator, digging, raising and painting the ground
+# Terrain: your own generator, digging, raising and painting the ground, islands
+
+**In this recipe**: 0. Noise preset · 1. Your own generator · 2. Changing the ground · 3. Farming soil and ground types · 4. Height and snapping · 5. Where the ground ends: `shape` · 6. Replace the picture, keep play · 7. A chunk that fails · 8. Triangle cut and bounds margin · 9. Height from a grid or image
 
 Requires module `terrain()` (in the `openWorld()` preset). The API list is in `../api/terrain.md`.
 
 The engine always does the chunks, streaming, workers, collision and vegetation. It has **no built-in landform**: `terrain()` without a generator is
 flat gray ground at y = 0, with a dev warning. The height and ground type come from your own two functions or a preset, and the player can change the
-ground during play.
+ground during play. How the ground looks: recipes 36 and 53.
 
 Flat island (no noise): `terrain({ height: () => 2, shape: { mask: (x, z) => 25 - Math.hypot(x, z) } })`; inside `openWorld` the same object goes under `terrain:`.
 
@@ -32,8 +34,8 @@ terrain({
   waterLevel: 0,   // a sea at y = 0; leave it out for no water (the default is -Infinity; terrainPreset() sets 0)
 });
 ```
-The terrain moves the camera's far plane out to its view distance but leaves the fog to the game; `terrain({ viewFog: true })` makes the fog end where
-the chunks end so the edge fades out (`openWorld()` turns it on).
+The terrain moves the camera's far plane out to its view distance and leaves the fog to the game; `terrain({ viewFog: true })` (on in `openWorld()`) writes that
+distance to the signal `engine.uniforms.uViewDistance`, which your fog code reads so the far chunk edge fades out (recipe 34). It never writes `scene.fog`.
 Both functions run in workers, so they are **pure**: they see only their parameters and globals like `Math`. Reading a variable from outside
 (`(x, z) => x * scale`) throws at `terrain()` and names the variable; put the number inside the function, or pass settings as plain data in
 `terrain({ params })` and read them as `n.params`. `flatten` plots still apply on top. A new type name needs colors:
@@ -48,8 +50,6 @@ engine.ops.define('ground.level', { args: { at: 'position' }, run(e, a) {
 } });
 engine.ops.run('ground.dig', { at });
 ```
-- One of `raise` / `lower` (meters) / `flatten` (target height), and / or `paint` (a ground type, `null` gives back the generated type). `shape` is
-  `'circle'` (default) or `'square'`, `radius` in meters.
 - Edits snap to the terrain grid: heights to grid points, paint to whole cells of `engine.terrain.cellSize` meters (`chunkSize / resolution`, default
   4). A shape smaller than a cell takes the nearest one. For finer paint use a higher `terrain({ resolution })` (64 gives 1 m cells); per-cell
   gameplay state belongs in a grid layer (section 3).
@@ -73,12 +73,52 @@ engine.ops.define('path.sand', { args: { at: 'position' },   // a sandy path; a 
 Read the ground with `engine.surface(x, z)` (also `slope`, `groundType`, `waterAt`) and put an object on it with `engine.snapToGround(obj)`. Don't
 raycast the terrain for this: the height function is exact and works before the chunk has a mesh.
 
-Crisp ground color borders, triangle cut, normals, bounds margin, height from a grid: `37-terrain-hooks.md`.
-
 ## 5. Where the ground ends: `shape`
+`terrain({ shape })` decides where there is ground at all: an island, a floating rock, a world that ends. Without it the ground goes on forever. With it, ground exists only
+where `mask > 0`; the rim is cut through the cells in straight lines, walls hang down from it, and an optional underside closes it. The keys and their defaults are `TerrainShape` in `types/world.d.ts`.
 
-`terrain({ shape: { mask, edge, side, bottom } })` keeps ground only where `mask > 0` (an island, a floating rock): off it `engine.surface` is
-`-Infinity` and `engine.ground.has(x, z)` is false, and falls emit `terrain:void`. Without `shape` nothing changes. See `42-terrain-shape.md`.
+```js
+import { createEngine, openWorld } from 'threedog';
+
+const engine = createEngine({ canvas: document.querySelector('canvas') });
+engine.use(openWorld({ camera: 'follow', water: false, terrain: {   // water: false -- a floating island has no sea under it
+  height: (x, z, n) => 4 + 6 * n.fbm(x * 0.02, z * 0.02),
+  shape: {
+    mask: (x, z) => 60 - Math.hypot(x, z),                    // > 0 ground: a 60 m disc (meters read best)
+    edge: { noise: 8, size: 20, jitter: 0.6, round: 1.5 },    // ragged outline, jagged rim, top bends down 1.5 m at the edge
+    side: { depth: 3, ground: 'cliff' },                      // 3 m of cliff band, colored by biomeColors.cliff
+    bottom: { depth: (x, z, n, m) => 2 + m * 0.5 + 4 * n.fbm(x * 0.1, z * 0.1), ground: 'rock' },   // hangs lower inland (m grows inward)
+  },
+} }));
+await engine.start();
+
+const home = { x: 0, z: 0 };
+engine.events.on('terrain:void', ({ who }) => {   // fell off: the game decides (the engine never respawns)
+  if (who === engine.player) engine.player.placeAt(home);
+});
+```
+
+Colors come from `terrain({ biomeColors })` as usual: add `cliff` and `rock` (a name without a color is neutral gray). The mask is pure like `height`, or a gray image.
+Without `bottom` the island is open underneath (the cheapest choice when the camera never looks up at it). The side wall follows every bend of an `edge.round` top, so no slit shows between them.
+
+What the rest of the engine does off the outline:
+
+- `engine.surface(x, z)` is `-Infinity`, `engine.ground.has(x, z)` is `false`, `engine.slope` is 0, `engine.groundType` is `'void'`.
+  Check `has` before placing things: `engine.snapToGround` over the void warns once and leaves the object where it is, instead of writing an infinite y.
+  The same holds for every place-it-here entry (`engine.content.spawn`, content props, pickups, npcs, `character.placeAt`): a warning once per caller with this advice, and they keep the caller's y (or 0), never `-Infinity` (a save would turn it into NaN). Camera starts, HUD anchors, grid tiles and shot paths fall back to y 0 / the last height without a word.
+- Characters walk off the rim and fall; pathfinding and spawn search treat the void as not walkable.
+- Physics: the top and the walls collide (a rolling barrel stops at a wall, a ball falls off the edge); the underside does not.
+- Vegetation never grows off the outline. `engine.terrain.edit` off it does nothing (returns `{ heights: 0, cells: 0 }`); near the rim it
+  still digs, and painting works. The outline itself cannot be edited.
+- The player and every moving rigid body that drops below `engine.terrain.voidY` get one `terrain:void { who, position }` per fall.
+- Global water still draws at its level: a floating island usually turns water off (`water: false` above).
+
+Limits:
+
+- The cut follows cell edges, so detail finer than a cell (`chunkSize / resolution`, 4 m by default) is lost. Keep `edge.size` above a cell,
+  or raise `resolution`.
+- `shading: 'texture'`: the color map covers the top only (void pixels keep the color of the ground under them, so no seam shows at the rim, with alpha 0); sides and bottom use vertex colors or `side.material`.
+- The mask is fixed at start; a game that wants the outline to change while playing builds that itself.
 
 ## 6. Drawing the ground and plants your own way: replace the picture, keep play
 
@@ -96,15 +136,9 @@ engine.use({ name: 'myGround', type: 'picture', provides: ['terrain-draw'], inst
     show(c, visible) { meshes.get(c).visible = visible; },
   }));
 } }, { replaces: 'terrain-draw' });
-engine.use({ name: 'myPlants', type: 'picture', provides: ['vegetation-draw'], install(e, ctx) {
-  ctx.track(e.vegetation.view({
-    species(sp) { /* sp.source = what vegetation.define was given (geometry, model, material, wind) */ },
-    change(c, name) { /* c.plants[name]: { n, m (16 floats per plant, chunk-local), c (colors), ids }; c.hidden[name]: felled slots; gone = drop that mesh */ },
-    ring(c, ring) { /* LOD: ring 1 = the chunk a source stands in plus one ring around */ },
-    show(c, visible) {}, drop(c) { /* chunk released */ },
-  }));
-} }, { replaces: 'vegetation-draw' });
 ```
+Plants work the same way: a module with `provides: ['vegetation-draw']`, `{ replaces: 'vegetation-draw' }` and `e.vegetation.view({ species, change, ring, show, drop })` (hooks in `../api/vegetation.md`). In `change(c, name)`, `c.plants[name]` is `{ n, m (16 floats per plant, chunk-local), c (colors), ids }` and `c.hidden[name]` the felled slots; when it is gone, drop that mesh.
+`c.data` holds `pos`, `nor`, `col`, `uv`, and `tex: { data, size }` in texture mode; `engine.terrain.generator.buildChunk(cx, cz)` returns the same raw arrays.
 Only the material, not the meshes? `engine.terrain.material = material` swaps it on every loaded chunk in place (recipe 36).
 
 ## 7. A chunk that fails
@@ -112,3 +146,35 @@ Only the material, not the meshes? `engine.terrain.material = material` swaps it
 A chunk job that throws (usually the game's `height` / `groundType` / placement rule at that spot) is tried 3 times, then the chunk stays empty
 (no ground, no collision there): `terrain:chunkFailed` `{ cx, cz, error }` fires, the error `[terrain-chunk-failed]` names the chunk and the cause,
 and `describe().perf.chunks.failed` counts it. Fix the rule, then `engine.terrain.retry()` sends every failed chunk again.
+
+## 8. Triangle cut and bounds margin
+```js
+terrain({ diagonal: 'adaptive' })   // 'fixed' (default) | 'adaptive' | 'alternate'
+```
+`fixed` cuts every cell the same way. `adaptive` cuts along the diagonal with the smaller height difference, which removes
+the zigzag ridges a fixed cut leaves on a slope; `alternate` flips every other cell (no directional bias on flat low-poly facets). `engine.surface`,
+collision and vegetation heights follow the chosen cut, so nothing floats. It changes the walkable shape, so `recolor` does not take it.
+
+`boundsPad: { up: 3, radius: 8 }` (meters, the defaults) is the margin of the chunk's bounding sphere: the center is raised by `up`, the radius grows
+by `radius`. Raise it if a shader moves vertices far (wind on tall ground cover, a vertex-displacement patch) and chunks pop out at the screen edge.
+
+## 9. Height from a grid or image
+`sampleGrid(data, opts)` (`../api/tools.md`) turns numbers laid out on a regular grid into a function `(x, z) => value`;
+`await engine.assets.gridFromImage(nameOrUrl, opts)` (`../api/assets.md`) reads such a grid from an image. Samples sit on the grid nodes, so
+`width` samples span `width - 1` cells. The grid is just a field: height, moisture, a
+ground-type weight, spawn density, a walkable mask, danger, travel cost.
+
+`interp` is the picture between nodes, and none of them is the right one: `'nearest'` for terraces, blocky ground, tile masks and ids; `'linear'` (default) for most fields;
+`'cubic'` for slopes without cell creases, which can overshoot beside a sharp step (`clamp: true` keeps it inside the four corner values).
+
+```js
+const g = await engine.assets.gridFromImage('/maps/height16.png', { range: [-5, 60] });   // meters, 16-bit file
+const heightAt = sampleGrid(g.data, { ...g, size: [512, 512], origin: [-256, -256], interp: 'cubic', clamp: true });
+heightAt(10, 20);                                                    // gameplay side: where to put a camp, a mine, a lighthouse
+const wet = sampleGrid(moisture, { width: 32, height: 32, cellSize: 8 });   // a hand-made field: wetter ground grows reeds, rice, moss
+const walk = sampleGrid(mask, { width: 64, height: 64, cellSize: 1, interp: 'nearest', outside: 0 });   // 0 / 1 per tile; off the map: not walkable
+```
+A terrain `height` function is recompiled in a worker and cannot capture `heightAt`, so the terrain reads the same image through its own
+`heightmap` (bilinear, centered on `center`): `terrain({ heightmap: { ...g, size: [512, 512], min: -5, max: 60 } })` with `g` from `gridFromImage`
+using the default `range` (it expects 0-1 values; `min`/`max` scale them). Use `sampleGrid` for everything outside the terrain module; when you need
+a picture the terrain's bilinear read does not give (terraces: `nearest`), bake it into the data first or write the step in a `height` function.

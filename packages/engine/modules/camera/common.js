@@ -150,8 +150,9 @@ export function defineRig(kind, build, keys = []) { RIGS.set(kind, build); RIG_P
  * kind: 'follow' | 'firstPerson' | 'fixed' | 'rts', reported in describe()
  */
 export function rigModule(kind, opts) {
-  let c = null, was = false, owned = null, fresh = true, engine = null, fov0 = 50;
+  let c = null, home = null, was = false, owned = null, fresh = true, engine = null, fov0 = 50;   // home: the rig install built; every new playthrough goes back to this same object
   const cache = new Map();   // kind -> camera instance: params like distance and pitch survive switching away and back
+  const builtWith = new WeakMap();   // rig -> the options it was built with
   let modInput = null; const declared = new Set();
   const input = { action: (n, o) => { if (!declared.has(n)) { declared.add(n); modInput.action(n, o); } } };
   const make = (k, o) => {
@@ -159,7 +160,7 @@ export function rigModule(kind, opts) {
     if (!build) throw codedError('camera-kind', `setCamera() has no camera kind '${k}'; available: ${[...RIGS.keys()].join(', ')}`);
     readParams(`${k}Camera`, RIG_PARAMS.get(k), o);   // also covers setCamera(kind, options)
     const r = build(engine, o ?? {}, input);
-    r.kind = k; cache.set(k, r);
+    r.kind = k; cache.set(k, r); builtWith.set(r, o);
     // every kind answers the contract's screenToGround (click-to-move and placement work under any camera, not only the strategy one)
     if (typeof r.screenToGround !== 'function') r.screenToGround = (x, y) => screenToGround(engine, x, y);
     return r;
@@ -172,6 +173,8 @@ export function rigModule(kind, opts) {
     setFov(engine, fov0);   // fov returns to the value at install; each camera applies its own in onEnter / constructor
     const next = o || !cache.has(k) ? make(k, o) : cache.get(k);
     c = engine.cameraRig = next;
+    // set up before play (boot code, the title up): this is the game's camera, so the playthrough starts from it, not from the module's options
+    if (!engine.session.playing) { home = next; kind = k; opts = builtWith.get(next); }
     next.onEnter?.(true);
     if (old.yaw !== undefined && next.yaw !== undefined && !(o && o.yaw != null)) next.yaw = old.yaw;   // keep turning from the same heading, no sudden spin
     next.follow(target ?? null);
@@ -184,17 +187,31 @@ export function rigModule(kind, opts) {
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.cameraRig': '相机' }, en: { 'module.cameraRig': 'camera' } });
       engine = e; fov0 = e.camera.fov; modInput = ctx.input; declared.clear();
       e.setCamera = setCamera;
-      c = make(kind, opts);
+      c = home = make(kind, opts);
       c.onEnter?.(false);
-      // a new playthrough (newGame / load) starts with the camera as installed (kind, yaw, pitch, distance), placed at the player instead of flying across the map
+      // The view the player had is save data. Written to a rig of the saved kind only: a follow rig's pitch means the opposite of a first-person one's, so across kinds
+      // only the heading carries (as in setCamera). A kind switched to at runtime is not restored: its options are the game's and are not save data
+      e.saves.register('cameraRig', {
+        save: () => ({ kind: c.kind, yaw: c.yaw, pitch: c.pitch }),
+        load: d => {
+          const r = d.kind === c.kind ? c : home;
+          if (r.yaw !== undefined && Number.isFinite(d.yaw)) r.yaw = d.yaw;
+          if (r.pitch !== undefined && r.kind === d.kind && Number.isFinite(d.pitch)) r.pitch = d.pitch;
+        },
+      });
+      // a new playthrough (newGame / load) starts with the camera as installed (kind, distance, every option), placed at the player instead of flying across the map.
+      // The same object, so a rig the game kept at boot stays the camera; its view is what the load just left on it (the part above, or a game part's load() writing the rig)
       ctx.track(e.events.on('session:start', () => {
-        const old = c;
+        const old = c, { yaw, pitch } = home;
         old.onExit?.(); cache.clear();
         setProjection(e.camera);
         setFov(e, fov0);
-        c = e.cameraRig = make(kind, opts);
+        const built = make(kind, opts);
+        for (const k of Object.keys(home)) delete home[k];
+        c = e.cameraRig = Object.assign(home, built, yaw !== undefined && { yaw, pitch });
+        cache.set(kind, home);
         c.onEnter?.(false); c.follow(e.player?.cameraFollow ? e.player.root : null); fresh = true;   // follows the player only if the game asked (createPlayer({ cameraFollow }))
-        e.events.emit('camera:change', { kind, previous: old.kind });   // settings re-apply the player's sensitivity / fov to the new rig
+        e.events.emit('camera:change', { kind, previous: old.kind });   // settings re-apply the player's sensitivity / fov to the rebuilt rig
       }));
       // a scenario put the player somewhere else (?at, ?pos): a rig that eases would open on a glide across the map; follow() puts it there at once
       ctx.track(e.events.on('state:placed', () => { if (c.target) { c.follow(c.target); fresh = true; } }));

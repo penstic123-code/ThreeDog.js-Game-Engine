@@ -144,7 +144,7 @@ export class Weather {
     const p = this.types[name];
     if (!p) { warnMissing('weather', name, Object.keys(this.types)); return; }
     const from = this.name;
-    if (!(seconds >= 0 && Number.isFinite(seconds))) throw codedError('module-params', `weather.set('${name}', { seconds }) takes seconds >= 0 (0 = at once); got ${seconds}`);
+    if (!(seconds >= 0 && Number.isFinite(seconds))) throw codedError('weather-option', `weather.set('${name}', { seconds }) takes seconds >= 0 (0 = at once); got ${seconds}`);
     this.name = name; this.from = { ...this.current }; this.to = { ...p }; this.t = 0; this.dur = seconds;
     // seconds 0: land now, not on the next fixed step (a shot or test right after the call saw the old weather, or 1/3 of a short blend)
     if (seconds === 0) { this.t = 1; for (const key in this.to) this.current[key] = this.to[key]; }

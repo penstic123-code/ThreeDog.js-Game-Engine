@@ -50,7 +50,7 @@ export function addProps(e, api, props, st, zoneOf, ids) {
     if (floor !== undefined) def.floor = floor;   // kept so a moved prop lands on the same storey
     if (zone != null) def.zone = zone;
     const rec = world.add(def, { initial: true });
-    if (rec && (rec.kind !== 'prop' || JSON.stringify(rec.model) !== JSON.stringify(p.model))) throw codedError('pickup-prop-id', `Prop id "${id}" is already used by other data (${rec.kind}${rec.model ? ' ' + JSON.stringify(rec.model) : ''}): give this item a different id, e.g. { id: '${id}-2', model: ... }`);
+    if (rec && (rec.kind !== 'prop' || JSON.stringify(rec.model) !== JSON.stringify(p.model))) throw codedError('world-id', `Prop id "${id}" is already used by other data (${rec.kind}${rec.model ? ' ' + JSON.stringify(rec.model) : ''}): give this item a different id, e.g. { id: '${id}-2', model: ... }`);
     if (DEV) world.setOrigin(id, { definedAt: at, model: p.model });
   });
 }
@@ -77,13 +77,13 @@ function placeGridItem(e, p, i, zone, ids, at) {
   ids.claim(p.id, `props[${i}] (grid ${p.grid} item ${p.item})`);
   const { kind, fields } = e.grids.placement(p.grid, p.item, p.cell, p.rotation ?? 0);
   const rec = e.world.add({ id: p.id, kind, ...fields, ...structuredClone(p.fields ?? {}), ...(zone != null && { zone }) }, { initial: true });
-  if (rec && rec.kind !== kind) throw codedError('pickup-prop-id', `grid item id "${p.id}" is already used by other data (kind ${rec.kind}): give it a different id`);
+  if (rec && rec.kind !== kind) throw codedError('world-id', `grid item id "${p.id}" is already used by other data (kind ${rec.kind}): give it a different id`);
   if (DEV) e.world.setOrigin(p.id, { definedAt: at });
 }
 
 /** Dev error when the world module is not installed */
 export function needWorld(e) {
-  if (!e.world) throw codedError('world-missing', 'content has props or pickups, whose data is stored in world: call engine.use(world()) first (the openWorld() preset already installs it)');
+  if (!e.world) throw codedError('module-needs', 'content has props or pickups, whose data is stored in world: call engine.use(world()) first (the openWorld() preset already installs it)');
   return e.world;
 }
 

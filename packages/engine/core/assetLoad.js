@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { restoreBaked, toGLB, fromGLTF } from './Baked.js';
 import { warnOnce, DEV_SERVER, BASE_URL } from './validate.js';
 import { neutralMaterial } from '../render/neutral.js';
-import { maxAnisotropy } from '../render/backend.js';
+import { maxAnisotropy, isWebGPU } from '../render/backend.js';
 
 const BASE = BASE_URL;   // DEV_SERVER: only npm run dev serves the /__threedog/cache endpoint
 const CACHE = '/__threedog/cache/';
@@ -155,7 +155,9 @@ function decoder(assets, kind) {
       return assets.draco;
     }
     const { KTX2Loader } = await import('three/addons/loaders/KTX2Loader.js');
-    assets.ktx2 = new KTX2Loader().detectSupport(assets.engine.renderer);
+    const r = assets.engine.renderer;
+    if (isWebGPU(r)) await r.init();   // detectSupport asks the GPU, and an asset may be requested before start(). three's init runs once, start() goes on from it
+    assets.ktx2 = new KTX2Loader().detectSupport(r);
     if (dir) assets.ktx2.setTranscoderPath(dir + 'basis/');
     assets.gltf.setKTX2Loader(assets.ktx2);
     return assets.ktx2;

@@ -7,6 +7,7 @@ import { WebGPURenderer } from 'three/webgpu';
 import { createEngine, world, terrain, vegetation, sky, particles, weather } from '../../index.js';
 import { terrainPreset } from '@threedog/terrain-noise';
 import { cityMethods } from './city.js';
+import { cityGameMethods } from './cityGame.js';
 import { lightMethods } from './lights.js';
 import { soakMethods } from './soak.js';
 
@@ -267,6 +268,7 @@ window.sf = {
   },
 };
 Object.assign(window.sf, cityMethods({ mkEngine, ready, heap, gc, r2 }));
+Object.assign(window.sf, cityGameMethods({ mkEngine, heap, gc, r2 }));
 Object.assign(window.sf, lightMethods({ mkEngine, ready, frame, measure, gpuDone, r2, THREE }));
 Object.assign(window.sf, soakMethods({ mkEngine, ready, heap, gc }));
 window.sfReady = true;

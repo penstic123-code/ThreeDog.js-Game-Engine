@@ -44,6 +44,7 @@ engine.onFixed(() => {                                   // firing is gameplay: 
   engine.hud.counter('score', { value: ++score });       // calling again with the same id = update
 });
 ```
+- **Where fire and reload live**: the engine has no weapon system. In a game with ammo they are the game's ops (`engine.ops.define('weapon.fire', ...)`, recipe 23), so a key, a test and the dev bridge run one path; the fixed step above only calls `engine.ops.run`.
 - **Finding the target again**: when a target is made of several meshes, `hit.object` is the piece that was hit. Set `userData.target = true` on the
   target's root object, then `let o = hit.object; while (o && !o.userData.target) o = o.parent;`.
 - **Why not read `pointer.clicked`**: it is true only for "this frame" and requires no dragging; a fixed step can miss that frame (at a high frame
@@ -63,6 +64,7 @@ engine.onFixed(() => {                                   // firing is gameplay: 
 - Hit-point effect: `engine.particles.emit(name, hit.point)` (install `particles()` first, recipe 64).
 - For bullets with flight time (arcs, enemies dodging): don't use a ray; write `world.add({ kind: 'bullet', ... })` + `world.simulate`, see `18-world.md`.
 - Distance limit: `engine.pick(0, 0, { targets, far: 60 })`.
+- Recoil: `pick` casts from the camera as last drawn, so a `rig.yaw` / `rig.pitch` write reaches it on the next drawn step. For several shots in one step with recoil between them, build the direction from the rig's angles and use `engine.raycast`.
 - Score, ammo: `hud.counter` / `hud.bar`; numbers that must be saved go in `engine.vars` (`engine.vars.bump('score')`); after changing them call
   `hud.counter` again to sync the display.
 

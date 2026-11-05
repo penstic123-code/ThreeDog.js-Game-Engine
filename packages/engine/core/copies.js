@@ -1,4 +1,4 @@
-// Two copies of the engine on one page (e.g. a game imports `threedog` while a style or tool bundles its own copy, or a
+// Two copies of the engine on one page (e.g. a game imports `threedog` while a pack or tool bundles its own copy, or a
 // workspace link plus an npm copy). Each copy installs the shadow accessors on THREE.Mesh.prototype (render/patches.js) and keeps
 // its own patch lists, so the second install makes the first copy's wind / CSM materials cast no matching shadow: nothing throws,
 // shadows just go wrong. So each copy writes itself under one global symbol at load and the second one says so, once, naming both.
@@ -27,6 +27,6 @@ export function noteCopy(me, registry = globalThis) {
   if (!other) return '';
   return coded('engine-two-copies', `[threedog] two copies of the engine on this page (${other.version} at ${other.root}, ${me.version} at ${root}): ` +
     "load one, e.g. vite.config.js: resolve: { dedupe: ['threedog', 'three'] }. Each copy hooks THREE.Mesh.prototype for shadows, so " +
-    'wind / cascaded-shadow materials of one copy cast wrong shadows. `npm ls threedog` shows who pulls the second; a style or ' +
+    'wind / cascaded-shadow materials of one copy cast wrong shadows. `npm ls threedog` shows who pulls the second; a pack or ' +
     'tool lists threedog under peerDependencies, not dependencies');
 }

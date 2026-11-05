@@ -19,7 +19,7 @@ import { VIEWS } from './views.js';
 const island = {
   ...GROUND,
   material: mat.ground, effects: /** @type {const} */ (false),   // drawn as given: picture/materials.js brings its own snow, and this island has no cloud shadow
-  resolution: 48,   // 64 m chunk / 48 = 1.33 m cells: the rim is cut along cells, so finer cells give a finer brushed edge (recipe 42 §4)
+  resolution: 48,   // 64 m chunk / 48 = 1.33 m cells: the rim is cut along cells, so finer cells give a finer brushed edge (recipe 28 §5)
   // the river's centre line z = amp * sin(x * freq) + shift: one set of numbers both functions read (n.params), so the dip and the river
   // ground type cannot drift apart
   params: { river: { amp: 6, freq: 0.09, shift: 2, dip: 3.2, wet: 2.4 } },

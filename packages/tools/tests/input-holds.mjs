@@ -51,6 +51,12 @@ export async function run({ check }) {
   check('holds.gates lists gate owners by action', JSON.stringify(h.gates) === JSON.stringify({ attack: ['cutscene'] }), JSON.stringify(h.gates));
   check('holds.freeze lists the freeze owner', h.freeze?.[0]?.owner === 'flow', JSON.stringify(h.freeze));
   check('runState.blockedBy names the opaque context (read through input.holders)', e.runState.blockedBy.includes('menu') && !e.runState.blockedBy.includes('vehicle'), JSON.stringify(e.runState.blockedBy));
+  // a halted page may not step for a long time: the status line said a closed window was open, and did not know a new one
+  const closing = inp.push('win-results'); applyContexts(inp); closing.remove();
+  check('[guard] a removed context stops holding at once, before the next fixed step applies it', !e.runState.blockedBy.includes('win-results') && !inp.enabled, JSON.stringify(e.runState.blockedBy));
+  const opening = inp.push('win-new');
+  check('[guard] a pushed context holds at once in the report', e.runState.blockedBy.includes('win-new'), JSON.stringify(e.runState.blockedBy));
+  opening.remove(); applyContexts(inp);
   e.mod('time.world', { owner: 'bullet-time', mul: 0.35 });
   check('other engine.mod points are in describe().shared, not holds', !('stacks' in holds(e)) && e.stacks.describe()['time.world']?.also[0]?.owner === 'bullet-time', JSON.stringify(e.stacks.describe()));
   g2.remove(); shop.remove(); car.remove(); applyContexts(inp); e.stacks.get('freeze').release('flow');

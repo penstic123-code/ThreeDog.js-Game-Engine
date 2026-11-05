@@ -60,7 +60,7 @@ export class Layer {
  */
 export type LayerOptions = {
     tiles?: boolean | {
-        look?: (data: Record<string, any>, cell: [number, number]) => any;
+        color?: (data: Record<string, any>, cell: [number, number]) => any;
         colors?: Record<string, number | string>;
         lift?: number;
     } | ((engine: any, layer: Layer) => {

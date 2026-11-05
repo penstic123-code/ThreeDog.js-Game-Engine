@@ -31,10 +31,7 @@ engine.events.on('engine:ready', () => {
   window.car = v;                                                     // handy for tests and the console
 });
 ```
-`addWheeled` options: `id` stable id (default `vehicle1`, `vehicle2`... in creation order; give one when that order varies), `wheels` (at least 3),
-`mass` in kg, `engineForce` throttle force, `brakeForce`, `maxSteer` in radians, `suspension: { rest, stiffness, damping }`,
-`seats` seat positions (the first drives, the rest ride; each exits on its own side), `hideDriver` (default true; false keeps riders visible on their seats: bikes, karts, open carts), `camera` camera distance/height while driving, `size` body collision box (by default the model's bounding box, wheels excluded),
-`friction` grip, `exitOffset` how far from the side of the body the player lands when exiting (meters, default 0.8).
+Options: `../api/rigid.md` (VehicleOptions). `id` is the stable id saves use (default `vehicle1`, `vehicle2`... in creation order; give one when that order varies).
 Rigid bodies and vehicles do not change a model's shadow settings: set `mesh.castShadow = true` yourself if you want a shadow.
 
 ## 2. Boarding and driving
@@ -59,25 +56,23 @@ its `mass` and friction. A body that should stop the player is `{ fixed: true }`
 A puzzle reads the result from the body (`entry.body.translation()` in `onFixed`, or a trigger zone) and gives the body an `id`, so a save keeps
 where it was pushed. Test: `threedog test "rigid push"` (both movers).
 
+**Far bodies freeze.** On chunked terrain only the chunks within `rigid({ terrainRing })` of the player (default 1 ring) have terrain colliders. A
+body outside them stops (`entry.enabled` is false, `describe().rigid.frozen` counts them) instead of falling through the ground, and goes on when
+the player comes near. A body that must keep moving out there, such as a rival car on a long track, needs a larger ring: `rigid({ terrainRing: 6 })`;
+each ring adds colliders. In dev the first moving body that freezes warns once.
+
 **Saves.** A body added with an `id` (`rigid.addBox(mesh, { id: rec.id })`; vehicles always have one) is saved with its pose, rotation,
 velocities and sleep, and a load gives that state back to the body with the same id, also when it is built after the load (a world presenter's
 `build`). A body without an id is not saved: after a load it is wherever its record (or your code) puts it, upright and at rest.
 
-**Joints** (hinges, doors, ropes, chains) are plain Rapier on engine bodies; the engine has no wrapper:
-```js
-const R = engine.rigid, J = R.rapier.JointData;
-const post = R.addBox(postMesh, { fixed: true }), door = R.addBox(doorMesh, { mass: 8 });
-// hinge on the post's right edge, turning around Y; anchors are in each body's local space
-const hinge = R.world.createImpulseJoint(J.revolute({ x: 0.5, y: 0, z: 0 }, { x: -0.5, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }), post.body, door.body, true);
-hinge.setLimits(-1.5, 1.5);
-// rope: the weight hangs at most 2 m below the hook
-R.world.createImpulseJoint(J.rope(2, { x: 0, y: -0.5, z: 0 }, { x: 0, y: 0.5, z: 0 }), hook.body, weight.body, true);
-```
-`R.world` is the Rapier world and `entry.body` the Rapier body. newGame and a load rebuild the physics world (physics starts over like a fresh
+**Joints** (hinges, doors, ropes, chains) are plain Rapier on engine bodies; the engine has no wrapper. `R.world` is the Rapier world and `entry.body` the Rapier body. newGame and a load rebuild the physics world (physics starts over like a fresh
 page) and free the old world's joints with it; the engine does not copy them. It emits `rigid:rebuilt` once the bodies are back, and that is
 where a game re-creates its joints, with the same code that made them:
 ```js
+const R = engine.rigid, J = R.rapier.JointData;
+const post = R.addBox(postMesh, { fixed: true }), door = R.addBox(doorMesh, { mass: 8 });
 function hang() {   // makes the joints; called after the bodies are added, and again after every rebuild
+  // hinge on the post's right edge, turning around Y; anchors are in each body's local space
   const h = R.world.createImpulseJoint(J.revolute({ x: 0.5, y: 0, z: 0 }, { x: -0.5, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }), post.body, door.body, true);
   h.setLimits(-1.5, 1.5);
   R.world.createImpulseJoint(J.rope(2, { x: 0, y: -0.5, z: 0 }, { x: 0, y: 0.5, z: 0 }), hook.body, weight.body, true);
@@ -96,9 +91,7 @@ stay). Removing a body removes its joints (Rapier does that).
   Physics only advances in fixed steps. Test: `threedog test "rigid determinism"`: stacked boxes knocked over, a rolling ball, a driving car, the
   `mover: 'rapier'` player, two fresh pages, `frameEvery` 1 / 2 / 4.
 - A load restores each saved body exactly. Rapier's contact and warm-start caches and its solver order are not saved, so the run after a load
-  is not bit-identical to the run that went on without the load. A toppling stack can end some centimetres away (measured: 0.24 m after 1.5 s).
-  Bodies at rest stay at rest. Bit-identical continuation would need `world.takeSnapshot()`, which includes the terrain colliders (about 650 KB
-  for the open world's 9 chunks) and is not used.
+  is not bit-identical to the run that went on without the load: a toppling stack can end some centimetres away. Bodies at rest stay at rest.
 - Across machines: the engine uses `@dimforge/rapier3d-compat`, which Rapier does not promise to be cross-platform deterministic (that is the
   separate `rapier3d-deterministic` build). Two machines can drift apart. The net module does not depend on matching physics: the host owns the
   state, and physics is not synced (each machine simulates its own bodies).

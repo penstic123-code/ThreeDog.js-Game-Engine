@@ -69,7 +69,7 @@ export class Settings extends SettingsView {
     this.presets = { ...PRESETS };
     for (const k in presets) {
       // loud, because a game's old fixed ratio (2) would otherwise multiply the device's own
-      if (presets[k].pixelRatio > 1) throw codedError('bad-arg', `settings({ presets: { ${k}: { pixelRatio: ${presets[k].pixelRatio} } } }): a preset's pixelRatio is a share from 0 to 1 of the ratio the engine picked for this device. For a fixed ratio call engine.setPixelRatio`);
+      if (presets[k].pixelRatio > 1) throw codedError('module-params', `settings({ presets: { ${k}: { pixelRatio: ${presets[k].pixelRatio} } } }): a preset's pixelRatio is a share from 0 to 1 of the ratio the engine picked for this device. For a fixed ratio call engine.setPixelRatio`);
       this.presets[k] = { ...(this.presets[k] || {}), ...presets[k] };
     }
     this.storageKey = storageKey || engine.saves.storageKey('settings');

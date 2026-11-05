@@ -32,7 +32,7 @@ import { touchButton } from './inputTouch.js';
 import { bindPointer } from './inputPointer.js';
 import { pollPad, keyLabel } from './inputPad.js';
 import { BASIC_KEYS, BASIC_LABELS, BOUND_LABELS } from './inputDefaults.js';
-import { initContexts, pushContext, readableMap, applyContexts, BASE_CONTEXT } from './inputContext.js';
+import { initContexts, pushContext, readableMap, applyContexts, settledStack, BASE_CONTEXT } from './inputContext.js';
 
 const NONE = Object.freeze([]);
 const ACTION_OPTS = ['context', 'label', 'optional', 'keys', 'owner'];
@@ -148,13 +148,13 @@ export class Input {
       return { owner, remove: () => { for (const h of hs) h.remove(); } };
     }
     keys = [].concat(keys ?? NONE);
-    if (keys.some(k => typeof k !== 'string' || !k)) throw codedError('bad-arg', `input.bind('${name}', ${JSON.stringify(keys)}): keys are key names like 'KeyE', 'Space', 'PadA', 'Mouse0'`, TypeError);
+    if (keys.some(k => typeof k !== 'string' || !k)) throw codedError('input-keys', `input.bind('${name}', ${JSON.stringify(keys)}): keys are key names like 'KeyE', 'Space', 'PadA', 'Mouse0'`, TypeError);
     if (!this.actions.has(name)) this.actions.set(name, { labelKey: BOUND_LABELS[name] || name, context: BASE_CONTEXT, optional: false, by: null });
     // checked here, before the shared point's own conflict rule, so the message talks about keys (mul / add make no sense for a key list)
     const other = this._keys.holders(name).find(h => h.layer === 'game' && h.owner !== owner);
     if (other && DEV) {
       throw codedError('input-bound-twice', `input.bind('${name}'): '${other.owner}' already binds it (${other.value.join(', ') || 'no key'}${other.at ? `, ${other.at}` : ''}), now '${owner}' binds ${keys.join(', ') || 'no key'}. `
-        + `Rule: one owner binds an action. Fix: keep one of the two (drop the module's keys option, or the createEngine({ bindings }) entry), or bind another action name`);
+        + `Rule: one owner binds an action. Fix: keep one of the two binds, or bind another action name`);
     }
     this._readable = null;
     return this._keys.take({ owner, id: name, set: Object.freeze([...keys]), layer: 'game' });
@@ -276,10 +276,11 @@ export class Input {
   /** Names of the active contexts, bottom to top (pending switches apply at the next fixed step) @returns {string[]} */
   get contexts() { return this._stack.map(c => c.name); }
   /**
-   * Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read)
+   * Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read).
+   * Pushes and removes count at once, before the next fixed step applies them: on a halted page a closed window is not a holder any more
    * @returns {{ context: string, owner: string, pass: boolean }[]}
    */
-  get holders() { return this._stack.slice(1).map(c => ({ context: c.name, owner: c.owner, pass: c.pass })); }
+  get holders() { return settledStack(this).slice(1).map(c => ({ context: c.name, owner: c.owner, pass: c.pass })); }
   /**
    * Close one action while anyone holds its gate (stun: no jump; a tutorial: no attack yet), without a whole input context. Same rules as every
    * engine.mod stack (it is the shared point 'input.gate', one entry per owner and action): only the owner opens it, { for } ends it by itself.

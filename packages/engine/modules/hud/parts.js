@@ -70,8 +70,8 @@ export function defineHudParts(e, root) {
         const t = tpl('hudCounter');
         if (t) el.innerHTML = t(d, tools);
         // value is a number (a count, with max: 2 / 5) or text (a time '08:30', a quest step): one counter for both, no second widget.
-        // No value = the label alone: a status line that has no number yet must not read "0"
-        else el.textContent = [d.icon, d.label ?? d.id, d.value == null ? null : d.max != null ? `${d.value} / ${d.max}` : d.value].filter(x => x != null && x !== '').join(' ');
+        // No value = the label alone: a status line that has no number yet must not read "0". No label = the value alone: the id is the game's handle, not text for the player
+        else el.textContent = [d.icon, d.label, d.value == null ? null : d.max != null ? `${d.value} / ${d.max}` : d.value].filter(x => x != null && x !== '').join(' ');
       },
       dispose() { el.remove(); },
     };

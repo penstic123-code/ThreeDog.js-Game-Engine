@@ -35,8 +35,8 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | Blender level | `engine.level`; `engine.vegetation.define` | 10-blender-level.md, 05-props-bake.md §2e |
 | Terrain, height, edits | `engine.terrain`, `engine.ground` | 28-terrain.md |
 | Own ground or plant drawing, keep collision | `{ replaces: 'terrain-draw' }`, `engine.terrain.view`, `engine.terrainDraw`, `engine.vegetationDraw` | 28-terrain.md §6 |
-| Ground picture | `engine.terrain.material`, `.recolor`, `terrain({ detail, shading, shape })` | 36-sky-ground-plants.md, 53-ground-up-close.md, 42-terrain-shape.md |
-| Grid placement, plots, build on cells; a grid from a PNG | `engine.grids`, `layer.material`, `sampleGrid`, `assets.gridFromImage` | 29-grid.md, 37-terrain-hooks.md §7 |
+| Ground picture | `engine.terrain.material`, `.recolor`, `terrain({ detail, shading, shape })` | 36-ground-plants.md, 53-ground-up-close.md, 28-terrain.md §5 |
+| Grid placement, plots, build on cells; a grid from a PNG | `engine.grids`, `layer.material`, `sampleGrid`, `assets.gridFromImage` | 29-grid.md, 28-terrain.md §9 |
 | Asset packs, loading; code-made models; far detail | `engine.assets.manifest`, `.palette`, `.lod`, `engine.loading` | 05-props-bake.md, 15-perf.md |
 | Blender -> GLB art; fixed views before / after | `threedog assets check`, `engine.views` | 46-blender-art-route.md |
 
@@ -47,7 +47,7 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | Player, characters, who steers one | `engine.player`, `engine.characters` (`.material`), `engine.control` | 57-control.md, 13-animation.md |
 | Keys, gamepad: actions, contexts, rebinding | `engine.input` | 58-input.md |
 | Camera: follow / third person (followCamera), first person, fixedCamera, rts; switch live (setCamera) | `engine.cameraRig`, `engine.page` | 21-camera.md |
-| 2D, side-scroller, orthographic; 2D lights | `presets.player.sideScroller`, example `rc2d` | 21-camera.md §6, 09-materials-lights-models.md §1b |
+| 2D, side-scroller, orthographic; 2D lights | `presets.player.sideScroller`; 2D lights: example `rc2d` | 21-camera.md §6, 09-materials-lights-models.md §1b |
 | Skeletal animation | `engine.assets.animate`, `engine.hlod` | 13-animation.md, 15-perf.md |
 | Pathfinding, navmesh, "can walk there" | `engine.characters.findPath`, `engine.nav` | 12-navmesh.md |
 | Physics (crates, joints, ragdoll), collision, vehicles | `engine.collision`, `engine.rigid` | 11-vehicles.md |
@@ -85,16 +85,16 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 ### Picture and sound
 | To do | Use | Recipe |
 |---|---|---|
-| The picture in three.js (`picture/`): lights, fog, exposure, parts | `lights: false`, `engine.uniforms` | 62-picture-code.md, 38-environment-hooks.md |
+| The picture in three.js (`picture/`): lights, fog, exposure, parts | `lights: false`, `engine.uniforms` | 62-picture-code.md, 34-environment-lighting.md |
 | Read the picture, its writers; try a value | `describe().picture`, `debug.override(owner, obj, key, value)` | 52-around-the-picture.md, 62-picture-code.md |
 | Materials, textures, a module's picture | `engine.water.material` | 09-materials-lights-models.md |
 | Own material or shader (toon, cel shading) | TSL (WebGPU), `ShaderMaterial` (WebGL), `rampTexture`, `celLighting` | 43-shader-patches-surfaces.md, 56-webgpu-tsl.md |
 | WebGPU renderer, TSL node materials, WebGL fallback | `renderer: 'webgpu'`, `import 'threedog/tsl'` | 56-webgpu-tsl.md |
 | Drop-in file per piece, no main.js | `plugins/`, `engine.plugins`, `describe().slots` | 40-scene.md |
-| three.js idioms, own renderer | the idiom table, `createEngine({ renderer })` | 54-three-idioms.md, 50-own-renderer.md |
+| three.js idioms, own renderer | the idiom table in `THREE.md`, `createEngine({ renderer })` | 50-own-renderer.md |
 | Dust, smoke | `particles({ effects })`, `engine.particles` | 64-particles.md |
 | Sky (`replace`, `clouds`, `layer`, `keyframes`), season tints, weather, wet roads | `engine.sky`, `engine.weather`, `engine.weatherDraw` | 08-weather-sky.md |
-| Water, rain / snow, snow cover | `engine.water`, `weather({ rain, snow })`, `weather.defineField` | 44-water-weather-hooks.md, 47-island-snow-backdrop.md |
+| Water, rain / snow, snow cover | `engine.water`, `weather({ rain, snow })`, `weather.defineField` | 44-water-weather-hooks.md |
 | Shadows: blur, follow, cost | `engine.shadows.cascades(light)`, `.box(light)`, `.budget(light)`, `.cache(light, { static })`, `.mapSize(light, n)`, `.enabled` | 45-cascaded-shadows.md |
 | Own far, fov; clouds | `engine.autoView`, `engine.shaderTerms` | 52-around-the-picture.md |
 | Environment light, reflections, probes, lightmaps, GI, culling | `engine.sky.environment`, `engine.bakeProbes`, `engine.loadLightmap`, `engine.occlusion` | 34-environment-lighting.md |

@@ -18,7 +18,7 @@ import { expectDescribe } from './describe-snapshot.mjs';
 import { run as command } from './threedog/commands.mjs';
 import { READY, atPath } from './threedog/pageFns.mjs';
 
-const TOP = ['name', 'url', 'state', 'steps', 'version'];   // version: optional, 1
+const TOP = ['name', 'url', 'state', 'steps', 'version', 'timeout'];   // version: optional, 1; timeout: ms under threedog test, as on a spec
 const KINDS = { op: ['op', 'args', 'actor', 'expect'], step: ['step'], press: ['press'], state: ['state'], expect: ['expect'], snapshot: ['snapshot', 'only', 'ignore', 'tolerance'] };
 const TOL = 0.01;
 
@@ -137,5 +137,5 @@ export const pageDriver = page => ({
 /** One test item per scenario file, for the test runner (run.mjs) */
 export const scenarioSpecs = dir => scenarioFiles(dir).map(f => {
   const sc = readScenario(f), file = basename(f);
-  return { name: `scenario: ${sc.name ?? file}`, url: sc.url ?? '/', run: ({ page, check }) => runScenario(pageDriver(page), sc, { check, file, snapDir: join(dir, 'tests', 'snapshots') }) };
+  return { name: `scenario: ${sc.name ?? file}`, url: sc.url ?? '/', timeout: sc.timeout, run: ({ page, check }) => runScenario(pageDriver(page), sc, { check, file, snapDir: join(dir, 'tests', 'snapshots') }) };
 });

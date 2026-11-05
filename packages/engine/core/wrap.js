@@ -10,14 +10,15 @@
 // The wrapper is installed on the object itself, so every caller of that method goes through it: the game, the module's ops (the op
 // inventory.transfer calls engine.inventory.transfer) and other modules alike. It wraps one method, not a behaviour: a rule that must hold for
 // every way items enter the bag wraps each api method that can do it (add and transfer), or uses the module's own option (maxWeight).
-// Only public methods: a name starting with '_' is the module's inside and throws (wrap what the contract lists, modules/<m>/contract.js).
-import { fmt } from './validate.js';
-import { codedError } from './errorHints.js';
+// Wrap what the contract lists (modules/<m>/contract.js). A name starting with '_' is the module's inside: it works, and dev warns once that it may change.
+import { DEV, fmt, warnOnce } from './validate.js';
+import { coded, codedError } from './errorHints.js';
 
 const STRINGS = {
-  target: "engine.wrap(target, method, fn): target must be a module's api object (engine.inventory, engine.flow...), got {got}",
+  target: 'engine.wrap(target, method, fn): target is an object with the method, such as engine.inventory or engine.flow; got {got}',
   fn: "engine.wrap(target, '{method}', fn): fn must be a function (next, ...args) => ..., e.g. (next, ...a) => next(...a)",
-  priv: "engine.wrap(target, '{method}'): '{method}' is private (leading _); wrap a public method: {list}",
+  name: "engine.wrap(target, method, fn): method is a method name, got {method}; public methods: {list}",
+  priv: "engine.wrap({name}, '{method}'): '{method}' is the object's inside (leading _), so an engine update may change it without notice. Public methods: {list}",
   missing: "engine.wrap({name}, '{method}'): {name} has no method '{method}'; public methods: {list}",
 };
 
@@ -55,7 +56,8 @@ export class Wraps {
     if (!target || (typeof target !== 'object' && typeof target !== 'function')) throw codedError('wrap-misuse', fmt(STRINGS.target, { got: target === null ? 'null' : typeof target }), TypeError);
     if (typeof fn !== 'function') throw codedError('wrap-misuse', fmt(STRINGS.fn, { method }), TypeError);
     const name = this._name(target);
-    if (typeof method !== 'string' || method.startsWith('_')) throw codedError('wrap-misuse', fmt(STRINGS.priv, { method: String(method), list: methodsOf(target).join(', ') }));
+    if (typeof method !== 'string') throw codedError('wrap-misuse', fmt(STRINGS.name, { method: String(method), list: methodsOf(target).join(', ') }));
+    if (DEV && method.startsWith('_')) warnOnce(coded('wrap-misuse', fmt(STRINGS.priv, { name, method, list: methodsOf(target).join(', ') })));
     let slots = this._map.get(target);
     if (!slots) this._map.set(target, slots = new Map());
     let slot = slots.get(method);

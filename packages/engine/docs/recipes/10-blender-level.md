@@ -14,7 +14,7 @@
 Export glTF/GLB (tick "Custom Properties") into `art/models/` (create it if missing).
 
 ## 2. Compression
-`npm run assets -- optimize` compresses to `public/optimized/<same name>.glb` (Meshopt geometry + KTX2 textures; textures are encoded by `ktx` on PATH or by the npm package `ktx2-encoder`, one `npm i -D` away) and points `assets.js` at the results (`/optimized/<name>.glb`). Object names and
+`npm run assets -- optimize` compresses to `public/optimized/<same name>.glb` (Meshopt geometry + KTX2 textures, recipe 46 section 3) and points `assets.js` at the results (`/optimized/<name>.glb`). Object names and
 hierarchy are kept; faces are not reduced. Only changed files are processed; `-- --force` redoes everything.
 
 ## 3. Putting it in the game (main.js)
@@ -30,11 +30,11 @@ engine.start();
 - Trigger zone data: write `{ 门口: { fromLevel: true, onEnter: { toast: '欢迎' } } }` in `<game>/content/triggers.js` (tag = the name after `trigger_`).
 - Content validation (`npm run check`) reads the level `.glb` files in `art/models/` and `public/models/` (needs `@gltf-transform/cli` installed):
   marker names used in content (`{ place: 'npc_店主' }`) need no description in `content/places.js`; a `fromLevel` trigger zone must have a
-  `trigger_<tag>` node, and a node's `template` must exist in `content/templates.js`. Without a readable `.glb` the old rule holds (validation
-  skips `fromLevel`, GAMEMAP notes "cannot be read statically"); `level.js` is only for code-built levels.
+  `trigger_<tag>` node, and a node's `template` must exist in `content/templates.js`. Without a readable `.glb`, validation
+  skips `fromLevel` and GAMEMAP says the markers cannot be read statically; `level.js` is only for code-built levels.
 - `npm run assets -- check` prints what the level will find in each model (spawns, colliders, triggers, template nodes, duplicate ids) plus
   material / color-space suspicions; `-- --json` gives the same as data.
-- `level:loaded` fires on every level change; for something done only once (creating the player) use `engine.events.once`. When the level changes, the
+- When the level changes, the
   old level's trigger zones and the like are deleted automatically (`level.track`); NPCs, pickups and props placed by marker only lose their model
   while their data stays (with a zone), and are rebuilt when you return to this level; things that were picked up / deleted stay gone.
 - Get a marker in code: `engine.level.marker('marker_宝箱')?.position`, `engine.level.markersWith('npc_')`.
@@ -58,7 +58,7 @@ re-places them; after changing a ground function behind the same provider call `
 sets `minHeight / maxHeight`. Content `vegetation` works the same way. With `terrain()` installed, `vegetation()` takes no options (density and view
 distance are terrain options). Rapier (`rigid()`) bodies collide with them too (cylinders from `engine.ground.forEachCollider`, gone when felled).
 
-Where a species grows is decided in the same `add()` call, with up to three parts (on a level, a code-built ground or terrain alike):
+Where a species grows is decided in the same `define()` call, with up to three parts (on a level, a code-built ground or terrain alike):
 ```js
 // rule: random scatter per chunk (above). positions: the game's own spots instead, [x, z] or [x, z, scale, yaw], planted at the ground height
 engine.vegetation.define('hedge', { model: hedge, positions: hedgeSpots /* [[x, z], ...] from your level data */, rule: { collider: 0.5 } });
@@ -76,4 +76,3 @@ A game that wants every instance under its own code still builds a plain `THREE.
   (`kind: 'trigger'`) and NPCs.
   Text version: `npm run shot -- /your-page.html --describe-only`.
 - Collision: `engine.collision.walkable({ x, z })` is false inside a col_ box; ground: `engine.surface(x, z)` equals the step / floor height.
-- Related tests: `threedog test 关卡`, `threedog test "compressed assets"`, `threedog test HLOD`, `threedog test "vegetation ground"`.

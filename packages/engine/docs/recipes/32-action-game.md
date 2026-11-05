@@ -1,8 +1,7 @@
-# Action game wiring: hp, attacks, enemy AI, drops and death without engine combat rules
+# Action game wiring: hp, attacks, guns, enemy AI, drops, death, win and lose without engine combat rules
 
 The engine has no health, damage, hit detection or death. An action game writes those as its own rules on top of systems that already exist. The
-working example is `examples/action/` (page `/action.html`, about 150 lines of rules in `main.js`, the room in `content/`); its test is
-`tests/specs/action.mjs`.
+working example is `examples/action/` (page `/action.html`, the rules in `main.js`, the room in `content/`).
 
 ## 1. What goes where
 | Piece | Built on | In the example |
@@ -24,11 +23,21 @@ working example is `examples/action/` (page `/action.html`, about 150 lines of r
   or test shapes instead (recipe 19).
 - `player.die` decides what death does. The example offers `respawn` (`player.placeAt(spawn)`, full hp), `restart` and `gameover` (both end in
   `engine.session.newGame()`, which is async flow and so runs from the frame hook, not inside the op).
+- Win and lose are the game's rule too: one state field, judged last in the fixed step so it sees this step's hits. The end screen is a `makeWindow`
+  with `closable: false` (recipe 26).
+
+## 2b. Guns: hitscan shots, spread, recoil
+A hitscan weapon fires a ray, not a projectile (many real bullets in flight are `engine.swarm`, recipe 65). The shot is an op, so a key, a test and the dev bridge fire the same one.
+- **The ray**: `engine.raycast(origin, direction, { far: range })` gives the nearest level or registered static mesh; `{ targets: 'all' }` adds rigid bodies.
+  An enemy that is neither: test its shape along the same ray and keep the nearer hit, so walls stop shots.
+- **Aim**: build the direction from `engine.cameraRig.yaw` / `pitch`, not from `engine.camera`: the camera's matrix is only written on a drawn frame, so a fixed step or a test would read an old aim.
+- **Spread**: bend the direction with `engine.random`, so a replay fires the same shots.
+- **Recoil**: in the op, add to `cameraRig.pitch` and `yaw`, and let the view settle back in `onFixed`; the next shot's aim sees the climb. A first-person rig looks up with positive pitch, the follow camera with negative. The gun model's kick and the muzzle flash read the shot from an event in `onFrame`: they show, they change no rule.
 
 ## 3. Mouse attack and pointer lock
 `followCamera({ ...presets.camera.overShoulder })` locks the mouse on a click. While locked, mouse buttons still arrive as `Mouse0`..`Mouse4` keys, so
-`attack: { keys: ['Mouse0'] }` works in both states. The click that takes the lock is itself a `Mouse0` press and swings once; a game that does not
-want that ignores attacks until the `page:pointerlock` event reports `locked: true`. `presets.player.aim` turns the player toward where the camera
+`attack: { keys: ['Mouse0'] }` works in both states. The click that takes the lock is swallowed, so it does not swing; `swallowLockClick: false` delivers it.
+`presets.player.aim` turns the player toward where the camera
 looks, so a swing goes where you aim. The rules do not need the picture: `?picture=none` runs them under the engine's placeholder lights; the whole picture is
 `examples/action/picture/`.
 

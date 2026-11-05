@@ -2,6 +2,71 @@
 
 export const specs = [
   {
+    // shot --play showed the defaults of followCamera(): the first session:start rebuilt the rig from the module's options
+    name: '[guard] setCamera before play keeps its options when play starts; a runtime switch still starts over',
+    url: '/tests/cameras/index.html?cam=first&preset=1',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const read = () => ({ kind: engine.cameraRig.kind, distance: engine.cameraRig.distance, pitch: engine.cameraRig.pitch, size: engine.cameraRig.size, ortho: !!engine.camera.orthoSize });
+        await engine.session.newGame();
+        engine.step(0.1);
+        const out = { play: read() };
+        engine.setCamera('firstPerson');   // the game is playing now: a switch, not the game's set-up
+        await engine.session.newGame();
+        engine.step(0.1);
+        out.again = read();
+        return out;
+      });
+      const want = o => o.kind === 'follow' && o.distance === 22 && o.pitch === 0.7 && o.size === 14 && o.ortho;
+      check('play starts on the camera set before it', want(r.play), JSON.stringify(r));
+      check('a new game after a runtime switch goes back to that camera', want(r.again), JSON.stringify(r));
+    },
+  },
+  {
+    // A first-person game's Continue came back facing the installed direction, silently, and a rig kept at boot pointed at a dead object after the load
+    name: '[guard] Continue restores the first-person view, on the same rig object',
+    url: '/tests/cameras/index.html?cam=first',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const rig = engine.cameraRig, out = {}, view = () => [+engine.cameraRig.yaw.toFixed(3), +engine.cameraRig.pitch.toFixed(3)];
+        rig.height = 2.5;   // not save data: starts over as installed
+        rig.yaw = 1.2; rig.pitch = -0.4;
+        engine.saves.save('view'); await engine.saves.flush();
+        rig.yaw = -2; rig.pitch = 0.5;
+        out.ok = await engine.session.load('view');
+        engine.step(0.1);
+        out.same = engine.cameraRig === rig; out.view = view(); out.height = rig.height;
+        out.camYaw = +engine.camera.rotation.y.toFixed(3); out.camPitch = +engine.camera.rotation.x.toFixed(3);
+        rig.yaw = 2;
+        rig.pitch = 0.1;
+        await engine.saves.load('view');   // quick load: no session:start
+        out.quick = view();
+        await engine.session.newGame();
+        out.fresh = view();
+        // a save from before the view was saved: loads, no error
+        const old = engine.saves.collect(); delete old.parts.cameraRig; delete old.versions.cameraRig;
+        rig.yaw = 1;
+        out.oldSave = await engine.saves.apply(old, 'old'); out.oldYaw = view()[0];
+        // a game part writing the rig in its own load() keeps its write
+        engine.saves.register('facing', { save: () => ({ yaw: 0.7 }), load: d => { engine.cameraRig.yaw = d.yaw; } });
+        engine.saves.save('view2'); await engine.saves.flush();
+        await engine.session.load('view2');
+        engine.step(0.1);
+        out.partWrite = view()[0];
+        return out;
+      });
+      check('session.load: the same rig object is the camera', r.ok && r.same, JSON.stringify(r));
+      check('session.load: yaw and pitch are the saved ones, on the rig and on the drawn camera', r.view[0] === 1.2 && r.view[1] === -0.4 && r.camYaw === 1.2 && r.camPitch === -0.4, JSON.stringify(r));
+      check('session.load: the rest of the rig starts over as installed', r.height === 1.6, JSON.stringify(r));
+      check('saves.load (quick load) restores the view too', r.quick[0] === 1.2 && r.quick[1] === -0.4, JSON.stringify(r));
+      check("a save part's load() that writes the rig is not undone by the new playthrough", r.partWrite === 0.7, JSON.stringify(r));
+      check('newGame goes back to the view right after start()', r.fresh[0] === 0 && r.fresh[1] === 0, JSON.stringify(r));
+      check('a save without the part loads and leaves the view alone', r.oldSave === true && r.oldYaw === 1, JSON.stringify(r));
+    },
+  },
+  {
     name: '相机切换：follow ↔ firstPerson ↔ rts，目标和朝向接着走、身体显示 / 视角恢复、切回参数还在、写错名字列出可选项',
     url: '/tests/cameras/index.html?cam=follow',
     async run({ check, ev }) {

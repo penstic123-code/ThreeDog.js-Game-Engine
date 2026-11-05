@@ -16,7 +16,7 @@ Rules (correctness, not taste): `import 'threedog/tsl'` comes first in `main.js`
 `threedog new-game` and `threedog init` start a game on WebGPU with TSL (`main.js` imports `threedog/tsl` first and calls `createEngine({ renderer: 'webgpu' })`). `--webgl` starts it on GLSL instead. `createEngine` called without `renderer` still builds a WebGL renderer. When the browser has no WebGPU the game keeps running on three's WebGL2 backend, and `engine.describe().renderer` says why. How to decide:
 - WebGPU + TSL (the default for a new game): the picture is built from TSL, you write shaders in JavaScript and compose them as functions, or start from a three.js WebGPU example, and effects that exist only as node materials are open to you.
 - `--webgl` + GLSL: the game already has GLSL (ShaderMaterials, `onBeforeCompile`, a three.js `Pass`), or must run best on modest hardware where plain WebGL draws a frame fastest, or start-up time matters more than the shading style. Recipe 43 is the GLSL route for the same tasks.
-- Check on the hardware you care about: `threedog inspect perf` on both routes, same scene. Measured in 2026-11 on one scene (terrain, 3000 trees, shadows, bloom): on an integrated GPU WebGPU took about 1.5 times as long as WebGL and WebGPURenderer's WebGL2 backend about 1.7 times; the first WebGPU frame came 0.6 to 1.3 s later (shader compilation).
+- Check on the hardware you care about: `threedog inspect perf` on both routes, same scene. On an integrated GPU expect WebGPU to take longer per frame than plain WebGL, the WebGL2 backend longer still, and the first WebGPU frame to come later (shader compilation).
 
 ## Turning it on
 ```js
@@ -50,13 +50,7 @@ engine.add(new THREE.Mesh(new THREE.TorusKnotGeometry(0.6, 0.2, 128, 16), mat));
 A node material is lit, shadowed and fogged by three like its plain twin; you replace only the inputs you set (`colorNode`, `positionNode`,
 `normalNode`, `emissiveNode`, `roughnessNode`, `opacityNode` ...).
 
-## Node names games use
-Everything is imported from `three/tsl`; a name you do not find here is almost always there too (`Object.keys(await import('three/tsl'))` lists them, `node_modules/three/src/nodes/` has the source).
-- Values: `float`, `vec2`, `vec3`, `vec4`, `color`, `uniform`, `texture`, `attribute`, `varying`.
-- Where am I: `positionLocal`, `positionWorld`, `positionGeometry`, `normalLocal`, `normalWorld`, `normalView`, `uv`, `screenUV`, `cameraPosition`, `instanceIndex`, `vertexColor`, `time`.
-- Math: `sin`, `cos`, `abs`, `fract`, `floor`, `pow`, `length`, `dot`, `normalize`, `min`, `max`, `clamp`, `mix`, `step`, `smoothstep`, `oneMinus`, `select`; chain the operators as methods (`.add`, `.mul`, `.sub`, `.div`).
-- Noise: `mx_noise_float`, `mx_fractal_noise_float` (MaterialX, also `_vec3`).
-- Your own function and branches: `Fn`, `If`, `Loop`.
+Node names come from `three/tsl` (`Object.keys(await import('three/tsl'))` lists them, `node_modules/three/src/nodes/` has the source). Noise: `mx_noise_float`, `mx_fractal_noise_float` (MaterialX, also `_vec3`), or `noise` / `hash` below.
 
 ## The engine's values as nodes: `uniforms(engine)`
 `uniforms(engine)` returns `engine.uniforms` as TSL nodes with the same names: `uTime`, `uWind`, `uWeatherCloud`, `uSunDir`, `uSunColor`, `uDaylight`
@@ -211,7 +205,7 @@ A game has nothing to do here. WebGPURenderer keeps a record of every mesh it dr
 
 Two things stay yours:
 - Call `geometry.dispose()` (or use `engine.remove`) when a mesh is gone for good. Only you know it will not come back. A steady climb of unused geometries warns in dev, with the code `geometry-undisposed`.
-- A pool that sits out for more than a few seconds pays a rebuild on return: about 20 ms for 50 meshes whose material nothing else used, on one desktop GPU. Keep such a pool in the scene with `visible = false` and it pays nothing.
+- A pool that sits out for more than a few seconds pays a rebuild on return. Keep such a pool in the scene with `visible = false` and it pays nothing.
 
 A record of a mesh in a Scene you no longer draw stays, because a Scene may be drawn again. Send `mesh.dispatchEvent({ type: 'dispose' })` if you throw such a Scene away.
 
@@ -293,22 +287,19 @@ Many materials, many programs: WebGPURenderer builds one program per distinct se
 to every material shares too, a fresh patch object per material builds one program each.
 
 ## GLSL to TSL
+The language itself is in three's TSL guide. The lines that catch a port:
+
 | GLSL | TSL (`three/tsl`) |
 |---|---|
-| `float x = 1.0;` / `vec3(1.0, 0.5, 0.0)` | `float(1)` / `vec3(1, 0.5, 0)`, `color(0xff8000)` for a hex color |
 | `a + b`, `a * b`, `-a`, `1.0 - a` | `a.add(b)`, `a.mul(b)`, `a.negate()`, `a.oneMinus()` |
 | `x += y;` | `x.addAssign(y)` (x made with `.toVar()`) |
-| `mix(a, b, t)`, `smoothstep(e0, e1, x)`, `clamp(x, 0.0, 1.0)` | `mix(a, b, t)`, `smoothstep(e0, e1, x)`, `x.clamp(0, 1)` |
 | `uniform float uAmount;` | `const uAmount = uniform(0.5)`, changed by `uAmount.value = 1` |
 | the engine's `uTime`, `uWind`, `uDaylight` | `uniforms(engine).uTime` ... (the clock every engine effect reads, not three's own `time`) |
 | `varying vec3 vPos;` | built in: `positionWorld`, `normalView`...; your own: `node.toVarying()` |
-| `vec4 c = texture2D(map, vUv);` | `const c = texture(map, uv())` |
 | `gl_FragCoord.xy` | `screenCoordinate.xy` (pixels), `screenUV` (0-1) |
 | `position`, `normal`, `uv` attributes | `positionGeometry`, `normalGeometry`, `const st = uv()` |
 | moving vertices (`transformed`, `gl_Position`) | `material.positionNode` (object space), `vertexNode` (clip space) |
 | `gl_FragColor = ...` | `colorNode` (lit surface color), `emissiveNode`, `outputNode` (final color) |
 | `if (c) {...} else {...}` | `const v = select(c, a, b)`; inside `Fn`, `If` / `Else` blocks |
-| `for (int i = 0; i < 4; i++)` | `Loop` with a count and a callback, inside `Fn` |
-| `float f(vec3 p) {...}` | `const f = Fn(([p]) => ...)` |
 | `discard;` | `Discard` inside `Fn`, or `alphaTest` with `opacityNode` |
 | `#include <threedog_wind>`, `threedogWind(...)` | `import { wind } from 'threedog/tsl'`, `wind(...)` |

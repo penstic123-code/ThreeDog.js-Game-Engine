@@ -67,7 +67,7 @@ logic need none of this.
 | Close one action for a while (stunned: no jump) | `engine.input.gate(action, { owner, for })` | `recipes/55-mods-time-wrap.md` |
 | Replace a whole system (your own inventory, interactions, dialogue, quests, flow, characters, camera; your own vehicle for `character.enter`) | `engine.use(mine(), { replaces: '<slot>' })` for a part that `provides` that slot; a module (or object) that meets that contract (`<module>.contract.js`; vehicle: `modules/characters/vehicle.contract.js`), checked with `runContract` | `recipes/55-mods-time-wrap.md` "Replacing a module" |
 | Change a picture value (light, fog, sky, water, tone, post) | write it in your `picture/` code on the three.js object or the module's `material` (recipe 62); a value the engine drives (camera far, fov, pixel ratio): `engine.autoView.manual(key)` first; a screen effect: `engine.post.add(x)` |
-| Write the picture yourself | plain three.js on `engine.scene / camera / renderer` (own material, `ShaderMaterial`, pass); a direct write takes that value over and the engine yields | `THREE.md`, `recipes/54-three-idioms.md` |
+| Write the picture yourself | plain three.js on `engine.scene / camera / renderer` (own material, `ShaderMaterial`, pass); a direct write takes that value over and the engine yields | `THREE.md` |
 
 The starting picture comes from the game's `picture/` folder; what it builds as a factory can also be passed at the call site, and the
 call site wins (`terrain({ material })` and the like; the water surface is `engine.water.material`); a new style factory ships with its call-site option. No module option starts a value taken over.

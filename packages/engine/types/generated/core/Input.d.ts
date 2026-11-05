@@ -155,7 +155,8 @@ export class Input {
     /** Names of the active contexts, bottom to top (pending switches apply at the next fixed step) @returns {string[]} */
     get contexts(): string[];
     /**
-     * Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read)
+     * Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read).
+     * Pushes and removes count at once, before the next fixed step applies them: on a halted page a closed window is not a holder any more
      * @returns {{ context: string, owner: string, pass: boolean }[]}
      */
     get holders(): {

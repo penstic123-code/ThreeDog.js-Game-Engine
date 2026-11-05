@@ -55,4 +55,5 @@ engine.input.action('testCutscene', { label: 'testCutscene', keys: ['KeyC'] });
 engine.onFrame(() => { if (engine.input.pressed('testCutscene')) window.cutscene(); });
 
 window.engine = engine; window.player = player; window.THREE = THREE; window.boxes = boxes; window.fader = fader;
+if (new URLSearchParams(location.search).has('preset')) engine.setCamera('follow', { distance: 22, pitch: 0.7, projection: 'orthographic', size: 14 });
 engine.start();

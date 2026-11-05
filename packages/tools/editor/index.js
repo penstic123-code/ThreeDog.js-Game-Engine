@@ -5,6 +5,7 @@
 // The handles and the selection box live in a little scene of their own, drawn after the game's frame: nothing is added to engine.scene, so the game's scene
 // count, its pick results and its save see no editor, and the box needs no exception anywhere. While a handle is dragged design.js moves the real model
 // (previewEntry); the box wraps that model every frame, so what is on screen is the model itself and not a stand-in. Letting go saves.
+import { uiFocus } from 'threedog';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { entryAt, thingAt, pickAt, modelOf, previewEntry, moveEntry, fieldsOf, setField, catalog, addEntry, removeEntry, undo, redo } from './design.js';
@@ -21,9 +22,9 @@ function makePanel() {
   const root = el('div', { id: 'threedog-editor' }), status = el('div'), tools = el('div'), rows = el('div'), add = el('div');
   status.style.whiteSpace = 'pre-wrap';
   root.style.cssText = PANEL;
-  root.append(status, tools, rows, add);
+  root.append(el('div', { textContent: 'Editor (F2 to leave)' }), tools, add, status, rows);   // the buttons first: the text below them changes length, and a button that moves is missed on the next click
   document.body.appendChild(root);
-  return { tools, rows, add, say(state, text) { root.dataset.state = state; status.textContent = 'Editor (F2 to leave)\n' + text; } };
+  return { tools, rows, add, say(state, text) { root.dataset.state = state; status.textContent = text; status.style.color = state === 'refused' ? '#ff9a8a' : ''; } };
 }
 
 /**
@@ -32,6 +33,8 @@ function makePanel() {
  */
 export function openEditor(engine) {
   const T = engine.THREE, canvas = engine.renderer.domElement, panel = makePanel(), { say } = panel;
+  engine.ui.close('title');   // a full-screen title covers the canvas, and F2 always arrives at one: nothing could be clicked until it was gone
+  uiFocus(engine).push('editor');   // no cancel: Esc is swallowed, or it opens the game's menu over the scene being edited
   engine.freeze('editor');
   engine.takeCamera('editor');
 
@@ -46,20 +49,21 @@ export function openEditor(engine) {
 
   let entry = null, pressed = null, turn = 0, mode = 'translate';
   const place = e => { anchor.position.set(e.position.x, e.position.y, e.position.z); anchor.rotation.set(0, e.yaw, 0); };
-  // Y first: in the default order Euler y folds back at a quarter turn, and the handles' outer ring can tip the anchor, which only the yaw of survives
+  // Y first: in the default order Euler y folds back at a quarter turn
   const turnOf = new T.Euler(0, 0, 0, 'YXZ');
   const pose = () => ({ x: anchor.position.x, y: anchor.position.y, z: anchor.position.z, yaw: turnOf.setFromQuaternion(anchor.quaternion, 'YXZ').y });
 
   function setMode(m) {
     mode = m;
     handles.setMode(m);
-    handles.showX = handles.showZ = m === 'translate';
+    handles.showX = handles.showZ = m === 'translate';   // turning shows the yaw ring alone: three.js hides its outer rings with X and Z, so no tilt can start
     handles.showY = m === 'rotate' || !!entry?.height;
     drawTools();
   }
 
   /** Hold this entry from now on (null: nothing selected) and show it */
   function hold(next, state = 'selected', text = null) {
+    if (state === 'saved' && text !== 'no change') text = `Saved: ${text}`;   // said in words: there is no save button, so this line is the only sign the file took it
     // a save landed under a running drag: the drag owns the anchor, and letting go saves from this entry. Moving the anchor now would pull the model from under the hand
     if (handles.dragging && next?.id === entry?.id) { entry = next; return say(state, `${next.id}\n${text ?? ''}`); }
     entry = next;
@@ -116,11 +120,11 @@ export function openEditor(engine) {
     panel.rows.replaceChildren(...rows.map(r => {
       const save = raw => change(e => setField(engine, e, r.key, raw));
       const input = r.input === 'select'
-        ? el('select', { disabled: r.locked, onchange: e => save(e.target.value) }, el('option', { value: '', textContent: '' }), ...r.values.map(v => el('option', { value: String(v), textContent: String(v), selected: v === r.value })))
-        : el('input', { type: r.input === 'check' ? 'checkbox' : r.input === 'number' ? 'number' : 'text', disabled: r.locked, step: 'any', placeholder: r.placeholder ?? '',
-          onchange: e => save(r.input === 'check' ? e.target.checked : e.target.value) });
-      if (r.input === 'check') input.checked = !!r.value;
-      else if (r.input !== 'select') input.value = r.value == null ? '' : typeof r.value === 'object' ? JSON.stringify(r.value) : r.value;
+        // blur: a list keeps the focus after a choice, and Ctrl+Z or Delete would then do nothing with no word why
+        ? el('select', { disabled: r.locked, onchange: e => { save(e.target.value); e.target.blur(); } }, el('option', { value: '', textContent: '' }), ...r.values.map(v => el('option', { value: String(v), textContent: String(v), selected: v === r.value })))
+        : el('input', { type: r.input === 'number' ? 'number' : 'text', disabled: r.locked, step: 'any', placeholder: r.placeholder ?? '',
+          onchange: e => e.target.validity.badInput ? hold(entry, 'refused', `${r.key}: not a number`) : save(e.target.value) });   // a number box hands over '' for 1e, and '' means take the field out
+      if (r.input !== 'select') input.value = r.value == null ? '' : typeof r.value === 'object' ? JSON.stringify(r.value) : r.value;
       input.dataset.field = r.key;
       input.style.cssText = INPUT;
       const line = el('label', { title: r.desc ?? '' }, el('span', { textContent: r.key }), input);
@@ -145,16 +149,13 @@ export function openEditor(engine) {
       if (r.ok) hold(r.entry, 'saved', r.change); else say('refused', r.error);
     };
     const line = el('div', {}, pick, el('button', { textContent: 'Add', onclick: add, id: 'threedog-editor-add' }));
-    line.style.cssText = ROW + ';margin-top:8px';
+    line.style.cssText = ROW;
     panel.add.replaceChildren(line);
   }
 
   handles.addEventListener('objectChange', () => {
     if (!entry?.movable) return;
-    const to = pose();
-    // the outer rings of the turn handle (view axis, free turn) tip the anchor, and a tipped anchor shows a tipped handle that no file value can mean: only the yaw is kept
-    anchor.rotation.set(0, to.yaw, 0);
-    previewEntry(engine, entry, to);
+    previewEntry(engine, entry, pose());
   });
   handles.addEventListener('dragging-changed', e => {
     orbit.enabled = !e.value;

@@ -6,7 +6,7 @@ picture parts: code from different sources in one game (3f), a flat look (4), wh
 Any picture (flat illustration, toon, painterly, realistic) can be written as plain three.js in one folder of the game, the picture code: its own
 lights, materials, fog, sky colors and post passes. The engine hands it signals (time of day, weather) and keeps doing the engineering
 (streaming, shadows, saves, tests); it writes none of the picture's values. Working example: `examples/plain-picture/` (page `/plain-picture.html`,
-a night street in a flat-illustration look; `picture/` is the whole picture, ~150 lines). Every value has one writer, a line in your code, so
+a night street in a flat-illustration look; `picture/` is the whole picture). Every value has one writer, a line in your code, so
 "why is this wall black" has one place to look.
 
 ## 0. The `picture/` folder
@@ -64,8 +64,7 @@ Without `calendar` and `sky()` there is no day and night: `uDaylight` stays 1 an
 | `uSkyTop`, `uSkyHorizon` | the engine dome's colors (its neutral keyframes unless the game sets them) | sky |
 
 Read `.value` in JS, or share the object in a shader (`uniforms: { uDaylight: engine.uniforms.uDaylight }`): one object, no copy. The sky
-colors are the engine dome's picture, not physics: a styled game keeps its own palette and mixes them in only if it wants (the example takes 15 %
-of the horizon). Gameplay that should change the picture (a cutscene dims the world, a status effect tints it) goes through a signal of your
+colors are the engine dome's picture, not physics: a styled game keeps its own palette and mixes them in only if it wants. Gameplay that should change the picture (a cutscene dims the world, a status effect tints it) goes through a signal of your
 own, read by the picture code, so the picture still has one writer.
 
 Written every frame: `uSkyTop` and `uSkyHorizon` take `engine.sky.top` / `engine.sky.horizon`, `uDaylight` and `uTimeOfDay` take a `daylight` / `timeOfDay` measure; a direct write is lost and warns once (`signal-overwritten`). `uSunDir` (the same vector as `engine.sky.sunDir`) and `camera.aspect` stay as written: `engine.autoView.manual('sunDir', false)` gives one back.
@@ -84,7 +83,7 @@ engine.onRender(() => {
 `onRender` (default `'before'`) runs once per drawn frame after every module updated, so it reads this frame's signals. `onFrame` runs before
 the modules' frame hooks: it would read last frame's values (and noon on the very first frame). Picture code uses `onRender` only.
 
-## 3b. Three rules that keep the folder working in a bigger game
+## 3b. Rules that keep the folder working in a bigger game
 - **One object's state goes through a name `picture/` exports.** Signals are global, but one street lamp shot out or one flickering sign is not. Gameplay calls
   a name of your own and never touches the light or the material:
   ```js
@@ -98,7 +97,6 @@ the modules' frame hooks: it would read last frame's values (and noon on the ver
   on WebGPU stops at start and names itself. A `--webgl` game writes GLSL (recipe 43).
 - **The picture reads the quality tier.** The engine cannot hold your code to it, so read `engine.tier` (`'low'` | `'high'`) for what costs: shadow map size,
   real light count, post effects. The generated `lights.js` sizes its shadow map this way.
-- **A large world:** `engine.shadows.cascades(sun, { count: 3 })` on your own light gives sharp near shadows and wide far ones (recipe 45); low tier falls back to one map.
 
 ## 3c. Wiring `picture/` parts
 - **One `engine.onRender`, in `picture/index.js`.** It calls each part's `update(signals)` and holds no values. A part never adds its own hook: two hooks hide the order.
@@ -130,8 +128,7 @@ threedog lib list flat                                       # next game: look b
 threedog lib pull flat-materials                             # lands in picture/ (a .glsl lands in picture/shaders/)
 ```
 A picture entry is **one plain three.js file that exports a function**, so it has to stand alone. `lib add` refuses a file that imports its siblings
-(`./palette.js`) and names them; the entry would arrive as a half. Take the numbers as parameters instead. The example's `picture/materials.js` imports
-`palette.js`; as an entry it reads like this (a flat material family):
+(`./palette.js`) and names them; the entry would arrive as a half. Take the numbers as parameters instead:
 ```js
 /** Flat materials by name: a flat color plus an emissive copy of it that rises at night.
  *  @param {object} THREE three.js  @param {Record<string, number>} palette name → hex  @param {number} nightGlow emissive at full night */
@@ -144,8 +141,7 @@ export function flatMaterials(THREE, palette, nightGlow = 0.2) {
   } };
 }
 ```
-A day-and-night light group is the same shape: `dayNightLights(THREE, scene, { day, night })` takes the two colors as arguments, adds a sun and a
-hemisphere light, and its `update(signals)` blends them by `uDaylight`. The copy in your game is yours: pull, then adapt it to that game's picture.
+A day-and-night light group is the same shape: `dayNightLights(THREE, scene, { day, night })`. The copy in your game is yours: pull, then adapt it to that game's picture.
 
 ## 3e. Several parts change one picture value
 A sunset and a cutscene both dim the sun. If each writes the light, the second one's end brings back a value that is already wrong. Make the value a shared point
@@ -221,7 +217,7 @@ not named `'sun'`. Nothing here sees that a warm lamp clashes with a cold sea: t
 
 ## 4. A flat illustration (one way among many)
 Light alone turns a warm wall under a cool night fill into mud. An illustrator keeps each surface its own color and only shifts it:
-- `MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0 })`: raise the emissive copy at night (0.2 in the example), so faces
+- `MeshLambertMaterial({ color: c, emissive: c, emissiveIntensity: 0 })`: raise the emissive copy at night, so faces
   keep their hue; or `MeshBasicMaterial` and pick each face's shade yourself (vertex colors by normal); or `MeshToonMaterial` with a `gradientMap`.
 - A warm `HemisphereLight` at night instead of a blue one; the night reads from the sky, the windows and the lamps, not from tinting walls blue.
 - `NoToneMapping` so the colors come out as written.

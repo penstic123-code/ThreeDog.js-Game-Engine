@@ -9,7 +9,7 @@
 // What ending a playthrough clears: handles passed to track(), clock function timers added after start() (boot-time ones come back with their original delay),
 // a running engine.skip (cancelled), background results not yet applied (commits: worker / job results requested in the old playthrough never land), and every
 // save part (the state captured when start() finished is applied). Modules end their own part on 'session:end' (a cutscene is skipped, the music stops),
-// and the camera starts over on 'session:start'. Listeners and hooks the game registered at boot stay: they belong to the game, not the playthrough.
+// and the camera starts over on 'session:start' (the same rig object, as installed, keeping the view the load left on it). Listeners and hooks the game registered at boot stay: they belong to the game, not the playthrough.
 // engine.time.tick and every time view (core/time.js) start again from 0 or the save's value, and physics (rigid) rebuilds its world (velocities, sleep, solver caches), as on a fresh page.
 // Events: 'session:end' (before the reset; flow returns to its start state), 'session:start' { kind: 'new' | 'load', slot? } (after; flow goes to 'playing').
 // A replacement that fails (a save part's load() threw: saveApply rolled the data back) keeps the old playthrough: tracked handles, function timers
@@ -88,7 +88,7 @@ export class Session {
    * engine.session.track(engine.events.on('npc:talk', ({ id }) => { if (id === 'baker') engine.vars.setFlag('metBaker'); }));
    */
   track(handle) {
-    if (typeof handle?.remove !== 'function') throw codedError('session-handle', DEV.badHandle.replace('{got}', String(handle)));
+    if (typeof handle?.remove !== 'function') throw codedError('module-handle', DEV.badHandle.replace('{got}', String(handle)));
     this._tracked.add(handle);
     return handle;
   }

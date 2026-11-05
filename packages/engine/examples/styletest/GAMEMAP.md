@@ -24,8 +24,8 @@ None yet, write them in `DESIGN.md` (why it is designed this way, what not to ch
 ## Read for this game (per installed module: recipe · api page; core API: `node_modules/threedog/docs/api/engine.md`)
 
 - world: `node_modules/threedog/docs/recipes/18-world.md` · `node_modules/threedog/docs/api/world.md`
-- terrain: `node_modules/threedog/docs/recipes/36-sky-ground-plants.md` · `node_modules/threedog/docs/api/terrain.md`
-- vegetation: `node_modules/threedog/docs/recipes/36-sky-ground-plants.md` · `node_modules/threedog/docs/api/vegetation.md`
+- terrain: `node_modules/threedog/docs/recipes/28-terrain.md` · `node_modules/threedog/docs/api/terrain.md`
+- vegetation: `node_modules/threedog/docs/recipes/36-ground-plants.md` · `node_modules/threedog/docs/api/vegetation.md`
 - calendar: `node_modules/threedog/docs/recipes/06-clock-events.md` · `node_modules/threedog/docs/api/calendar.md`
 - sky: `node_modules/threedog/docs/recipes/08-weather-sky.md` · `node_modules/threedog/docs/api/sky.md`
 - weather: `node_modules/threedog/docs/recipes/44-water-weather-hooks.md` · `node_modules/threedog/docs/api/weather.md`

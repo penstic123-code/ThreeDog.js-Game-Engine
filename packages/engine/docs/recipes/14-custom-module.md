@@ -46,22 +46,22 @@ export function stamina(opts = {}) {
 ```
 Install it: `engine.use(openWorld({ camera: 'follow', ...}), stamina({ max: 80 }))` (dependencies must be installed first). Or put the file in `plugins/` with `export default stamina({ max: 80 })`: plugged with `engine.use` at start, switched off by `plugins.json` `off` (THREE.md, plugins folder).
 
-## Type: what the module may own (required)
-`type` is not when it runs (that is `stage`); it says what the module may own. Missing or unknown throws with the fix. Pick by what it changes:
+## Type: what the module may own
+`type` is not when it runs (that is `stage`); it says what the module may own. It is optional: a module without one is `'rules'`, game logic. An unknown name throws with the list. Pick by what it changes:
 
-| type | for | refused in dev |
+| type | for | dev warns when it |
 |---|---|---|
 | `'rules'` | game logic: save parts, ops, events; may take input, control or the camera for a while. The usual one for a game module | - |
-| `'world'` | game state: records, ops, ground / collision / navigation data | drawing (rule R47: no `scene.add`, `renderer.` in its file) |
-| `'picture'` | what is seen and heard: picture values, three.js objects, particles, sounds | `ops.define`, writing world records |
-| `'ui'` | panels and menus: declares input actions, runs ops | `input.bind` (keys are the game's), `saves.register` (preferences are not game saves) |
+| `'world'` | game state: save parts, records, ops, ground / collision / navigation data; draws nothing | - |
+| `'picture'` | what is seen and heard: picture values, three.js objects, particles, sounds | defines an op, writes world records |
+| `'ui'` | panels and menus: declares input actions, runs ops | writes world records, binds keys (`input.bind`; keys are the game's), registers a save part (preferences are not game saves) |
 | `'actor'` | characters and their control | - |
 | `'net'` | multiplayer: remote characters, the transport | - |
 | `'tool'` | a one-shot job that undoes itself (a photo, a bake) | - |
 
 No subtypes: inside a type the differences are declarations (`provides`, `requires`, `ctx.mod` values, material slots, post stage, sounds).
 A module that does two kinds of thing is two definitions returned together (`weather()` returns the `weather` state and the `weatherDraw` drawing part;
-`engine.use(weather())` installs both). The refusal names the module, its type, what it did, why not, and the fix; copy the fix.
+`engine.use(weather())` installs both). The warning comes once and refuses nothing: it names the module, its type, what it did, why not, and the fix. A game's own module may do what it needs; a split into two modules is usually the fix.
 
 ## 2. Hooks and order cheat sheet
 - `install(e, ctx)` returns the public object; `init(e, ctx)` (may be async) prepares at start; `ctx.track(handle)` ties a listener or timer to
@@ -71,7 +71,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
 - `fixed(dt, e)` movement, timing, gameplay keys (`input.pressed` read in fixed is this step's snapshot, independent of frame rate); `frame(dt, e)`
   animation, camera, UI (it reads this frame's latest input); `afterRender(dt, e)` after rendering.
 - `describe(e, ctx)`: see recipe 49 contract 4; `ctx.near(object or {x,z}, { name, kind })` reports things nearby. `skip(dt, e, done)`: recipe 49 contract 3.
-- `applyState(e, p)`: called by `engine.applyState` / URL parameters; it only receives the keys `time`, `weather` and `cutscene`.
+- `applyState(e, p)`: called by `engine.applyState` / URL parameters with the keys `time`, `season`, `weather`, `cutscene`, `play` and `at` (core handles the rest); `stateKeys: ['time']` lists what the module handles, and it refuses with `{ refused: { key: reason } }`.
 - `stage`: only when the hooks run (first -> last): `control` timeline, camera -> `ground` terrain, level -> `environment` weather, sky, water -> `gameplay`
   interactions, dialogue -> `effects` particles, objective markers -> `late` (the default) characters, physics -> `audio` music. Within
   a stage, to read another module's result for this frame, write `after: ['its-name']` (or `before`); across stages the stage always wins, so a
@@ -115,6 +115,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
 - When you only need a per-frame callback and no module structure: `const h = engine.onFrame(dt => ...)` / `engine.onFixed`, and `h.remove()` cancels it.
 
 ## 3. Extra steps when it goes into the engine
+- Declare a `type`: rule R47 requires it of engine modules, and a `world` module's file draws nothing.
 - Write the declarations and JSDoc in `index.d.ts` (or `types/*.d.ts`) of the engine package; `npm run types` checks that the exports of index.js are declared.
 - Hand out a picture as `.material`, `.uniforms`, `.patches` (see `09-materials-lights-models.md` §3), put text in i18n, then `npm run map` to generate API.md + `api/` / CODEMAP.md.
 

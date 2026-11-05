@@ -44,8 +44,8 @@ engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) =>                    
 | `engine` | the engine's own defaults and drivers |
 | `game` (default) | game code, game modules |
 | `effect` | temporary effects: weather, sunset fade, bullet time, haste |
-| `settings` | the player's settings menu: only `clamp` / `mul` (a value point: `set: false`), so it can turn things down or off, never on |
 | `system` | cutscenes, menus, photo tools (also "lock this number": a `set` here hides every layer below) |
+| `settings` | the player's settings menu: only `clamp` / `mul` (a value point: `set: false`), so it can turn things down or off, never on. Above `system`, so the restriction holds in a cutscene too |
 | `debug` | debug overrides and panels |
 
 - Inside a layer: `set`, then every `add`, then every `mul`, then every `clamp` (`{ min, max }`); the result is clamped to the point's own min / max.
@@ -67,13 +67,13 @@ engine.wrap(engine.inventory, 'add', (next, id, n = 1, o) =>                    
 `shadows.enabled`, `post.<name>.enabled`, `sky.tint`, `sky.flash` and `ground.cover` are shared points like the rest: the game sets a base value, effects multiply on top, the player's settings cap it.
 `sky.tint`, `ground.cover` (blend by amount) and `sky.flash` (adds) are written with `engine.mod`.
 ```js
-const hold = engine.mod('shadows.enabled', { owner: 'cutscene', layer: 'system', set: false });   // decides over the game and the menu
+const hold = engine.mod('shadows.enabled', { owner: 'cutscene', layer: 'system', set: false });   // decides over the game
 engine.describe().shared['shadows.enabled'];                                                      // who decided and who is hidden
 hold.remove();                                                                                    // the handle ends yours
 ```
-- The exact number whatever else is stacked: set on `{ layer: 'system' }`, or write the three.js value.
-- The settings menu only restricts (`shadows` off is `shadows.enabled` set false on the settings layer); a game's `enabled: true` does not
-  switch them back on, and a cutscene's `false` is not undone by the menu.
+- The exact number whatever else is stacked: set on `{ layer: 'system' }` (the player's settings can still lower it), or write the three.js value.
+- The settings menu only restricts (`shadows` off is `shadows.enabled` set false on the settings layer), so neither a game's nor a cutscene's `enabled: true`
+  switches them back on, and a cutscene's `false` is not undone by the menu.
 - A direct three.js write (`engine.lights.hemi.intensity = 0.2`) still works, and describe tags it `three`.
 
 ## Time channels
@@ -88,8 +88,6 @@ hold.remove();                                                                  
   the calendar catch up. Writing `engine.clock.now` throws (it is a view).
 - Timers: `engine.clock.after(s, fnOrEvent, { data, channel })` / `clock.every(s, fn, { channel })` on any view (default `'calendar'`; `'real'`
   ignores bullet time; `'enemies'` slows with it). One queue: `remove()` takes effect at once, even later in the same step.
-- `character.velocity` / `character.vy` are not stacks: a write is an impulse the mover integrates from (no owner, nothing to hand back). Lasting
-  knockback is `character.push(vx, vz, seconds)`; full takeover is `character.mover = 'manual'`.
 
 ## Fixed-step order: `onFixed(fn, { phase })`
 
@@ -102,7 +100,7 @@ checks that need this step's player position). The order never depends on which 
 - Several wrappers compose: the last one wrapped runs first. `handle.remove()` takes one out; the method is restored when the last goes.
 - Every caller of that method goes through it (the game, the module's own ops, other modules). It wraps one method: a rule for every way items
   enter the bag wraps `add` and `transfer`.
-- Only public methods (the module's `contract.js` `api` list); `_private` names throw. `describe().wraps` lists `{ 'inventory.add': [owners] }`.
+- Meant for public methods (the module's `contract.js` `api` list); a `_private` name warns once in dev and still works. `describe().wraps` lists `{ 'inventory.add': [owners] }`.
 
 ## Replacing a module
 
@@ -110,15 +108,13 @@ Two modules that each want to be "the" one (a sky, a tone-mapping stage, an inve
 Other modules `requires: ['inventory']` and work with whichever holds it. `engine.use(myInventory(), { replaces: 'inventory' })` unloads the
 holder (its tracked handles, its `ctx.mod` entries, its `dispose`) before the new install, and puts it back if that fails.
 
-Each replaceable module has a contract (`modules/gameplay/inventory.contract.js`, `interactions.contract.js`, `dialogue.contract.js`, `quests.contract.js`, `modules/flow/contract.js`,
-`modules/characters/contract.js`, `modules/calendar/contract.js`, `modules/camera/contract.js`; object contract `modules/characters/vehicle.contract.js`): the api, fields, ops, events
+Each replaceable module has a contract (`modules/gameplay/*.contract.js`, `modules/*/contract.js`; object contract `modules/characters/vehicle.contract.js`): the api, fields, ops, events
 and save keys other code relies on, and nothing more (the engine's callers use only that surface). `runContract(contract, () => myInventory(), { check })`
-from `@threedog/tools/contract` checks a replacement (in a game installed from npm too); `tests/contract/fakeInventory.js` in the engine's
-repository (not shipped) is a whole replacement in ~40 lines; `fakeDialogue.js`, `fakeQuests.js`, `fakeCamera.js` and `fakeVehicle.js`
-are the same for their contracts, and the engine's NPCs, timeline, content loader, hud and characters run on them (test `tests/specs/ui-nav.mjs`).
+from `@threedog/tools/contract` checks a replacement (in a game installed from npm too); `tests/contract/` in the engine's repository (not shipped) holds small
+whole replacements such as `fakeInventory.js`.
 A camera module's `prepare` hook: `runContract(contract, () => myCamera(), { check, prepare: e => { e.camera = ... } })` adds what it needs to the
 small engine. A vehicle is checked as an object: `runContract(vehicleContract, () => myBoat, { check })`.
 
 ## Who holds what
 
-`describe().holds`: halt / freeze / camera / debugView, `input` (pushed contexts with owners), `gates`. Every other shared value and slot: `describe().shared`.
+Holders: `describe().holds` (recipe 16, Notes). Every other shared value and slot: `describe().shared`.

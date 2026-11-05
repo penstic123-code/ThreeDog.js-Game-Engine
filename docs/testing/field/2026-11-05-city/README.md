@@ -1,5 +1,7 @@
 # 2026-11-05 城区规模实测
 
+1.0 前的验收结果见 [acceptance.md](acceptance.md)。
+
 分支 `perf/city-scale`（基于 eb27ed67）。场景在 `packages/engine/tests/stress-field/city.js`，不在普通测试里。
 
 复现：`node packages/engine/tests/stress-field/run.mjs city '{"mode":"fly","seconds":300,"every":30}' [--cpuprofile=120] [--backend=webgl|webgpu-gl] [--gputime=4] [--trace=10 [--trace-early] --trace-out=<文件>] [--shot=<文件>]`

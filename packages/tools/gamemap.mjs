@@ -12,7 +12,8 @@ import { join, relative, basename, sep } from 'node:path';
 import { findGames, loadGame, levelIsFile } from './content-check.mjs';
 import { describeCond as dc, describeEffect as de, mergeRules } from './content-check/load.mjs';
 import { ENGINE, MODE, cli, within, workspaceOf, docRef, rel } from './paths.mjs';
-import { MAX_ROWS, read, uniq, walk, cell, cut, noComments, summary, balanced, splitTop, capped } from './gamemap/text.mjs';
+import { gameCodeFiles } from './lib/text.mjs';
+import { MAX_ROWS, read, uniq, cell, cut, noComments, summary, balanced, splitTop, capped } from './gamemap/text.mjs';
 import { contentLine, templateLines, gridLines, declaredEvents, eventLines, readForLines } from './gamemap/extra.mjs';
 
 const MAX_LINES = 220, API_DIR = join(ENGINE, 'docs', 'api'), RECIPES = join(ENGINE, 'docs', 'recipes'), INDEX_JS = join(ENGINE, 'index.js');
@@ -31,7 +32,7 @@ async function buildMap(dir) {
   const vocab = mergeRules(c.rules), describeCond = x => dc(x, vocab.conditions), describeEffect = x => de(x, vocab.effects);
   const g = f => relative(dir, f).split(sep).join('/');   // paths in the map are relative to the game folder
   const name = basename(dir), cfile = k => `content/${k}.js`;
-  const files = walk(dir), gameFiles = files.filter(f => !g(f).startsWith('content/'));
+  const files = gameCodeFiles(dir), gameFiles = files.filter(f => !g(f).startsWith('content/'));
   const code = gameFiles.map(f => noComments(read(f))).join('\n');
   const main = read(join(dir, 'main.js'));
   // Pages: html files under the workspace root that reference this entry (when the game is itself the workspace the entry is /main.js)

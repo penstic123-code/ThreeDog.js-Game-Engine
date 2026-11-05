@@ -10,15 +10,15 @@
 //   Settings a function needs travel as params (plain data, read as n.params). The engine still does chunks, streaming, collision, flatten and edits on top.
 // Height map: terrain({ heightmap: { url: '/textures/height.png', size: [1024, 1024], min: -5, max: 60 } }), a grayscale image, whiter is higher, read at startup.
 // Colors: terrain({ colors, biomeColors, steep, variation }), plain data the workers bake into each chunk; a type without a color is neutral gray.
-//   engine.terrain.recolor({ ... }) changes them at run time (recipes/36-sky-ground-plants.md).
-// Shading: 'smooth' | 'flat' | 'texture' (per-chunk color map, colors independent of the mesh; see recipes/37-terrain-hooks.md).
+//   engine.terrain.recolor({ ... }) changes them at run time (recipes/36-ground-plants.md).
+// Shading: 'smooth' | 'flat' | 'texture' (per-chunk color map, colors independent of the mesh; see recipes/53-ground-up-close.md).
 // Material: terrain({ material }), a Material or (engine) => Material; chunks carry position, normal, color and uv (world xz / chunk size, continuous
 //   across chunks). Cloud shadows, season tint and terrain({ detail }) are added to it; terrain({ material, effects: false }) draws it exactly as given.
 //   engine.terrain.material = m at any time draws m as given too; engine.terrain.patches keeps the effects on it (applyEffects(m, { patches })).
 // Edits: engine.terrain.edit(pos, { radius: 2, lower: 1 }) digs; { paint: 'tilled' } paints a ground type (its color: terrain({ biomeColors })). Saved, see terrainEdit.js.
 
 // Outline: terrain({ shape: { mask: (x, z, n) => 40 - Math.hypot(x, z), side: { depth: 2 } } }) keeps ground only where mask > 0 (an island
-//   with cliff sides); off it engine.surface is -Infinity, engine.ground.has false, and a fall emits terrain:void. See recipes/42-terrain-shape.md.
+//   with cliff sides); off it engine.surface is -Infinity, engine.ground.has false, and a fall emits terrain:void. See recipes/28-terrain.md.
 
 import { ChunkManager } from './ChunkManager.js';
 import { DEFAULT_TERRAIN } from './terrainGen.js';

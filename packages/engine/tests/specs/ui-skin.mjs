@@ -65,7 +65,7 @@ export const specs = [
       });
       check('picture keys and part names live side by side in createEngine({ ui })', entry.accent === 'rgb(1, 2, 3)' && entry.tpl === '<p>mine</p>' && entry.toastOff && entry.live === 'function', JSON.stringify(entry));
       check('a color outside theme says where it goes', /ui: \{ theme: \{ bg/.test(entry.flat), entry.flat);
-      check('theme.promptHeight points at interactions({ promptHeight })', /interactions\(\{ promptHeight/.test(entry.height), entry.height);
+      check('theme.promptHeight no longer stops the game (a dev warning points at interactions({ promptHeight }))', entry.height === '', entry.height);
       check('ui.fonts with a path is refused', /font asset names/.test(entry.font), entry.font);
     },
   },

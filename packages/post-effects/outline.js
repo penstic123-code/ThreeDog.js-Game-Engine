@@ -10,6 +10,7 @@ import { FULLSCREEN_VERT, DEPTH_GLSL, depthUniforms, writeDepthUniforms, depthNo
 /** Layer number to put on objects that should get no outline: mesh.layers.enable(OUTLINE_OFF_LAYER), with outline({ offLayer: OUTLINE_OFF_LAYER }) */
 export const OUTLINE_OFF_LAYER = RESERVED_LAYERS.outlineOff;
 const MODES = { depth: 0, normal: 1, both: 2 };
+const badMode = mode => codedError('post-effect', `outline: unknown mode '${mode}', use 'depth' | 'normal' | 'both'`);
 
 class OutlinePass extends Pass {
   /** @param {any} scene @param {any} camera @param {Record<string, any>} p */
@@ -92,7 +93,7 @@ class OutlinePass extends Pass {
 }
 
 function apply(pass, p) {
-  if (!(p.mode in MODES)) throw codedError('post-effect', `outline: unknown mode '${p.mode}', use 'depth' | 'normal' | 'both'`);
+  if (!(p.mode in MODES)) throw badMode(p.mode);
   pass.p = p;
   const u = pass.material.uniforms;
   u.uColor.value.set(p.color); u.uThick.value = p.thickness; u.uStrength.value = p.strength; u.uFade.value = p.fadeWithDistance ? 1 : 0; u.uWobble.value = p.wobble;
@@ -125,7 +126,7 @@ export function outline({ color = 0x222222, thickness = 1, strength = 0.8, mode 
  */
 function outlineNode(input, { tsl: T, fx, display, scenePass, scene, camera, params, p }) {
   const mode = MODES[params.mode];
-  if (mode === undefined) throw codedError('post-effect', `outline: unknown mode '${params.mode}', use 'depth' | 'normal' | 'both'`);
+  if (mode === undefined) throw badMode(params.mode);
   const { far, lin } = depthNodes(T, camera);
   // the color param may be a number (then ctx.p holds a float uniform, not a color) or a Color: read the param itself every render
   const tint = new THREE.Color(), col = T.uniform(tint).onRenderUpdate(() => { tint.set(params.color); });

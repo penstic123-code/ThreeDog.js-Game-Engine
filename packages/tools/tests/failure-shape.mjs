@@ -15,7 +15,7 @@ export async function run({ check }) {
   // the rule on fixtures: each forbidden form is a finding; the coded forms, comments and strings are not
   const bad = scanText("export function f(x) { if (!x) throw new Error('x is required'); }\nfunction g() { throw new TypeError('no'); }\nconsole.warn('careful'); console.error('broken'); console.info('fyi');\n");
   check('R45 flags throw new Error / TypeError and console.warn / error / info', bad.join() === 'throw new Error(,throw new TypeError(,console.warn(,console.error(,console.info(', bad.join());
-  const ok = scanText("// throw new Error('in a comment')\nconst s = 'console.warn(x)';\nthrow codedError('grid-data', 'bad');\nwarnOnce(coded('load-failed', 'x'));\nconsole.log('fine');\n");
+  const ok = scanText("// throw new Error('in a comment')\nconst s = 'console.warn(x)';\nthrow codedError('grid-data', 'bad');\nwarnOnce(coded('asset-load', 'x'));\nconsole.log('fine');\n");
   check('R45 passes codedError / warnOnce, comments, strings and console.log', ok.length === 0, ok.join());
   // [guard] one dev switch: engine code reads import.meta.env only in core/validate.js (DEV, DEV_SERVER, BASE_URL). Why: a raw
   // import.meta.env.DEV elsewhere is off in the npm test bundle (a production build with THREEDOG_TEST), so a dev check there silently never ran under tests

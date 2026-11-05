@@ -1,4 +1,4 @@
-// threedog how "<task>": keyword search over AI.md rows, recipe headings and the plain three.js answers (THREE.md, recipe 54), offline, no browser.
+// threedog how "<task>": keyword search over AI.md rows, recipe headings and the plain three.js answers (THREE.md), offline, no browser.
 // Why a unit test: the ranking must be deterministic and must not match inside other words ("rain" in "terrain"), or the top hit sends an AI to the
 // wrong recipe; and a task three.js does on its own (tone mapping, a render target) must answer with the three.js way first, not an engine wrapper.
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,7 +18,7 @@ export async function run({ check }) {
   check('English task words find the (picture) rows (brush strokes, colored shadows)', search(docs, 'brush strokes').length > 0 && search(docs, 'colored shadows').length > 0);
   check('nonsense gives no hit', search(docs, 'qqzzxx').length === 0);
   const tone = search(docs, 'tone mapping'), rt = search(docs, 'mirror render target'), bvh = search(docs, 'raycast');
-  check('"tone mapping" answers with the plain three.js row first (recipe 54: set renderer.toneMapping)', /^plain three\.js .*toneMapping.*54-three-idioms/.test(tone[0]?.line ?? ''), JSON.stringify(tone.map(h => h.line)));
+  check('"tone mapping" answers with the plain three.js row first (THREE.md: set renderer.toneMapping)', /^plain three\.js .*toneMapping.*THREE\.md/.test(tone[0]?.line ?? ''), JSON.stringify(tone.map(h => h.line)));
   check('"mirror render target" answers with the plain three.js row first', /^plain three\.js · Render targets/.test(rt[0]?.line ?? ''), JSON.stringify(rt.map(h => h.line)));
   check('THREE.md is indexed: "raycast" finds the page-wide BVH change', bvh.some(h => /THREE\.md/.test(h.line) && /raycast/i.test(h.line)), JSON.stringify(bvh.map(h => h.line)));
   const rigid = search(docs, 'rigid bodies').map(h => h.line);
@@ -31,9 +31,16 @@ export async function run({ check }) {
   // [守] 一件事一个入口：常见任务用平常话问，第一条必须是那一个推荐入口（CONVENTIONS.md "One task, which entry"），技巧示例只能排在后面。
   // 不过时改文档关键词（AI.md 行、THREE.md、菜谱标题），不改这里的期望
   const TASKS = [
+    ['recoil', /32-action-game/],
+    ['hitscan raycast weapon', /32-action-game/],
+    ['win lose', /32-action-game/],
+    ['chase camera behind car', /21-camera/],
+    ['leaderboard best time', /20-content-actions-save/],
+    ['data that outlives saves', /20-content-actions-save/],
+    ['save high scores persist best lap times', /20-content-actions-save/],
     ['ride a boat', /57-control/],
     ['choice cursor', /26-ui-parts/],
-    ['applyEffects', /54-three-idioms/],
+    ['applyEffects', /THREE\.md/],
     ['move the player by script', /57-control/],
     ['elevator', /57-control/],
     ['climb', /57-control/],

@@ -70,7 +70,7 @@ export { Character, NPC } from './modules/characters/index.js';
 export { presets } from './presets.js';   // opt-in gameplay presets (weather tables, calendars, player feel, camera): never applied by the engine itself
 export { terrainMaterial, mergeColored, applyEffects } from './render/materials.js';
 export { rampTexture } from './render/lighting.js';   // a toon material's gradientMap from grays or colors (recipes/09)
-export { bakeVertexAO } from './render/modeling.js';   // procedural-modeling gaps three.js lacks (recipe 54 lists what three already has)
+export { bakeVertexAO } from './render/modeling.js';   // procedural-modeling gaps three.js lacks (THREE.md lists what three already has)
 export { materialPatches } from './render/patches.js';
 export { toast, makeWindow, worldToScreen, fadeScreen, uiFocus, toggleOnKey } from './ui/UI.js';
 export { parseClock, formatClock, inRange } from './core/dayTime.js';

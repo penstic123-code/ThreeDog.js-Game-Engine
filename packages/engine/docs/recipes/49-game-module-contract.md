@@ -15,7 +15,7 @@ shows in `describe()` and the dev bridge, and can be driven by ops, without spec
    segment, `done` on the last; do heavy work once when `done`), or put the logic in a world record `far(rec, dt)`, which gets one catch-up call.
 4. **Observable.** Module hook `describe(e, ctx)` puts its return value in `describe().<module name>` (plain JSON; the bridge `describe <name>` and
    `describeText()` show it). A game without a module uses `engine.describe.add(name, fn)`. The name must be new (it throws on a clash).
-   Every engine module has one (check rule R44 fails a module without it): keep it compact, the state an AI checks to verify the module worked.
+   Keep it compact: the state an AI checks to verify the module worked.
 5. **Actions are ops.** `engine.ops.define('noun.verb', { args, can, run, offers, reasons, desc })`. `can` is read-only and returns `true` or a reason
    string (a key of `reasons`); `run` changes state; `offers(e, ctx)` lists the arg sets possible right now (shown by the bridge `ops` command and
    `describe`). Call with `engine.ops.run(name, args)` -> `{ ok, value }` or `{ ok: false, code, facts, nextActions }` (read `r.code`). Never mutate state from UI code directly.
@@ -23,8 +23,8 @@ shows in `describe()` and the dev bridge, and can be driven by ops, without spec
 ## Declaring stage and dependencies
 `stage` only picks where the hooks run (first to last): `control, ground, environment, gameplay, effects, late (default), audio`; `before / after`
 (module names) only order modules inside one stage; a contradiction with the stage order throws. `requires: ['world']` names a capability that must already be provided (throws
-otherwise, naming both fixes: the engine's `world()` first, or your own module with `provides: ['world']`). `type` says what the module may own
-(recipe 14: `'rules'` for game logic like this one; a `'picture'` module may not define ops). `optional: { sky: 'what is lost without it' }` is a soft dependency (use `engine.sky?.`). Core never imports
+otherwise, naming both fixes: the engine's `world()` first, or your own module with `provides: ['world']`). `type` says what the module owns
+(recipe 14): none means `'rules'`, game logic like this one, and a module doing what its type does not usually own (a `'picture'` module defining an op) gets a dev warning, never a refusal. `optional: { sky: 'what is lost without it' }` is a soft dependency (use `engine.sky?.`). Core never imports
 modules. The module `name` must not clash with an existing engine property.
 
 ## One copyable module: something that finishes after a delay (a smelter, a turret recharge, a crop)

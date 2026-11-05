@@ -538,7 +538,7 @@ export interface Assets {
   gridFromImage(nameOrUrl: string, opts?: { channel?: 'r' | 'g' | 'b' | 'a' | number; range?: [number, number]; bits?: 8 | 16 }): Promise<{ data: Float32Array; width: number; height: number; bits: number }>;
   /** Get a texture (.ktx2 compressed textures also work) */
   texture(nameOrUrl: string, opts?: { color?: boolean; pixelated?: boolean; repeat?: number[] }): Promise<Texture>;
-  /** Fetch a texture for something that already shows a stand-in: use(texture) runs when it arrives; a failed load is one load-failed dev warning naming `where` and what shows `instead`, and resolves false (an error inside use() is not swallowed). opts are texture()'s options */
+  /** Fetch a texture for something that already shows a stand-in: use(texture) runs when it arrives; a failed load is one asset-load dev warning naming `where` and what shows `instead`, and resolves false (an error inside use() is not swallowed). opts are texture()'s options */
   useTexture(nameOrUrl: string, use: (texture: Texture) => void, o?: { where?: string; instead?: string; opts?: { color?: boolean; pixelated?: boolean; repeat?: number[] } }): Promise<boolean>;
   /**
    * Release a resource and return GPU memory. Not released while copies of the model are still in the scene; it is released when the last copy is
@@ -1998,7 +1998,10 @@ export declare class Engine {
   // ---------- Rays, scenarios ----------
   /** Ray: shoot from origin along dir, returns the nearest hit or null (by default only registered static objects are hit) */
   raycast(origin: Vec3Like, dir: Vec3Like, opts?: RaycastOptions): RayHit | null;
-  /** Shoot a ray through the camera from screen coordinates (-1..1, e.g. input.pointer.ndcX/ndcY) */
+  /**
+   * Shoot a ray through the camera from screen coordinates (-1..1, e.g. input.pointer.ndcX/ndcY). The ray comes from the camera as last drawn: a rig.yaw / rig.pitch
+   * write reaches it on the next drawn step, so several shots in one step with recoil between them cast from the rig's angles with engine.raycast (recipe 19)
+   */
   pick(ndcX: number, ndcY: number, opts?: RaycastOptions): RayHit | null;
   /** Set up a scenario: time of day, weather, player position, load a save, advance time, skip cutscenes; emits state:applied when done */
   applyState(params: StateParams): Promise<{ ok: boolean, refused: { key: string, value: unknown, reason: string }[] }>;
@@ -2134,7 +2137,7 @@ export declare class Engine {
      * Budgets are the game's engine.budget limits, else a reference (desktop 60 fps; not enforced). Plain three.js: renderer.info.
      * @example engine.inspect.perf().text
      */
-    perf(opts?: { top?: number }): { drawCalls: number; triangles: number; programs: number; textureMB: number; cpuMs: number; compileMs: number; ok: boolean; text: string;
+    perf(opts?: { top?: number }): { drawCalls: number; triangles: number; programs: number; textureMB: number; cpuMs: number | null; compileMs: number; ok: boolean; text: string;
       budgets: { name: string; value: number; budget: number; from: 'engine.budget' | 'reference'; ok: boolean; next?: string }[];
       compiles: { at: number; programs: number; ms: number }[]; [k: string]: any };
   };

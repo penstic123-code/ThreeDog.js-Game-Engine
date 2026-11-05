@@ -236,7 +236,7 @@ engine members | hlod | ?Hlod @experimental
 engine members | hud | ?Hud
 engine members | i18n | I18n
 engine members | input | Input
-engine members | inspect | { (at?: string | { x: number; z: number; } | number[], opts?: { radius?: number; }): { actor: string; at: { x: number; z: number; }; near: any[]; thing?: HitThing; ops: { op: string; args: any; ok: boolean; code?: string; why?: string | null; facts?: any; nextActions?: any[]; }[]; }; scene(opts?: { hidden?: boolean; limit?: number; }): SceneInspect; materials(opts?: { limit?: number; }): { count: number; textures: number; textureBytes: number; issues: string[]; text: string; materials: { name: string | null; type: string; uuid: string; madeBy: "engine" | "game"; role: string | null; sharedBy: number; firstMesh: string | null; patches: { name: string; slots: string[]; }[]; textures: { slot: string; name: string | null; size: string; colorSpace: string; bytes: number; sharedBy: number; issue?: string; }[]; }[]; }; perf(opts?: { top?: number; }): { drawCalls: number; triangles: number; programs: number; textureMB: number; cpuMs: number; compileMs: number; ok: boolean; text: string; budgets: { name: string; value: number; budget: number; from: "engine.budget" | "reference"; ok: boolean; next?: string; }[]; compiles: { at: number; programs: number; ms: number; }[]; [k: string]: any; }; }
+engine members | inspect | { (at?: string | { x: number; z: number; } | number[], opts?: { radius?: number; }): { actor: string; at: { x: number; z: number; }; near: any[]; thing?: HitThing; ops: { op: string; args: any; ok: boolean; code?: string; why?: string | null; facts?: any; nextActions?: any[]; }[]; }; scene(opts?: { hidden?: boolean; limit?: number; }): SceneInspect; materials(opts?: { limit?: number; }): { count: number; textures: number; textureBytes: number; issues: string[]; text: string; materials: { name: string | null; type: string; uuid: string; madeBy: "engine" | "game"; role: string | null; sharedBy: number; firstMesh: string | null; patches: { name: string; slots: string[]; }[]; textures: { slot: string; name: string | null; size: string; colorSpace: string; bytes: number; sharedBy: number; issue?: string; }[]; }[]; }; perf(opts?: { top?: number; }): { drawCalls: number; triangles: number; programs: number; textureMB: number; cpuMs: number | null; compileMs: number; ok: boolean; text: string; budgets: { name: string; value: number; budget: number; from: "engine.budget" | "reference"; ok: boolean; next?: string; }[]; compiles: { at: number; programs: number; ms: number; }[]; [k: string]: any; }; }
 engine members | interactions | ?Interactions
 engine members | inventory | ?Inventory
 engine members | jobs | Jobs
@@ -809,7 +809,6 @@ error codes | asset-not-loaded |
 error codes | audio-name-clash |
 error codes | audio-synth-gone |
 error codes | audio-unsupported |
-error codes | bad-arg |
 error codes | bad-position |
 error codes | batching-option |
 error codes | budget-over |
@@ -870,7 +869,6 @@ error codes | light-type |
 error codes | lightmap-check |
 error codes | lightmap-data |
 error codes | lightpool-dusk |
-error codes | load-failed |
 error codes | many-lights |
 error codes | material-option |
 error codes | mod-owner |
@@ -897,16 +895,13 @@ error codes | music-track |
 error codes | nav-build |
 error codes | net-option |
 error codes | npc-behavior |
-error codes | npc-option |
 error codes | op-misuse |
 error codes | open-world-camera |
 error codes | ops-guard |
-error codes | options-object |
 error codes | own-frame |
 error codes | owned-misuse |
 error codes | owned-prop |
 error codes | pickup-misuse |
-error codes | pickup-prop-id |
 error codes | picture-conflict |
 error codes | picture-held |
 error codes | picture-leftover |
@@ -932,7 +927,6 @@ error codes | save-value |
 error codes | save-version |
 error codes | save-write |
 error codes | session-early |
-error codes | session-handle |
 error codes | settings-tab |
 error codes | shader-patch |
 error codes | shadow-cascades |
@@ -979,7 +973,6 @@ error codes | webgpu-needs-tsl |
 error codes | webgpu-records-unread |
 error codes | world-add |
 error codes | world-id |
-error codes | world-missing |
 error codes | world-option |
 error codes | world-plain |
 error codes | world-present |

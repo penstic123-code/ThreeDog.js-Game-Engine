@@ -30,7 +30,7 @@ function listedNames(src) {
 /**
  * Check what the page will really load. Everything else here reads the files in content/, but the page loads what content/index.js exports, so a
  * kind registered in rules.js can pass here and stop the page when `rules` is not listed. Same rule as the loader: contentFiles() of the rules it is handed.
- * ctx: { dir, c, files, code (the game's top-level source), err, warn }
+ * ctx: { dir, c, files, code (the game's source outside content/), err, warn }
  */
 export function checkListed({ dir, c, files, code, err, warn }) {
   const path = join(dir, 'content', 'index.js');

@@ -135,6 +135,10 @@ function planAdd(text, root, entryText) {
   const items = root.type === 'ArrayExpression' ? root.elements.filter(Boolean) : root.properties;
   const close = root.end - 1;
   if (!items.length) return { after: text.slice(0, root.start + 1) + `\n  ${entryText},\n` + text.slice(close), line: lineAt(text, root.start) + 1 };
+  // a list written on one line (a new game's props.js) opens here, once: only white space goes in, and ten added entries stay ten lines and not one endless line
+  if (root.type === 'ArrayExpression' && !text.slice(root.start, close).includes('\n')) {
+    return { after: text.slice(0, root.start + 1) + `\n  ${text.slice(root.start + 1, close).trim().replace(/,$/, '')},\n  ${entryText},\n` + text.slice(close), line: lineAt(text, root.start) + 2 };
+  }
   const last = items[items.length - 1];
   const lineStart = text.lastIndexOf('\n', last.start) + 1, indent = /^\s*/.exec(text.slice(lineStart, last.start))[0];
   if (lineAt(text, root.start) === lineAt(text, last.start) || lineStart === 0 || text.slice(lineStart, last.start).trim()) {   // one-line container

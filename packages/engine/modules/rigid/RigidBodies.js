@@ -258,6 +258,11 @@ export class RigidBodies {
   }
   /** @internal */
   _chunkReady(x, z) { const CH = this.engine.ground.chunkSize ?? 64; return !!this.terrain.get(Math.floor(x / CH) + ',' + Math.floor(z / CH))?.ready; }
+  /** @internal A moving body left the terrain colliders. Told once in dev; not told: a body at rest left behind (normal), a chunk still waiting for its collider (it has a terrain entry, or chunks are pending) */
+  _tellFrozen(b, t, CH) {
+    if (this._srcPending || !b.body.isDynamic() || b.body.isSleeping() || this.terrain.has(Math.floor(t.x / CH) + ',' + Math.floor(t.z / CH))) return;
+    warnOnce(coded('rigid-misuse', `rigid: body '${b.id ?? (b.mesh.name || 'unnamed')}' froze at x ${t.x.toFixed(0)}, z ${t.z.toFixed(0)} (entry.enabled is false): it left rigid({ terrainRing: ${this.terrainRing} }), the ${CH} m chunks around the player that have terrain colliders, and would fall through the ground. It stays frozen until the player comes near. A body that must keep moving out there needs a larger terrainRing (recipe 11 section 3)`), 'rigid-frozen');
+  }
   /** Delete the body (called by entry.remove()); the model stays */
   _remove(entry) {
     const i = this.bodies.indexOf(entry); if (i < 0) return;
@@ -346,7 +351,7 @@ export class RigidBodies {
       const t = b.body.translation();
       b._x = t.x; b._z = t.z;
       const ok = !chunked || this._chunkReady(t.x, t.z);
-      if (ok !== b.enabled) { b.body.setEnabled(ok); b.enabled = ok; }
+      if (ok !== b.enabled) { if (DEV && !ok) this._tellFrozen(b, t, CH); b.body.setEnabled(ok); b.enabled = ok; }
       // buoyancy: the submerged part gets an upward force, and water adds drag
       const water = this.buoyancy ? e.waterAt(t.x, t.z) : -Infinity;
       if (ok && this.buoyancy && t.y < water + this.floatLine && b.body.isDynamic()) {

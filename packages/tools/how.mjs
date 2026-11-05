@@ -2,7 +2,7 @@
 // Why plain token scoring and no fuzzy library: the result must be the same every run and explainable ("matched rain in the AI.md row"); an AI reads
 // the top few hits. Sources: the AI.md entry table (one row per task: the best hit), the CONVENTIONS.md "One task, which entry" table (the owner of
 // "which of several entries"), recipe headings with their first sentence, and the plain three.js answers: THREE.md (tables and numbered conventions)
-// and the recipe 54 idiom table. Ranking: each typed word weighs by how rare it is in the docs (so "game", "player" in a whole sentence barely
+// and its idiom table. Ranking: each typed word weighs by how rare it is in the docs (so "game", "player" in a whole sentence barely
 // count and "fps", "sidescroller" decide), a synonym from how-words.mjs or a plural / -ing stem counts a little less than the word itself, and a
 // word only starting a longer word ("save" in "saveable") counts little. Hits that cover more of the query's weight come first; at about the same
 // cover a plain three.js hit comes first (if three.js can do it, that is the answer), then an entry row (the one recommended entry for its task;
@@ -140,7 +140,7 @@ function paragraph(lines, i) {
 /** A section's own text (to score which section of a recipe an AI.md row should open) */
 function sectionText(lines, i) { let t = ''; for (; i < lines.length && !/^#/.test(lines[i]); i++) t += lines[i] + ' '; return t; }
 
-/** All candidates from the docs: AI.md rows, recipe sections, THREE.md and recipe 54 rows (plain three.js, or engine + three.js) */
+/** All candidates from the docs: AI.md rows, recipe sections, THREE.md rows (plain three.js, or engine + three.js) */
 export function docEntries(docsDir) {
   const out = [], ai = join(docsDir, 'AI.md');
   if (existsSync(ai)) {
@@ -193,7 +193,6 @@ export function docEntries(docsDir) {
     });
   }
   plainRows(join(docsDir, 'THREE.md'), 'THREE.md', out);
-  plainRows(join(docsDir, 'recipes', '54-three-idioms.md'), 'recipes/54-three-idioms.md', out);
   return out;
 }
 

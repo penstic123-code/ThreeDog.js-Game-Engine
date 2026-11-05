@@ -25,6 +25,6 @@
   - `lastDevice: "keyboard" | "pad" | "touch"` Most recently used device: UI key hints follow it
   - `touch: boolean` Is this a touch device?
   - `contexts: string[]` Names of the active contexts, bottom to top (pending switches apply at the next fixed step)
-  - `holders: { context: string; owner: string; pass: boolean }[]` Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read)
+  - `holders: { context: string; owner: string; pass: boolean }[]` Who holds input, bottom to top above the base context: [{ context, owner, pass }] (pass: unrelated gameplay actions still read). Pushes and removes count at once, before the next fixed step applies them: on a halted page a closed window is not a holder any more
   - `enabled: boolean` False while an opaque context (menu, dialogue, cutscene...) covers gameplay: no game action can be read, and cameras ignore picture/zoom
   - `axis: { x: number; y: number }` Movement direction: x positive right, y positive forward, length <= 1 (a snapshot of this step in fixed, the latest state in frame)

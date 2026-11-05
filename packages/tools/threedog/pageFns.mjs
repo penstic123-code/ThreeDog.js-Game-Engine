@@ -120,6 +120,8 @@ const PAGE = {
       + 'or a key code such as KeyE, Space, Escape');
     if (!code) throw new Error(`action "${a.key}" has no keyboard key`);
     e.haltLoop('threedog');
+    // a part opened since the last frame (the title of a page just reloaded, nothing stepped yet) skips the keys of its first frame: that frame runs here, with no game time
+    e._frameHooks(0, true); inp.endFrame();
     // Actions go through the public input.simulate (same path as a real key press: the fixed snapshot and the frame "just pressed" see it).
     // A raw key code is sent as a real keyboard event: the engine's own window listener takes it, no private input call
     const down = on => action ? inp.simulate(action, on) : dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code }));
@@ -178,7 +180,8 @@ const PAGE = {
       }, 500);
       Promise.resolve().then(fn).then(ok, no).finally(() => clearInterval(t));
     });
-    const run = body => stall(() => new AsyncFunction('engine', 'assert', 'expect', 'step', 'log', body)(e, assert, expect, step, log));
+    // the body sits in a block: its own const log shadows the helper; as the bare function body it was a redeclaration of the parameter
+    const run = body => stall(() => new AsyncFunction('engine', 'assert', 'expect', 'step', 'log', `{${body}\n}`)(e, assert, expect, step, log));
     if (a.plain) {
       let v;
       try {

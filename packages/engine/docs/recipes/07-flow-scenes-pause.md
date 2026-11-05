@@ -21,7 +21,7 @@ engine.flow.define('title', {
 engine.flow.define('ending', { freeze: true, lockInput: true, enter: () => toast(engine, 'The end') });
 startBtn.onclick = () => engine.flow.go('playing');
 
-engine.input.action('pause', { label: 'Pause', keys: ['KeyO'] });   // read by action name; Esc is the back key (see below); presets.bindings.* hold ready key maps (P, I, J, E; see the key table in GAMEMAP)
+engine.input.action('pause', { label: 'Pause', keys: ['KeyO'] });   // read by action name; Esc is the back key (see below)
 engine.onFrame(() => {
   if (engine.input.pressedRaw('pause')) engine.flow.go(engine.flow.state === 'paused' ? 'playing' : 'paused');   // paused pushes an opaque input context, so use pressedRaw
 });
@@ -77,9 +77,8 @@ game's camera there at once. An unknown name stops with the list of places. A ca
 To get past the title without a key of your own, use the engine's `?play` URL key (`npm run shot -- --play`, `applyState({ play: true })`): after
 `engine:ready` it does what the title's Start does (`engine.session.newGame()`, then the title part closes), so `flow({ start: 'title' })` moves to
 `'playing'` and the game's `session:start` setup runs; with no title up it does nothing. `?fresh` (`applyState({ fresh: true })`) first deletes this
-page's saves, so the title offers no Continue; on a running page it also ends the run. Two things that make a moment
-drawing half-done in a picture: a headless page advances only on `engine.step` (the shot steps one frame after the game's code, so a
-`weather.set(name, { seconds: 0.1 })` made after `start()` shows a third of the change: use `seconds: 0`), and an `onFrame` copy of a sky
+page's saves, so the title offers no Continue; on a running page it also ends the run. Two things that leave a moment half-drawn in a picture: a headless page
+advances only on `engine.step`, so a `weather.set(name, { seconds: 0.1 })` made after `start()` is still changing (use `seconds: 0`), and an `onFrame` copy of a sky
 color is one frame old (share `engine.uniforms.uSkyHorizon` instead, recipe 08).
 
 ## 2. Changing scene / teleporting
@@ -91,7 +90,7 @@ await engine.flow.transition(async () => {
   engine.cameraRig.follow(engine.player.root);               // the camera jumps straight there instead of flying from far away
 }, { fade: 0.6, autosave: 'auto' });                         // also save slot 'auto' before switching
 
-// Teleport within the same map (the city test page's teleport pad): no save, music keeps playing
+// Teleport within the same map: no save, music keeps playing
 engine.flow.transition(() => engine.player.placeAt([40, 0, -20]), { music: 'keep' });
 ```
 When the level changes, the old level's things are cleared automatically: trigger zones built by `triggers.fromMarkers`, and pickups / trigger zones /
@@ -104,12 +103,8 @@ Loading a save across levels: the save records the level name, so `await engine.
 finish loading, and then puts the player and everything else back (the level must be loaded by name, `level({ url })`; a code-built `level({ scene })`
 can't be recorded).
 
-Saves live in the browser's IndexedDB (no 5 MB limit; when it is unavailable it falls back to localStorage and tells you once; old localStorage saves
-are moved over on first launch). `save()` / `remove()` / `load()` return a Promise (awaiting is optional; a failed write shows a notice), while
-`list()` / `export()` are synchronous (saves are read into memory at startup). Photos are stored separately as Blobs and are not part of the world save; your own binary data goes the same way with `engine.saves.putAttachment(group, id, blob, meta)`, `attachments(group)` and `removeAttachment(group, id)`, and something that belongs to the game but is not a save gets its localStorage key from `engine.saves.storageKey(name)`.
-Backup: `engine.saves.exportFile('slot1')` downloads a .json (including all binary attachments such as photos; `{ files: false }` gives only the world
-save), and `await engine.saves.importFile(file)` restores it into a save slot (without a file, a file picker opens); the "Saves" page of the settings
-menu has matching buttons.
+Saves live in the browser's IndexedDB (falling back to localStorage, with one notice). `save()` / `remove()` / `load()` return a Promise (a failed write shows a notice), while
+`list()` / `export()` are synchronous (saves are read into memory at startup). Attachments, file backup and `storageKey`: `../api/saves.md`.
 For just a fade-to-black, without locking input or saving: `await fadeScreen(engine, 1, { seconds: 0.5 }); ...; await fadeScreen(engine, 0, { seconds: 0.5 });` (import from `threedog`).
 Fades inside a cutscene use the timeline steps `{ fade: 0.5 }`, `{ fade: 0.5, to: 0 }`.
 
@@ -140,8 +135,7 @@ engine.input.action('menuConfirm', { label: 'OK', keys: ['Space'], context: 'men
   whether input is locked.
 - In tests: after `engine.flow.go('paused'); engine.step(1)` the player position, `engine.clock.now`, quest progress and timelines are unchanged;
   after `await engine.flow.transition(fn)` returns, `transitioning` is false (if fn throws, the error goes to the caller and the screen still fades back in).
-- Related tests: `threedog test 游戏流程` (city: transition fade and input lock, paused freeze), `threedog test 接缝` (Esc focus stack, quests/timelines frozen
-  while frozen, screen fades back in when transition fails).
+- Related tests: `threedog test 游戏流程`, `threedog test 接缝`.
 
 ## 4. New game / continue / back to title / retry (engine.session)
 Every playthrough starts from a clean slate, so a second new game is exactly like the first:

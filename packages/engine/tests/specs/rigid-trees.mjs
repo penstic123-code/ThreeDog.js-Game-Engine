@@ -2,6 +2,27 @@
 // cylinders leave with distance and come back, and the creation budget is a count per fixed step (never wall-clock). Same format as the other files here; open world page.
 export const specs = [
   {
+    // A racing rival went enabled: false 80 m from the player, mid race, without a word; the freeze stays, the silence does not
+    name: '[guard] rigid: a moving body that leaves the terrain colliders freezes and says so once, naming the body and terrainRing',
+    url: '/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        engine.haltLoop();
+        const R = engine.rigid, P = engine.player, T = engine.THREE, CH = engine.ground.chunkSize ?? 64, warns = [], w0 = console.warn;
+        for (let i = 0; i < 600 && (R._srcPending || !R.terrain.size); i++) { engine.step(1 / 30); await new Promise(res => setTimeout(res, 0)); }
+        console.warn = (...a) => { warns.push(a.join(' ')); };
+        const ball = id => R.addBall(new T.Mesh(new T.SphereGeometry(0.3, 8, 6), new T.MeshBasicMaterial()), { radius: 0.3, id });
+        const far = (R.terrainRing + 3) * CH, a = ball('rival'), b = ball('rival2');
+        for (const [e, dz] of [[a, 0], [b, 4]]) { R.setPosition(e, [P.position.x + far, 40, P.position.z + dz]); e.body.setLinvel({ x: 5, y: 0, z: 0 }, true); }
+        engine.step(1 / 60, { render: false });
+        console.warn = w0;
+        return { enabled: [a.enabled, b.enabled], frozen: engine.describe().rigid.frozen, warns: warns.filter(w => w.includes('froze')) };
+      });
+      check('the body is frozen, and describe counts it', r.enabled[0] === false && r.frozen >= 2, JSON.stringify(r));
+      check('one warning, naming the body and terrainRing', r.warns.length === 1 && /'rival2?'/.test(r.warns[0]) && r.warns[0].includes('terrainRing'), JSON.stringify(r));
+    },
+  },
+  {
     name: 'rigid trees: cylinders only for chunks near the player (budgeted by count); a body thrown at a trunk stops, also after a teleport into a far chunk; they leave and come back',
     url: '/',
     async run({ check, ev }) {

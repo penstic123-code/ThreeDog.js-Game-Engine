@@ -67,9 +67,13 @@ export const specs = [
         // what a page that has not drawn yet reads: the counters at 0
         const info = engine.renderer.info.render, calls = info.calls; info.calls = 0;
         const none = engine.inspect.perf(); info.calls = calls;
-        return { a, b, none };
+        engine.haltLoop(); engine.step(1 / 60);
+        const halted = engine.inspect.perf();
+        return { a, b, none, halted };
       });
-      const { a, b, none } = r;
+      const { a, b, none, halted } = r;
+      check('[guard] halted: JS ms and fps have no value and the text says so, not "JS 0 ms, fps 0"', halted.cpuMs === null && halted.fps === null && /not measured/.test(halted.text) && !/fps 0/.test(halted.text) && !halted.budgets.some(x => x.name === 'cpuMs'), halted.text);
+      check('the lights line says what it counts: a sun is not in it', / lights \d+ point \+ spot \/ /.test(a.text), a.text);
       check('[guard] no draw counted: says nothing is measured, no tick on the frame metrics, not ok', none.measured === false && none.ok === false && /^nothing measured yet/.test(none.text) && !none.budgets.some(x => ['drawCalls', 'triangles', 'cpuMs', 'compileMs'].includes(x.name)), none.text);
       check('fields present', a.drawCalls > 0 && a.triangles > 0 && a.programs > 0 && typeof a.textureMB === 'number' && typeof a.cpuMs === 'number', JSON.stringify({ d: a.drawCalls, t: a.triangles, p: a.programs }));
       check('one verdict per budget', ['drawCalls', 'triangles', 'programs', 'textureMB', 'cpuMs', 'compileMs'].every(k => a.budgets.some(x => x.name === k)));

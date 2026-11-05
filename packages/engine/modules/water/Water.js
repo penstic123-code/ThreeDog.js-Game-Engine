@@ -20,7 +20,7 @@ import { readParams, keysSchema } from '../../core/params.js';
 import { waterShader, wavesPatch, surfacePatch } from './surface.js';
 import { codedError } from '../../core/errorHints.js';
 import { glslFloat, FRESNEL_POWER } from '../../render/fxNumbers.js';
-import { DEV } from '../../core/validate.js';
+import { DEV, needMaterial } from '../../core/validate.js';
 
 const GREY = new THREE.Color(0xcccccc);
 /** @import { ModuleDef } from '../../types/core' */
@@ -99,7 +99,7 @@ export class Water {
    */
   get material() { return this._material; }
   set material(m) {
-    if (!m?.isMaterial) throw codedError('water-option', `engine.water.material takes a three.js Material, got ${m}; e.g. engine.water.material = applyEffects(new THREE.MeshPhongMaterial({ color: 0x3070a0 }), { patches: engine.water.patches })`);
+    needMaterial('water-option', 'engine.water.material', m, '; e.g. engine.water.material = applyEffects(new THREE.MeshPhongMaterial({ color: 0x3070a0 }), { patches: engine.water.patches })');
     const was = this._material;
     if (m === was) return;
     this._show(m);

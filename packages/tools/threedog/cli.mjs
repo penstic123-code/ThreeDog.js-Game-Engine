@@ -25,7 +25,8 @@ const asJson = !!opt.json;
 let r;
 if (cmd === 'session') { const { sessionCommand } = await import('./session.mjs'); r = await sessionCommand(dir, args); }
 else {
-  if (cmd !== 'play') { const { viaSession } = await import('./session.mjs'); r = await viaSession(dir, cmd, args, pagePath); }
+  // errors reads a file: it must answer while a session is stuck on another command, which is when it is wanted
+  if (cmd !== 'play' && cmd !== 'errors') { const { viaSession } = await import('./session.mjs'); r = await viaSession(dir, cmd, args, pagePath); }
   if (!r) {
     const { execute } = await import('./dispatch.mjs');
     // execute() does not throw: a failure comes back as ok false with its explanation in text (the matching one of five causes when the bridge is unreachable; an unknown command name is answered there too)

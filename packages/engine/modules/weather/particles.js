@@ -10,7 +10,7 @@
 // amount is above 0.02 and calls update every frame with ctx = { camera, time, wind }).
 import { engineOwned } from '../../core/things.js';
 import * as THREE from 'three';
-import { closest } from '../../core/validate.js';
+import { closest, needMaterial } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { lineVert, lineFrag, pointVert, pointFrag, SHAPES, shaderMat, scatter } from './shaders.js';
@@ -83,7 +83,7 @@ function finish(engine, field, sys) {
   sys.engineMaterial = mine;
   Object.defineProperty(sys, 'material', { enumerable: true, get: () => o.material ?? null, set(m) {
     if (sys.own) throw codedError('weather-option', `weather particles '${field}': this object came from create(), so its material is yours: write it on the object`);
-    if (m != null && !m.isMaterial) throw codedError('weather-option', `weather particles '${field}': material is a three.js material (or null for the engine's); got ${m}`);
+    if (m != null) needMaterial('weather-option', `weather particles '${field}': material`, m, " (null gives the engine's back)");
     sys.given = m || null;
     o.material = m ?? mine;
   } });

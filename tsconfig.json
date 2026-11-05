@@ -32,6 +32,9 @@
     "games/*/*.js",
     "games/*/*.d.ts",
     "games/*/content/**/*.js",
+    "games/*/game/**/*.js",
+    "games/*/picture/**/*.js",
+    "games/*/plugins/**/*.js",
     "packages/engine/index.d.ts",
     "packages/engine/types/**/*.d.ts"
   ],

@@ -1,15 +1,12 @@
 // Position read / write for world: shared by add / move / query. A wrong position (a Vector3 used as an array, [x, z] with only two numbers) silently becomes NaN and null in the save,
 // so dev builds throw on the spot and say how to fix it.
 import { DEV, goodPos } from '../../core/validate.js';
-import { codedError } from '../../core/errorHints.js';
+import { badPosition } from '../../core/math.js';
 
 const STRINGS = {
   arr: '{fn}: an array position must be [x, y, z] (three numbers); for a horizontal position only, write { x, z }',
   nan: '{fn}: position is not a valid number (got {got}). Common cause: a Vector3 used as an array (v[0] is undefined); write v.x / v.z, or pass the Vector3 itself',
 };
-
-/** The error carries the value: an op tells a bad argument (refused) from a bad value of its own making (a bug, reported) by it */
-const badPosition = (message, value) => Object.assign(codedError('bad-position', message), { value });
 
 /** Write position v (Vector3 / object / [x, y, z] / { x, z }) into p; y stays unchanged if omitted @internal */
 export function putPos(fn, v, p) {

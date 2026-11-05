@@ -41,6 +41,7 @@ export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
     if (cmd === 'play') r = await play(dir, { page, stop: args.includes('--stop') });
     else if (cmd === 'status') r = await status(dir, { page });
     else if (cmd.startsWith('picture-')) r = await pictureCommand(dir, cmd, args);
+    else if (cmd === 'errors') r = { kind: 'blocked', ...await run(null, cmd, args, { dir }) };   // .threedog/errors.log, no page: a stuck page or a stopped server must not keep it from answering
     else {
       devServer(dir);
       const base = bridgeDriver(dir, { page });

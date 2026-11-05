@@ -100,6 +100,7 @@ export async function run({ check }) {
   check('[guard] wrap dispose(): own method back (same function), class method un-shadowed, describe empty', plain.hi === own0 && plain.hi() === 'hi'
     && !Object.prototype.hasOwnProperty.call(inv, 'add') && Object.keys(e._wraps.describe()).length === 0);
   const err = f => { try { f(); return ''; } catch (x) { return x.message; } };
-  check('wrap: a private method throws and lists the public ones', /private/.test(err(() => e.wrap(inv, '_refresh', n => n()))) && /count/.test(err(() => e.wrap(inv, '_refresh', n => n()))));
+  check('wrap: a non-name method throws and lists the public ones', /count/.test(err(() => e.wrap(inv, 7, n => n()))));
+  check('wrap: a leading _ is allowed (the object is yours to change); the handle takes it off', (() => { const h = e.wrap(inv, '_refresh', n => n()); h.remove(); return !!h; })());
   check('wrap: an unknown method throws naming the target', /inventory has no method 'ad'/.test(err(() => e.wrap(inv, 'ad', n => n()))), err(() => e.wrap(inv, 'ad', n => n())));
 }

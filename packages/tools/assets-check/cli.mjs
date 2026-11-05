@@ -22,6 +22,8 @@ export async function checkModel(file, content) {
 export async function runCheck(dir, opt, given) {
   const json = !!opt.json, strict = !!opt.strict, againstFile = opt.against ?? null;
   const target = resolve(given ?? join(dir, 'art/models'));
+  // no art/models/ of its own: a game without models (sprites, code-made meshes) has nothing to check. A path the caller named must exist
+  if (!given && !existsSync(target)) { console.log(json ? JSON.stringify({ target, models: [], missingContentTriggers: [], errors: 0, warnings: 0 }, null, 2) : '✓ No art/models/ folder: no models to check'); return 0; }
   if (!hasReader()) { console.error('✗ ' + NO_READER); return 1; }
   if (!existsSync(target)) { console.log(`✗ ${target} does not exist. Pass a .glb file or a folder, or put exports into art/models/.`); return 1; }
   const files = statSync(target).isDirectory() ? readdirSync(target).filter(f => /\.(glb|gltf)$/i.test(f)).map(f => join(target, f)) : [target];

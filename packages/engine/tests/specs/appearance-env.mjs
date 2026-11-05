@@ -1,4 +1,4 @@
-// Environment picture open points (recipes/38): the dome's band under the game's fog, exposure and tone mapping,
+// Environment picture open points (recipes/34): the dome's band under the game's fog, exposure and tone mapping,
 // extra dome layers. Defaults draw what they always drew (pixel / text comparison), new settings take effect, replacements compile,
 // wrong settings throw with the fix.
 

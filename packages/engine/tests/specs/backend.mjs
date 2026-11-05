@@ -6,6 +6,16 @@ import { probePicture } from '@threedog/tools/picture-check';
 const LOUD = '[threedog] WebGPU unavailable (';
 export const specs = [
   {
+    // It was only a console warning: check, build and assets --strict passed and the optimised model did not load
+    name: '[guard] renderer backend: a KTX2 asset asked for before start() loads on WebGPU with no renderer.init() from the game',
+    url: '/tests/backend/index.html',
+    software: true,
+    async run({ check, ev }) {
+      const r = await ev(() => window.ktxBeforeStart());
+      check('the texture loads and start() goes on', r.compressed && !r.error && ['webgpu', 'webgl2'].includes(r.backend), JSON.stringify(r));
+    },
+  },
+  {
     name: '[guard] renderer backend: webgpu entry, fallbacks webgl2 / webgl / error with the loud line and describe().renderer, WebGL-only materials named, WebGPU scene draws',
     url: '/tests/backend/index.html',
     software: true,
@@ -47,7 +57,7 @@ export const specs = [
         r.late.error.includes("RawShaderMaterial 'lateRaw' on Mesh 'late' does not run on WebGPURenderer") && r.late.error.includes('added after start()') && r.late.logged && !r.late.frozen && r.late.walks === 0,
         JSON.stringify(r.late));
       check("renderer: 'webgl' is the default WebGLRenderer the engine owns", r.webglName === true, JSON.stringify(r.webglName));
-      check("renderer: 'vulkan' and fallback without WebGPU are option errors", /a name is 'webgl' \(the default\) or 'webgpu'/.test(r.badName) && /only applies with renderer: 'webgpu'/.test(r.fallbackOnWebGL), `${r.badName} | ${r.fallbackOnWebGL}`);
+      check("renderer: 'vulkan' is an option error; fallback without WebGPU starts (a game may switch the renderer by a flag) and warns", /a name is 'webgl' \(the default\) or 'webgpu'/.test(r.badName) && r.fallbackOnWebGL === '', `${r.badName} | ${r.fallbackOnWebGL}`);
       const s = r.scene;
       check("renderer: 'webgpu' scene (ground + wind trees through the engine's tsl patches) draws, on webgpu or its webgl2 fallback",
         ['webgpu', 'webgl2'].includes(s.renderer.backend) && s.mean > 5, JSON.stringify(s));

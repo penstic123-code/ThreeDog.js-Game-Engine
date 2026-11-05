@@ -11,7 +11,7 @@ engine.particles.define('smoke', { gravity: 0.4, size: [0.5, 2] });
 const chimneySmoke = engine.particles.attach('smoke', chimney, { rate: 8, offset: [0, 2, 0] });
 chimneySmoke.remove();
 ```
-One effect is one `THREE.Points`, one draw call. Parameters and their fallbacks are at the top of `modules/particles/Particles.js` and in `api/particles.md`.
+One effect is one `THREE.Points`, one draw call. Parameters and their fallbacks: `api/particles.md`.
 With no options an effect is a soft gray dot.
 
 ## Where a value comes from

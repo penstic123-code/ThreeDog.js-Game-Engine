@@ -1,6 +1,6 @@
 # Starting a new game
 
-**In this recipe**: 0. One-command setup · 1. Creating the files by hand · 2. Verify · 3. Preset parts · 4. Feel presets · 5. Canvas size
+**In this recipe**: 0. One-command setup · 1. Creating the files by hand · 2. Verify · 3. Feel presets · 4. Canvas size
 
 Goal: a game with its own page, modules, content data and tests. The engine's own example is `examples/world/` in the package.
 
@@ -19,17 +19,12 @@ The name may only contain lowercase letters, digits and dashes; an existing dire
 2. Creates the `node_modules/my-game` link (the path npm gives a workspace named `my-game`). It builds nothing and leaves `package-lock.json` alone; it runs `npm install` only when a dependency of the template is not installed yet, and says so.
 3. Runs `map` (generates GAMEMAP.md) and `check`. Any failing step stops and says why. The smoke test (`threedog test -w games/my-game`) builds, so it is left to you.
 
-The default game has no genre: `world()` + `content()`, what nearly every game needs (a start screen with Continue / Start, autosave, Esc = pause + settings menu; delete a line if the game does not want it), the engine's camera placed by hand (a plain `THREE.PerspectiveCamera`) and the gray
-starting picture in `picture/` (a sun, an ambient light, the tone curve, written by the game); no ground, sky, player or camera rig, because which of those a game needs depends on its genre (a character walking around a place you built: recipe 63, about twenty lines)
-(a card table, a puzzle room, a side-scroller and an open world start differently). Content files start empty (each
-has one comment line saying what goes there and which recipe teaches it), except `props.js`, whose `marker-1` shows the shape; and `picture/`: `index.js` (wiring), `palette.js` (colors and key values), `lights.js`, `materials.js`, plain three.js
-that is yours to change or replace (recipe 62). `CLAUDE.md` says "This game has no gameplay yet; build what DESIGN.md describes".
+The default game has no genre: `world()` + `content()`, what nearly every game needs (a start screen with Continue / Start, autosave, Esc = pause + settings menu; delete a line if the game does not want it), a plain `THREE.PerspectiveCamera` placed by hand and the gray starting picture. No ground, sky, player or camera rig: a card table, a puzzle room, a side-scroller and an open world start differently (a character walking around a place you built: recipe 63, about twenty lines).
+Content files start empty, a comment in each saying what goes there, except `props.js`, whose `marker-1` shows the shape. `picture/` (`index.js` wiring, `palette.js`, `lights.js`, `materials.js`) is plain three.js, yours to change or replace (recipe 62).
 `--open-world` swaps `main.js` for `openWorld` (generated terrain from `@threedog/terrain-noise`, vegetation, a day/night sky, weather, water, collision, a
 follow camera) and a player at a flat spot, with `sky()` giving the signals and `picture/` writing the lights; it adds `@threedog/terrain-noise` to `package.json`. `spawn` and `places` take any `{ x, z }` (or `{ x, y, z }`); `findSpawn` is only for generated terrain.
 The canvas is the one you gave `createEngine({ canvas })`, also `engine.renderer.domElement`; the engine keeps no canvas property of its own.
 
-In an open-world start, to change the camera: `openWorld({ camera: 'firstPerson' })` (`follow` / `firstPerson` / `rts` / `fixed`, or pass a camera module directly; there is
-no default).
 - The comments in `main.js` list further gameplay modules you can add; usage is in `../api/<module>.md`.
 - To change the starting point of new games, edit the real files in `packages/tools/templates/game/` (`templates/openworld/` for `--open-world`).
 - `DESIGN.md` is a form to fill in with the game's design, `STATUS.md` holds progress, and `CLAUDE.md` holds the working rules, a table cut from AI.md and the reading order.
@@ -38,12 +33,12 @@ no default).
 ## 1. Creating the files by hand (to learn what each file is, or when the template doesn't fit)
 | File | Content |
 |---|---|
-| `games/my-game/package.json` | Copy `package.json` from the game template (or run `threedog new-game my-game`) and set `name` to `my-game` (the plain game name, in this repository and in a game repo of its own; `@threedog/` is the engine's packages; dependencies `threedog`, `@threedog/tools`, plus `@threedog/terrain-noise` only for an open-world start, and `@threedog/post-effects` only when the game imports it; the game's picture is its own `picture/` folder; scripts dev/build/preview/test/check/map) |
+| `games/my-game/package.json` | Copy the template's and set `name` to `my-game` (the plain game name; `@threedog/` is the engine's packages). Dependencies `threedog`, `@threedog/tools`, plus `@threedog/terrain-noise` only for an open-world start and `@threedog/post-effects` only when the game imports it |
 | `games/my-game/vite.config.js` | One line: `export default gameConfig(import.meta.dirname)` (imported from `@threedog/tools/vite`); *.html files in the directory are bundled automatically, no `input` needed. Without `@threedog/tools`, a plain vite config needs `worker: { format: 'es' }` (the engine's Workers are ES modules) or `vite build` fails; `threedog dev / build` on a folder with no vite config uses the preset |
-| `games/my-game/index.html` | The page: one `<canvas id="view">` with a CSS size + `/main.js` (for more pages put `xxx.html` in the same directory); see §5 for embedding |
+| `games/my-game/index.html` | The page: one `<canvas id="view">` with a CSS size + `/main.js` (for more pages put `xxx.html` in the same directory); see §4 for embedding |
 | `games/my-game/main.js` | Install modules, compute places, `content.load`, wire the game's systems (template `CLAUDE.md`, "Content vs code") |
 | `games/my-game/content/index.js` | Combines the content files into one object |
-| `games/my-game/content/*.js` | Only these names are read: items pickups containers npcs dialogues quests actions places triggers level vegetation props templates audio grids renames rules, plus the game's own kinds (rules.js) |
+| `games/my-game/content/*.js` | Only these names are read: items pickups containers npcs dialogues quests actions places triggers level vegetation props templates audio views grids renames rules, plus the game's own kinds (rules.js) |
 | `games/my-game/DESIGN.md` | The design as a form (copy the template's), copied into GAMEMAP.md |
 | `games/my-game/STATUS.md` | Progress and what comes next (copy the template's) |
 | `games/my-game/CLAUDE.md` | Working rules and reading order (copy the template's) |
@@ -61,13 +56,6 @@ In a game's own repository, `threedog check`, `types` and `map` read only the ga
 The template's `tsconfig.json` checks the game files only (`checkJs`), with `lib` ESNext + DOM (dependency typings such as Rapier's use
 `Symbol.dispose`) and `skipLibCheck: true`; without a tsconfig, `threedog types` writes the same settings to `.threedog/tsconfig.types.json`.
 
-`games/my-game/index.html` (minimal; the template's `index.html` has the same page with loading styles):
-```html
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>My game</title><style>html,body{height:100%;margin:0;overflow:hidden;background:#141a17}#view{position:fixed;inset:0;width:100%;height:100%;display:block;outline:none}</style>
-</head><body><canvas id="view" tabindex="0"></canvas><script type="module" src="/main.js"></script></body></html>
-```
 
 `games/my-game/main.js`: the opening lines are written out once, in [recipe 63](63-third-person-start.md) §1 (the blank template's `main.js` has the same opening with `world(), content(), settings()` and the camera placed by hand). What an open-world game with a few gameplay modules changes in it:
 ```js
@@ -105,7 +93,7 @@ engine.setGround({ height: (x, z) => 0 });   // what walking, placing and the ca
 ```
 Walls and obstacles are `engine.collision.addBox(obj, { halfWidth, halfDepth })`; a Blender level brings its own ground (`level()`, next paragraph).
 `saveKey` must differ per game, otherwise saves overwrite each other. The UI language follows the player's browser (Chinese browser -> Chinese,
-otherwise English) unless you set `createEngine({ locale: 'zh-CN' })` (`'zh'` and `'en-US'` match too; a language with no strings warns). A game without terrain (the city test page in the engine repository does this): register
+otherwise English) unless you set `createEngine({ locale: 'zh-CN' })` (`'zh'` and `'en-US'` match too; a language with no strings warns). A game on a level built in code: register
 the level generator function under `models` in `engine.assets.manifest({ name, models })`, use `level({ url: name })` and pick your own modules, then
 create the player and install content in `level:loaded`.
 
@@ -115,7 +103,7 @@ import items, { startItems } from './items.js';
 import places from './places.js';
 export default { items, startItems, places };
 ```
-`content/places.js`: `export default { home: 'flat ground found at the start (coordinates computed in main.js)' };`
+`content/places.js`: `export default { farm: { x: 12, z: -4 }, home: 'flat ground found at the start' };`. `content.load` reads a place written with coordinates from the data; a text entry only declares the name for `threedog check` and waits for `content.load(data, { places })`.
 
 ## 2. Verify
 1. `npm run map` -> generates `games/my-game/GAMEMAP.md`; check the "engine modules" and "page /" sections.
@@ -126,12 +114,8 @@ export default { items, startItems, places };
 5. To see the picture: `npm run shot -- -w my-game /` (one image in `games/my-game/.threedog/shots/`); while developing run `npm run dev -w games/my-game` (or
    `npm run dev -- my-game`) and open the printed address; read errors in `games/my-game/.threedog/errors.log`.
 
-## 3. Preset parts
-Every `openWorld()` part takes `false` or its module's options object, for example
-`openWorld({ camera: 'follow', calendar: { seasons: ['wet', 'dry'], daysPerSeason: 28 }, debug: false })`. Gameplay modules (interactions, dialogue,
-inventory, quests) are not in the preset: add them with `engine.use`. The debug panel is dev-only by default.
 
-## 4. Feel presets (opt-in)
+## 3. Feel presets (opt-in)
 The engine applies no gameplay feel by itself: `weather()` alone has only a calm `clear`, `sky()` has no seasons, and the calls that need a feel
 refuse to guess: `createPlayer()` throws `[player-control]` without `control`, `interactions()` throws `[interaction-setup]` without `pick` and keys,
 `openWorld()` throws `[open-world-camera]` without `camera`. The core key table holds only movement and menu confirm / cancel; run, jump and interact
@@ -143,11 +127,9 @@ engine.use(calendar(presets.calendar.fourSeasons), sky(), weather({ ...presets.w
 engine.use(interactions({ ...presets.interactions.facing }));   // nearest / facing / aim, each with E
 const player = engine.characters.createPlayer({ ...presets.player.lockOn, faceTarget: boss });   // none / thirdPerson / lockOn / aim / sideScroller
 ```
-`presets.player.thirdPerson` is `{ control: 'camera', faceMode: 'move', cameraFollow: true }`; the run / jump keys are
-`presets.bindings.walk` (`{ run: ['ShiftLeft', 'ShiftRight', 'PadLB'], jump: ['Space', 'PadA'] }`). No module or preset takes keys: every key
-comes from `createEngine({ bindings })` or `engine.input.bind(...)`.
+The run / jump keys are `presets.bindings.walk`. No module or preset takes keys: every key comes from `createEngine({ bindings })` or `engine.input.bind(...)`.
 
-## 5. Canvas size: full window, a page section, a split layout or an editor panel
+## 4. Canvas size: full window, a page section, a split layout or an editor panel
 The engine follows the canvas's own CSS box (a `ResizeObserver` on the canvas), not the window: renderer size, camera aspect, `input.pointer` (`x / y`
 pixels and `ndcX / ndcY` relative to the canvas), `engine.pick`, `screenToGround`, `worldToScreen` and the HUD all use that box, and the engine's UI
 root is laid exactly over it. So the layout decides:

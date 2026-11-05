@@ -111,7 +111,7 @@ export class Collision {
    */
   addBlocked(fn, opts = {}) {
     opts = readParams('collision.addBlocked()', keysSchema(BLOCK_KEYS), opts);
-    if (typeof fn !== 'function') throw codedError('collision-misuse', 'collision.addBlocked(fn): fn(x, z) => boolean is required');
+    if (typeof fn !== 'function') throw codedError('collision-misuse', `collision.addBlocked(fn): fn is (x, z) => boolean, got ${typeof fn}`);
     const f = { fn, bounds: opts.bounds ?? null }; this._blocked.push(f); this.version++; this.blockedVersion++;
     return { remove: () => { if (!this._blocked.includes(f)) return; this._blocked = this._blocked.filter(o => o !== f); this.version++; this.blockedVersion++; } };
   }

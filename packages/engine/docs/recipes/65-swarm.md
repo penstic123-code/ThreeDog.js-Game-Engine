@@ -128,38 +128,13 @@ crops.onStep((d, i, dt) => {
 When nothing in the rules reads the things, and the game runs on WebGPU, they need not touch the CPU at all. This is plain three.js with no engine API. It needs a real
 WebGPU device to be worth it: without one, use `engine.particles` or a swarm. Pick it over a swarm when the count is far past what the CPU should write per frame and no game
 code needs an answer back: reading a GPU buffer takes frames, so `near` and hits are out.
-```js
-import 'threedog/tsl';
-import { Sprite, SpriteNodeMaterial } from 'three/webgpu';
-import { Fn, If, float, hash, instanceIndex, instancedArray, uniform, vec3 } from 'three/tsl';
-
-const COUNT = 100000, HALF = 40, TOP = 30;
-const flakes = instancedArray(COUNT, 'vec3'), dt = uniform(0);
-
-const seed = Fn(() => {
-  const p = flakes.element(instanceIndex), i = float(instanceIndex);
-  p.assign(vec3(hash(i).sub(0.5).mul(HALF * 2), hash(i.add(0.31)).mul(TOP), hash(i.add(0.67)).sub(0.5).mul(HALF * 2)));
-})().compute(COUNT);
-
-const fall = Fn(() => {
-  const p = flakes.element(instanceIndex), speed = hash(float(instanceIndex)).mul(2).add(1);
-  p.y.subAssign(speed.mul(dt));
-  If(p.y.lessThan(0), () => { p.y.addAssign(TOP); });
-})().compute(COUNT);
-
-const material = new SpriteNodeMaterial({ transparent: true, depthWrite: false });
-material.positionNode = flakes.toAttribute();
-material.scaleNode = float(0.08);
-material.colorNode = vec3(1);
-const snow = new Sprite(material);
-snow.count = COUNT;
-snow.frustumCulled = false;   // the sprite's own bounds know nothing of the flakes
-engine.scene.add(snow);
-
-const gpu = /** @type {any} */ (engine.renderer);   // a WebGPURenderer: the engine's type also covers WebGL
-await gpu.computeAsync(seed);
-engine.onFrame(d => { dt.value = engine.frozen ? 0 : d; });
-engine.onRender(() => { gpu.compute(fall); });
+Build it with three's TSL as in three's own compute examples (an `instancedArray` buffer, compute nodes, a `SpriteNodeMaterial` reading the buffer through `positionNode`). What the engine adds is where each call goes:
+```js fragment
+import 'threedog/tsl';                                // before createEngine
+const gpu = /** @type {any} */ (engine.renderer);     // a WebGPURenderer: the engine's type also covers WebGL
+await gpu.computeAsync(seed);                         // once, to fill the buffer
+engine.onFrame(d => { dt.value = engine.frozen ? 0 : d; });   // time as a uniform set here, so a freeze stops the snow
+engine.onRender(() => { gpu.compute(fall); });        // the shader here, so it runs once per drawn frame
+snow.frustumCulled = false;                           // the sprite's own bounds know nothing of the flakes
 ```
-Time goes in as a uniform set in `onFrame`, so a freeze stops the snow; the shader runs in `onRender`, so it runs once per drawn frame. A full page: `tests/compute-snow` in the
-engine repository.
+A full page: `tests/compute-snow` in the engine repository.

@@ -206,8 +206,13 @@ export const specs = [
         E.vegetation.define('half', { geometry: geo, rule: { perChunk: 200 }, densityMap: (x) => (x < 0 ? 0 : 1) });
         E.vegetation.define('img', { geometry: geo, rule: { perChunk: 200 }, densityMap: { data: [1, 0, 1, 0], width: 2, height: 2, size: [64, 64] } });
         E.vegetation.define('plain', { geometry: geo, rule: { perChunk: 200 } });
+        // scatter-only rule keys next to positions do nothing: a dev warning names them, and every listed spot is still planted
+        const warn = console.warn; let warned = ''; console.warn = (...m) => { warned += m.join(' '); };
+        try { E.vegetation.define('ruled', { geometry: geo, positions: [[1, 2], [-3, 5]], rule: { perChunk: 1, chance: 0 } }); } finally { console.warn = warn; }
+        out.ruleWarning = warned;
         await E.start();
         await settle(E, () => E.vegetation.host.readyAt({ x: 0, z: 0 }, { rings: 2 }));
+        out.ruled = all(E, 'ruled').sort((a, b) => a[3] - b[3]).map(p => [Math.round(p[0] * 100) / 100, Math.round(p[2] * 100) / 100, p[3]]);
         const post = all(E, 'post').sort((a, b) => a[3] - b[3]);
         out.post = post.map(p => [Math.round(p[0] * 100) / 100, Math.round(p[2] * 100) / 100, p[1], p[3]]);
         out.postScale = post.find(p => p[3] === 1)?.[4];
@@ -218,7 +223,6 @@ export const specs = [
         // a listed plant is felled like a scattered one: its id is the list index
         const hit = E.vegetation.instanceAt({ x: 3, z: 4 }, { radius: 0.1, species: 'post' });
         out.hitId = hit?.id ?? null;
-        try { E.vegetation.define('bad', { geometry: geo, positions: [[1, 2]], rule: { perChunk: 5 } }); out.refusedRule = 'no throw'; } catch (err) { out.refusedRule = err.message; }
         try { E.vegetation.define('bad2', { geometry: geo, positions: [[1, 'a']] }); out.refusedEntry = 'no throw'; } catch (err) { out.refusedEntry = err.message; }
         try { E.vegetation.define('bad3', { geometry: geo, densityMap: { data: [1], width: 1, height: 1 } }); out.refusedMap = 'no throw'; } catch (err) { out.refusedMap = err.message; }
         E.dispose();
@@ -237,7 +241,8 @@ export const specs = [
       check('[guard] densityMap function: nothing where it is 0, the plain rule species still grows there', r.half.n > 0 && !r.half.westAny && r.half.plainWest > 0, JSON.stringify(r.half));
       check('[guard] densityMap image (data + size, terrain heightmap keys): bare where the image is 0, grows where it is 1', r.img.n > 0 && r.img.farEast === 0 && r.img.farWest > 0, JSON.stringify(r.img));
       check('a listed plant is found by instanceAt with its list index as id', r.hitId === 0, String(r.hitId));
-      check('scatter-only rule keys next to positions are refused by name', /rule\.perChunk/.test(r.refusedRule || ''), r.refusedRule);
+      check('scatter-only rule keys next to positions: one dev warning names them, every listed spot is still planted',
+        /rule\.perChunk/.test(r.ruleWarning) && /rule\.chance/.test(r.ruleWarning) && /vegetation-option/.test(r.ruleWarning) && JSON.stringify(r.ruled) === JSON.stringify([[1, 2, 0], [-3, 5, 1]]), JSON.stringify([r.ruleWarning, r.ruled]));
       check('a malformed positions entry is refused with its index', /positions\[0\]/.test(r.refusedEntry || ''), r.refusedEntry);
       check('a density image without size is refused', /size/.test(r.refusedMap || ''), r.refusedMap);
       check('[guard] on terrain the positions reach the worker and land on the terrain height', JSON.stringify(r.terrain) === JSON.stringify([[5, 5, 2], [6, -3, 2]]), JSON.stringify(r.terrain));

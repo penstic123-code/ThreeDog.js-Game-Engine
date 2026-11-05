@@ -4,14 +4,14 @@
 // (vegetation/draw.js is the engine's own, slot 'vegetation-draw'); the models and materials given to define() are read there.
 import { vegetationModel } from '../../core/namedModel.js';
 import { isModelName } from '../../core/util.js';
-import { warnMissing } from '../../core/validate.js';
+import { DEV, warnMissing, warnOnce } from '../../core/validate.js';
 import { readParams, keysSchema } from '../../core/params.js';
 import { reportError } from '../../core/errors.js';
 import { xzOf } from '../../core/math.js';
 import { GroundChunks } from './groundChunks.js';
 import { fadeBand } from './nearFade.js';
 import { makeDensity, thin } from './densityMap.js';
-import { codedError } from '../../core/errorHints.js';
+import { coded, codedError } from '../../core/errorHints.js';
 // parameters read by vegetation.define(); keys inside rule (sent to the worker thread)
 const ADD_KEYS = ['geometry', 'model', 'lodGeometry', 'rule', 'positions', 'densityMap', 'wind', 'nearOnly', 'maxRing', 'lodRing', 'castShadow', 'shadowRing', 'receiveShadow', 'material', 'effects', 'doubleSided', 'fade'];
 const RULE_KEYS = ['perChunk', 'chance', 'minHeight', 'maxHeight', 'maxSlope', 'cluster', 'scale', 'stretch', 'sink', 'tintJitter', 'tints', 'biomes', 'collider', 'avoidFlat', 'salt'];
@@ -26,7 +26,7 @@ function checkPositions(label, list, rule) {
     if (!Array.isArray(p) || p.length < 2 || p.length > 4 || !p.every(Number.isFinite)) throw codedError('vegetation-option', `${label}: positions[${i}] = ${JSON.stringify(p)}; each entry is [x, z], [x, z, scale] or [x, z, scale, yaw] (finite numbers)`);
   });
   const clash = SCATTER_ONLY.filter(k => rule && k in rule);
-  if (clash.length) throw codedError('vegetation-option', `${label}: rule.${clash.join(' / rule.')} only filters random placement and does not apply to positions (every listed spot is planted). Drop it, or add a second species for the scattered ones`);
+  if (DEV && clash.length) warnOnce(coded('vegetation-option', `${label}: rule.${clash.join(' / rule.')} only filters random placement and does not apply to positions (every listed spot is planted). Drop it, or add a second species for the scattered ones`));
 }
 
 // Single-instance removal/restore (chop a tree, mine a rock): records are owned by vegetation and saved with the save (save key 'vegetation', entry

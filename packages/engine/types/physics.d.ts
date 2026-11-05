@@ -94,7 +94,7 @@ export interface Collision {
 export interface RigidOptions {
   /** Gravity (m/s², negative points down), default -9.81 */
   gravity?: number;
-  /** How many rings of chunks around the player get terrain colliders, default 1 */
+  /** How many rings of chunks around the player get terrain colliders, default 1. A body outside them freezes until the player comes near (entry.enabled false, describe().rigid.frozen), because it would fall through the ground: raise this for a car or ball that must keep moving far away */
   terrainRing?: number;
   /** Whether there is buoyancy, default true */
   buoyancy?: boolean;
@@ -152,7 +152,7 @@ export interface RigidEntry extends Handle {
   mesh: Object3D;
   /** Same as mesh */
   object: Object3D;
-  /** Whether it is being simulated (frozen when too far from the player) */
+  /** Whether it is being simulated: false while it is outside the terrain colliders (rigid({ terrainRing })), where it would fall through the ground */
   enabled: boolean;
   /** Volume (cubic meters, used for buoyancy) */
   volume: number;
@@ -446,7 +446,7 @@ export interface FollowCameraOptions {
   size?: number;
   /** Which side of the focus the camera sits on (radians), default 0.8: camera = focus + (sin yaw, cos yaw) × distance, it looks along forward() = -(sin yaw, cos yaw). Behind a character facing f: yaw = f + PI */
   yaw?: number;
-  /** Pitch angle (radians), default 0.42 */
+  /** Pitch angle (radians), default 0.42. Positive = camera above the look point, looking down: the opposite of firstPersonCamera's pitch */
   pitch?: number;
   /** Distance (meters), default 13 */
   distance?: number;
@@ -558,8 +558,9 @@ export interface FirstPersonCameraOptions {
   swallowLockClick?: boolean;
   /** Initial heading (radians) */
   yaw?: number;
+  /** Initial look angle (radians), default 0 = level. Positive looks up, negative down: the opposite of followCamera's pitch */
   pitch?: number;
-  /** Look down / up limit (radians) */
+  /** Look down / up limit (radians), default -1.45 / 1.45 */
   minPitch?: number;
   maxPitch?: number;
   /** Turn range left / right [min, max] (radians), unlimited by default */

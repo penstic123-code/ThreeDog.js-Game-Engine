@@ -64,9 +64,9 @@ export const specs = [
           out.get = I.get('g-a') === undefined && I.get('g-c')?.id === 'g-c';
           b.remove(); c.remove(); I.pickMode = mode;
         }
-        // 4. a failed stand-in texture: one load-failed warning naming where, resolves false, use() never runs
+        // 4. a failed stand-in texture: one asset-load warning naming where, resolves false, use() never runs
         const { value: ok, warns } = await __t.warns(() => engine.assets.useTexture('/no-such-texture-guard.png', () => { out.used = true; }, { where: 'guard.slot', instead: 'gray stays' }));
-        out.useTexture = ok === false && !out.used && warns.some(w => w.includes('load-failed') && w.includes('guard.slot') && w.includes('gray stays'));
+        out.useTexture = ok === false && !out.used && warns.some(w => w.includes('asset-load') && w.includes('guard.slot') && w.includes('gray stays'));
         // 5. weather.set options
         if (engine.weather) {
           out.positional = errOf(() => engine.weather.set(engine.weather.name, 3));
@@ -83,7 +83,7 @@ export const specs = [
         check('interactions: a tie goes to the earlier added after removing another one', r.tie === 'g-b', String(r.tie));
         check('interactions: items keeps insertion order, get(id) finds by id', r.items === 'g-b,g-c' && r.get, JSON.stringify(r));
       }
-      check('assets.useTexture: a failed load warns once (load-failed, where, instead) and resolves false', r.useTexture, JSON.stringify(r));
+      check('assets.useTexture: a failed load warns once (asset-load, where, instead) and resolves false', r.useTexture, JSON.stringify(r));
       if ('positional' in r) check("weather.set('x', 3) throws [module-params]; { seconds } works", r.positional.includes('module-params') && r.options === '', JSON.stringify(r));
     },
   },

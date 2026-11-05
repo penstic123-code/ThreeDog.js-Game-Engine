@@ -1,6 +1,6 @@
 // R47 module types (error): every engine module definition in packages/engine/modules declares a type from core/moduleTypes.js (MODULE_TYPES),
 // and a 'world' type module draws nothing: the files that define world modules have no scene.add( and no renderer. in code.
-// Why static as well as at runtime: engine.use already throws for a missing type, but only for the modules a test installs; this reads them all.
+// Why static as well as at runtime: engine.use reads a missing type as 'rules' and throws only for an unknown one, and only for the modules a test installs; this reads them all.
 // The world rule is per defining file, not per folder, because one folder may hold both halves (modules/weather: Weather.js is the state,
 // weatherDraw.js the picture). Drawing for a world module goes in its drawing half, which reads the state.
 // Known limits: a definition is an object literal with name: '...' and label or install (like R16); a world module that draws from a helper

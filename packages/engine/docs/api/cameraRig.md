@@ -6,7 +6,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `projection?: 'perspective' | 'orthographic'` 'orthographic' draws without perspective (isometric / 2.5D; the wheel then changes size); default 'perspective'
   - `size?: number` With projection 'orthographic': world units of view height, default 20
   - `yaw?: number` Which side of the focus the camera sits on (radians), default 0.8: camera = focus + (sin yaw, cos yaw) × distance, it looks along forward() = -(sin yaw, cos yaw). Behind a character facing f: yaw = f + PI
-  - `pitch?: number` Pitch angle (radians), default 0.42
+  - `pitch?: number` Pitch angle (radians), default 0.42. Positive = camera above the look point, looking down: the opposite of firstPersonCamera's pitch
   - `distance?: number` Distance (meters), default 13
   - `minDistance?: number` Zoom range (meters)
   - `maxDistance?: number`
@@ -37,8 +37,8 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `pointerLock?: boolean` Click to lock the mouse, default true
   - `swallowLockClick?: boolean` The press that locks the mouse is not delivered as Mouse0 / a click (default true); false delivers it too
   - `yaw?: number` Initial heading (radians)
-  - `pitch?: number`
-  - `minPitch?: number` Look down / up limit (radians)
+  - `pitch?: number` Initial look angle (radians), default 0 = level. Positive looks up, negative down: the opposite of followCamera's pitch
+  - `minPitch?: number` Look down / up limit (radians), default -1.45 / 1.45
   - `maxPitch?: number`
   - `yawLimits?: number[] | null` Turn range left / right [min, max] (radians), unlimited by default
   - `smoothing?: number` Smoothing of the camera following the body

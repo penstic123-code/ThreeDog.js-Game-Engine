@@ -77,17 +77,11 @@ that color. A model keeps its own materials.
 **By asset name.** `model` also takes the name of a registered model asset: a file model, or a procedural builder. The character is built at once
 with a gray capsule; when the asset loads, a skeleton-correct copy replaces it under the same root, so position, facing, state, collision and the
 world view stay. Then `ready` turns true, `whenReady` settles and `character:model` is emitted. A name no model asset has throws with the registered
-names; a failed load keeps the capsule and warns once; a character disposed before loading ends never gets the model.
-```js
-engine.assets.manifest({ models: { hero: '/models/hero.glb' } });
-const p = engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'hero' });        // capsule now, the hero once loaded
-await p.whenReady;                                                  // p.anim is set from here (unless the load failed)
-```
+names; a failed load keeps the capsule and warns once; a character disposed before loading ends never gets the model. `p.anim` is set after `await p.whenReady` (unless the load failed).
 
 ## 3b. Procedural bodies are assets too (`model: 'humanoid'`)
-Character bodies are assets: every character picks one with `model`, the same path for a GLB and a procedural builder. an asset
-pack can supply a code-built humanoid (e.g. box limbs, swung by the engine while walking, running, swimming, jumping); a builder is built at once, so its joints
-(`player.armL`, `legR`...) exist right after `createPlayer`. Without `model` (and without `rig`) a character is a gray capsule, warned once.
+Every character picks its body with `model`, the same path for a GLB and a procedural builder. An asset pack can supply a code-built humanoid (box limbs swung by the engine
+while walking, running, swimming, jumping); a builder is built at once, so its joints (`player.armL`, `legR`...) exist right after `createPlayer`. Without `model` (and without `rig`) a character is a gray capsule, warned once.
 ```js
 import { assets } from './assets.js';                               // an asset pack of yours (or a published one) with a 'humanoid' builder
 engine.assets.manifest(assets);
@@ -173,7 +167,4 @@ applied (clips or procedural rig); `h.remove()` stops it. Presentation only.
   clip weights sum to 1).
 - Characters: `describe().player.state` (idle/walk/run...) matches `engine.player.anim.state`.
 - `anim.check([...actions])` is `[]`.
-- Related tests: `threedog test "Animation state machine"` (in the engine repository: two-bone figure built in code by `makeRig()`, in
-  `packages/engine/tests/vehicle/`), `threedog test 骨骼动画链路` (a real CC0 glTF character, `packages/engine/tests/anim/`: manifest mapping, cross-fade, sync, alignment of the
-  slash with the hit phase, dev warnings) and `threedog test 骨骼动画最小链路` (a skinned GLB generated in code by `tests/anim/rig.js` through GLTFExporter,
-  loaded like a file: manifest mapping, `check`, sync holding the pose against frame time).
+- Related tests: `threedog test "Animation state machine"`, `threedog test 骨骼动画链路`, `threedog test 骨骼动画最小链路`.

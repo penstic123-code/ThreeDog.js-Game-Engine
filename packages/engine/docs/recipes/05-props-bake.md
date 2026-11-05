@@ -6,7 +6,7 @@
 
 **Props** are a small number of hand-placed objects (a tree next to a cabin, rocks, street lamps). Write them as data; each entry becomes an ordinary
 `kind: 'prop'` record in `engine.world` (needs `world()`, which `openWorld()` already includes). The model is created only when the player gets close
-(within terrain view distance), and **the collision body and ray registration are built with the model and removed when the player leaves** (only
+(within `world.radius`, or the stream's active radius when that is larger), and **the collision body and ray registration are built with the model and removed when the player leaves** (only
 things near the player need to block the way).
 Large repeated areas (forests, grass) don't use this; use `content/vegetation.js` (instanced vegetation), or section 2e for plants on your own geometry.
 
@@ -74,7 +74,7 @@ development they are cached automatically (.threedog/cache) and recomputed when 
 import { buildBlock } from './block.js';
 engine.assets.manifest({ models: { 'city-block': buildBlock } });     // the function returns an Object3D or a geometry
 const block = await engine.assets.model('city-block');
-engine.use(level({ url: 'city-block' }));                               // a level reads it by name (the city example does this): baked file and cache both apply, and loading a save can switch back to this map
+engine.use(level({ url: 'city-block' }));                               // a level reads it by name: baked file and cache both apply, and loading a save can switch back to this map
 ```
 To package a release or edit it in Blender, create `bake.js` in the game folder (`npm run bake -- -w <game>` reads the `bake` export of `bake.js`
 in that game's folder). A game's picture lives in its own `picture/` folder; a model built there is baked the same way, by importing its
@@ -118,27 +118,17 @@ it by name, and use the name everywhere. Later a `.glb` registered under the sam
 
 ```js
 import * as THREE from 'three';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-
-function lampPost() {
-  const pole = new THREE.MeshStandardMaterial({ color: this.palette.metal ?? 0x3a3d42, roughness: 0.5, metalness: 0.8 });
-  const glass = new THREE.MeshStandardMaterial({ color: 0xfff2c0, emissive: 0xffd27a, emissiveIntensity: 1.5 });
+function lampPost() {   // a function, not an arrow, so this.palette is there
   const root = new THREE.Group();
-  const base = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.3, 0.5, 2, 0.05), pole); base.position.y = 0.15;
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 3, 12), pole); post.position.y = 1.8;
-  const head = new THREE.Mesh(new THREE.LatheGeometry([[0, 0], [0.2, 0.05], [0.14, 0.4], [0, 0.45]].map(([r, y]) => new THREE.Vector2(r, y)), 16), glass);
-  head.position.y = 3.3;
-  for (const m of [base, post, head]) { m.castShadow = m.receiveShadow = true; root.add(m); }
+  root.add(new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 3, 12), new THREE.MeshStandardMaterial({ color: this.palette.metal ?? 0x3a3d42 })));
   return root;
 }
 engine.assets.manifest({ name: 'props', models: { lampPost } });
 // content/props.js: { model: 'lampPost', x: 4, z: 2, collide: 'circle' }        code: engine.add(await engine.assets.model('lampPost'), { id: 'lamp-1' })
 ```
 
-**Where the colors come from**
-- **The model's own three.js materials** (`new THREE.MeshStandardMaterial({ map: canvasTexture })`, a `ShaderMaterial`), any type a game's picture calls for.
-- **Colors shared between models** live in the palette: read `this.palette.metal` in the generator, as the lamp post does.
-- Vertex colors for a merged model: `mergeColored([[geometry, this.palette.wood], ...])` returns one geometry.
+**Where the colors come from.** The model's own three.js materials, of any type the game's picture calls for; colors shared between models from the palette (`this.palette.metal`
+above); vertex colors for a merged model from `mergeColored([[geometry, this.palette.wood], ...])`, which returns one geometry.
 
 **The palette.** `engine.assets.palette` is a plain object of named colors: `engine.assets.palette = { wood: 0x8a5a36, leaf: 0xd98a3a }`, or write one key.
 Generators and code-made textures read it as `this.palette`. Set it before the models load; after a write, whatever is asked for next is built from the
@@ -149,7 +139,7 @@ Very detailed models (faces, sculpted shapes, hand-painted textures) are faster 
 
 ## 2b. Many copies of one model: automatic batching
 Nothing to write for what the engine places: `engine.batching` (core) covers world record views (props, templates, grid items, `world.present`),
-`stream` builds and level files. When the same geometry + material (+ shadow flags) appears at least 8 times in one 64 m cell, those meshes are
+`stream` builds and level files. When the same geometry + material (+ shadow flags) appears at least 8 times in one cell (256 m by default), those meshes are
 drawn by one real `THREE.InstancedMesh` per cell; fewer stay plain meshes. Each placed object stays in the scene with its own userData, record,
 collision and interactions; only its meshes are moved to layer 31 (not drawn), so `engine.raycast` / `pick` / photo return the original object,
 not an instance index.
@@ -167,9 +157,8 @@ if (crate) {
   engine.batching.tint(crate, 0xff8080);       // recolor one copy (instance color; null restores)
   engine.batching.of(crate);                   // [{ mesh: InstancedMesh, index }], [] when drawn on its own
 }
-engine.batching.batches;                       // [{ mesh, cell, count, items }] for inspection
-engine.batching.stats;                         // { batches, instances, saved, note?, hint? } (also describe().perf.batching)
-engine.batching.enabled = false;               // global switch; createEngine({ batching: false }) never starts it, { minCount, cell } tunes it (cell is 256 m by default: wider draws fewer objects, narrower culls finer)
+engine.batching.stats;                         // { batches, instances, saved, note?, hint? } (also describe().perf.batching); engine.batching.batches lists them
+engine.batching.enabled = false;               // global switch; createEngine({ batching: false }) never starts it, { minCount, cell } tunes it (wider cells draw fewer objects, narrower cull finer)
 ```
 - Move / hide / remove a copy as usual (`world.move`, `obj.visible = false`, `engine.remove`): its instance follows next frame; unloading a cell frees
   its batch.
@@ -180,27 +169,16 @@ engine.batching.enabled = false;               // global switch; createEngine({ 
   geometry `hlod` registered (hlod owns far, batching owns near).
 
 ### Render bundles: three's BundleGroup, for static meshes that cannot batch
-A WebGPU option with no engine API: `BundleGroup` is plain three.js, and the engine stays out of its way. Batch first. Batching removes objects; a bundle only removes the
-command recording of objects that stay, and three still refreshes each of them every pass. The case left for a bundle is many different static meshes that nothing can merge, and even there, measure.
-```js
-import { BundleGroup } from 'three/webgpu';
-const town = new BundleGroup();          // only meshes inside: lights go outside it
-town.add(...uniqueStaticMeshes);
-engine.scene.add(town);                  // or return it from a stream build; engine.remove(town) frees it
-town.visible = false;                    // works at once, shadow included, no recording
-someChild.visible = false; town.needsUpdate = true;   // anything inside: say so
-```
-- **It replays what it recorded.** A child's `visible`, an added or removed child and `castShadow` show only after `town.needsUpdate = true`, which records again. Recording costs a frame hitch when the bundle is big, so several small bundles beat one huge one if parts change.
-- **Nothing inside is culled.** three skips the frustum test in a bundle, so the whole group draws in every pass, on screen or not, in the shadow pass too. Size groups so `visible` can drop a whole one; `bundle.visible` is your only culling.
+A WebGPU option with no engine API: `BundleGroup` (`three/webgpu`) is plain three.js, and the engine stays out of its way. Batch first: batching removes objects, a bundle only
+removes the command recording of objects that stay, and three still refreshes each of them every pass. It may gain nothing in your scene, so compare before you keep it.
+- **It replays what it recorded.** A child's `visible`, an added or removed child and `castShadow` show only after `bundle.needsUpdate = true`, and recording costs a frame hitch on a big bundle, so several small bundles beat one huge one if parts change. `bundle.visible` works at once.
+- **Nothing inside is culled**, in the shadow pass too: size groups so `visible` can drop a whole one.
 - **One owner per mesh.** A mesh under a `BundleGroup` is the bundle's: `engine.batching` leaves it alone (`userData.batch = true` on the group warns once) and `hlod.add` skips it with a warning, since neither could hide it. Occlusion culling does not reach it either. `engine.stream` works as usual, a build may return a `BundleGroup`.
 - On a WebGL backend it is a plain group: correct, no gain. `describe().render.bundles` gives `{ groups, meshes, replayed }`; `engine.inspect.scene()` adds the reason `in-bundle`.
-- Measured on one streamed city (real GPU, busy machine): one bundle per block ran about ten times slower than batching and no faster than plain meshes; batches put into bundles gained nothing over batches alone. A bundle of 190 meshes still costs 190 refreshes per pass. So it may not pay in your scene: compare before you keep it.
 
 ## 2c. Art iteration loop: edit -> hot swap -> gallery -> compare
-Works for any model made in code (a hut, a weapon, a coral, a character body), in any art style; the tools only build and show, they add no picture.
-For the models that matter (characters, main buildings, props repeated across the level), think through the parts and their proportions before
-writing code, and afterwards look at the model on its own, not only inside the level: `threedog gallery --shots` draws each one from a single
-three-quarter view under three lights. When something seems off, turn it on the live turntable (`threedog gallery`) to see it from another side.
+Works for any model made in code, in any art style; the tools only build and show, they add no picture. For the models that matter (characters, main buildings,
+props repeated across the level), think through the parts and their proportions first, and look at the model on its own afterwards, not only inside the level.
 - **Edit, see it in place**: keep generators in modules imported by the game's `assets.js` (for example an `art/` folder). Saving one (dev server) rebuilds
   its models and swaps every live copy in place: content props, template parts, pickups, vegetation instances, `assets.model` copies. Camera,
   player, time and world state stay; `describe().assetSwaps` and a toast say what changed. A collision box keeps its placed size until the next
@@ -208,15 +186,10 @@ three-quarter view under three lights. When something seems off, turn it on the 
 - **Tune numbers live**: declare `params` (section 2a); the dev panel's models folder (`?panel=1`) shows them and every drag rebuilds the
   copies (`engine.assets.setParams(name, values)`). "write back", then `threedog tune write` (dry run; `--apply`) puts the values into the
   schema's `default` where the model is registered.
-- **Review all at once**: `?gallery=1` on the dev page, or `threedog gallery`, puts every registered model and texture on a turntable under
-  three neutral light setups (midday, low sun, overcast). `threedog gallery --shots` writes `.threedog/gallery/<name>-<light>.png` and an
-  `index.html` of all of them, so one picture covers the whole set.
-- **Outline and light/dark on their own**: `--shots --mode silhouette,value` adds `<name>-silhouette.png` (the model pure black on white) and
-  `<name>-value.png` (the midday shot in grayscale) per asset, with facts printed and stored in `index.json`: `fill` (share of the frame),
-  `boxFill` (share of its own bounding box), `aspect`, and luminance `p5` / `p50` / `p95` inside the outline. They are measurements, not
-  grades. Principle for reading them: a shape the player must recognize at play distance usually still reads as a silhouette, and a
-  narrow p5-p95 spread means hue carries the form; whether that is right depends on the game's picture and camera, so compare assets that must
-  be told apart with each other rather than with a fixed number.
+- **Review all at once**: `?gallery=1` on the dev page, or `threedog gallery`, puts every registered model and texture on a turntable under three neutral lights;
+  `--shots` writes one page of pictures, `--mode silhouette,value` adds outline and grayscale shots with measurements in `index.json` (`fill`, `boxFill`, `aspect`,
+  luminance `p5` / `p50` / `p95`). They are measurements, not grades: a shape the player must recognize at play distance usually still reads as a silhouette, and a
+  narrow p5-p95 spread means hue carries the form; compare assets that must be told apart with each other rather than with a fixed number.
 - **Compare with the reference**: `threedog picture compare <reference.png> .threedog/gallery/<name>-midday.png --out diff.png` gives numbers
   for one asset against its reference crop, the same way as for a whole screenshot (`recipes/35-picture-from-reference.md`).
 
@@ -232,9 +205,9 @@ the DESIGN.md "Asset sources" row, and every source ends up the same way, as a n
 | Your own earlier games | an effect, material, model or texture you already made and liked | `threedog lib list` / `lib pull` (below), or `threedog art copy ../earlier-game name` |
 | AI-generated 3D / textures | one-off props, texture variations | export glTF / PNG, then the same checks as any file: `threedog assets check`, scale, origin, triangle count, UVs |
 
-**Does it fit?** Every entry has one card, measured at `lib add`: what it needs, what it provides, which shared three.js values it writes, its size (1 unit = 1 meter, up axis, origin, texture color space), its style and a short usage; `threedog lib list <word> --card` prints it. Tag a style with `--style` in your own words (a pixel-art dungeon and a watercolor village both work): only tags can say that, and two entries with no tag in common are reported. After pulling several pieces, `threedog lib check` says what is missing and what clashes, and `threedog lib status` says which copies this game changed. Nothing is forced: fix a clash in your copy, or leave a note you meant.
+**Does it fit?** Every library entry has one card, measured at `lib add` (needs, provides, shared three.js values it writes, size, style, usage); `threedog lib list <word> --card` prints it. Tag a style with `--style` in your own words: only tags can say that, and two entries with no tag in common are reported. After pulling several pieces, `threedog lib check` says what is missing and what clashes. Nothing is forced: fix a clash in your copy, or leave a note you meant.
 
-**Your own library.** `threedog lib add <file|folder|exportName> -w earlier-game` keeps a piece of a finished game in `~/.threedog/library` (outside the engine; `THREEDOG_LIBRARY` or `--lib` moves it) with a summary, the use line and the backends it works on; `threedog lib list [words]` searches it, `threedog lib pull <name>` copies it into this game and prints the use line (a code entry: its files go to `plugins/<name>/` and pull writes `plugins/<name>.js`, the one wiring line that calls its factory, from the entry's plug line: `lib add --plug "makeWater({ size: 4 })"` sets it, otherwise it calls the exported function; change the arguments in that file), `threedog lib page` writes a page with all previews. Look here before writing an effect from scratch. A pulled entry is a copy with no link back and no update: change it to fit this game rather than keeping it as it was, or every game ends up looking alike.
+**Your own library.** `threedog lib add <file|folder|exportName> -w earlier-game` keeps a piece of a finished game in `~/.threedog/library`, `threedog lib list [words]` searches it, `threedog lib pull <name>` copies it into this game (code goes to `plugins/<name>/`, plus a wiring file `plugins/<name>.js`); flags in `../COMMANDS.md`. Look here before writing an effect from scratch. A pulled entry is a copy with no link back and no update: change it to fit this game rather than keeping it as it was, or every game ends up looking alike.
 
 **Rules (correctness and licensing):**
 - Read the license of every asset you did not make, on the page you downloaded it from, before it goes into the game; a library can mix

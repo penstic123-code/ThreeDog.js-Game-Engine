@@ -5,6 +5,11 @@ import { codedError } from './errorHints.js';
 // API convention: a position is one argument. The old (x, z, ...) form arrives as a number; throw with the fix (otherwise it silently becomes the origin)
 const STRINGS = { position: 'A position must be passed as one argument: Vector3 / object / [x, y, z] / { x, z } (see the API conventions); got ' };
 const POS_ERR = STRINGS.position;
+/**
+ * The one bad-position error. It carries the value: an op tells a bad argument (refused) from a bad value of its own making (a bug, reported) by it.
+ * @param {string} message @param {any} value @param {ErrorConstructor} [Type] @internal
+ */
+export const badPosition = (message, value, Type) => Object.assign(codedError('bad-position', message, Type), { value });
 // A horizontal position missing x or z (a 2-element [x, z] array reads z as undefined; { x, y } has no z) would become 0 silently
 // (player.placeAt([10, 20]) at z = 0): say which part is missing and how to write it
 const MAX_COORD = 1e9;
@@ -27,7 +32,7 @@ export const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
 /** Normalize a Vector3 / Object3D / [x, y, z] / { x, y, z } into a Vector3 */
 export function vec3(v, out = new THREE.Vector3()) {
   if (!v) return out;
-  if (typeof v !== 'object') throw codedError('options-object', POS_ERR + JSON.stringify(v), TypeError);
+  if (typeof v !== 'object') throw badPosition(POS_ERR + JSON.stringify(v), v, TypeError);
   if (v.isVector3) return out.copy(v);
   if (v.isObject3D) return out.copy(v.position);
   if (Array.isArray(v)) return out.set(v[0] ?? 0, v[1] ?? 0, v[2] ?? 0);
@@ -43,12 +48,12 @@ export function yOf(v) {
 
 /** Get the horizontal coordinates [x, z] from a Vector3 / Object3D / [x, y, z] / { x, z } */
 export function xzOf(v) {
-  if (!v || typeof v !== 'object') throw codedError('options-object', POS_ERR + JSON.stringify(v), TypeError);
+  if (!v || typeof v !== 'object') throw badPosition(POS_ERR + JSON.stringify(v), v, TypeError);
   if (v.isObject3D) v = v.position;
   const x = Array.isArray(v) ? v[0] : v.x, z = Array.isArray(v) ? v[2] : v.z;
-  if (!Number.isFinite(x) || !Number.isFinite(z)) throw codedError('options-object', XZ_ERR + JSON.stringify(v), TypeError);
+  if (!Number.isFinite(x) || !Number.isFinite(z)) throw badPosition(XZ_ERR + JSON.stringify(v), v, TypeError);
   // Far past float precision (render coordinates are 32-bit): not a place. Worse, the chunk loops (`for (cx = floor(x / size); ...; cx++)`) never advance once x / size passes 2^53, a silent freeze (found by fuzz: pos z = -3.6e178)
-  if (Math.abs(x) > MAX_COORD || Math.abs(z) > MAX_COORD) throw codedError('options-object', `A horizontal position must lie within ±${MAX_COORD} (far past that nothing renders or streams correctly, and chunk loops stop advancing); got ` + JSON.stringify(v), RangeError);
+  if (Math.abs(x) > MAX_COORD || Math.abs(z) > MAX_COORD) throw badPosition(`A horizontal position must lie within ±${MAX_COORD} (far past that nothing renders or streams correctly, and chunk loops stop advancing); got ` + JSON.stringify(v), v, RangeError);
   return [x, z];
 }
 

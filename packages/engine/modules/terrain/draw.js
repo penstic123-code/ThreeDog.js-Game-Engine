@@ -8,6 +8,7 @@
 //   install(e, ctx) { ctx.track(e.terrain.view({ add(c) {...c.data.pos...}, change(c) {...}, remove(c) {...}, show(c, visible) {...} })); }
 // This file never changes chunk data; it only reads it.
 import { engineOwned } from '../../core/things.js';
+import { needMaterial } from '../../core/validate.js';
 import * as THREE from 'three';
 import { terrainMaterial } from '../../render/materials.js';
 import { patchesOf, unpatchMaterial } from '../../render/patches.js';
@@ -104,7 +105,7 @@ export class TerrainDraw {
    */
   get material() { return this._material; }
   set material(m) {
-    if (!m?.isMaterial) throw codedError('terrain-option', `engine.terrain.material takes a three.js Material, got ${m}; e.g. engine.terrain.material = applyEffects(new THREE.MeshStandardMaterial({ vertexColors: true }), { patches: engine.terrain.patches })`);
+    needMaterial('terrain-option', 'engine.terrain.material', m, '; e.g. engine.terrain.material = applyEffects(new THREE.MeshStandardMaterial({ vertexColors: true }), { patches: engine.terrain.patches })');
     const was = this._material;
     if (m === was) return;
     this._material = m;

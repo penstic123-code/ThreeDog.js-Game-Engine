@@ -8,6 +8,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { backendsOf, cardOf, noComments, sizeNotes } from './lib-card.mjs';
 import { readRecords } from './lib-records.mjs';
+import { gameCodeFiles } from './text.mjs';
 
 /** A composite module installs others under its own call, so a static read cannot say what is missing */
 const COMPOSITE = /\bopenWorld\s*\(/;
@@ -15,7 +16,9 @@ const COMPOSITE = /\bopenWorld\s*\(/;
 const SCALE_GAP = 100;
 
 /** The game's own code as one text, for "is this module used here" */
-function gameCode(game) {
+const gameCode = game => gameCodeFiles(game).map(f => readFileSync(f, 'utf8')).join('\n');
+/** The top-level files, where createEngine is: a pulled plugin's own helper renderer must not read as the game's */
+function topCode(game) {
   const top = readdirSync(game).filter(f => /\.m?js$/.test(f) && !f.startsWith('vite.')).map(f => join(game, f));
   return top.map(f => readFileSync(f, 'utf8')).join('\n');
 }
@@ -27,7 +30,7 @@ function gameCode(game) {
  * @param {string} game @returns {'webgpu' | 'webgl' | null}
  */
 export function rendererOf(game) {
-  const code = noComments(gameCode(game));
+  const code = noComments(topCode(game));
   if (/\brenderer\s*:\s*['"]webgpu['"]|\bnew\s+(?:\w+\.)?WebGPURenderer\b/.test(code)) return 'webgpu';
   if (/\brenderer\s*:\s*['"]webgl['"]|\bnew\s+(?:\w+\.)?WebGLRenderer\b/.test(code)) return 'webgl';
   // only a call whose options are all in sight can mean "no renderer option": createEngine(cfg) or { ...cfg } may name one in another file

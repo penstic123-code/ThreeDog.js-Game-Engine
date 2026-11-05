@@ -1,6 +1,6 @@
-# Water and rain/snow: depth color, foam, reflections, particles, lightning
+# Water and rain/snow: depth color, foam, reflections, particles, snow cover, lightning
 
-**In this recipe**: water look and material, foam and depth, weather particles, lightning, and a reflecting mirror (WebGL addon and WebGPU node).
+**In this recipe**: water look and material, foam and depth, a reflecting mirror (WebGL addon and WebGPU node), weather particles, snow that settles, lightning.
 
 ```js
 engine.use(water({ level: 2 }));
@@ -12,20 +12,14 @@ engine.water.normalMap('water-n', { scale: 0.4, repeat: 0.05, speed: [0.01, 0.00
 ```
 
 For an AI that wants water or weather particles to look a way the defaults do not. `water()` takes the structure only (`sea`, `level`, `flat`, `size`,
-`segments`); the water is neutral gray until your `picture/` code writes it. Lights, fog and the sky are in `38-environment-hooks.md`. Water that uses
-none of `depthColor`, `foam`, `surface` keeps the plain shader and pays nothing (`tests/specs/appearance-water.mjs`). Four exits: a material write, a
+`segments`); the water is neutral gray until your `picture/` code writes it. Lights and fog are in `34-environment-lighting.md`, the sky in `08-weather-sky.md`. Water that uses
+none of `depthColor`, `foam`, `surface` keeps the plain shader and pays nothing. Four exits: a material write, a
 uniform, a GLSL function you replace, or your own material.
 
 ## Water: material and uniforms
 `engine.water.material` is shared by every water mesh and is a `MeshLambertMaterial` by default: color, opacity and anything else three.js has on it are
 plain writes. Lambert has no highlight; for `shininess` / `specular` set your own Phong material (below). `engine.water.uniforms` are `{ value }` objects:
-
-| Uniform | Default | What it does |
-|---|---|---|
-| `uWave` | 1 | multiplies the wave function (0 = flat) |
-| `uWaveScale` | 1 | world position scale fed to the wave function |
-| `uWaveSpeed` | 1 | time scale fed to the wave function |
-| `uFresnel` | 0.5 | grazing angles blend toward the fog color, or the sky's horizon with no fog (0 = off) |
+`uWave` multiplies the wave function (0 = flat), `uWaveScale` scales the world position fed to it, `uWaveSpeed` the time; all three default to 1. `uFresnel` (default 0.5, 0 = off) blends grazing angles toward the fog color, or the sky's horizon with no fog.
 
 ## Water: depth color and crest foam
 ```js fragment
@@ -33,22 +27,17 @@ engine.water.shader({ depthColor: { shallow: 0x55ddcc, deep: 0x082040 } });     
 engine.water.shader({ depthColor: { shallow: 0x7fe0d0, deep: 0x0a3050, by: 'wave', curve: 1.5 } });   // shallow on the crests, deep in the troughs
 engine.water.shader({ foam: { color: 0xffffff, start: 0.55, end: 0.85, opacity: 1 } });  // white on the wave tops; foam: true = these defaults
 ```
-- `shader()` decides which GLSL exists, so it patches the engine's material again (one recompile; it stays the same material). Keys left out keep what an
-  earlier call gave, `null` takes one back out. It refreshes `engine.water.patches` and `engine.water.uniforms`; `uWave`, `uWaveScale`, `uWaveSpeed`,
-  `uFresnel` stay the same objects.
+- `shader()` decides which GLSL exists, so each call is one recompile: a scene change, not a frame. What it keeps and refreshes: `../api/water.md`.
 - `depthColor` replaces the material color (opacity stays). `'view'` is a fresnel-style blend by the view angle, `'wave'` blends by the wave height; neither
   needs a depth texture. `curve` bends the blend (above 1 keeps more of the shallow color). A color left out is a neutral gray (light for
   `shallow`, dark for `deep`): the engine picks no water color, so set both.
 - `foam` uses the same wave height as the vertices: `start` / `end` are fractions of the peak height (`waveMax` of the `wave` function, default 0.29) where
-  foam begins and is full. Foam is opaque even on transparent water. All numbers are uniforms (`engine.water.uniforms.uFoamStart.value`; also
-  `uFoamColor`, `uFoamEnd`, `uFoamOpacity`, `uWaterShallow`, `uWaterDeep`, `uWaterCurve`).
-- **Shore foam is not built in.** An accurate foam line where water meets land needs the distance to the ground under each pixel: a depth
-  pre-pass (a `DepthTexture` render target of the scene without water) or a terrain height lookup, both cost a full extra pass or a texture
-  read per pixel. Do it yourself with your own material: render the scene's depth to a target before the water draws
-  (`material.onBeforeRender`), pass it as a uniform, and in your fragment compare the scene depth with this fragment's depth, both turned into meters with three's
-  `perspectiveDepthToViewZ` (`#include <packing>`); foam
-  where the difference is under about a meter. A cheap fake: `engine.addWaterBody` lakes have known radii, so a surface function can foam the
+  foam begins and is full. Foam is opaque even on transparent water. All numbers are uniforms (`engine.water.uniforms.uFoamStart.value`).
+- **Shore foam is not built in.** A foam line where water meets land needs the distance to the ground under each pixel, so an extra depth pass or a height lookup per pixel.
+  Do it with your own material: render the scene's depth to a target before the water draws (`material.onBeforeRender`), pass it as a uniform, and compare it with this fragment's depth, both in meters through three's
+  `perspectiveDepthToViewZ` (`#include <packing>`). A cheap fake: `engine.addWaterBody` lakes have known radii, so a surface function can foam the
   ring `length(worldPos.xz - center) > radius - 1.0` (pass the center and radius as `uniforms`).
+- A look that changes with real depth (tint, opacity) reads depth as the water level minus `engine.ground.height(x, z)`: once per vertex of a subdivided plane, or baked into an attribute a material reads.
 
 ## Water: replace the wave or the surface function (GLSL)
 ```js
@@ -73,9 +62,7 @@ engine.water.shader({
 - Your GLSL has no WebGPU form (the GLSL route is for `--webgl` games): on `renderer: 'webgpu'` start() names the patch. The built-in wave, depth color and foam run on both renderers.
 
 ## Water: normal map
-`engine.water.normalMap(name, { scale, repeat, speed })` loads the texture by asset name onto the engine's material: `scale` is its strength, `repeat` tiles
-per meter (rewrites the meshes' UVs once), `speed` the scroll `[x, z]` per second. Keys left out keep their value; the same name again only changes those;
-`null` takes it off. It returns the texture, also readable as `engine.water.normalTexture`. A material of your own takes that texture itself
+`engine.water.normalMap(name, { scale, repeat, speed })` goes on the engine's material only (keys in `../api/water.md`). A material of your own takes the texture itself
 (`myMaterial.normalMap = engine.water.normalTexture`); the tiling and the scroll run whatever material draws.
 
 ## Water: your own material (reflections, refraction)
@@ -128,7 +115,6 @@ engine.water.material = m;
 - One mirror plane: the material is shared, so water bodies at other levels need `water({ sea: false })` or their own mirror. The Reflector's
   shader has no waves or fog; for both, copy its `fragmentShader` into a `MeshPhongMaterial` patch that samples `tDiffuse` with `textureMatrix`.
 - three's `Refractor` addon (next to `Reflector`) reads `matrixWorld` as an XY plane too, so the same adapter applies (not covered by a test).
-- Tested: `tests/specs/appearance-water.mjs` renders this exact example and finds the reflected box in the mirror texture.
 
 ## Water: your own meshes (three's `Water` addon, your own geometry)
 The water module's material is yours to swap, its meshes are not. For water drawn entirely your way, leave `water()` out and draw it in plain
@@ -147,10 +133,7 @@ weather({ types,
   // snow: { texture: 'flake' },                                    // a sprite image replaces the shape
 });
 ```
-- `shape`: `'line'` (rain default; leans with the wind by `slant`, `length` meters) or a sprite: `'round'` (snow default), `'soft'`, `'square'`
-  (`size` pixels at 3 m, capped at `maxSize`; drifts `sway` meters). `speed` is the fall in m/s.
-- `density: amount => share`: how many particles show at a weather amount 0..1 (rain `a => min(1, a * 1.2)`, snow `() => 1`); opacity still
-  follows the amount. `count` per system (default `weather({ particles })`, else 6000, 3000 on low-tier devices; a number the game gives stands). Coverage is `weather({ area })`.
+The keys and defaults are `WeatherParticles` in `types/world.d.ts`. `density` decides how many particles show at a weather amount; opacity follows the amount as well. Coverage is `weather({ area })`.
 
 At run time each system is in `engine.weather.particles`, and every number is a plain write, live on both renderers:
 ```js
@@ -175,9 +158,19 @@ void main(){
 }` } } });
 ```
 `glsl.vertex` / `glsl.fragment` are the whole shader text; copy `modules/weather/shaders.js` (`lineVert lineFrag pointVert pointFrag`) as the
-start. In scope: `uCam uSize uFallOff uOpacity uColor`; lines add `uWindDir uLen` and the attribute `aEnd` (0 head, 1 tail); sprites add
-`uPx uMaxPx uSway uSwayAmp uMap uUseMap`. Your `uniforms` are declared for you; declare the built-in ones you use, as the copies do. Keep
+start (what is in scope: `glsl` in `WeatherParticles`; the attribute `aEnd` is 0 at the head, 1 at the tail). Your `uniforms` are declared for you; declare the built-in ones you use, as the copies do. Keep
 the two `#include` lines so the color matches three's materials with and without post-processing. WebGPURenderer does not compile GLSL text: `engine.weather.defineField(field, { create })` with a node material there.
+
+## Snow that settles: `weather({ snow: { cover } })`
+```js
+weather({ types, snow: { size: 18, cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 } } });
+```
+- While the weather's `snow` amount rises (any type with `snow > 0`), the foliage / ground season tint moves `strength` of the way toward
+  these colors, and melts back as it falls. It reuses the season patch uniforms (`uFoliageTint/Mix`, `uGroundTint/Mix`): vegetation, terrain
+  and any material with `applyEffects(m, { season: 'ground' })` follow; no extra shader pass. It needs `sky()`, which holds the point the cover goes through.
+- Over a `mode: 'mix'` season the two blend into one mix; a `'multiply'` season gives way while snow lies (use `'mix'` for smooth fades).
+- Leave a part out to keep its season color (`cover: { foliage: 0xffffff }` whitens trees only). Leave `cover` out and snow is particles only.
+- Ash, frost or anything else: `engine.mod('ground.cover', { owner: 'ash', value: { ground: 0x555555, amount: 0.6 } })` (one entry per owner, the handle's `remove()` ends it).
 
 ## Lightning picture
 ```js
@@ -199,11 +192,5 @@ engine.weather.defineField('rain', { create: (engine, { area, count }) => {   //
   return { object: drops, update(amount, { camera, time, wind }) { /* move the instances; shown while amount > 0.02 */ } };
 } });
 ```
-A field no type has throws with the table's fields. `define(field, null)` gives rain and snow back and removes any other field. Rain and snow are built
+A field no type has throws with the table's fields. `defineField(field, null)` gives rain and snow back and removes any other field. Rain and snow are built
 only when a type rains or snows, so a desert pays nothing.
-
-The weather's effect on the picture stays on signals: `engine.uniforms.uWeatherLight`, `uWeatherFog`, `uRain`, `uSnow`, `uWind`, `uWeatherCloud`. The game's own light,
-fog and wet-road code reads them; the weather writes no light and no fog.
-
-
-A look that changes with depth (tint, opacity, foam) reads depth as the water level minus `engine.ground.height(x, z)`: once per vertex of a subdivided plane, or baked into an attribute a material reads.

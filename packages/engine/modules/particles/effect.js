@@ -1,7 +1,7 @@
 // One particle effect (helper of Particles.js): a ring buffer of particles drawn as one THREE.Points, updated on the CPU every frame.
 import * as THREE from 'three';
+import { needMaterial } from '../../core/validate.js';
 import { vert, frag } from './shaders.js';
-import { codedError } from '../../core/errorHints.js';
 import { isWebGPU, webgpuPart, onRendererSwap } from '../../render/backend.js';
 
 export const NEUTRAL = {
@@ -47,7 +47,7 @@ export class Effect {
   /** The plain three.js material drawn; set yours and it is drawn as given, null gives the engine's back */
   get material() { return this._given ?? this._own; }
   set material(m) {
-    if (m != null && !m.isMaterial) throw codedError('module-params', `particles '${this.name}': material is a three.js material (or null for the engine's); got ${m}`);
+    if (m != null) needMaterial('module-params', `particles '${this.name}': material`, m, " (null gives the engine's back)");
     this._given = m || null;
     this.points.material = m ?? this._own;
   }

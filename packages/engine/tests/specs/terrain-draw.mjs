@@ -1,4 +1,4 @@
-// Terrain drawing open points (recipes/37-terrain-hooks.md): shading 'texture' (per-chunk color map), diagonal, normalFn, boundsPad.
+// Terrain drawing open points (recipes/53-ground-up-close.md): shading 'texture' (per-chunk color map), diagonal, normalFn, boundsPad.
 // Defaults draw what they always drew (golden hashes computed with the code before these options existed); the river-bank check renders
 // the real engine into a render target and measures the color border. Same format as the other files here.
 const PAGE = '/tests/perf/index.html?mode=world';

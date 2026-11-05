@@ -13,7 +13,7 @@
 // sunDir, night, lit, shade, cover (the same arguments as nodes), clouds (the built-in kind's vec4, the value so far), uniforms (the dome's
 // uniforms as nodes, the patch's own included), fx: { noise, hash }, tsl (three/tsl) }. Each renderer needs its own form; a missing one throws by name.
 import * as THREE from 'three';
-import { closest } from '../../core/validate.js';
+import { closest, oneForm } from '../../core/validate.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { codedError } from '../../core/errorHints.js';
 import { scanRenamed, RENAMED_DOME_UNIFORMS } from '../../render/uniformRenames.js';
@@ -71,7 +71,7 @@ export function resolveClouds(c, hook, gpu = false) {
   let glsl = kind === 'cumulus' ? CUMULUS : PLANE;
   if (h?.tsl != null && typeof h.tsl !== 'function') throw codedError('sky-option', "engine.sky.clouds(): tsl must be (ctx) => vec4 node (WebGPURenderer); see modules/sky/clouds.js");
   // gpu: the node dome draws h.tsl (render/fx/sky.tsl.js checks it); the GLSL, when given too, is still checked here
-  if (h && h.glsl == null && !gpu) throw codedError('sky-option', "engine.sky.clouds() has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl, uniforms })");
+  if (h && h.glsl == null && !gpu) throw oneForm('sky-option', 'engine.sky.clouds()', false);
   if (h?.glsl != null) {
     if (typeof h.glsl !== 'string' || !/vec4\s+threedogClouds\s*\(/.test(h.glsl)) throw codedError('sky-option', "engine.sky.clouds(): glsl must define `vec4 threedogClouds(vec3 dir, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover)` returning (rgb color, alpha); see modules/sky/clouds.js");
     glsl = h.glsl;

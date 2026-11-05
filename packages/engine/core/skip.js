@@ -97,7 +97,7 @@ export const skipMethods = {
     const go = () => {
       if (ended) return;   // the playthrough ended during the fade out: nothing to skip in the new one
       const r = this.ops.run('time.skip', { seconds: amount(this, opts) });   // measured at jump time: a queued transition may have moved the clock
-      if (!r.ok) throw codedError('skip-amount', `engine.skip(): ${r.code}`);
+      if (!r.ok) throw codedError('skip-amount', `engine.skip(): the time.skip op was refused (${r.code}); read it with engine.ops.can('time.skip', { seconds })`);
       out = r.value;
       if (save && out) this.saves.save(save === true ? 'auto' : save);
     };

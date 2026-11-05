@@ -8,9 +8,9 @@ The engine's three outward concepts are **Scene** (what stands in the world, whe
 sounds, fonts: `05-props-bake.md` §3b) and **Picture** (how it looks: `09-materials-lights-models.md`). Content packs belong to Scene: they are the data form of it.
 Patches, ops and world records are the scene's inner machinery; read them when you need them (`23-ops.md`, `18-world.md`).
 
-Every root you pass to `engine.add` is registered: an id, where it was added (`main.js:50`, dev builds only), who manages it and how much a save
+Every root added with `engine.add` or `engine.scene.add` is registered: an id, where it was added (`main.js:50`, dev builds only), who manages it and how much a save
 keeps. World records (template instances, props, pickups, NPCs, level nodes) share the same id space and the same query, so one question works for a
-plain three.js mesh and for a template instance alike. `engine.scene.add` adds without registering: the plain three.js way in, still legal.
+plain three.js mesh and for a template instance alike. Only `engine.add(obj, { id })` gives it a stable id.
 
 ## 1. Two doors into one scene
 A scene object comes in either of two ways, and both end up in the same scene:
@@ -45,7 +45,7 @@ export default [{ id: 'windmill-hill', template: 'windmill', x: 20, z: -10 }];
 // main.js: a code-built model registered by name
 engine.assets.manifest({ models: { windmill: buildWindmill } });
 ```
-Route B gives the object an id, a source line (`engine.world.origin('windmill-hill')`), a save record and a place a future editor can write back to.
+Route B gives the object an id, a source line (`engine.world.origin('windmill-hill')`), a save record and a place the editor (F2, recipe 30 section 7) writes back to.
 Route A gives you less ceremony and full three.js control.
 
 ## 2. What goes in content, what stays three.js
@@ -56,8 +56,7 @@ Route A gives you less ceremony and full three.js control.
 | Many copies of one definition | A one-off with custom geometry or material logic |
 | Has a state worth reading with `world.get(id)` | Pure presentation |
 
-The rule check (R33) is deliberately narrow. It flags only the calls that would run again after a load and so duplicate saved data: `world.add`,
-`engine.content.spawn`, `pickups.spawn` and `npcs.add` at startup. `engine.add`, `collision.*`, `rigid.*`, `interactions.add` and the
+The rule check R33 flags only calls that would run again after a load and so duplicate saved data (recipe 30 section 6). `engine.add`, `collision.*`, `rigid.*`, `interactions.add` and the
 like are fine at startup.
 
 ## 3. Which state a save keeps
@@ -123,16 +122,14 @@ write a template, add a placement with an id. Delete the `engine.add` line. Noth
   op are listed by `saves.save()` and in `describe().scene.unsaved`.
 - `engine.add` of a world model throws (`thing-owned`): world adds, places and tears down its models.
 - Code that moves a `positionFrom: 'record'` world model outside its present `update` is warned once and listed in `describe().scene.conflicts`.
-- Rule R33 (`npm run check`) flags the static half: startup calls that create things saved whole, and code writing `world.view()` models.
-- Cost: a release build pays two table writes per `engine.add` (about 2 µs per add in `tests/specs/things.mjs`); dev builds also take a short stack
-  for `at`, at most 2000 per session (`describe().scene.atCapped` after that).
+- Dev builds take a short stack for `at`, at most 2000 per session (`describe().scene.atCapped` after that).
 
 ## 7. Why is this mesh this colour? (material provenance)
 
 `engine.inspect.scene()` / `threedog scene` list, for each mesh, one `material:` line and the renderer line (tone mapping, exposure; the same text as `describe().render`). Diagnostics only: nothing about the picture changes.
 
 ```
-renderer: ACES (game) exposure 1.1 (game) shadows soft (engine)
+renderer: aces (game) exposure 1.1 shadows pcf
 ✓ roof [Mesh] (4, 3, 0) r=2 · MeshLambertMaterial/roof
     material: roof from game · MeshLambertMaterial #3b5168 · map x color #3b5168 (vertexColors off) · map (base colour)
       note: map already carries colour and color #3b5168 is not white: the result is map x color (fine when it is a tint)
@@ -187,4 +184,3 @@ file no longer has the value you saw (someone else changed it). `content add pro
 `--file content/props/town.js` picks the part of a folder kind) and `content remove <id>` deletes one. Fields are the content file's names
 (`x`, `z`, `y`, `rot`, `scale`, `template`, `place`, `model`), not the record's `position`. It refuses, and says why with the line, for an entry built
 by code (loop, spread, computed value), an id matching several entries (`--in props`), or an add / remove that would shift entries whose id is their position. A placed entry wins over a template or npc of the same name.
-It finds the file through `.threedog/content-index.json` (written by the content check; rebuilt when an id is not where it says), so a write reads only that one file however many there are.

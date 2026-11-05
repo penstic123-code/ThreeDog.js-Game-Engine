@@ -4,14 +4,8 @@
 
 Order: first use numbers to decide which category is over (frame rate? draw calls? CPU? startup?), then find who takes the most, and after changing,
 compare before/after with the same method.
-Which renderer measures: tests that compare pixels run on software rendering (SwiftShader; numbers only for relative comparison), the others on the GPU when headless can reach it. `threedog shot`, `perf`, `stress` and
-`gallery --shots` use the hardware GPU when headless can reach it (`threedog doctor` says whether it can; `--gpu` / `--software` or
-`THREEDOG_RENDER=gpu|software` force one). On a machine without one, ask the user to press F3 in the browser (bound by `createEngine({ bindings: { ...presets.bindings.debug } })`; the templates do).
-- **What this machine can carry**: `threedog stress [--only lights,skinned] [--json]` ramps one load at a time (triangles, draw calls, instances, lights,
-  shadow lights, shadow map size, overlapping transparency, particles, post effects, skinned characters) on a neutral scene until the frame passes 33 ms,
-  and prints where 16.7 / 33 ms are crossed, with CPU and GPU ms. Turn the row for your target machine into `engine.budget` limits (section 2).
-- **Guards in `npm test`**: a loose slowdown alarm (`slowdown`: a fixed scene more than 30% costlier than `tests/perf-baseline.json`) and a
-  bundle ceiling (`bundle size`: the blank template's gzip JS); both name what to look at when they fail.
+Which renderer measures: `threedog shot`, `perf`, `stress` and `gallery --shots` use the hardware GPU when headless can reach it (`threedog doctor` says whether it can; COMMANDS.md, `--gpu`). On a machine without one, ask the user to press F3 in the browser (bound by `createEngine({ bindings: { ...presets.bindings.debug } })`; the open-world template does).
+What this machine can carry: `threedog stress` (COMMANDS.md) prints where 16.7 / 33 ms are crossed for each kind of load. Turn the row for your target machine into `engine.budget` limits (section 2).
 
 ## 1. Where things stand
 - **One report with verdicts**: `engine.inspect.perf()` / `threedog inspect perf` (MCP `inspect` target `perf`): draw calls (shadow and post passes
@@ -24,9 +18,8 @@ Which renderer measures: tests that compare pixels run on software rendering (Sw
   `'off'` restores. For real GPU timings use `threedog capture` (Spector.js) or the browser's GPU profiler.
 - **Other view modes and the panel**: `debug.view('triggers')` shows hidden zones (`triggers({ debugColor, debugOpacity })` colors them); modules add their own modes (`engine.debug.defineView(name, { what, apply })`)
   and `engine.debug.viewModes()` lists every mode. `engine.debug.panel` is the F3 panel (dev builds; null without the `debug()` module).
-- **F3 panel** (`debug()` module, included in openWorld, collapsed by default; the action `debugPanel` opens it, `presets.bindings.debug` binds F3): frame rate, CPU ms/frame, draw calls, triangles,
-  chunks visible/loaded, vegetation instances, chunk upload ms, pending generation, time of day;
-  with a budget set it also shows over-limit items and startup time. A load test on the real GPU is `threedog stress`.
+- **F3 panel** (`debug()` module; `openWorld` installs it in dev builds only, collapsed; the action `debugPanel` opens it, `presets.bindings.debug` binds F3): frame rate, CPU ms/frame, draw calls, triangles,
+  chunks, vegetation instances, time of day; with a budget set also over-limit items and startup time.
 - **Text**: `engine.describe().perf` =
   `{ fps, cpuMs, cpu, apply, drawCalls, triangles, pixelRatio, budget, startup, stream, batching, jobs, commits, chunks?, vegetation? }`;
   the perf line of `npm run shot -- / --describe-only` (in headless mode fps/cpu are `-`; look at draw calls and triangles).
@@ -38,11 +31,9 @@ Which renderer measures: tests that compare pixels run on software rendering (Sw
   trip minus the worker's own compute: queueing and structured clone, an async wait, approximate), `build` (creating the three.js objects), `collider`
   (physics colliders), `upload` (extra render time of the frames that first draw new objects: GPU upload and shader compile, approximate), `stream`
   (the synchronous part of a `stream.add` build callback). Per stage: `n`, `totalMs`, `maxMs`, smoothed `frameMs`, and `bytes` (transit).
-- **Startup**: `engine.startup` = `{ totalMs, startMs, preloadMs, streamMs, compileMs, firstFrameMs, phases, modules: { name: { init, ready } } }`; `npm test` also prints a
-  startup line (with the slowest module) for each item. `firstFrameMs` is page open to the first frame drawn after the loading screen, and `phases`
+- **Startup**: `engine.startup` = `{ totalMs, startMs, preloadMs, streamMs, compileMs, firstFrameMs, phases, modules: { name: { init, ready } } }`. `firstFrameMs` is page open to the first frame drawn after the loading screen, and `phases`
   splits it into parts that add up to it: `script` (page open until `createEngine`), `construct`, `setup` (game code until `start()`), `init` (saves,
-  renderer, module init), `preload`, `world` (nearby builds), `compile` (shaders + hidden warm-up frame), `draw`. `inspect.perf().text` prints the line;
-  `threedog perf --only=startup` measures the examples.
+  renderer, module init), `preload`, `world` (nearby builds), `compile` (shaders + hidden warm-up frame), `draw`. `inspect.perf().text` prints the line.
 
 ## 2. Set a budget (so going over reports itself)
 Off by default and costs nothing. The game gives the limits in `createEngine` (only the given categories are checked):
@@ -85,12 +76,7 @@ false = all on the main thread, same results.
 - Your own worker script: `engine.threads.lane({ create: () => new Worker(new URL('./w.js', import.meta.url), { type: 'module' }), local: makeHandler })`;
   the worker file is `serve(makeHandler())` from `threedog/worker`. Results that change gameplay go through `engine.commits`.
 
-**Two worker rules** (full text and examples in `../CONVENTIONS.md`, "Worker limits"):
-- `engine.commits`: when the due tick comes and the worker has not replied, the main thread runs your `fallback()` and applies that (a later reply is
-  ignored). The engine does not clear pending requests on save load or level change, so give every request a `valid()` that checks identity
-  (generation counter, record still exists, same zone) or call `t.remove()`.
-- `engine.threads.pure(fn)` / `world.simulate(..., { worker: true })`: the function is recompiled from its source, so it cannot capture outside
-  variables or imports; put constants inside it. A bad outside variable is reported by name on the first call.
+**Two worker limits**, with examples in `../CONVENTIONS.md`, "Worker limits": `engine.commits` runs your `fallback()` when the worker is late and does not clear pending requests on a load or level change, so give each a `valid()`; `threads.pure` functions are recompiled from source and capture nothing.
 
 ## 4a. Less detail far away: which tool for which job
 
@@ -120,10 +106,10 @@ tower.levels[1].object;   // a plain THREE.LOD: read, replace, tower.addLevel(..
 - **Asking what is drawn:** far off the full model waits on the batch layer with `visible` true, so read `tower.getCurrentLevel()`, not `tower.levels[0].object.visible`.
 - **Skipped by the tool, with the reason in its report:** skinned, morphing and animated models, and models under 1000 triangles. `assets.lod` still works on them: one level, and a
   dev warning.
-- **The level follows `engine.camera`** only. Without this, WebGPU's shadow pass would push every model to its lowest level. `delete tower.update`, while level 0 shows, restores the plain method; far rays then miss the full model.
+- **The level follows `engine.camera`** only, so a shadow pass does not change it. `delete tower.update`, while level 0 shows, restores the plain method; far rays then miss the full model.
 - **A narrow lens:** `camera.zoom` counts towards the distance, `camera.fov` does not. A sniper scope that narrows `fov` shows the far level up close, so use `zoom` or set
   `tower.autoUpdate = false` while scoped.
-- **Check the last level up close once:** at 20% of the triangles a real model lost round details (a dial, a dome), unseen at its real distance of a few dozen pixels but plain through a scope. If it shows, raise `--lod-shares` or move the distance out.
+- **Check the last level up close once:** a low level can lose round details (a dial, a dome) that a few dozen pixels hide and a scope shows. If it shows, raise `--lod-shares` or move the distance out.
 - **Popping:** levels switch at once, softened by a hysteresis of 0.1 of the distance (`hysteresis` changes it). There is no crossfade; if a switch shows, move the distance out.
 - **Scale:** default distances follow a prop's `scale`. On `assets.lod` they follow the model as loaded, so give `distances` when you scale it yourself.
 
@@ -141,4 +127,4 @@ tower.levels[1].object;   // a plain THREE.LOD: read, replace, tower.addLevel(..
 ## 5. Verify (once before and once after, under the same conditions)
 - `npm run perf` (native vs engine vs per-module cost of openWorld), run before and after on the same machine; differences under 10-30% are noise.
 - Compare a specific scenario: `npm run shot -- / --pos x,z --time 12:00 --describe-only` to see draw calls and triangles.
-- Related tests: `threedog test 性能预算`, `threedog test 阴影`, `threedog test startup time`. Attach the before/after numbers when reporting.
+- Attach the before/after numbers when reporting.

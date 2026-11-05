@@ -246,7 +246,7 @@ export class Timeline {
   /** Line: { speaker, text, node?, channel?: 'main' | 'bubble', at?, seconds? }. Needs the dialogue module; skipped with a warning if not installed @internal */
   _say(s, run) {
     const e = this.engine, d = e.dialogue;
-    if (!d) { warnOnce(coded('module-needs', '[timeline] say requires the dialogue module to be installed')); return Promise.resolve(); }
+    if (!d) { warnOnce(coded('module-needs', '[timeline] the say step was skipped: it needs dialogue(); add it to engine.use(...)')); return Promise.resolve(); }
     if (run.skipping) return Promise.resolve();
     // the line is on top of the focus stack: Esc still skips the whole cutscene
     const said = d.say(s.nodes || s.text, { speaker: s.speaker, node: s.node || 'start', channel: s.channel, at: s.at, seconds: s.seconds, onCancel: run.skippable ? () => this.skip(run) : null });

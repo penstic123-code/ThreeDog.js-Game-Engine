@@ -29,10 +29,10 @@ export default [
 `;
 const FILES = {
   'index.html': '<!doctype html><html><body style="margin:0"><canvas id="view" style="position:fixed;inset:0;width:100%;height:100%"></canvas><script type="module" src="/main.js"></script></body></html>\n',
-  'main.js': `import { createEngine, world, content, grids, characters, collision, rigid, inventory, pickups, THREE } from 'threedog';
+  'main.js': `import { createEngine, world, content, grids, characters, collision, rigid, inventory, pickups, settings, THREE } from 'threedog';
 import data from './content/index.js';
-const engine = createEngine({ canvas: document.getElementById('view'), lights: true });
-engine.use(world(), content(), grids(), characters(), collision(), rigid(), inventory(), pickups({ size: 1 }));
+const engine = createEngine({ canvas: document.getElementById('view'), lights: true, ui: { title: { title: 'fixture' } } });
+engine.use(world(), content(), grids(), characters(), collision(), rigid(), inventory(), pickups({ size: 1 }), settings());
 engine.ground.height = x => x / 4;
 engine.grids.define('bed', {});
 engine.world.present('bed', { build: () => new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.8, 0.8), new THREE.MeshStandardMaterial()), update: (rec, o) => { o.rotation.y = rec.rot ?? 0; } });   // world places the model; facing is the presenter's
@@ -165,6 +165,10 @@ export async function run({ check, browser }) {
     await page.waitForSelector('#threedog-editor');
     await page.evaluate(() => { window.__sameLoad = true; });
     const was = await recordOf(page, 'crate');
+    check('[guard] the title screen goes when the editor opens: it covers the canvas, and a new game always has one', await page.evaluate(() => !window.engine.ui.isOpen('title') && !document.querySelector('.threedog-title')));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
+    check('[guard] Esc does not open the game\'s menu over the scene', await page.evaluate(() => !window.engine.settings.isOpen));
 
     // 1. the loop: select, drag, saved
     await dragEntry(page, 'crate', 'x', 2);
@@ -270,12 +274,14 @@ export async function run({ check, browser }) {
     await stateIs(page, 'saved');
     const rot = /id: 'lamp',.*\brot: ([-\d.]+)/.exec(text()), yawNow = (await modelAt(page, 'lamp')).yaw;
     check('[guard] the turn handle writes rot, relative to the place, and the model faces that way', !!rot && Math.abs(+rot[1]) > 0.2 && near(yawNow, Math.PI / 2 + +rot[1], 0.01), text() + JSON.stringify({ yawNow, yawWas }));
-    // the outer ring (view axis) turns about the line of sight and would tip the anchor; the model must stay upright and only a yaw may reach the file
+    // three.js's outer rings (turn about the view axis, free turn) are off: only the yaw ring is shown, because a tilt is nothing a file value can mean. So where the view-axis ring
+    // would stand there is no handle: a drag there must move the camera and write nothing. Comparing the camera is what proves the drag was not on a handle that happened to write the same
+    const turnedText = text(), camWas = await page.evaluate(() => window.engine.camera.position.toArray());
     const outer = await page.evaluate(id => {
       const e = window.engine, p = e.world.get(id).position, c = e.camera, s = c.position.distanceTo(new e.THREE.Vector3(p.x, p.y, p.z)) * 1.9 * Math.tan(c.fov * Math.PI / 360) / 4 * 0.75;
       c.updateMatrixWorld();
       const m = c.matrixWorld.elements, pt = a => ({ x: p.x + s * (m[0] * Math.cos(a) + m[4] * Math.sin(a)), y: p.y + s * (m[1] * Math.cos(a) + m[5] * Math.sin(a)), z: p.z + s * (m[2] * Math.cos(a) + m[6] * Math.sin(a)) });
-      return [0, 0.4, 0.8].map(pt);
+      return [Math.PI, Math.PI + 0.4, Math.PI + 0.8].map(pt);   // the left side: the right one lies under the panel, where a drag never reaches the canvas
     }, 'lamp');
     const o = [];
     for (const p of outer) o.push(await toScreen(page, p));
@@ -283,10 +289,17 @@ export async function run({ check, browser }) {
     await page.waitForFunction(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(() => r(true)))));
     await fresh(page);
     await page.mouse.down(); await page.mouse.move(o[1].x, o[1].y, { steps: 4 }); await page.mouse.move(o[2].x, o[2].y, { steps: 4 }); await page.mouse.up();
-    await until(async () => (await state(page)).state !== 'waiting', 5000);
-    const tilt = await page.evaluate(() => { const r = window.engine.world.view('lamp').rotation; return { x: r.x, z: r.z }; });
-    check('[guard] a drag on the outer ring leaves the model upright (only a yaw is kept)', near(tilt.x, 0, 0.01) && near(tilt.z, 0, 0.01), JSON.stringify({ tilt, state: await state(page) }));
-    await button(page, 'move');
+    await until(async () => (await state(page)).state !== 'waiting', 1000);
+    const tilt = await page.evaluate(() => { const r = window.engine.world.view('lamp').rotation; return { x: r.x, y: r.y, z: r.z }; });
+    const camMoved = await page.evaluate(was => window.engine.camera.position.distanceTo(new window.engine.THREE.Vector3(...was)) > 0.05, camWas);
+    check('[guard] a drag where the outer ring would stand moves the camera, and the file and the model keep the turn they had', camMoved && text() === turnedText && near(tilt.x, 0, 0.01) && near(tilt.z, 0, 0.01) && near(tilt.y, yawNow, 0.01), JSON.stringify({ tilt, yawNow, camMoved, same: text() === turnedText }));
+    await page.evaluate(was => window.engine.camera.position.fromArray(was), camWas);   // the steps below aim from this view, and the reload keeps the view
+    await page.reload();
+    await waitEngine(page, { dir });
+    await page.waitForSelector('#threedog-editor');
+    const yawBack = (await modelAt(page, 'lamp')).yaw, rotBack = +/id: 'lamp',.*\brot: ([-\d.]+)/.exec(text())[1];
+    check('[guard] after a reload the model faces what the file says, and upright', near(yawBack, Math.PI / 2 + rotBack, 0.002) && near(rotBack, +rot[1]), JSON.stringify({ yawBack, rotBack }));
+    await page.evaluate(() => { window.__sameLoad = true; });
 
     // 8. what engine.pick cannot see, a body, a grid item, an NPC
     await dragEntry(page, 'cart', 'x', 1.5);
@@ -321,6 +334,11 @@ export async function run({ check, browser }) {
     check('a property saves and the model shows it, without a reload', await setRow(page, 'scale', '2') && /id: 'cart'.*scale: 2/.test(text()) && (await modelAt(page, 'cart')).scale === 2 && await sameLoad(page), text());
     const notCart = t => t.split('\n').filter(l => !l.includes("id: 'cart'")).join('\n');
     check('[guard] only that entry\'s line changed, and it is design, not a saved change', notCart(text()) === notCart(plain) && !(await saveText(page)).includes('cart'), text());
+    const beforeBad = text();
+    await fresh(page);
+    await page.fill('[data-field="place"]', 'nowhere');
+    await page.press('[data-field="place"]', 'Tab');
+    check('[guard] a value the game cannot load does not stay in the file: the panel says why, the model still stands', await stateIs(page, 'refused') && text() === beforeBad && /not kept/.test((await state(page)).text) && !!(await modelAt(page, 'cart')), text() + JSON.stringify(await state(page)));
     await press(page, 'Control+z');
     await stateIs(page, 'saved');
     check('[guard] undo takes an added field back out, byte for byte', text() === plain && (await modelAt(page, 'cart')).scale === 1, text());
@@ -347,6 +365,12 @@ export async function run({ check, browser }) {
     await button(page, 'add');
     await stateIs(page, 'saved');
     check('[guard] add writes a new line from what the game has, and the model is there without a reload', /\{ id: 'box-1', model: 'box', x: [-\d.]+, z: [-\d.]+ \}/.test(text()) && !!(await modelAt(page, 'box-1')) && (await state(page)).text.includes('box-1') && await sameLoad(page), text());
+    await button(page, 'add');
+    await stateIs(page, 'saved');
+    const [first, second] = [await modelAt(page, 'box-1'), await modelAt(page, 'box-2')];
+    check('[guard] a second add from the same view lands beside the first, not inside it', !!second && Math.hypot(first.x - second.x, first.z - second.z) > 0.4, JSON.stringify({ first, second }));
+    await press(page, 'Control+z');
+    await stateIs(page, 'saved');
     await press(page, 'Control+z');
     await stateIs(page, 'saved');
     check('undo of an add: file back byte for byte, record gone', text() === plain && await page.evaluate(() => !window.engine.world.get('box-1')), text());

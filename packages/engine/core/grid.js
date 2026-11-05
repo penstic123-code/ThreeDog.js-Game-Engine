@@ -24,7 +24,7 @@ const CHANNELS = { r: 0, g: 1, b: 2, a: 3 };
  */
 export function sampleGrid(data, opts = {}) {
   const { width, height, interp = 'linear', clamp = false, outside } = opts;
-  if (!data || !(width >= 1) || !(height >= 1) || !Number.isInteger(width) || !Number.isInteger(height)) throw codedError('grid-data', 'sampleGrid(data, { width, height }): width and height are whole numbers >= 1');
+  if (!data || !(width >= 1) || !(height >= 1) || !Number.isInteger(width) || !Number.isInteger(height)) throw codedError('grid-data', `sampleGrid(data, { width, height }): data is a list and width and height are whole numbers >= 1, got ${data ? `width ${width}, height ${height}` : data}`);
   if (data.length < width * height) throw codedError('grid-data', `sampleGrid: data has ${data.length} values, but width * height is ${width * height}`);
   if (!['nearest', 'linear', 'cubic'].includes(interp)) throw codedError('grid-data', `sampleGrid: interp '${interp}' is not one of 'nearest', 'linear', 'cubic'`);
   const [ox, oz] = opts.origin || [0, 0];
@@ -33,7 +33,7 @@ export function sampleGrid(data, opts = {}) {
   else if (Array.isArray(opts.cellSize)) [cx, cz] = opts.cellSize;
   else if (opts.cellSize != null) cx = cz = opts.cellSize;
   else throw codedError('grid-data', 'sampleGrid: give cellSize (node spacing in world units) or size: [sx, sz] (the whole extent)');
-  if (!(cx > 0) || !(cz > 0)) throw codedError('grid-data', 'sampleGrid: cellSize / size must be greater than 0');
+  if (!(cx > 0) || !(cz > 0)) throw codedError('grid-data', `sampleGrid: cellSize / size must be greater than 0, got ${cx} x ${cz}`);
   const W = width, H = height, at = (i, j) => data[(j < 0 ? 0 : j >= H ? H - 1 : j) * W + (i < 0 ? 0 : i >= W ? W - 1 : i)];
   const hasOut = typeof outside === 'number';
   // Catmull-Rom weights through p0..p3 at t in [0, 1] (passes through p1 at 0 and p2 at 1)
@@ -69,7 +69,7 @@ export function gridFromPixels(img, { channel = 0, range = [0, 1], bits } = {}) 
   const ch = channelIndex(channel), n = img.width * img.height, bd = img.bitDepth;
   if (ch >= img.channels) throw codedError('grid-data', `gridFromImage: the image has ${img.channels} channel(s), so channel ${ch} does not exist`);
   const want = bits ?? (bd === 16 ? 16 : 8);
-  if (want !== 8 && want !== 16) throw codedError('grid-data', 'gridFromImage: bits is 8 or 16');
+  if (want !== 8 && want !== 16) throw codedError('grid-data', `gridFromImage: bits is 8 or 16, got ${want}`);
   const [lo, hi] = range, data = new Float32Array(n);
   // asking for 8 bits from a 16-bit image keeps only the high byte (the stepped look of an 8-bit file); asking for 16 from 8 bits just stretches it
   const shift = bd === 16 && want === 8 ? 8 : 0, max = want === 16 ? 65535 : 255, src = img.samples;

@@ -58,8 +58,8 @@ class Owned {
     /** who took it: 'game' (manual()), or 'three' for a direct write */ this.by = 'engine';
     this._snap = null;
     this._onChange = spec.onChange;
-    // once: the engine writes it once, at creation (renderer.toneMapping). So a direct write is the documented way to change it (yielding warns
-    // nothing), and handing it back writes the creation value again (spec.write)
+    // once: the engine never writes it, it only keeps the value read here (renderer.toneMapping). So a direct write is the documented way to change it (yielding warns
+    // nothing), and handing it back writes that value again (spec.write)
     this._once = spec.once ? { value: this._read() } : null;
   }
   /** Does the engine write this property now */

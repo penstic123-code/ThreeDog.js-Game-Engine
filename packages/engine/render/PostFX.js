@@ -139,7 +139,7 @@ export class PostFX {
    * canvas and still swaps, so after the frame (engine.onRender(fn, { when: 'after' })) neither target holds the final picture: writeBuffer holds
    * the input of that last pass (readBuffer when the last pass does not swap) and readBuffer is stale. For the final image, render into a target of your own.
    * Owned by the engine like object(): it resizes them, changes samples on setAntialias and adds a depth texture when an effect needs depth;
-   * do not dispose them or swap their textures. A target of your own: new THREE.WebGLRenderTarget in onRender (recipe 54)
+   * do not dispose them or swap their textures. A target of your own: new THREE.WebGLRenderTarget in onRender (THREE.md)
    * @returns {{ renderTarget1: any, renderTarget2: any, readBuffer: any, writeBuffer: any } | null}
    * @experimental
    */

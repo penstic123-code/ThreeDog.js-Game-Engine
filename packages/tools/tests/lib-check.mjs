@@ -48,7 +48,7 @@ export async function run({ check }) {
     // [guard] the check reads the copies: the game drops the fog line from one, and installs the module; nothing is a problem any more
     const haze = join(g, 'picture', 'haze.js');
     writeFileSync(haze, readFileSync(haze, 'utf8').replace('scene.fog = new THREE.Fog(0x808080, 1, 9); ', ''));
-    put(join(g, 'main.js'), "import { world, inventory } from 'threedog';\nengine.use(world(), inventory());\n");
+    put(join(g, 'game', 'pack.js'), "import { inventory } from 'threedog';\nexport const pack = engine => engine.use(inventory());\n");   // installed from game/: the template's home for gameplay code
     const fixed = checkGame(g);
     check('[guard] an edit in the game\'s copy clears the clash, whatever the library still says', !fixed.problems.length && fixed.pulled === 5, fixed.problems.join('\n'));
     const ok = cli();

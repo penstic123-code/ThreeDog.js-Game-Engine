@@ -3,7 +3,8 @@
 There is a single pathfinding entry point: `engine.characters.findPath(from, to)`; NPC schedules use it too.
 - Without `nav()` (or before it is built): the collision module's grid A* (good enough for open terrain with a few obstacles).
 - With `nav()`: after a level loads, a Recast navmesh is built; paths are more accurate and go around walls more cleverly. **Only level ground (the
-  level module) is supported for now**; procedural terrain keeps using A*.
+  level module) is supported**; procedural terrain keeps using A*. The mesh is built once per level: `engine.terrain.edit` and other ground changes do not
+  update it, so a game that reshapes walkable ground at runtime leaves `nav()` out.
 
 ## 1. Install (main.js)
 ```js
@@ -21,7 +22,7 @@ engine.use(level({ url: '/models/town.glb' }), collision(), followCamera(), char
 const path = engine.characters.findPath(engine.player.position, { x: 4, z: 5 });   // [{ x, z }...] or null (unreachable)
 const wall = engine.collision.addBox([16, 0, 0], { halfWidth: 4.5, halfDepth: 1 });   // temporarily block a gap (center, half width, half depth); the navmesh updates with it
 wall.remove();                                       // remove the obstacle
-engine.npcs.add({ name: '信使', position: [4, 0, -5], schedule: [{ at: 0, position: [4, 0, 5] }] });  // the NPC finds its own way there
+engine.npcs.add({ name: 'Courier', position: [4, 0, -5], schedule: [{ at: 0, position: [4, 0, 5] }] });  // the NPC finds its own way there
 engine.nav.dispose();                                // unload the navmesh; afterwards A* is used again
 ```
 Native Recast objects: `engine.nav.navMesh / query / tileCache / crowd` (crowd needs `nav({ crowd: true })`).
@@ -30,7 +31,7 @@ Native Recast objects: `engine.nav.navMesh / query / tileCache / crowd` (crowd n
 - `describe().nav`: `{ ready: true, version, obstacles: number of obstacles }`; in `describeText()` it is the "nav: {...}" line.
 - In a test: after `engine.haltLoop()` call `findPath` and look at the waypoints (going around a wall they pass through the gap); after `addBox`,
   `engine.step(0.1)` and query again: the path should switch sides.
-- Did the NPC arrive: after `engine.step(30)`, check `engine.npcs.get('信使').position`.
+- Did the NPC arrive: after `engine.step(30)`, check `engine.npcs.get('Courier').position`.
 - To see the mesh: `nav({ debug: true })` + `npm run shot -- /your-page.html`. Related test: `threedog test 导航网格` (test page in the engine repository:
   `packages/engine/tests/nav/`).
 

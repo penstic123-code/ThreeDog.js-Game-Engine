@@ -11,11 +11,8 @@ const mat = new THREE.ShaderMaterial({ uniforms: { ...engine.uniforms }, vertexS
 applyEffects(mat2, { patches: [{ name: 'tint', slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }] });                         // 2. patch a slot
 ```
 
-**1. Your own material or shader** works exactly as in three.js (`new THREE.MeshStandardMaterial`, `ShaderMaterial`, `onBeforeCompile`).
-**2. Patch a slot**: a named piece of GLSL at a named place (`color`, `normal`, `lighting`, `output`...) on any material,
-built-in or yours. **3. Engine GLSL functions** (`#include <threedog_wind>`, `<threedog_detail>`, `<threedog_lighting>`...) are tools you call inside 1 and 2:
-a noise, a wrapped diffuse term, a fresnel edge. None of them is a picture. A picture is what your game's `picture/` code combines: its colors,
-textures, light model and post. The default surface is flat (`lambert` plus vertex colors) until you write one.
+A patch is a named piece of GLSL at a named place on any material, built-in or yours. The engine GLSL functions are tools you call inside your shader or a patch; none of them is a picture. A picture is what your
+game's `picture/` code combines.
 
 ## Your own material
 Any `new THREE.*Material` is fine (THREE.md), and the engine patches nothing of yours: call `applyEffects(material, { wind, clouds, season, detail, patches })` for the
@@ -35,14 +32,14 @@ Write a **named patch** that names a **slot** (where the code goes) and add it w
 The full form, with every field:
 ```js fragment
 { name: 'fuzz',                          // one name per effect; the same name again replaces it
-  slot: 'color',                         // where the code goes (table below)
+  slot: 'color',
   glsl: 'diffuseColor.rgb *= 1.0 - uFuzz * 0.5;',
   pars: 'uniform float uFuzz;',          // declarations at the top of every stage the patch touches (or { vertex, fragment })
-  cacheKey: 'v1',                        // changes whenever the GLSL text changes, never for uniform values
+  cacheKey: 'v1',
   uniforms: { uFuzz: { value: 0.3 } },   // numbers live here, so materials with different values share a program
-  needs: { patches: ['world'], data: ['vertexColors'] },   // 'world' gives `varying vec3 vThreedogWorld`; data = program inputs you read
-  conflicts: ['wind'],                   // patches it cannot share a material with (checked when added)
-  shadow: false }                        // true = the patch MOVES vertices, so its vertex code also runs in the shadow passes (wind does)
+  needs: { patches: ['world'], data: ['vertexColors'] },
+  conflicts: ['wind'],
+  shadow: false }
 ```
 Slots (the one table is `render/slots.js`; the engine's own wind, clouds, season, detail, lighting and cascades use the same names, and on WebGPU
 the same names map to node properties through a patch's `tsl` field, recipe 56). An unknown slot throws with this list.
@@ -76,9 +73,7 @@ cacheKey so the old program is not reused) without reloading the page, and a com
 `shader error in file shaders/fuzz.glsl:4, patch 'fuzz' (slot color)`. Text copied into your own `onBeforeCompile` closure cannot be found: the page
 reloads instead. Builds get the plain text. Plain Vite equivalent: `import.meta.hot.accept('./fuzz.glsl?raw', m => { mat.fragmentShader = m.default; mat.needsUpdate = true; })`.
 `MeshBasicMaterial` has no lights, so no `normal` / `lighting` slots; `lambert` has no `roughness`. A slot the material lacks throws when the patch is added.
-`vThreedogWorld` is the world position (instancing and batching included); it comes from the engine's `world` patch. A patch whose GLSL reads
-`vThreedogWorld` gets `world` added in front of it even without `needs` (a one-time dev note asks for the `needs: { patches: ['world'] }` line, which
-says the same thing in the patch itself). Meshes with several patches stack them in one program per distinct combination.
+`vThreedogWorld` is the world position (instancing and batching included); it comes from the engine's `world` patch, added in front of a patch whose GLSL reads it even without `needs` (a one-time dev note asks for the line). Meshes with several patches stack them in one program per distinct combination.
 
 The `normal` slot also fixes a three.js rule that surprises card and grass art: with `side: THREE.DoubleSide` three flips the normal of every back
 face (`faceDirection`), so a blade or card whose normals all point up shades dark from the side you see its back. Keep the authored normal by
@@ -90,7 +85,7 @@ Patches on one material must agree. Each patch declares what it relies on, and a
 | Field | Meaning | Checked |
 |---|---|---|
 | `needs.data` | Program inputs the code reads: `'instancing'`, `'instancingColor'`, `'vertexColors'`, `'skinning'`, `'batching'` | when the program compiles (console.error once per material) |
-| `needs.patches` | Patches it builds on, e.g. `['world']` for the `vThreedogWorld` varying (world position; the engine adds `world` itself when a patch needs it or its code reads `vThreedogWorld`) | when added |
+| `needs.patches` | Patches it builds on, e.g. `['world']` for the `vThreedogWorld` varying | when added |
 | `conflicts` | Patch names it cannot share a material with | when added, both ways |
 | `uniforms` | A uniform name belongs to one patch; share `engine.uniforms` (`uTime`, `uWind`, `uWeatherCloud`...) instead of making your own `uTime` | when added |
 | `shadow` | Render steps: without it the color pass only; `true` also runs its vertex code in the depth (sun / spot shadows) and distance (point-light shadows) passes | - |
@@ -100,21 +95,9 @@ applyEffects(mat, { wind: 0.03, season: 'foliage', patches: [{ name: 'ripple', n
   slot: 'color', glsl: 'diffuseColor.rgb *= 0.9 + 0.1 * sin(vThreedogWorld.x);' }] });   // throws: 'wind' and 'ripple' cannot be combined
 ```
 
-**Exit: raw three.js anchors** (WebGL only, plain three.js knowledge). Where no slot fits, `glsl: { vertex|fragment: { <chunk>: code } }` puts
-code after `#include <chunk>` (a value may be `{ before, after, replace }`; the key `pars` is declarations at the top of that stage). A missing chunk
-throws when the patch is added, not as a silent no-op. Chunk names in three **0.187** (read from `three/src/renderers/shaders`), in main-body order:
-
-| stage | chunk | what is in scope after it |
-|---|---|---|
-| vertex | `begin_vertex` | `transformed` (object space; wind moves it here) |
-| vertex | `project_vertex` | `mvPosition`, `gl_Position` |
-| vertex | `worldpos_vertex` | `worldPosition` (only when shadows, env maps or transmission need it) |
-| fragment | `map_fragment` `color_fragment` | `diffuseColor` (rgb after the map, then the vertex colors) |
-| fragment | `roughnessmap_fragment` `metalnessmap_fragment` | `roughnessFactor`, `metalnessFactor` (standard / physical) |
-| fragment | `normal_fragment_begin` `normal_fragment_maps` | `normal` (view space), `faceDirection`; `vViewPosition` = minus the view-space position |
-| fragment | `emissivemap_fragment` | `totalEmissiveRadiance` |
-| fragment | `lights_fragment_begin` ... `lights_fragment_end` | `reflectedLight.directDiffuse / indirectDiffuse / directSpecular / indirectSpecular`; after `_end` they are final |
-| fragment | `opaque_fragment` | `outgoingLight` and `gl_FragColor`; (called `output_fragment` before r154) |
+**Exit: raw three.js anchors** (WebGL only). Where no slot fits, `glsl: { vertex|fragment: { <chunk>: code } }` puts code after `#include <chunk>` (a value may be `{ before, after, replace }`; the key `pars` is
+declarations at the top of that stage). A missing chunk throws when the patch is added, not as a silent no-op. Chunk names are three's, in `three/src/renderers/shaders`; the slot table above gives the common ones and
+what is in scope. `worldPosition` exists after `worldpos_vertex` only when shadows, env maps or transmission need it.
 
 ### Engine effects in your own ShaderMaterial
 ```js
@@ -129,8 +112,6 @@ The engine never patches a ShaderMaterial of yours; call its effects as function
 | `#include <threedog_wind>` | `vec3 threedogWind(vec3 position, vec3 origin, float amplitude)`: object-space sway offset, higher vertices sway more; `origin` is the object's world origin (its phase) |
 | `#include <threedog_cloudShadow>` | `float threedogCloudShadow(vec3 worldPos)`: light factor 0-1 under the drifting clouds |
 | `#include <threedog_season>` | `vec3 threedogSeason(vec3 color, int kind)`: season tint, kind 0 foliage, 1 ground |
-
-To change the cloud shadow or the season tint on the engine's own materials (not only in your shader), replace the term: `engine.shaderTerms.cloudShadow({ glsl, tsl })` / `engine.shaderTerms.season(kind => ({ glsl, tsl }))`, or `false` to drop it (recipe 52).
 | `#include <threedog_detail>` | `vec4 threedogDetailNoise(vec2 p, int kind, float octaves)`: the detail noises, kind 0 grain, 1 paper, 2 stroke, 3 dabs, returns (gray rgb, height 0-1); `vec3 threedogDetailBump(vec3 surfPos, vec3 surfNorm, float h, float k, float faceDir)`: screen-space bump. No uniforms. `p` is yours: world xz for a pattern fixed to the ground (it shrinks with distance), `gl_FragCoord.xy / 3.0` for one the same size all over the screen (3-pixel cells; device pixels, so it follows the pixel ratio) |
 | `#include <threedog_lighting>` | `vec3 threedogWrapDiffuse(float nl, float wrap, vec3 lightColor, float shadow, vec3 albedo)` (light to add), `vec3 threedogShadowTint(vec3 ambient, vec3 tint, float strength, float soft, float nl, float shadow)` (the new ambient), `vec3 threedogRim(vec3 normal, vec3 viewDir, vec3 color, float strength, float power, float shadowSide, float nl)` (light to add); nl = dot(normal, sunDir), shadow 1 lit / 0 shadowed. No uniforms |
 
@@ -139,18 +120,16 @@ To change the cloud shadow or the season tint on the engine's own materials (not
 #include <threedog_wind>
 void main() { vec3 p = position + threedogWind(position, (modelMatrix * vec4(0, 0, 0, 1)).xyz, 0.05); gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0); }
 ```
-The `detail` effect below calls these same functions, so a value tuned on a material reads the same in your shader. To give a material another cloud shadow or
-season tint, leave the engine's out (`clouds: false`, no `season`) and write your own patch with these functions. Combining tools into a picture is per game: write it in its `picture/` code.
-The pixel and program-count guarantees are in `tests/specs/surface.mjs`.
+The `detail` effect below calls these same functions, so a value tuned on a material reads the same in your shader. To give one material another cloud shadow or
+season tint, leave the engine's out (`clouds: false`, no `season`) and write your own patch with these functions; on every engine material at once: `engine.shaderTerms` (recipe 52).
 
 ## Ready-made effects: `detail`, light shaping, seasons
-Each one puts a function above on a built-in material, with its numbers as uniforms. They are building blocks with fixed shapes (four noise kinds, one tint model),
-not finished pictures: combine them with your own colors, textures and patches, and when one does not give what you want, write the shader yourself and call the same function there.
+Each one puts a function above on a built-in material, with its numbers as uniforms. They are building blocks with fixed shapes, not finished pictures: when one does not give what you want, write the shader yourself and call the same function there.
 
 **`detail`**: `applyEffects(material, { detail: { noise: 'paper', strength: 0.4 } })`. A noise pattern, a texture or your own GLSL laid over the surface in world space (needs no UVs). Every number is a uniform, so
-100 materials with different `scale` / `strength` / `direction` compile **one** program on WebGL (tested: 8 variants, +0 programs).
+materials with different `scale` / `strength` / `direction` compile **one** program on WebGL.
 WebGPURenderer keys its program by the patch's uniform objects instead: materials with the same `detail` options share one
-patch object, so they share one program there too (tested: 8 materials, 1 build); different numbers build one each. Sharing
+patch object, so they share one program there too; different numbers build one each. Sharing
 means one set of values: a uniform changed on one of them changes all that share those options.
 
 | key | meaning |

@@ -138,7 +138,7 @@ export class NPCManager {
     /** @internal */ this._tiers = null;   // { fullRadius, nearEvery } from tiers(), null = every near NPC every step
     /** @internal */ this._byName = new Set();  // NPCs added this run without id, using the name as id (to detect same names in dev)
   }
-  get world() { const W = this.engine.world; if (!W) throw codedError('world-missing', STRINGS.noWorld); return W; }
+  get world() { const W = this.engine.world; if (!W) throw codedError('module-needs', STRINGS.noWorld); return W; }
 
   /** Register the NPC model and simulation with world (called in characters init; add calls it first if npcs.add comes earlier)@internal */
   setup() {
@@ -233,7 +233,7 @@ export class NPCManager {
     const e = this.engine, W = this.world;
     const { id: given, name = 'NPC', schedule = [], interact: io = null, pathStep = 2, repath = 2, arriveDistance = 1.2,
       position, zone = null, speed = 2.6, initial = false, behavior = 'schedule', mind = {}, ...rest } = opts;
-    if (io !== null && !(io && typeof io === 'object' && typeof io.op === 'string')) throw codedError('npc-option', fmt(STRINGS.badInteract, { got: JSON.stringify(io) }), TypeError);
+    if (io !== null && !(io && typeof io === 'object' && typeof io.op === 'string')) throw codedError('character-option', fmt(STRINGS.badInteract, { got: JSON.stringify(io) }), TypeError);
     if (io) readParams('npcs.add() interact', keysSchema(['label', 'op', 'args', 'radius']), io);
     const id = given ?? name, look = {}, runtime = { ...this._runtime.get(id) };   // a re-add keeps what it does not pass, as the record does
     if (DEV && given == null) { if (this._byName.has(id)) throw codedError('world-id', fmt(STRINGS.sameName, { name })); this._byName.add(id); }

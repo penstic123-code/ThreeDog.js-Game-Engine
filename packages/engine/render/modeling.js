@@ -1,5 +1,5 @@
 // Modeling gaps three lacks. Merging, sweeping, sampling, decals, hulls, simplifying and noise are already in three / three/addons
-// (recipe 54 "Procedural modeling" lists them), so this file adds nothing of that kind.
+// (THREE.md "Code-built models" lists them), so this file adds nothing of that kind.
 // Every function takes and returns plain three.js objects and has no engine state, so it runs inside an assets.manifest generator (and is then
 // cached / baked with the model) or anywhere else.
 import * as THREE from 'three';

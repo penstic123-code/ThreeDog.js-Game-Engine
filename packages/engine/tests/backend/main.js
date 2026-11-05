@@ -48,6 +48,15 @@ async function shot(e, cam) {
 const mean = a => { let s = 0; for (let i = 0; i < a.length; i += 4) s += a[i] + a[i + 1] + a[i + 2]; return +(s / (W * H * 3)).toFixed(2); };
 const changed = (a, b) => { let d = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 24) d++; return +(100 * d / (W * H)).toFixed(2); };
 
+// A KTX2 asset asked for before start() on WebGPU: the decoder's setup needs the renderer's init, which the engine waits for itself
+window.ktxBeforeStart = async () => {
+  const e = make({ renderer: 'webgpu' });
+  const t = await e.assets.texture(new URL('../fixtures/tex-bc1.ktx2', import.meta.url).href).catch(err => err);
+  await e.start();
+  const out = { compressed: !!t.isCompressedTexture, error: t instanceof Error ? t.message : null, backend: e.describe().renderer.backend };
+  e.dispose();
+  return out;
+};
 window.backendCases = async () => {
   const out = {};
   out.webglDefault = { renderer: engine.describe().renderer, isWebGL: !!engine.renderer.isWebGLRenderer, perf: Object.keys(engine.describe().perf), tier: engine.tier,
@@ -109,7 +118,7 @@ window.backendCases = async () => {
   }
   // option mistakes
   out.badName = (() => { try { make({ renderer: 'vulkan' }); return ''; } catch (e) { return e.message; } })();
-  out.fallbackOnWebGL = (() => { try { make({ fallback: 'webgl' }); return ''; } catch (e) { return e.message; } })();
+  out.fallbackOnWebGL = (() => { try { make({ fallback: 'webgl' }).dispose(); return ''; } catch (e) { return e.message; } })();
   // 'webgl' names the default: the engine builds and owns a WebGLRenderer, as with the option left out
   out.webglName = (() => { const w = make({ renderer: 'webgl' }); try { return !!w.renderer.isWebGLRenderer && w._ownsRenderer; } finally { w.dispose(); } })();
 

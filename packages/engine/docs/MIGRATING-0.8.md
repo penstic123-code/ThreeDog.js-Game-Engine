@@ -30,7 +30,7 @@ These do not fail loudly, so search for them.
 | `player.onStep = type => ...` | `engine.events.on('character:step', ({ character }) => ...)`, ground from `character.groundType()`. Assigning the old property does nothing but warn once in dev |
 | `player.onLand = impact => ...` | `engine.events.on('character:land', ({ character, impact }) => ...)`. Assigning the old property does nothing but warn once in dev |
 | `grids.get(name)`, `inventory.get(key)`, `container.get(key)`, `interactions.get(id)` return `null` when there is none | `undefined`, like every other `get`; a test `=== null` no longer matches, use `!x` |
-| `settings({ presets: { high: { pixelRatio: 1.5 } } })`: a fixed ratio | A share from 0 to 1 of the ratio the engine picked for this device (`high: { pixelRatio: 1 }`); above 1 throws `bad-arg`. For a fixed ratio call `engine.setPixelRatio` |
+| `settings({ presets: { high: { pixelRatio: 1.5 } } })`: a fixed ratio | A share from 0 to 1 of the ratio the engine picked for this device (`high: { pixelRatio: 1 }`); above 1 throws `module-params`. For a fixed ratio call `engine.setPixelRatio` |
 | `settings.values` was the stored object; `settings.get('pixelRatio')` kept the last number set | `settings.values` is a read-only copy, change a value with `settings.set`; `pixelRatio` is the renderer's real ratio, the same as `describe().render.scale.current` |
 | `mesh.visible` on a registered hlod mesh read `false` while far | It is your own value near and far. To ask whether the camera draws it: `mesh.layers.test(engine.camera.layers)` |
 

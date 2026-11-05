@@ -61,7 +61,6 @@ Views can also be content: `content/views.js` = `{ gate: { position: [10, 4, 12]
 ambient and hemisphere light hidden so shadows read black, `'normals'` the normals as color (a normal map shows here); `'off'` restores everything.
 A view is temporary and owner-scoped (`{ owner }`; another owner needs `force: true` to clear it), never saved, and `describe().render` / `describe render`
 start with a DEBUG VIEW line while one is on, so a screenshot of clay is not taken for the real picture. Meshes added after the call are not covered: call it again.
-It needs the debug module (`engine.use(debug())`).
 
 ## 4. Use it
 Register the compressed file in the asset pack and refer to it by name everywhere else:

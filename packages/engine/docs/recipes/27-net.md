@@ -4,8 +4,6 @@
 puzzle, a turn-based board, trading). One player's browser is the **host** and
 owns the game state; friends are **clients** that mirror it and ask for changes through ops. Not installed = no cost.
 **What it is not (yet)**: action netcode. There is no client prediction or rollback, so a client's attack / roll / shot waits one round trip.
-Souls-like and shooter games need that later step; the rules below (ops with self-contained args, state only changed in fixed steps and ops,
-snapshot-able world data) are what it will build on.
 
 ## 1. Install
 The same game code runs on every machine; only `role` and the transport differ.

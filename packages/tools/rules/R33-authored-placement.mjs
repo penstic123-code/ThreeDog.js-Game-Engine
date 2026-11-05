@@ -11,6 +11,8 @@
 //   error: world.add(…, { initial: true }) anywhere: authored records come only from content loaders (saves diff against that baseline).
 //   warn: a world.view(…) result (directly or through a const) handed to engine.add / scene.add, or its position / rotation / scale written
 //     (assignment or .set / .copy…). present's update gets the model as its argument, so writes there are not flagged.
+//   warn: a saves.register part whose literal load takes two or more required parameters: the engine calls load(data), so the data lands in the first
+//     parameter, the second is undefined and the state silently does not come back. A save part as a variable is not followed.
 //   Not flagged: any other callback (ops.define run, onFixed, onFrame, world.simulate / present, clock, sky, timeline, input, other events) and a
 //   line tagged `// runtime: <reason>` (the reason is required).
 //   The runtime checks (engine.thing registry, recipe 40) cover what a static pass cannot: whether an id is stable, whether an object will be saved,
@@ -118,6 +120,13 @@ function viewTransform(expr, names) {
   for (let x = expr; ts.isPropertyAccessExpression(x); x = x.expression) if (XFORM.has(x.name.text) && isView(x.expression, names)) return true;
   return false;
 }
+/** The load of a saves.register(key, { load }) call when it takes more than the one argument the engine hands it */
+function wideLoad(call) {
+  const part = call.arguments[1];
+  const load = part && ts.isObjectLiteralExpression(part) ? part.properties.find(p => p.name?.getText() === 'load') : null;
+  const fn = load && ts.isPropertyAssignment(load) ? load.initializer : load;
+  return fn && isFn(fn) && fn.parameters.filter(p => !p.initializer && !p.dotDotDotToken).length > 1 ? fn : null;
+}
 const K = ts.SyntaxKind;
 const WRITE_OPS = new Set([K.EqualsToken, K.PlusEqualsToken, K.MinusEqualsToken, K.AsteriskEqualsToken, K.SlashEqualsToken]);
 const WRITE_CALLS = new Set(['set', 'copy', 'add', 'sub', 'setScalar', 'multiplyScalar', 'lerp', 'setFromAxisAngle', 'setFromEuler', 'addScaledVector']);
@@ -137,6 +146,9 @@ export function scan(sf) {
         fix: initial ? 'write the record in content (content/props.js with an id); content.load adds it as authored' : `${worldAdd ? SAVE_FALSE : ''}${CONTENT_HINT}; ${hit[2]}`,
       });
       if (ADD.test(text) && n.arguments.some(a => isView(a, names))) warn(n, `${text}() of a world.view() model: world already adds, places and tears down its models`);
+      if (/\bsaves\.register$/.test(text) && wideLoad(n)) out.push({ line: lineOf(n), level: 'warn',
+        msg: `${text}(…) has a load with ${wideLoad(n).parameters.length} parameters: the engine calls load(data), so the state silently does not restore`,
+        fix: 'take the data as the only parameter: load: data => { … }; the engine is already in scope where the part is registered' });
       const callee = n.expression;
       if (ts.isPropertyAccessExpression(callee) && WRITE_CALLS.has(callee.name.text) && viewTransform(callee.expression, names))
         warn(n, `${callee.expression.getText()}.${callee.name.text}(…) writes the transform of a world model`);

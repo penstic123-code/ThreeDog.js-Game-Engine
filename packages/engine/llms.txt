@@ -35,30 +35,25 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [23-ops](docs/recipes/23-ops.md): Ops: one entry point for what players and NPCs do (engine.ops)
 - [26-ui-parts](docs/recipes/26-ui-parts.md): UI parts: replace or turn off any piece of the engine's screen UI
 - [27-net](docs/recipes/27-net.md): Co-op multiplayer: net() (host authority + state sync)
-- [28-terrain](docs/recipes/28-terrain.md): Terrain: your own generator, digging, raising and painting the ground
+- [28-terrain](docs/recipes/28-terrain.md): Terrain: your own generator, digging, raising and painting the ground, islands
 - [29-grid](docs/recipes/29-grid.md): Grid placement: towers, furniture, buildings, crops
 - [30-templates](docs/recipes/30-templates.md): Templates: reusable objects, definition vs instance state
 - [31-audio](docs/recipes/31-audio.md): Sound: buses, sounds by name, ambience rules, music, footsteps, ducking
-- [32-action-game](docs/recipes/32-action-game.md): Action game wiring: hp, attacks, enemy AI, drops and death without engine combat rules
+- [32-action-game](docs/recipes/32-action-game.md): Action game wiring: hp, attacks, guns, enemy AI, drops, death, win and lose without engine combat rules
 - [33-stream-sources](docs/recipes/33-stream-sources.md): Stream sources: what is loaded where (teleport, far camera)
-- [34-environment-lighting](docs/recipes/34-environment-lighting.md): Environment lighting
+- [34-environment-lighting](docs/recipes/34-environment-lighting.md): Lights, fog, exposure and environment lighting
 - [35-picture-from-reference](docs/recipes/35-picture-from-reference.md): Making a new picture from a reference picture
-- [36-sky-ground-plants](docs/recipes/36-sky-ground-plants.md): Sky, ground and plants
-- [37-terrain-hooks](docs/recipes/37-terrain-hooks.md): Crisp ground color borders, terrain normals, height from a grid
-- [38-environment-hooks](docs/recipes/38-environment-hooks.md): Lights, fog and exposure
+- [36-ground-plants](docs/recipes/36-ground-plants.md): Ground color and plants
 - [40-scene](docs/recipes/40-scene.md): Scene: what is in the world, where, who manages it, and what a save keeps (engine.thing)
-- [42-terrain-shape](docs/recipes/42-terrain-shape.md): Terrain outline: islands, floating rocks, a world that ends
 - [43-shader-patches-surfaces](docs/recipes/43-shader-patches-surfaces.md): Writing shader patches and surfaces
-- [44-water-weather-hooks](docs/recipes/44-water-weather-hooks.md): Water and rain/snow: depth color, foam, reflections, particles, lightning
+- [44-water-weather-hooks](docs/recipes/44-water-weather-hooks.md): Water and rain/snow: depth color, foam, reflections, particles, snow cover, lightning
 - [45-cascaded-shadows](docs/recipes/45-cascaded-shadows.md): Shadows: cascades, box, budget, cache, the switch
 - [46-blender-art-route](docs/recipes/46-blender-art-route.md): Blender to game (GLB) route
-- [47-island-snow-backdrop](docs/recipes/47-island-snow-backdrop.md): Snow cover, flat backdrop, rounded terrain rim
 - [49-game-module-contract](docs/recipes/49-game-module-contract.md): Writing a game system module (a smelter, a recharging turret, growing crops) that plugs into the engine's contracts
 - [50-own-renderer](docs/recipes/50-own-renderer.md): Bring your own renderer: `createEngine({ renderer })`
 - [51-capability-catalog](docs/recipes/51-capability-catalog.md): Capability catalog: ask what the game can do before reading docs
 - [52-around-the-picture](docs/recipes/52-around-the-picture.md): 52 Around the picture: reading it back, the post chain, who writes what
-- [53-ground-up-close](docs/recipes/53-ground-up-close.md): The ground up close: options and diagnosis
-- [54-three-idioms](docs/recipes/54-three-idioms.md): Plain three.js in this engine
+- [53-ground-up-close](docs/recipes/53-ground-up-close.md): The ground up close: options, crisp color borders, normals, diagnosis
 - [55-mods-time-wrap](docs/recipes/55-mods-time-wrap.md): Shared values, exclusive slots, time channels and wrapping module methods
 - [56-webgpu-tsl](docs/recipes/56-webgpu-tsl.md): WebGPU and your own TSL materials
 - [57-control](docs/recipes/57-control.md): Who steers a character: engine.control

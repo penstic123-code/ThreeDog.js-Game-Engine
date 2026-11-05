@@ -1,7 +1,7 @@
 # Camera: first / third person, top-down strategy, fixed shots, switched at runtime
 
 **In this recipe**: 1. Press V to switch between first and third person · 2. What the engine does for you when switching · 3. Other common things ·
-4. Over the shoulder, lock-on framing, mouse lock · 4b. Looking up, ground and walls, driving the view yourself · 5. Take over the player ·
+4. Over the shoulder, lock-on framing, mouse lock · 4b. Looking up, ground and walls, driving the view yourself · 4c. Chase camera behind a car · 5. Take over the player ·
 6. Orthographic view, and taking the camera over yourself · 7. Your own camera module
 
 Four cameras; the kind names are always: `'follow'` third-person follow · `'firstPerson'` first person · `'rts'` top-down strategy · `'fixed'` fixed shots.
@@ -44,6 +44,7 @@ engine.setCamera('follow', { distance: 8, pitch: 0.3 });
   `screenToGround(...)` (rts). Check `kind` before calling.
 - **Teleport, then lookAt**: `await engine.stream.teleport(p); engine.cameraRig.lookAt(target);` works in that order: `lookAt` aims from the body's
   current position, not from the last drawn frame. Call it after the move (the angles do not follow later moves).
+- **Saves and new games**: a save holds the view (`yaw`, `pitch`), and `session.load` / `saves.load` put it back. A new playthrough rebuilds the installed camera on the same object, so a kept `const rig = engine.cameraRig` stays valid (one from `setCamera` with options does not). A kind switched to with `setCamera` is not restored: only the heading carries, so call `setCamera` again on `session:start` if the game keeps that choice.
 - **Player movement direction follows the camera**: `engine.cameraRig.forward()` / `right()` change automatically after switching.
 - **Cutscene takeover**: while anyone holds `engine.takeCamera(owner)` (`engine.cameraOverride` is not null) the camera module leaves the camera alone; see [the engine API](../api/engine.md).
 - **Shooting games**: bind first-person firing to a mouse-button action, see `19-shooting-picking.md`.
@@ -75,7 +76,7 @@ engine.use(followCamera({ minPitch: -0.9, ground: 'shorten' }));   // or the sam
   `'shorten'` slides it along the arm toward the player (the view direction is kept, so you really look up);
   `'raise'` lifts it straight up (the view direction changes: from flat ground you cannot look up);
   `'none'` leaves it; a function `facts => position | null` gets `{ position, lookPoint, dir, arm, distance, groundY, clearance, surface, rig }`.
-  Default: `'shorten'` when `minPitch < 0`, otherwise `'raise'` (the older behaviour, fine for a camera that never looks up).
+  Default: `'shorten'` when `minPitch < 0`, otherwise `'raise'`.
 - **Walls** (with `collision()` installed) pull the arm in at once and let it out slowly; the shortest arm is `collision({ cameraMin })` (default 1.5 m).
   **What blocks by default**: every `addCircle` / `addBox` / `addSegment` collider, over its footprint and up to its height, and every mesh registered
   with `engine.rays.addStatic(mesh, { occluder: true })` (`level()` registers its buildings and `col_` meshes). A mesh alone blocks nothing, so a tree
@@ -90,6 +91,19 @@ engine.use(followCamera({ minPitch: -0.9, ground: 'shorten' }));   // or the sam
 - **Drive the view from game code**: `engine.cameraRig.setView({ yaw, pitch, distance })` (clamped to the pitch / zoom ranges) and
   `getView()` → `{ yaw, pitch, distance, arm, lookPoint, look }` (`look` is the 3D view direction, `arm` the actual length this frame).
   With `mouseLook: false` the built-in mouse / stick look and wheel zoom are off and the game owns yaw and pitch (call `setView` every frame from `onFrame`).
+
+## 4c. Chase camera behind a car
+`addWheeled({ camera })` sets the follow camera's distance and height while seated, but the camera keeps its own yaw, so nothing swings the view behind the car. A racing view is a few lines of game code with `followCamera({ mouseLook: false })`:
+```js
+let yaw = null;
+engine.onFrame(dt => {
+  const q = car.body.rotation();                                       // car: what addWheeled returned
+  const want = Math.atan2(2 * (q.x * q.z + q.w * q.y), 1 - 2 * (q.x * q.x + q.y * q.y)) + Math.PI;   // a car drives along its +z; the view looks along -z at yaw 0
+  yaw ??= want;
+  yaw += Math.atan2(Math.sin(want - yaw), Math.cos(want - yaw)) * Math.min(1, 5 * dt);   // the shortest way round, catching up at 5 per second
+  engine.cameraRig.setView({ yaw });
+});
+```
 
 ## 5. Take over the player: your own movement, facing and lock-on
 The engine has no default here: `createPlayer` needs `control` (a preset such as `presets.player.thirdPerson` gives keys relative to the camera, Shift
@@ -147,6 +161,7 @@ engine.setCamera('fixed', { position: [14, 14, 14], lookAt: [0, 0, 0], projectio
 // follow the player from a fixed angle
 engine.setCamera('follow', { pitch: 0.6, yaw: 0.8, distance: 20, projection: 'orthographic', size: 14 });
 ```
+A `setCamera` before play (boot code, or with the title up) is the camera every playthrough starts from, the same as passing the options to the camera module. During play it is a switch: a new playthrough goes back.
 
 - `engine.camera` stays the one object everything holds (render, post, shadows, sky); it is flipped to an orthographic matrix, so `camera.isOrthographicCamera`
   is true, `camera.left/right/top/bottom` are set, and `camera.zoom` still zooms. `camera.fov` is ignored while it is on.
@@ -183,6 +198,11 @@ ortho.position.set(10, 10, 10); ortho.lookAt(0, 0, 0); fit(); addEventListener('
 
 Swapping the object only works while no post effect is active: the post chain's scene pass keeps the camera it was built with. With post effects, use
 `projection: 'orthographic'` above instead.
+
+**Side view (side-scroller).** `presets.player.sideScroller` moves the player along world X only (A / D, `z` stays) and turns it toward the move. Face the camera along -Z with `yaw: 0`, so +X is screen right (`yaw: Math.PI` looks from the far side and flips left and right), on `followCamera`:
+```js
+engine.use(followCamera({ projection: 'orthographic', size: 15, yaw: 0, pitch: 0, lockPitch: true, distance: 40, ground: 'none', mouseLook: false }));
+```
 
 ## 7. Your own camera module
 Everything else in the engine reads only what `modules/camera/contract.js` lists from `engine.cameraRig`: `forward()` / `right()` (control: 'camera',

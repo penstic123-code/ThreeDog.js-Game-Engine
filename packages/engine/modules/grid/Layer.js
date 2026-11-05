@@ -6,7 +6,7 @@
 //   Version 1 saved every cell whole; its step turns that into { set, whole: true } (cells not listed are empty, whatever content authors now).
 // Writes are saved gameplay state, so they pass the ops guard like world.set (write inside an op or a fixed step).
 // _ver counts changes so views (tiles) rebuild only when something changed, without events.
-import { DEV } from '../../core/validate.js';
+import { DEV, needMaterial } from '../../core/validate.js';
 import { codedError } from '../../core/errorHints.js';
 
 const key = (i, j) => i + ',' + j;
@@ -52,7 +52,7 @@ export class Layer {
   set material(m) {
     const mesh = this.grid._owner._tiles.get(this)?.mesh;
     if (!mesh) throw codedError('grids-misuse', `layer '${this.name}'.material: this layer draws no default tiles; give it a picture first: grid.layer('${this.name}', { tiles: true })`);
-    if (!m?.isMaterial) throw codedError('grids-misuse', `layer '${this.name}'.material takes a three.js material, got ${m}`);
+    needMaterial('grids-misuse', `layer '${this.name}'.material`, m);
     mesh.material = m;
   }
   /** @internal */
@@ -151,6 +151,6 @@ export class Layer {
 
 /**
  * Options of grid.layer(name, opts)
- * @typedef {{ tiles?: boolean | { look?: (data: Record<string, any>, cell: [number, number]) => any, colors?: Record<string, number | string>, lift?: number }
+ * @typedef {{ tiles?: boolean | { color?: (data: Record<string, any>, cell: [number, number]) => any, colors?: Record<string, number | string>, lift?: number }
  *   | ((engine: any, layer: Layer) => { update?: (cells: { cell: [number, number], data: Record<string, any> }[]) => void, dispose?: () => void }) }} LayerOptions
  */

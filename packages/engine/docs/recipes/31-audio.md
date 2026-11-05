@@ -6,8 +6,7 @@ Everything you hear is the game's. The engine ships no sound files and plays not
 
 ## 1. Config in one place
 Two places, one job each: **the asset manifest says what a sound is** (a file, or a synth function made in code, registered by name like a
-model), **`audio.sounds` says how it plays** (which sound or variants, volume, bus, cooldown...). Engine modules register their own synths
-(`footstep`, `shutter`, `thunder`, ambience's `wind` `rain` `water` `birds` `crickets`) as built-in sound assets that stay silent until a rule names them.
+model), **`audio.sounds` says how it plays** (which sound or variants, volume, bus, cooldown...).
 ```js
 const engine = createEngine({ canvas, audio: {
   levels: { music: 0.4, voice: 1 },                                   // volume per bus; an extra key (voice) adds a bus
@@ -51,8 +50,7 @@ Built-in synth parameters (`params`): `wind` / `water` take `freq` (filter Hz), 
 4300); every synth also gets `pitch`, the sfx pitch multiplier (~1). A sound whose file fails to load keeps its ambience rule silent (one warning)
 until the rules load again, instead of refetching.
 
-Your own synth is a sound asset: `engine.assets.manifest({ sounds: { ding: synthFn } })` (or `{ build: synthFn, params }` for default params).
-Connect to `out` and return the length in seconds (or `{ stop(t) }` for a loop).
+A synth with default params is `{ build: synthFn, params }` in the manifest.
 
 ## 3. Ambience: a rule table
 Each rule names a sound and says when and how loud. A rule with `every` is a one-shot at random gaps; without, a loop that fades in and out (and stops

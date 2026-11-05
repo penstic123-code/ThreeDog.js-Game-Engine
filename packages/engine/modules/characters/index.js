@@ -14,7 +14,7 @@ import { NPCManager, NPC } from './NPC.js';
 import { findPath } from './astar.js';
 import { findSpawn, moveInput } from './moveHelpers.js';
 import { AsyncPaths } from './pathAsync.js';
-import { warnOnce, DEV } from '../../core/validate.js';
+import { warnOnce, DEV, needMaterial } from '../../core/validate.js';
 import { engineOwned } from '../../core/things.js';
 import { builtInSounds } from '../../core/assetManifest.js';
 import { readParams, keysSchema } from '../../core/params.js';
@@ -100,7 +100,7 @@ export function characters(opts = {}) {
          */
         get material() { return (material ??= share(capsuleDefault())); },
         set material(m) {
-          if (!m?.isMaterial) throw codedError('character-option', `engine.characters.material takes a three.js material, got ${m}. Example: engine.characters.material = new THREE.MeshStandardMaterial({ color: 0xd9a066 })`);
+          needMaterial('character-option', 'engine.characters.material', m, '. Example: engine.characters.material = new THREE.MeshStandardMaterial({ color: 0xd9a066 })');
           const old = api.material;
           if (m === old) return;
           material = share(m);
@@ -192,7 +192,7 @@ export function characters(opts = {}) {
           if (control === undefined) throw codedError('player-control', DEV_STRINGS.noControl);
           if (!validControl(control)) throw codedError('player-control', DEV_STRINGS.badControl.replace('{got}', JSON.stringify(control) ?? String(control)));
           const W = e.world;
-          if (!W) throw codedError('world-missing', DEV_STRINGS.noWorld);
+          if (!W) throw codedError('module-needs', DEV_STRINGS.noWorld);
           // vehicle id saved in the player record; a number is a save from before vehicles had ids (the index in rigid.vehicles)
           const vehicleOf = v => v == null ? null : typeof v === 'number' ? (v >= 0 ? e.rigid?.vehicles[v] ?? null : null) : e.rigid?.vehicles.find(c => c.id === v) ?? null;
           disposePlayer?.();   // existing player: dispose the old one first (else two characters respond to keys)

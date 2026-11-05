@@ -3,12 +3,13 @@
 //   node packages/engine/tests/stress-field/run.mjs <method> '<json args>' [--backend=webgl|webgpu-gl] [--no-build] [--headed] [--cpuprofile=<seconds>] [--profile-out=<file>] [--gputime=<every nth frame>] [--trace=<seconds>] [--trace-out=<file>] [--shot=<file>]
 //   webgpu-gl: three's WebGPURenderer on its WebGL2 backend, the middle step between webgl (WebGLRenderer) and webgpu: same renderer as webgpu, same driver road as webgl.
 //   --gputime: real GPU time per pass from timestamp queries (WebGPU) or EXT_disjoint_timer_query_webgl2 around the draw (WebGL2). --trace: a Chrome trace over that many seconds of the path, the only view of the GPU process.
-//   methods: env objects churn sceneChurn longStart fly saves modules city. One fresh page per call; prints one JSON line (long runs also print each sample row).
+//   methods: env objects churn sceneChurn longStart fly saves modules city cityGame. One fresh page per call; prints one JSON line (long runs also print each sample row).
 // Chrome flags: --disable-frame-rate-limit / --disable-gpu-vsync so a frame is not pinned at 16.7 ms (the page also measures queue-drain throughput itself),
 // --js-flags=--expose-gc and --enable-precise-memory-info so the JS heap numbers are exact after a forced gc.
 process.env.THREEDOG_TEST = '1';
 import { execFile } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
+import { cpus } from 'node:os';
 import { chromium } from 'playwright';
 import { buildAndPreview } from '@threedog/tools/browser';
 import { ENGINE } from '@threedog/tools/paths';
@@ -23,6 +24,10 @@ async function vram() {
   const mb = await ps(`[math]::Round(((Get-Counter "\\GPU Process Memory(pid_${gpuPid}_*)\\Dedicated Usage").CounterSamples | Measure-Object CookedValue -Sum).Sum / 1MB, 1)`);
   return mb ? Number(mb) : null;
 }
+
+// Whole-machine CPU busy % since the last call: this run's Chrome counts too, so a reading well above a few cores' share means other work on the machine
+let cpuPrev = null;
+const cpuBusy = () => { const t = cpus().reduce((a, c) => [a[0] + Object.values(c.times).reduce((x, y) => x + y, 0), a[1] + c.times.idle], [0, 0]), p = cpuPrev; cpuPrev = t; return p ? Math.round(100 * (1 - (t[1] - p[1]) / (t[0] - p[0]))) : null; };
 
 const args = process.argv.slice(2);
 const flag = k => args.includes(`--${k}`);
@@ -100,18 +105,18 @@ try {
   await page.waitForFunction(() => window.sfReady, null, { timeout: 120000 });
   const renderer = await page.evaluate(() => { const g = document.createElement('canvas').getContext('webgl2'); const d = g?.getExtension('WEBGL_debug_renderer_info'); return d ? g.getParameter(d.UNMASKED_RENDERER_WEBGL) : null; });
 
-  if (method === 'longStart' || method === 'city' || method === 'soak') poll = setInterval(async () => { try { const r = await page.evaluate(() => window.cityStage?.() ?? window.soakRows?.at(-1) ?? window.rows?.at(-1)); if (r) console.error(JSON.stringify(r)); } catch {} }, method === 'city' ? 10000 : 60000);
+  if (method === 'longStart' || method.startsWith('city') || method === 'soak') poll = setInterval(async () => { try { const r = await page.evaluate(() => window.cityStage?.() ?? window.soakRows?.at(-1) ?? window.rows?.at(-1)); if (r) console.error(JSON.stringify(r)); } catch {} }, method.startsWith('city') ? 10000 : 60000);
   page.setDefaultTimeout(0);
   const t0 = Date.now(), vramRows = [];
-  vramPoll = method === 'city' || method === 'soak' ? setInterval(async () => {
+  vramPoll = method.startsWith('city') || method === 'soak' ? setInterval(async () => {
     const mb = await vram(); if (mb == null) return;
     const at = await page.evaluate(() => { const c = window.cityStage?.(), g = window.__gpu; return { stage: c?.stage, frames: c?.frames, buffers: g.buffers, bg: g.bindGroups, bgLive: g.bindGroupsLive, pipelines: g.pipelines, uploadMB: Math.round(g.uploadMB) }; }).catch(() => ({}));
-    vramRows.push({ s: Math.round((Date.now() - t0) / 1000), mb, ...at });
+    vramRows.push({ s: Math.round((Date.now() - t0) / 1000), mb, cpu: cpuBusy(), ...at });
   }, 15000) : null;
   // --cpuprofile=<seconds>: sample the page's JS while the path runs and print the functions with the most self time to stderr (something to act on, not a guess)
   const prof = value('cpuprofile') && (async () => {
     const c = await page.context().newCDPSession(page);
-    while (!(await page.evaluate(() => window.cityStage?.().stage === 'path'))) await new Promise(r => setTimeout(r, 300));
+    while (!(await page.evaluate(() => ['path', 'walk'].includes(window.cityStage?.().stage)))) await new Promise(r => setTimeout(r, 300));
     await c.send('Profiler.enable'); await c.send('Profiler.setSamplingInterval', { interval: 500 }); await c.send('Profiler.start');
     await new Promise(r => setTimeout(r, Number(value('cpuprofile')) * 1000));
     const { profile: p } = await c.send('Profiler.stop');
@@ -122,7 +127,7 @@ try {
   })();
   const trace = value('trace') && (async () => {
     // --trace-early: from the streaming stage on, to see the first frames of the path; otherwise 3 s into it
-    while (!(await page.evaluate(early => early ? !!window.cityStage : window.cityStage?.().stage === 'path', flag('trace-early')))) await new Promise(r => setTimeout(r, 300));
+    while (!(await page.evaluate(early => early ? !!window.cityStage : ['path', 'walk'].includes(window.cityStage?.().stage), flag('trace-early')))) await new Promise(r => setTimeout(r, 300));
     if (!flag('trace-early')) await new Promise(r => setTimeout(r, 3000));
     await browser.startTracing(page, { path: value('trace-out') ?? 'trace.json', categories: ['toplevel', 'gpu', 'gpu.dawn', 'v8', 'devtools.timeline', 'disabled-by-default-v8.gc', 'blink.user_timing'] });
     await new Promise(r => setTimeout(r, Number(value('trace')) * 1000));
@@ -130,7 +135,7 @@ try {
   })();
   // --shot: one screenshot 4 s into the path. With speed 0 and no traffic it compares two settings pixel by pixel (the same scene must draw the same picture)
   const shot = value('shot') && (async () => {
-    while (!(await page.evaluate(() => window.cityStage?.().stage === 'path'))) await new Promise(r => setTimeout(r, 300));
+    while (!(await page.evaluate(() => ['path', 'walk'].includes(window.cityStage?.().stage)))) await new Promise(r => setTimeout(r, 300));
     await new Promise(r => setTimeout(r, 4000));
     await page.screenshot({ path: value('shot') });
   })();

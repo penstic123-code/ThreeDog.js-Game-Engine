@@ -46,7 +46,7 @@ import { nameShaderErrors } from '../render/shaderErrors.js';
 import { probeMethods } from '../render/probes.js';
 import { lightmapMethods } from '../render/lightmap.js';
 import { headlessSettled } from './headlessLoad.js';
-import { codedError } from './errorHints.js';
+import { coded, codedError } from './errorHints.js';
 const FALLBACKS = ['webgl2', 'webgl', 'error'];
 // createEngine() options: the one table for the unknown-key and type check (dev throws with did-you-mean, release warns once), the plain
 // defaults and engine.catalog('core').params; R6 checks EngineOptions (types/core.d.ts) has exactly these keys. A key with several shapes
@@ -81,7 +81,7 @@ function rendererWant(r, rendererIn, fallback) {
   if (typeof rendererIn === 'string' && rendererIn !== 'webgpu') throw codedError('engine-misuse', `createEngine({ renderer }): a name is 'webgl' (the default) or 'webgpu', or pass a three.js renderer object, got ${JSON.stringify(rendererIn)}`);
   const gpu = isWebGPU(r);
   if (gpu) needTsl('yourWebGPURenderer');
-  if (fallback !== undefined && !gpu) throw codedError('engine-misuse', "createEngine({ fallback }) only applies with renderer: 'webgpu' or your own WebGPURenderer (WebGLRenderer has nothing to fall back from)");
+  if (DEV && fallback !== undefined && !gpu) warnOnce(coded('engine-misuse', `createEngine({ fallback: ${JSON.stringify(fallback)} }) does nothing here: it only applies with renderer: 'webgpu' or your own WebGPURenderer (WebGLRenderer has nothing to fall back from)`));
   return { requested: gpu ? 'webgpu' : 'webgl', fallback: fallback ?? 'webgl2' };
 }
 

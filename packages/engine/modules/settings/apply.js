@@ -24,7 +24,7 @@ export function checkLimits(s, key, def, names) {
   const e = s.engine;
   const known = () => e.stacks.list().filter(n => n.endsWith('.enabled')).join(', ');
   for (const n of names) {
-    if (typeof n !== 'string' || !e.stacks.has(n)) throw codedError('unknown-name', `settings.define('${key}', ${JSON.stringify(def)}, { limits }): no shared value ${JSON.stringify(n)}. Define the row after the effect exists (engine.post.add, a style effect, engine.stacks.define). Switches now: ${known()}; every name: engine.stacks.list()`);
+    if (typeof n !== 'string' || !e.stacks.has(n)) throw codedError('unknown-name', `settings.define('${key}', ${JSON.stringify(def)}, { limits }): no shared value ${JSON.stringify(n)}. Define the row after the effect exists (engine.post.add, engine.stacks.define). Switches now: ${known()}; every name: engine.stacks.list()`);
     const kind = e.stacks.get(n).kind;
     const ok = typeof def === 'boolean' ? kind === 'number' || kind === 'value' : typeof def === 'number' && kind === 'number';
     if (!ok) throw codedError('shared-settings', `settings.define('${key}', ${JSON.stringify(def)}, { limits: '${n}' }): '${n}' holds ${kind === 'number' ? 'a number' : 'a value'}; a row limits it with ${kind === 'number' ? 'a switch (false = 0) or a factor from 0 to 1' : 'a switch: true allows what the scene chose, false turns it off'}`);

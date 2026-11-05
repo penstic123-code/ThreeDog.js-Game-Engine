@@ -1,6 +1,7 @@
 // Shader effects on plain three.js materials (shadows, fog and tone mapping kept): wind sway, cloud shadows, season tint, ground detail texture,
 // light shaping; plus the terrain's base material and vertex-colored merging. A material's picture is the game's: this file only adds effects to it.
 import * as THREE from 'three';
+import { oneForm } from '../core/validate.js';
 import { patchMaterial, sharedPatch } from './patches.js';
 import { declareUniforms } from './uniformDecl.js';
 import { EFFECTS } from './effects.js';
@@ -32,8 +33,8 @@ export function windCustom({ glsl, uniforms, tsl }, gpu) {
   if (tsl != null && typeof tsl !== 'function') throw codedError('material-option', "wind.tsl is (ctx) => vec3 node: the moved object-space position (ctx.position, ctx.fx.wind, ctx.fx.objectOrigin())");
   if ((glsl != null || tsl == null) && !/void\s+threedogWind\s*\(/.test(glsl || '')) throw codedError('material-option', 'the sway GLSL must define `void threedogWind(inout vec3 transformed, vec3 ip, vec3 position)`: move the vertex (object space) by the sway; ip = world position of this instance, uTime / uWind / uWindFreq / THREEDOG_WIND_AMP are in scope');
   // each renderer draws its own form: the missing one would leave the built-in sway in place without a word
-  if (gpu === false && glsl == null) throw codedError('material-option', 'wind has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl })');
-  if (gpu && tsl == null) throw codedError('material-option', 'wind has only a glsl form, which WebGPURenderer cannot draw: give tsl too ({ glsl, tsl })');
+  if (gpu === false && glsl == null) throw oneForm('material-option', 'wind', false);
+  if (gpu && tsl == null) throw oneForm('material-option', 'wind', true);
   return { glsl, tsl, ...declareUniforms('wind.uniforms', uniforms) };
 }
 /**

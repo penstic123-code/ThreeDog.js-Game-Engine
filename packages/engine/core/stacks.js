@@ -43,7 +43,7 @@ export class Stacks {
    * @example engine.stacks.define('damageTaken', { per: true, min: 0 }); engine.mod('damageTaken', { owner: 'shield', id: 'player', mul: 0.5, for: 3 });
    */
   define(name, o = {}) {
-    if (this._all.has(name)) throw codedError('mod-owner', `engine.stacks.define('${name}'): already defined; read it with engine.stacks.get('${name}')`);
+    if (this._all.has(name)) throw codedError('engine-misuse', `engine.stacks.define('${name}'): already defined; read it with engine.stacks.get('${name}')`);
     const s = new Stack(this, name, o);
     this._all.set(name, s);
     if (this._pending[name]) { this._loadOne(s, this._pending[name]); delete this._pending[name]; }

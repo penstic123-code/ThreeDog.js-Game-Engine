@@ -1,7 +1,7 @@
 # Content vocabulary, key actions in actions.js, saving and loading at startup
 
 **In this recipe**: 1. Condition words / effect words · 1b. Content packs · 2. actions.js: a game's own key actions · 3. Interact keys ·
-4. Continue and new game · Save failures and versions · Save format
+4. Continue and new game · 4b. Best times and high scores · Save failures and versions · Save format
 
 ## 1. Condition words / effect words
 The full vocabulary is in the last section of `../api/content.md` (**generated from `modules/content/rules.js`**, so it never goes stale):
@@ -47,10 +47,8 @@ says so when one is missing). `load` is optional: a game that imports the file i
 A file in `content/` that is neither an engine file nor a registered kind is an error,
 and so is `content.load({ enemies })` without the kind: both say how to register it. A kind may not reuse an engine file name.
 
-**Field tables.** Every content entry has one: the engine declares the placement fields of its own files once (`modules/content/rules.js`,
-`PLACEMENT_FIELDS`: props, template instances, grid items, pickups, views), templates add `fields` for their state (recipes/30-templates.md), and
-a kind adds `fields` as above. `threedog check` validates every entry against its table (a misspelled `scael` names `scale`), and
-`engine.content.fields(name)` returns the same table for tools such as an editor panel, so the two cannot disagree.
+**Field tables.** Every content entry has one: the engine's own, a template's `fields` (recipes/30-templates.md) or a kind's `fields` as above. `threedog check` validates every entry
+against its table (a misspelled `scael` names `scale`), and `engine.content.fields(name)` returns the same table for tools such as an editor panel.
 
 ## 1b. Content packs: several data sets in one load
 A content pack is the same object `content/index.js` exports (`{ items, templates, props, quests, ... }`, optional `name` for messages), shipped as a
@@ -62,7 +60,7 @@ import packs from './assets.js';                            // export default [f
 engine.assets.manifest(packs);                              // the same objects `npm run check` reads the names from
 engine.content.load([base, forest], { places: { home } });
 ```
-- Packs load in list order, so a pack may use what an earlier one defines.
+- Packs load in list order, so a pack may use what an earlier one defines. A pack's own `places` load with it; the `places` option goes on top (a place computed at startup).
 - Within one call an id may live in one pack only: `items.apple` in two packs, or the same prop / pickup id, is an error naming both packs. A later,
   separate `load` call still overrides by name on purpose (hot reload, a chapter replacing a quest).
 - A pack may carry its sounds: `audio: { sounds, ambience, music, footsteps }` (`recipes/31-audio.md` section 8). Sounds, footsteps and music tracks
@@ -150,7 +148,7 @@ if (engine.saves.check('auto') === null) await engine.session.load('auto');   //
 - `engine.session.load(slot)` and `engine.session.newGame()` both return `Promise<boolean>`: always `await`. `session.load` starts from the new-game
   state and puts the save on top, so a part the save lacks (a module added in a later version) starts fresh instead of keeping the current run's
   state. `engine.saves.load(slot)` is a quick load onto the running playthrough; never build Continue from it.
-- Loading restores the player, world data (world changes and deletions), inventory, quests, clock and random state; initial data in content files
+- Loading restores the player, the view (the camera rig's yaw and pitch: a first-person game needs no save code for it), world data (world changes and deletions), inventory, quests, clock and random state; initial data in content files
   (`initial`) is the same whether it is loaded before or after the save, so ignore the order.
 - A load rebuilds the props and other world records: an Object3D your code kept from before (a door mesh, a lamp) is gone afterwards. Keep the
   record id, not the mesh, and look it up again on `save:loaded`: `engine.world.get(id)` for the record, `engine.world.view(id)` for its model
@@ -159,6 +157,14 @@ if (engine.saves.check('auto') === null) await engine.session.load('auto');   //
   "New game" is `await engine.session.newGame()`.
 - During development, to jump straight into a save: URL `?save=slot1` (`threedog state` also understands `save=`).
 - In tests, `engine.saves.save('x'); await engine.saves.flush();` writes before reading back.
+
+## 4b. Best times and high scores: data that outlives saves
+Best lap times, a leaderboard or high scores belong to the player, not to one playthrough: in a save part a new game would wipe them. Persist them beside the saves, in `localStorage` under `engine.saves.storageKey(name)`, a key that shares the game's name and stays out of the save slots:
+```js
+const key = engine.saves.storageKey('records');
+const records = () => JSON.parse(localStorage.getItem(key) ?? '{ "laps": [] }');
+const addLap = time => { const r = records(); r.laps.push(time); localStorage.setItem(key, JSON.stringify(r)); };
+```
 
 ## Save failures and versions
 - `await engine.saves.save(slot)` is `true` only after the write is on disk; show "saved" only then. On a failed write (storage full, IndexedDB /
@@ -173,20 +179,19 @@ if (engine.saves.check('auto') === null) await engine.session.load('auto');   //
   channels, random state or item counts is clamped or dropped with one `save-value` warning per part, and the rest loads.
 - Two tabs of one game: a tab overwrites a slot only while it holds the copy it last read, wrote or loaded. A save over a newer one another tab
   wrote returns `false` (toast, `save-stale`); that tab then lists the newer save, and loading it lets it save there again.
-- `engine.saves.versions` lists the version of every part this build reads (`{ world: 4, clock: 1, ... }`); raise a part's `version` with a `migrate`
+- `engine.saves.versions` lists the version of every part this build reads (`{ world: 5, clock: 1, ... }`); raise a part's `version` with a `migrate`
   step when its data changes shape.
-- Import is offline and checked: `saves.import(text)` and `saves.importFile(file)` (default slot `'imported'`) refuse anything that is not a save, and
-  attachments must be `data:` URLs (nothing is fetched).
+- Import is offline and checked: `saves.import(text)` and `saves.importFile(file)` refuse anything that is not a save, and attachments must be `data:` URLs (nothing is fetched).
 
-## Save format (frozen in v0.1)
+## Save format
 A save is one envelope; `engine.saves.collect()` returns it and `export` / `exportFile` carry it unchanged:
 ```js fragment
 { format: 1,                       // the envelope's own version: a save with a higher format is refused as tooNew (none = 1)
   savedAt: 1730000000000,           // real time of the save
-  versions: { world: 4, quests: 2, clock: 1 },   // each part's version (none = 1)
+  versions: { world: 5, quests: 2, clock: 1 },   // each part's version (none = 1)
   parts: { world: {...}, quests: {...}, clock: {...}, vars: {...} } }   // each saves.register part's data, by key
 ```
-- **Parts and versions**: each `engine.saves.register(key, { version, migrate, save, load })` owns one part. When `save()` changes shape, raise
+- **Parts and versions**: each `engine.saves.register(key, { version, migrate, save, load })` owns one part. `load` takes one argument, the data: `load: data => …`, never `load(engine, data)`, the shape of a module hook (`npm run check` warns, rule R33). When `save()` changes shape, raise
   `version` by 1 and add `migrate[oldVersion] = data => newData`; load runs the steps in order on a copy, so `load` only sees the current shape. A
   part from a newer build, or a missing step, refuses the whole load before anything changes. This is how a game's own saved data migrates across its releases (there is no other system): keep one saved file per released game version, never edit it, and load each in a test with `engine.saves.apply(sample)` (the engine does the same for its own parts in `tests/specs/save-compat.mjs`).
 - **Parts nobody owns are kept**: a part in the loaded save whose module is not installed in this run (a feature turned off for a version) is written
@@ -196,25 +201,11 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
   `changed` (fields of an authored record that differ), `removed` (authored records removed), `records` (records created during play, such as
   `engine.content.spawn`, drops and built walls, saved whole), `owed` (seconds owed, only for kinds simulated with `far`). The same content gives the same
   world, and a new game's world part is empty: in dev, start warns about records that code created or changed before it, naming them.
-- **Orphans are kept**: a saved change whose id the content no longer defines (an entry renamed or deleted) stays in the save and is written
-  back, <!-- r18-ignore-line -->
-  never dropped, so reverting the content change gets the data back. Dev warns once with the closest id and the `content/renames.js` pair that
-  would <!-- r18-ignore-line -->
-  move it; `describe().world.orphans` lists them. A rename in `content/renames.js` moves the state to the new id (recipe 30, "Writing the ids, <!--
-  r18-ignore-line -->
-  renaming them"). <!-- r18-ignore-line -->
-- **Runtime ids and migration**: records made during play are `<kind>#<n>` (world part version 3). An older save's `<kind>-<n>` ids are renamed when
-  it loads, together with the owed time, container goods and fields that name them; only ids the counter could have made are touched (own kind, `n` up
-  to the saved counter, each `n` once), so an authored `crate-2` stays as it is. A migrate step that needs another part gets the whole save as its
-  second argument: `migrate: { 1: (data, save) => … }`. <!-- r18-ignore-line -->
-- **Grid layers diff too**: cells authored in `content/grids.js` (`plot: { …, layers: { soil: [[i, j, { tilled: true }]] } }`) are the baseline;
-  the <!-- r18-ignore-line -->
-  `grids` part (version 2) stores only changed cells (`set`) and emptied authored ones (`clear`), and keeps a diff for a grid the run does not
-  have. <!-- r18-ignore-line -->
+- **Orphans are kept**: a saved change whose id the content no longer defines (an entry renamed or deleted) stays in the save and is written back, never dropped, so reverting the content change gets the data back. Dev warns once with the closest id and the `content/renames.js` pair that would move it; `describe().world.orphans` lists them. A rename in `content/renames.js` moves the state to the new id (recipe 30, "Writing the ids, renaming them"). <!-- r18-ignore-line -->
+- **Runtime ids**: records made during play are `<kind>#<n>`, so a runtime id never equals an authored one. A migrate step that needs another part gets the whole save as its second argument: `migrate: { 1: (data, save) => … }`. <!-- r18-ignore-line -->
+- **Grid layers diff too**: cells authored in `content/grids.js` (`plot: { …, layers: { soil: [[i, j, { tilled: true }]] } }`) are the baseline; the `grids` part stores only changed cells (`set`) and emptied authored ones (`clear`), and keeps a diff for a grid the run does not have. <!-- r18-ignore-line -->
 - **Stable ids, never positions**: saved data names things by stable ids. The player's vehicle is saved by `rigid.addWheeled(mesh, { id })`; quest
   progress by step ids (`steps: [{ id: 'talk-mayor', ... }]`, recipe 04). Content edits (a new step, a new prop) then never shift an old save.
-- **Built-in part versions**: `world` 3 (version 1 kept `records` as an array, version 2 the `<kind>-<n>` runtime ids), `quests` 2 (version 1 kept
-  step positions; the migrate step maps them to ids through the quest definitions), `containers` 2 and `grids` 2, every other part 1.
 - The export file wraps the envelope:
   `{ threedog: 'save', format: 1, game, slot, savedAt, data: <envelope>, files: [{ group, id, at, meta, type, url: 'data:...' }] }`.
 - Tests: `threedog test "Save failure"`.

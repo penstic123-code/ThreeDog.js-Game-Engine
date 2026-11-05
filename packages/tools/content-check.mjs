@@ -5,7 +5,7 @@
 //        misspelled key names, flags/counters that are only checked and never set (warning), prop/vegetation model names (against the game's style
 //   pack + assets.manifest) and places.
 // Vocabulary (which conditions/effects can be written) = the engine's modules/content/rules.js + the game's own content/rules.js.
-import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkWorldData } from './content-check/world.mjs';
@@ -18,7 +18,9 @@ import { glbLevels } from './content-check/glb.mjs';
 import { writeIndex } from './content-check/index-ids.mjs';
 import { cli, within } from './paths.mjs';
 import { item, result, startJson } from './lib/result.mjs';
-import { KEYBOARD_CODE } from './lib/text.mjs';
+import { KEYBOARD_CODE, gameCodeFiles, read } from './lib/text.mjs';
+import { actionUsed } from './gamemap/codeScan.mjs';
+import { noComments } from './gamemap/text.mjs';
 import { ROOT, rel, findGames, loadGame, dupKeys, gameAssets, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 export { ROOT, findGames, loadGame, gameAssets, levelIsFile };
 
@@ -44,8 +46,8 @@ export async function checkGame(dir) {
   const index = writeIndex(dir, c, parts);
   errors.push(...index.errors); warnings.push(...index.warnings);
 
-  // Game code (main.js etc.) source: used to find "flags and counters set in code"
-  const code = readdirSync(dir).filter(f => f.endsWith('.js')).map(f => readFileSync(join(dir, f), 'utf8')).join('\n');
+  // The game's code outside content/ (main.js, game/, picture/, plugins/): what "used in code" and "set in code" below read
+  const code = gameCodeFiles(dir).filter(f => !within(f, join(dir, 'content'))).map(f => noComments(read(f))).join('\n');
   const items = c.items || {}, quests = c.quests || {}, dialogues = c.dialogues || {}, npcs = c.npcs || {};
   const { conditions: CONDITIONS, effects: EFFECTS } = mergeRules(c.rules);
   if (c.rules?.effects) err('rules', NO_GAME_EFFECTS);
@@ -194,7 +196,7 @@ export async function checkGame(dir) {
     for (const k of a.keys) if (!KEY_RE.test(k)) err('actions',
       `the key name ${k} of key action ${name} is wrong (letter keys are 'KeyA', digits 'Digit1', space 'Space', function keys 'F5', mouse buttons 'Mouse0', gamepad 'PadA')`);
     if (!a.label) err('actions', `key action ${name} has no label (the text shown in the settings menu)`);
-    if (!new RegExp(`pressed(Raw)?\\('${name}'\\)|down\\('${name}'\\)`).test(code)) warn('actions',
+    if (!actionUsed(code, name)) warn('actions',
       `key action ${name} is registered but the game code never uses it (engine.input.pressed('${name}'))`);
   }
 

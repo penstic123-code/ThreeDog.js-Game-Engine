@@ -24,7 +24,7 @@ The engine sun takes the same entry: `engine.shadows.cascades(engine.lights.sun,
 
 | field | default | meaning |
 |---|---|---|
-| `count` | 3 | 1 = one map that follows the camera (`maxFar` each way); 2-4 = cascades |
+| `count` | 3 | 1 = one map (see the rules below); 2-4 = cascades |
 | `maxFar` | 120 | meters from the camera they cover; no sun shadow beyond |
 | `split` | `'practical'` | where borders fall: `'practical'` / `'uniform'` / `'logarithmic'` / `(count, near, far, out) => void` |
 | `lightMargin` | 100 | meters behind each cascade box toward the light still caught as casters |
@@ -48,7 +48,6 @@ follow the camera frustum and snap to whole shadow pixels themselves, so edges d
   `lights_fragment_begin` (it would clash with `csm`, reported when added).
 - three's `ShaderChunk` is never changed (the addon's constructor does that globally; the engine swaps the chunk per material instead).
 - Under `engine.shadows.budget` cascades move only on frames whose maps re-render (or when the camera jumps), so lights and maps agree.
-- `engine.shadows.mapSize(sun, n)` resizes every cascade's map, on both renderers.
 
 On WebGPURenderer (recipe 56) the same call is three's
 `CSMShadowNode` on `light.shadow.shadowNode`: one light, so no material is patched, nothing is listed in `describe().owned`,
@@ -57,32 +56,28 @@ lights). The cascade shadow cameras reach `lightMargin + 2 * maxFar` meters, as 
 
 ## Costs and stalls
 - Each cascade draws the shadow casters once more (each culls to its own box; near ones see little). `engine.budget.byTag()` counts a
-  caster once per shadow map (each cascade, on both renderers), an upper bound. In the styletest acceptance test (software renderer, relative only) 3 cascades
-  went from 1 to 3 shadow passes and roughly doubled frame time; do not expect frame rate to improve.
+  caster once per shadow map (each cascade, on both renderers), an upper bound. Do not expect frame rate to improve.
 - Switching cascades on, off or changing any cascade field recompiles every lit material once (a stall), and each material keeps the
   old program until it is disposed (three would otherwise reuse a stale program whose uniforms no longer update). Do it on a settings
   screen, not during play.
 - Ladder for weaker devices: `count: 3` -> `2` -> `1` (one map); before dropping a cascade try a smaller `maxFar` or `mapSize`.
-  Low-tier devices get 1 unless you ask: `{ count: 3, low: { count: 2 } }`.
 
 ## Rules of the entry
-`engine.shadows.cascades(light, options)` takes `count`, `maxFar`, `split`, `fade`, `lightMargin` (the table above) and `low: { count }`, with and without a
-sky, on both renderers (WebGPU needs `import 'threedog/tsl'`, or the call says so).
+It works with and without a sky, on both renderers (WebGPU needs `import 'threedog/tsl'`, or the call says so).
 - The light must be a DirectionalLight, a direct child of `engine.scene`, with `castShadow = true`; anything else throws at the call.
-- Color, intensity, `visible`, `castShadow` and `light.shadow` values stay yours and are read every frame: `mapSize`, `bias`, `normalBias`,
-  `radius` and `blurSamples` written on the light reach every cascade. The cascades only place the light. On WebGL, while they are on,
+- Color, intensity, `visible`, `castShadow` and `light.shadow` values stay yours and are read every frame. The cascades only place the light. On WebGL, while they are on,
   `light.position` and `light.target` hold that placement: writes to `light.position` or a new `light.target` still set the direction, and
   `remove()` puts both back as you left them, with the shadow camera box. A `light.target` you assigned (your player, say) is never moved.
-- `engine.tier === 'low'` gets one map unless you pass `low: { count: 2 }`. That map follows the camera and covers `maxFar` each way, so it is blurrier than cascades but never stops at the
-  origin; `handle.csm` is three's CSM object, null while there is one map. Like cascades it places the light, so `engine.shadows.box` on that light is refused.
+- `engine.tier === 'low'` gets one map unless you pass `low: { count: 2 }`. On a game's light that map follows the camera and covers `maxFar` each way, so it is blurrier than cascades but never stops at the
+  origin; like cascades it places the light, so `engine.shadows.box` on that light is refused. On `engine.lights.sun` the one map stays the engine's own box around the focus, with its size. `handle.csm` is null while there is one map.
 - An engine draws one set of cascades: a second handle throws. A box on the same light throws too, except the engine's own box on `engine.lights.sun`, which waits
   until `remove()`.
-- Materials work as described above (the `csm` patch, `engine.shadows.include(mat)`, `describe().owned`). Never call `CSM.setupMaterial` yourself.
 - Another shadow-casting DirectionalLight next to cascades breaks the cascade order on WebGL (three sorts shadow casters first): one warning
   names it; keep extra lights shadowless.
 
 ## A box that follows
-One shadow map stays sharp when it covers little. `box` keeps that little around the action:
+One shadow map stays sharp when it covers little: one texel covers `2 x extent / mapSize` meters (the engine sun's 30 m on a 2048 map is about 3 cm, twice that on the 1024 map of low tier). A box much bigger than
+what the camera sees blurs the shadows of small things; a box smaller than it cuts shadows off. A depth bias scales with the texel, so re-check `bias` / `normalBias` after changing either. `box` keeps that little around the action:
 
 ```js
 const sun = new THREE.DirectionalLight('#fff', 3);
@@ -177,9 +172,8 @@ sun.shadow.bias = -0.0001; sun.shadow.normalBias = 0.03;
 sun.shadow.mapSize.setScalar(2048);                    // before the first frame; later also sun.shadow.map?.dispose(); sun.shadow.map = null;
 ```
 
-Changing the type later, measured against three 0.187's source:
-- WebGLRenderer does the work itself: `WebGLShadowMap.render` sees the new type, sets `needsUpdate` on every material in the scene and rebuilds the maps of the lights it draws that frame. You write
-  only `shadowMap.type`. Two limits: it happens on the next frame that draws a shadow, and only for lights that draw on that frame. A light under `engine.shadows.budget` is redrawn
+Changing the type later:
+- WebGLRenderer does the work itself on the next frame that draws a shadow, only for lights that draw on that frame. A light under `engine.shadows.budget` is redrawn
   by the budget at once. A light of your own with `shadow.autoUpdate = false` needs `light.shadow.needsUpdate = true` in the same frame, or it keeps its old map.
 - WebGPURenderer reads the type when it builds a light's shadow node. Set it before the first frame; there is no switch at run time.
 

@@ -51,6 +51,26 @@ export const BASE_URL = ENV?.BASE_URL ?? '/';
 const warned = new Set();
 
 /**
+ * The one check behind every `.material = m` setter a module hands out.
+ * @param {string} code  the module's error code
+ * @param {string} what  what is being set, e.g. 'engine.water.material'
+ * @param {any} m  the value
+ * @param {string} [next]  what to write instead, appended to the message
+ * @internal
+ */
+export function needMaterial(code, what, m, next = '') { if (!m?.isMaterial) throw codedError(code, `${what} takes a three.js Material, got ${m}${next}`); }
+/**
+ * A shader part written for one renderer only, on the other one: the error that names the missing form.
+ * @param {string} code  the module's error code
+ * @param {string} what  the part, e.g. 'wind'
+ * @param {boolean} gpu  true on WebGPURenderer (the glsl form cannot run), false on WebGLRenderer (the tsl form cannot run)
+ * @internal
+ */
+export const oneForm = (code, what, gpu) => codedError(code, gpu
+  ? `${what} has only a glsl form, which WebGPURenderer cannot draw: give tsl too ({ glsl, tsl })`
+  : `${what} has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl })`);
+
+/**
  * Count one engine's createEngine({ validate }) for the page-wide warnings; returns the release for dispose().
  * @param {boolean | undefined} on
  * @returns {() => void}

@@ -12,6 +12,7 @@
 //            renderer needs its own form; a layer without it throws by name there.
 // In scope: threedogHash(vec2), threedogNoise(vec2) and the dome's uniforms (uTop, uHorizon, uSunColor, uWeatherCloud...).
 import { readParams, keysSchema, isOptions } from '../../core/params.js';
+import { oneForm } from '../../core/validate.js';
 import { declareUniforms } from '../../render/uniformDecl.js';
 import { codedError } from '../../core/errorHints.js';
 import { scanRenamed, RENAMED_DOME_UNIFORMS } from '../../render/uniformRenames.js';
@@ -30,7 +31,7 @@ export function resolveDomeLayers(list, { gpu = false, names } = {}) {
     const where = names?.[i] != null ? `engine.sky.layer('${names[i]}')` : `dome layer ${i}`;
     if (isOptions(l)) readParams(where, keysSchema(KEYS), l);
     if (l?.tsl != null && typeof l.tsl !== 'function') throw codedError('sky-option', `${where}.tsl must be (ctx) => vec4 node (WebGPURenderer); see modules/sky/domeLayers.js`);
-    if (l?.glsl == null && l?.tsl != null && !gpu) throw codedError('sky-option', `${where} has only a tsl form, which WebGLRenderer cannot draw: give glsl too ({ glsl, tsl })`);
+    if (l?.glsl == null && l?.tsl != null && !gpu) throw oneForm('sky-option', where, false);
     // gpu: the glsl may be left out (render/fx/sky.tsl.js names a layer that has no tsl); when given it is checked all the same
     if ((l?.glsl != null || !gpu) && (typeof l?.glsl !== 'string' || !/vec4\s+threedogSkyLayer\s*\(/.test(l.glsl)))
       throw codedError('sky-option', `${where}.glsl must be GLSL that defines \`vec4 threedogSkyLayer(vec3 dir, float time, vec3 sunDir, float night)\` returning (rgb, amount 0..1)`);

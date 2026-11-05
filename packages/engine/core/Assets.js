@@ -271,7 +271,7 @@ export class Assets {
    */
   useTexture(nameOrUrl, use, { where = 'assets.useTexture', instead = 'the stand-in stays', opts } = {}) {
     return this.texture(nameOrUrl, opts).then(t => { use(t); return true; },
-      err => { warnOnce(coded('load-failed', fmt(STRINGS.textureFailed, { where, name: nameOrUrl, msg: err?.message ?? String(err), instead }))); return false; });
+      err => { warnOnce(coded('asset-load', fmt(STRINGS.textureFailed, { where, name: nameOrUrl, msg: err?.message ?? String(err), instead }))); return false; });
   }
 
   /**

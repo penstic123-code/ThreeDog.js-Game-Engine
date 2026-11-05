@@ -1,8 +1,8 @@
 # World data: things that must be saved, grow, and keep changing while far away
 
-**In this recipe**: 1. Three steps · 2. How to change data · 3. Example: a crop grows with game time, press E to… · 4. Data written in content ·
+**In this recipe**: 1. Three steps · 2. How to change data · 3. Example: a crop grows on the calendar, press E to… · 4. Data written in content ·
 4b. One object from start to end · 5. Example: something that wanders · 6. Near, far, camera, player · 7. Time and ordering rules · 8. Querying nearby things ·
-9. zone and data limits · 10. Stream sources
+9. zone and data limits
 
 Requires module `world()` (already included in the `openWorld()` preset). The interaction prompts in the examples need
 `interactions({ ...presets.interactions.nearest })`, the inventory needs `inventory()` (keys: `presets.bindings.interact` / `.inventory`). The API list is in
@@ -47,18 +47,18 @@ W.simulate('zombie', {
 - Things that change every step (position, timers, pathfinding state) are changed directly on the rec's fields inside simulate, and position with
   `W.move`: no event, cheap.
 - Both ways are saved (a save compares contents, it does not rely on events). `move` emits no event: if the picture needs to follow position, compare in
-  `update` (see `content/props.js`).
+  `update`.
 - Don't hold a rec object for long: loading a save replaces it with a new object. Keep the id and call `W.get(id)` when you need it.
 - Position forms: Vector3 / object / `[x, y, z]` / `{ x, z }` (a missing y keeps the old one). In development NaN or an array with only two numbers
   throws immediately.
 
-## 3. Example: a crop grows with game time, press E to harvest when ripe
+## 3. Example: a crop grows on the calendar, press E to harvest when ripe
 The key idea: **don't accumulate every step; record the time it was planted, `plantedAt = clock.now`, and growth = now - planted time**. Whether the
 player walked away, loaded a save, or fast-forwarded with `engine.step(60)`, the result is right, and no simulate is needed.
 ```js
 import { presets, THREE } from 'threedog';
 
-const GROW = 120;   // ripe after 120 game seconds (the unit of clock.now)
+const GROW = 120;   // ripe after 120 calendar seconds (the unit of clock.now)
 const growth = rec => Math.min(1, (engine.clock.now - rec.plantedAt) / GROW);   // 0..1
 const geo = new THREE.ConeGeometry(0.25, 0.8, 6);
 
@@ -92,7 +92,7 @@ engine.ops.define('crop.plant', {
 The same "store when, derive the rest" pattern fits any timed thing: an enemy camp that respawns (`clearedAt`), a turret or machine cooldown
 (`usedAt`), a door that shuts again (`openedAt`):
 `const ready = rec => engine.clock.now - rec.usedAt >= rec.cooldown;   // no per-step counter, correct after skip and load`
-Test: `engine.ops.run('crop.plant', { x: 2, z: 2 })` -> `engine.step(130)` (fast-forward 130 game seconds) -> the player walks next to it -> `engine.ops.run('interaction.use')` ->
+Test: `engine.ops.run('crop.plant', { x: 2, z: 2 })` -> `engine.step(130)` (130 real seconds, 130 calendar seconds at `clock.rate` 1) -> the player walks next to it -> `engine.ops.run('interaction.use')` ->
 `engine.inventory.count('carrot')`.
 
 ## 4. Data written in content: `initial`
@@ -115,11 +115,8 @@ Gameplay randomness (drops, lightning, wander turns) still uses `engine.random` 
 generated at runtime (planted by the player, spawned) are saved whole; `add(def, { save: false })` is not saved (temporary things). The rules are
 described at the top of `modules/world/persist.js`.
 World models are in the thing registry too (`engine.thing(id)` answers with the record, saved `'record'`): do not move them from code. Change the
-record (`ops.run('thing.set', { id, position })`, `world.set` / `world.move`); dev reports code that moves a `positionFrom: 'record'` model, and
+record (`ops.run('thing.set', { id, position })`, `world.set` / `world.move`) and the model follows; dev reports code that moves a `positionFrom: 'record'` model, and
 `engine.add` of a model throws (recipe 40).
-
-A world record's model belongs to the scene too (`40-scene.md`; `engine.thing(id)` shows it, recipe 40). Do not move that model from code: the record owns its <!-- r18-ignore-line -->
-position, so change the record (`world.set`, `world.move`) and the model follows.
 
 ## 4b. One object from start to end: who owns what
 Four questions meet in every object: where its state lives, when it may change, who owns each part, what a save keeps. Here one chest answers all four; a door,
@@ -169,7 +166,7 @@ function wander(rec, dt) {
   grounded...) and which vehicle it is on (vehicle) live in the record and are saved, and it is never torn down by walking away. Only the character's
   mover changes the position and then writes it back to the record; **move the player with `player.placeAt(position)`, not `world.move('player')`**
   (the mover would overwrite it on the next step). On load the player is put back from the record.
-- **Models are built around the stream sources** (section 10, `33-stream-sources.md`): by default the player (`engine.stream.player`, follows
+- **Models are built around the stream sources** (`33-stream-sources.md`): by default the player (`engine.stream.player`, follows
   `world.anchor`) and the camera
   focus (`engine.stream.camera`). Built inside the radius of any source, torn down beyond 1.25x of all of them, with an error of at most 8 meters; at
   most `world.buildPerFrame` are built per frame (default 8, unlimited while loading), and `ready` waits until all are built. Tearing a model down
@@ -194,20 +191,16 @@ function wander(rec, dt) {
   (default 500); the rest queue for the next step, and dt keeps accumulating without loss. It counts records, not milliseconds, so the result does not
   depend on how fast the machine is.
 - The owed time and the simulation step count are saved: after loading they are caught up the same way, and the same save gives the same result
-  however many fixed steps run per frame. For things measured by game clock (grows in a few days, respawns at a time), record `engine.clock.now` and compare.
-- **Far in workers** (many far records, e.g. thousands of crops, spawners or machines): `W.simulate('crop', { far, worker: true })`. Each step's far batch is copied and run
-  in `engine.threads` workers, then written back 4 fixed steps later through `engine.commits`; if a reply is late the same function runs on the main
-  thread, so threads on / off / slow give **bit-identical** records. Only fields far changed are written back (gameplay changes to other fields during
-  those 4 steps are kept). `far` must be self-contained: it is recompiled from source and sees only `(rec, dt)` and globals like `Math`; an outside
-  variable throws `... x is not defined. Put constants inside the function, or store the value on the record` (also with `threads: false`, so you find
+  however many fixed steps run per frame. For things measured on the calendar (grows in a few days, respawns at a time), record `engine.clock.now` and compare.
+- **Far in workers** (thousands of crops, spawners or machines): `W.simulate('crop', { far, worker: true })`. Each step's far batch runs in `engine.threads` workers and is written
+  back 4 fixed steps later through `engine.commits`; a late reply runs on the main thread, so threads on / off / slow give **bit-identical** records, and only fields far changed are written
+  back. `far` must be self-contained: it is recompiled from source and sees only `(rec, dt)` and globals like `Math`; an outside variable throws (also with `threads: false`, so you find
   it in development). Limit: a save taken while a batch is in flight re-simulates that stretch after loading (equal within float tolerance, not bit-identical).
 
 ## 8. Querying nearby things
 ```js
-const list = engine.world.query({ kind: 'zombie', near: engine.player, radius: 30, where: z => z.hp > 0 });   // array, nearest first
 let crowd = 0;
-engine.world.forEachNear(engine.player, 5, (rec, d2) => { if (rec.kind === 'zombie') crowd++; });   // no allocation, no sorting
-engine.world.get(id);  engine.world.view(id);   // the data / the current model (null when far)
+engine.world.forEachNear(engine.player, 5, (rec, d2) => { if (rec.kind === 'zombie') crowd++; });   // no allocation, no sorting; world.query sorts nearest first and returns an array
 ```
 For things that query neighbors every step (hundreds of zombies avoiding each other) use `forEachNear`; inside the callback don't add / remove / move,
 note them down and change them after the loop.
@@ -218,6 +211,3 @@ note them down and change them after the loop.
 - Data must be plain values (numbers, strings, booleans, arrays, plain objects): in development, putting a three.js object or a function in it throws
   immediately and explains the fix — models go in present, logic goes in simulate.
 
-## 10. Stream sources: what is loaded where (teleport, far camera)
-Moved to `33-stream-sources.md`: the shared source list of `engine.stream`, `await engine.stream.teleport(p)`, `engine.stream.source(...)` for a photo
-camera or a far view.

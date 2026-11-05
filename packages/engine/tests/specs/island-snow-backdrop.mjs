@@ -1,4 +1,4 @@
-// recipes/47 "do not bypass" guards: snow cover rides the season tint uniforms (no second shader pass) and is off unless the game
+// recipes/44 "do not bypass" guards: snow cover rides the season tint uniforms (no second shader pass) and is off unless the game
 // asks; weather:change fires once per name change; applyState({ season }); look.sky backdrop replaces the dome with a flat color
 // that fog follows, and without it the sky is untouched. Wrong settings throw with the fix.
 

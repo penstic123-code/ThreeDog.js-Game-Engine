@@ -142,11 +142,10 @@ What catches up, and how:
 - A module that keeps its own time implements the hook `skip(dt, e, done)` (called once per segment; `done` on the last one).
 
 ### Order inside one frame
-Each rendered frame runs: input poll -> the fixed steps due (`commits` applied first, then `onFixed`, module `fixed` hooks, clock timers) -> `onFrame`
-callbacks **in the order they were registered** -> module `frame` hooks -> stream / jobs / batching -> render -> `afterRender` hooks. The animation of a model
-from `engine.assets.animate` (and a Character's model) is itself an `onFrame` callback registered when the animator was created, so your `onFrame` runs
-before it if you registered first (you see last frame's pose) and after it if you registered later. To read or override a pose after animation, register
-the callback after the model is created, or use an `afterRender` hook.
+Each rendered frame runs: input poll -> the fixed steps due (`commits` applied first, then `onFixed`, module `fixed` hooks, `onFixed` `{ phase: 'late' }`, clock timers) -> `onFrame`
+callbacks **in the order they were registered** -> animators (every `engine.assets.animate` model and a Character's clips) -> module `frame` hooks -> stream / jobs / batching -> render -> `afterRender` hooks.
+Animators run after the whole `onFrame` list, whoever registered first: an `anim.sync / go / set` from `onFrame` shows this frame, and `onFrame` reads last frame's pose.
+To read or override a pose after animation, use `character.onPose` (recipe 13) or a module `frame` hook.
 When a game has several systems, a default that keeps this order in one place: one `engine.onFixed(dt => { weapons.step(dt); enemies.step(dt); })` in `main.js` instead of one registration per system (`{ phase: 'late' }` for code that reads this step's results; a game module with `before` / `after`: recipe 14).
 
 ## 3. Verify
@@ -158,10 +157,9 @@ When a game has several systems, a default that keeps this order in one place: o
   is not 1, divide by `engine.clock.speed` as well.
 - Reproduce a scenario: `npm run shot -- / --time 17:58 --wait 10 --describe-only`, then look at the time (18:0x) and your effect (lamps, NPCs, items).
 - After `npm run map`, the "timed events" section of GAMEMAP.md lists every `calendar.at/between/daily/onSeason` and `clock.after/every`.
-- Is skip the same as living through it? `const r = await engine.checkSkip(600)` skips 600 calendar seconds, rewinds, steps the same span and compares the
-  saved state: `{ ok, diffs: [{ path, a, b }] }` (refuses with `{ ok: false, code: 'frozen' | 'rate0', facts, diffs }` while gameplay is frozen or the clock stopped; pending background results are applied first) (a = skip, b = step; `{ ignore: ['parts.world', 'parts.rigid', 'parts.random'] }` drops paths). Skip does not run near simulation (the weather module has a skip hook, so its timers do advance), so a moving player/NPC
-  or a physics body that is still settling always differs: ignore those parts and read the rest. It leaves the world at the stepped state, so run
-  it on a scratch playthrough or in a test. A diff usually means a module with its own time lacks a `skip` hook. `await engine.checkSave()` does the same
-  for save -> load (a diff names a save part whose `load` does not restore what `save` wrote).
+- Is skip the same as living through it? `const r = await engine.checkSkip(600)` skips 600 calendar seconds, rewinds, steps the same span and compares the saved state: `{ ok, diffs: [{ path, a, b }] }`
+  (a = skip, b = step; `{ ignore: ['parts.world', 'parts.rigid', 'parts.random'] }` drops paths; it refuses while frozen or with the clock stopped). Skip runs no near simulation, so a moving player/NPC
+  or a settling physics body always differs: ignore those parts and read the rest. It leaves the world at the stepped state, so run it on a scratch playthrough or in a test. A diff usually means a
+  module with its own time lacks a `skip` hook. `await engine.checkSave()` does the same for save -> load (a diff names a save part whose `load` does not restore what `save` wrote).
 - Why did it fire (or not)? `engine.events.traceSize = 200` records each event with the event or op that caused it: `events.trace('item:add').at(-1).chain`. Failed ops, sight queries and NPC state changes are entries too (with `code`); `events.note(name, { obj, code, data })` adds your own and `events.traceFocus(id)` makes one object verbose (the ring is bounded; size 0 costs nothing). Details: recipe 23 section 12.
 - Related tests: `threedog test 游戏时钟 SKIP`.

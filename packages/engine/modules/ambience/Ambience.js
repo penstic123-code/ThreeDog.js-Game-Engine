@@ -113,7 +113,7 @@ export class Ambience {
   _step(s, dt) {
     const r = s.rule, a = this.engine.audio, fade = r.fade ?? 1;
     if (s.failed) return;   // its file failed to load: retrying every check would refetch it ~4 times a second forever. Reloading the rules (rules(), a pack loaded again, a page reload) tries again
-    if (s.voice?.failed) { s.failed = true; s.voice = null; warnOnce(coded('load-failed', `[threedog] ambience: sound '${r.sound}' failed to load, its rule stays silent until the rules are loaded again. Fix the file path / asset name in audio.sounds`)); return; }
+    if (s.voice?.failed) { s.failed = true; s.voice = null; warnOnce(coded('asset-load', `[threedog] ambience: sound '${r.sound}' failed to load, its rule stays silent until the rules are loaded again. Fix the file path / asset name in audio.sounds`)); return; }
     const on = a.matches(r.when, this);
     s.level = on ? Math.max(0, a.volumeOf(r.volume, this)) : 0;
     if (r.every) {

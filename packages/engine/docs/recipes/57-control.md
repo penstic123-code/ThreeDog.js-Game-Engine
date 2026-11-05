@@ -74,7 +74,7 @@ const ride = engine.control.take(engine.player, { owner: 'boat', layer: 'script'
   return false;                                // placed by hand this step
 } });
 ```
-To lock the player's input during a scripted ride, one line: `const lock = engine.input.push('ride');` and `lock.remove()` at the end. `engine.characters.support(deckMesh)` works for a boat on water: pass the deck mesh, and the player stands on it and rides it wherever it moves, with no ground needed under it.
+To lock the player's input during a scripted ride, one line: `const lock = engine.input.push('ride');` and `lock.remove()` at the end.
 Gravity comes back the moment the hold ends, so end a ride where the character can stand: `player.placeAt(pier)` then `ride.remove()`, both in a
 fixed step or an op. The camera and saves follow the position as usual.
 
@@ -97,6 +97,13 @@ function climb(player, top) {                  // top: { x, y, z }, where it ste
 
 Getting into a vehicle does not change who controls the character: the player's input (`'player-input'`) drives the car while seated. A
 cutscene that takes the player while driving stops the steering; the rider stays on its seat.
+
+Holding a car on the grid (a countdown, after the finish) is the same take, plus the brake, since a released pedal only rolls:
+```js
+const hold = engine.control.take(engine.player, { owner: 'race', layer: 'script', step: () => null });   // the keys stop driving
+engine.onFixed(() => { if (hold.active) car.drive(0, 0, 1); });      // throttle, steer, brake
+hold.remove();                                                       // go
+```
 
 ## Saves
 

@@ -75,7 +75,7 @@ export const specs = [
       check('swap: sway() and color() leave the game material alone', r.gameUntouched === '', r.gameUntouched);
       check('a game material takes the patches through applyEffects', r.keeps);
       check('null gives the neutral default back', r.back.slice(0, 4).join() === '1,true,true,true', JSON.stringify(r.back));
-      check('a wrong value throws', /three\.js material/.test(r.badMaterial), r.badMaterial);
+      check('a wrong value throws', /takes a three\.js Material/.test(r.badMaterial), r.badMaterial);
       check('every program compiled', r.compiled);
     },
   },
@@ -131,7 +131,7 @@ export const specs = [
       check('options set the picture: rain keys, overcast color', r.options.join() === `30,${0x99aabb},${0x223344},true`, JSON.stringify(r.options));
       check('plain writes are live, no rebuild', r.writes.join() === 'true,true,2', JSON.stringify(r.writes));
       check('lightning function and brightness shape the flash', r.flash === 0.5, String(r.flash));
-      check('material swaps as given, null gives the engine one back; a wrong value throws', r.swap.every(Boolean) && r.back && /three\.js material/.test(r.badMaterial), JSON.stringify([r.swap, r.back, r.badMaterial]));
+      check('material swaps as given, null gives the engine one back; a wrong value throws', r.swap.every(Boolean) && r.back && /takes a three\.js Material/.test(r.badMaterial), JSON.stringify([r.swap, r.back, r.badMaterial]));
       check('define adds a field and its create form replaces it; create objects are the game\'s', r.ash.every(Boolean) && r.create[0] && /^true,\d+,\d+$/.test(r.create[1]) && r.create[2] && r.create[3] && r.create[4] && /create\(\)/.test(r.ownMaterial), JSON.stringify([r.ash, r.create, r.ownMaterial]));
       check('define(field, null) removes a game field and gives rain back to the options', r.ashGone && r.replaced && r.rainBack.join() === 'true,30', JSON.stringify([r.ashGone, r.replaced, r.rainBack]));
       check('a field no type has and a wrong spec throw with the fix', /ashfall: \{ ahs: 1 \}/.test(r.badField) && /spec is an object/.test(r.badSpec), JSON.stringify([r.badField, r.badSpec]));
@@ -181,7 +181,7 @@ export const specs = [
       check('a name in neither stays a no-op', r.unknown.join() === 'false,false', JSON.stringify(r.unknown));
       check('default: the engine material, its uniforms plain', r.neutral.every(Boolean), JSON.stringify(r.neutral));
       check('swap: drawn as given, particles keep running, the engine still writes its uniforms', r.swap.every(Boolean), JSON.stringify(r.swap));
-      check('null gives the engine one back; a wrong value throws', r.back.every(Boolean) && /three\.js material/.test(r.badMaterial), JSON.stringify([r.back, r.badMaterial]));
+      check('null gives the engine one back; a wrong value throws', r.back.every(Boolean) && /takes a three\.js Material/.test(r.badMaterial), JSON.stringify([r.back, r.badMaterial]));
       check('define again frees the engine material, not the game\'s', r.redefine.join() === '0,1,true,true', JSON.stringify(r.redefine));
       check('wrong keys and shapes in the options throw at the factory', /sizee/.test(r.bad[0]) && /colour/.test(r.bad[1]) && /effect/.test(r.bad[2]) && /an effect is an object/.test(r.bad[3]) && /effects/.test(r.bad[4]), JSON.stringify(r.bad));
     },

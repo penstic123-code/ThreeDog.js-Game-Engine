@@ -1,6 +1,6 @@
 # 52 Around the picture: reading it back, the post chain, who writes what
 
-**In this recipe**: Atmosphere · Surfaces · Water, weather · Post effect chain · Who writes it · Lower-level forms that stay
+**In this recipe**: Atmosphere · Surfaces · Post effect chain · Who writes it
 
 The picture is plain three.js in a `picture/` folder that reads `engine.uniforms` ([recipe 62](62-picture-code.md)). This page covers what sits around that code: reading the picture back,
 trying a value out, and the engine pieces it talks to.
@@ -15,31 +15,16 @@ engine.catalog('post');                         // a capability's entries and wh
 Which knob changes what on screen, and how to judge it for your picture: [recipe 60](60-judge-the-picture.md). Where picture code sits among the other ways to customize: `../CONVENTIONS.md` "Customization ladder".
 
 - The picture is not saved: after a load, your `picture/` code draws it again from your own state.
-- How bright a lit color comes out (three.js light units, with `renderer.toneMapping = THREE.AgXToneMapping`, exposure 1): a diffuse surface facing up receives
-  `sun.intensity × sin(sun elevation) + hemi.intensity` (the hemisphere's sky color, since it faces up), and three divides by π, so a total of
-  **about 3 (≈ π) shows mid-tone albedos (sRGB 0.35-0.65) at roughly their own value**: sun 2 high overhead + hemisphere 1, or a low sun 4 at 20° +
-  hemisphere 1.6. Measured on three's AgX curve: total 2.5 for sRGB 0.35, 2.6 for 0.5, 3.4 for 0.65, 5.5 for 0.8 (AgX darkens light colors and
-  pales saturated ones, so a pale or vivid palette needs more, or exposure). Walls and faces away from the sun get only their `N·L` share, and
-  the environment (`scene.environment`) adds on top for Standard / Physical materials.
+- How bright a lit color comes out (three.js light units, exposure 1): a diffuse surface facing up receives `sun.intensity × sin(sun elevation) + hemi.intensity` (the hemisphere's sky color,
+  since it faces up), and three divides by π, so a total near π shows mid-tone albedos at roughly their own value under `AgXToneMapping`. AgX darkens light colors and pales saturated ones,
+  so a pale or vivid palette needs more, or exposure. Walls and faces away from the sun get only their `N·L` share, and the environment (`scene.environment`) adds on top for Standard / Physical materials.
 
 ## Atmosphere: fog, sky
 
-- Fog: `engine.scene.fog` is the game's, [recipe 38](38-environment-hooks.md#fog-plain-threejs-signals-your-own-math).
-- The sky: plain values and calls on `engine.sky`, [recipe 08](08-weather-sky.md).
-- <a id="tsl-forms"></a>**tsl forms** (`renderer: 'webgpu'`): the GLSL hooks `engine.sky.clouds` and `engine.sky.layer` take `{ glsl, tsl }`; each renderer draws its own form and a missing one throws by name (`[webgpu-needs-tsl]` on WebGPU). `tsl: (ctx) => vec4 node`, ctx = the GLSL function's arguments as nodes plus the value so far (`ctx.clouds` the built-in kind, `ctx.color` the sky under a layer, `ctx.fog` what the fog kind alone draws), `ctx.uniforms` (the dome's, yours included), `ctx.fx` (the `threedog/tsl` functions, `ctx.fx.noise` and `hash` among them) and `ctx.tsl` (three/tsl):
-  `engine.sky.layer('glow', { glsl, tsl: ({ dir, tsl }) => tsl.vec4(1, 0.6, 0.3, tsl.smoothstep(0.3, 0.8, dir.y).mul(0.4)), blend: 'add' })`.
-- Shadows are `engine.shadows` and three.js, recipe 45.
-- Whether a picture reads as lit is mostly key against fill. The key (the sun or one main light) is the light that casts the shadow; the fill is
-  everything else (sky and ground light, the environment). Shadowed surfaces see only the fill while lit ones see both, so the balance sets how
-  deep the shadows look: less fill is harder and more dramatic, more fill softer and more readable, and there is no right ratio, only the one
-  the game wants. A warm key over a cool fill (or the reverse) separates lit from shaded sides without more contrast. The shot's `light:`
-  fact measures the ratio; judge the result on a shot with a known-colored object in shadow. To compare afterwards, the `sun-and-key-light`
-  technique (`threedog examples pull sun-and-key-light`) shows three routes side by side.
-- Shadow detail is texels per meter: one shadow-map texel covers `2 x extent / mapSize` meters (for example the default `extent` 70 on a
-  2048 map is about 6.8 cm, twice that on the 1024 map of low tier and headless shots). A box much bigger than what the camera sees blurs
-  the shadows of small things; a box smaller than it cuts shadows off. `engine.shadows.box(light, { extent })` sizes it; a depth bias scales with the
-  texel, so re-check `bias` / `normalBias` after changing either.
-- Fog kinds and the fog hook in detail, the placeholder lights: [recipe 38](38-environment-hooks.md).
+Fog and the placeholder lights: [recipe 34](34-environment-lighting.md). The sky: plain values and calls on `engine.sky`, [recipe 08](08-weather-sky.md). Shadows: `engine.shadows` and three.js, recipe 45. Water and weather: recipe 44.
+
+<a id="tsl-forms"></a>**tsl forms** (`renderer: 'webgpu'`): the GLSL hooks `engine.sky.clouds` and `engine.sky.layer` take `{ glsl, tsl }`; each renderer draws its own form and a missing one throws by name (`[webgpu-needs-tsl]` on WebGPU). `tsl: (ctx) => vec4 node`, ctx = the GLSL function's arguments as nodes plus the value so far (`ctx.clouds` the built-in kind, `ctx.color` the sky under a layer, `ctx.fog` what the fog kind alone draws), `ctx.uniforms` (the dome's, yours included), `ctx.fx` (the `threedog/tsl` functions, `ctx.fx.noise` and `hash` among them) and `ctx.tsl` (three/tsl):
+`engine.sky.layer('glow', { glsl, tsl: ({ dir, tsl }) => tsl.vec4(1, 0.6, 0.3, tsl.smoothstep(0.3, 0.8, dir.y).mul(0.4)), blend: 'add' })`.
 
 ## Surfaces: ground, plants, cloud shadow, season
 
@@ -53,33 +38,25 @@ engine.shaderTerms.cloudShadow(false);                                          
 engine.shaderTerms.season(kind => ({ glsl: 'diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), uGroundCover.y);', tsl: c => myTint(c, kind) }));   // your own season / snow tint
 ```
 
-- Wind is signals: `engine.uniforms.uWind` (weather), `uWindFreq`, `uWindAmp`. A three.js material of yours sways with `applyEffects(mat, { wind: 0.03 })`; your own shader calls `threedogWind(position, origin, amplitude)` (`#include <threedog_wind>`) or `wind(position, origin, amplitude)` (`threedog/tsl`). `uWindFreq` is the start value of `uWindFreq`.
-- The plants: `engine.vegetation.color(glsl | { glsl, tsl, uniforms })` puts code in the `color` slot of every species' material, changed live. The whole plant picture is replaced as a module: `engine.use(myPlants, { replaces: 'vegetation-draw' })`.
+- Wind is signals: `engine.uniforms.uWind` (weather), `uWindFreq`, `uWindAmp`. A three.js material of yours sways with `applyEffects(mat, { wind: 0.03 })`; your own shader calls `threedogWind(position, origin, amplitude)` (`#include <threedog_wind>`) or `wind(position, origin, amplitude)` (`threedog/tsl`).
+- The whole plant picture is replaced as a module: `engine.use(myPlants, { replaces: 'vegetation-draw' })`.
 - `engine.shaderTerms.cloudShadow(spec)` and `engine.shaderTerms.season(spec)` put your own patch (`{ glsl, tsl, uniforms?, pars?, slot? }`, slot `lighting` / `color` by default) in place of the engine's on every material that carries the term, including ones built before the call; `false` removes the term; the handle's `remove()` gives the engine's back. The signals stay bound: `uWeatherCloud, uCloudShadow*` and `threedogCloudShadow(worldPos)`; `uFoliageTint` / `uGroundTint` / `uFoliageMix` / `uGroundMix`, `uGroundCover` (cover amount alone, x foliage, y ground) and `threedogSeason(color, kind)` (TSL: `season(color, kind)`). `season` also takes `kind => spec` (kind `'foliage'` | `'ground'`). Each renderer draws its own form, and a missing one throws by name.
 - Cloud shadow values are signals: `engine.uniforms.uCloudShadow` (darkest, 0 = none), `uCloudShadowScale`, `uCloudShadowSpeed`. The term sits on engine materials and on what you pass to `applyEffects(mat)`; your own shader calls `threedogCloudShadow(worldPos)` (GLSL) or `cloudShadow(positionWorld)` (`threedog/tsl`). The engine adds it to no other material.
-
-## Water, weather
-
-- Water is plain three.js on the module (`engine.water.material`, `engine.water.uniforms`, `engine.water.shader`): recipe 44.
-- Weather: `weather({ rain, snow })` gives the particles, `engine.weather.defineField(field, spec)` a game's own (recipe 44).
 
 ## Post effect chain
 
 Post-processing is an ordered list of named effects, and **`engine.post.add(x, { name, slot, order })` is the one way an effect gets
 in**: game code and the game's `plugins/` folder (a file that exports the Pass or effect) go through it, so every
 effect has a name, a handle and a row in `describe().slots` and `describe().render.post`. It returns `{ name, enabled, set(params), remove() }`, and
-`engine.post.get(name)` returns the same handle. A wrong shape throws with nothing added. `x` is a plain three.js Pass (WebGL),
-a TSL node function `(input, ctx) => node` (WebGPU), or an effect `{ name, create, node, fuse, slot, order, params, needsDepth, needsBuffers, backend, skipOnLowTier, facts }` (both renderers: give
-`create` and `node`, or a `fuse`; the last five are optional: `needsBuffers` lists extra scene outputs on WebGPU, `backend: 'webgpu'` marks an effect the WebGL2 backend cannot run, `skipOnLowTier` holds it when `engine.tier` is 'low', `facts` adds a line to `describe().render.post`; all explained on `PostEffect` in `api/post.md`). Each runs in a slot, then by `order` (low first):
-`scene` (replaces the scene render, one at a time, e.g. pixelation) -> `hdr` (linear color: outline, AO, bloom) -> tone mapping -> `ldr` (sRGB: LUT,
-palette, grain, vignette) -> `final` (FXAA / SMAA). An effect is `{ name, slot, order, params, create(ctx) => pass, update?(pass, params) }`; under
-WebGL the pass is any three.js postprocessing Pass, built the first time it is on (on WebGPU an effect gives `node` instead: recipe 56). To read the chain: `engine.post.object()` (the
-EffectComposer, null until post first runs) and `engine.post.targets()` (its render targets); both stay the engine's (it rebuilds passes,
-resizes, disposes), so change the chain through `engine.post`; to take the built chain over yourself, `engine.post.own()` (the engine stops rebuilding it, `own(false)` gives it back). A plain Pass is placed by its kind: one that renders `engine.scene` itself
-(`RenderPixelatedPass`, `SSAARenderPass`, `TAARenderPass`) goes in `scene` and replaces the engine's scene render (the scene is drawn once; a
-second one throws), FXAA / SMAA / TAA in `final`, any other in `hdr` after the effects already there; a RenderPass of `engine.scene` and an OutputPass are
-skipped (the engine has them). Without `{ name }` it is listed by class or shader name (`CopyShader#1`); its `remove()` does not dispose it.
-A game that renders the canvas itself (its own composer) takes the frame: the engine stops drawing and warns once `[own-frame]`.
+`engine.post.get(name)` returns the same handle. A wrong shape throws with nothing added.
+
+`x` is a plain three.js Pass (WebGL), a TSL node function `(input, ctx) => node` (WebGPU), or an effect `{ name, create, node, fuse, slot, order, params, update, needsDepth, needsBuffers, backend, skipOnLowTier, facts }`: both renderers when it gives `create` and `node`, or a `fuse`. `create(ctx) => pass` returns any three.js postprocessing Pass, built the first time the effect is on, and `update?(pass, params)` applies new params (on WebGPU `node`: recipe 56). The optional ones: `needsBuffers` lists extra scene outputs on WebGPU, `backend: 'webgpu'` marks an effect the WebGL2 backend cannot run, `skipOnLowTier` holds it when `engine.tier` is 'low', `facts` adds a line to `describe().render.post`.
+
+Each runs in a slot, then by `order` (low first): `scene` (replaces the scene render, one at a time, e.g. pixelation) -> `hdr` (linear color: outline, AO, bloom) -> `tone` (replaces the tone-mapping output, one at a time; it must output display color) -> `ldr` (sRGB: LUT, palette, grain, vignette) -> `final` (FXAA / SMAA).
+
+A plain Pass is placed by its kind: one that renders `engine.scene` itself (`RenderPixelatedPass`, `SSAARenderPass`, `TAARenderPass`) goes in `scene` and replaces the engine's scene render (the scene is drawn once; a second one throws), FXAA / SMAA / TAA in `final`, any other in `hdr` after the effects already there (`ldr` when you added it after an OutputPass); a RenderPass of `engine.scene` and an OutputPass are skipped (the engine has them). Without `{ name }` it is listed by class or shader name (`CopyShader#1`); its `remove()` does not dispose it.
+
+To read the chain: `engine.post.object()` and `engine.post.targets()`; both stay the engine's (it rebuilds passes, resizes, disposes), so change the chain through `engine.post`; to take the built chain over, `engine.post.own()` (`own(false)` gives it back). A game that renders the canvas itself (its own composer) takes the frame: the engine stops drawing and warns once `[own-frame]`.
 ```js
 import { bloom, outline, vignette, lut } from '@threedog/post-effects';   // shared effects come from the add-on
 import { LUTPass } from 'three/addons/postprocessing/LUTPass.js';
@@ -94,42 +71,22 @@ export default bloom({ strength: 0.2 });
 - `bloom({ strength, radius, threshold })`, defaults 0.35, 0.5, 0.85: `strength` is how much glow is added, `radius` how far it spreads (0 to 1), `threshold` the brightness a pixel needs before it
   glows at all. It reads linear color before the tone curve, so a surface brighter than 1 glows hard however small it is: if the frame washes out, raise `threshold` or lower that surface's brightness
   before lowering `strength`. On the WebGPU route three's own `BloomNode` is also open to you through `engine.post.add({ node })`.
-- The engine ships no effects. `@threedog/post-effects` (import only what you use) has `bloom`, `ao`, `outline`, `dof` (all `hdr`; outline and dof
-  read depth) and `lut` (contrast / saturation / warm-cool / optional 3D LUT, or `paletteLut(colors)` for a fixed palette; it reads display colors after the tone curve), `grain`, `vignette`, `chromatic` (`ldr`). An added effect is on
-  (`enabled: false` adds it off, for `handle.enabled = true` later). The heavy ones (`bloom`, `ao`, `dof`, outline `normal`/`both`) are the game's
-  call on weak devices: read `engine.tier` before adding them (`threedog shot` renders the desktop tier, `--tier low` checks the low one). To take one
-  of a pack's effects out: `engine.plugins.off('<pack>/<file>')` or `engine.post.get('ao').enabled = false`; to add one on top: a game plugin file or `engine.post.add`.
-- Where to import from:
-
-| You want | Import |
-|---|---|
-| Materials and lighting written as TSL | `threedog/tsl` |
-| Post effects that run on both routes (bloom, ao, outline, dof, lut, grain) | `@threedog/post-effects` |
-| Post effects that exist only on WebGPU (`voxelGI`, `temporalAA`, `sunShafts`, `lightVolumes`) | `@threedog/post-effects/tsl` |
-| The three.js layers the engine keeps (`RESERVED_LAYERS`) | `threedog/layers` |
-
+- The engine ships no effects. `@threedog/post-effects` (import only what you use) has `bloom`, `ao`, `outline`, `dof` (all `hdr`; outline and dof read depth) and `lut` (contrast / saturation / warm-cool / optional 3D LUT, or
+  `paletteLut(colors)` for a fixed palette), `grain`, `vignette`, `chromatic` (`ldr`), each on both routes. `voxelGI`, `temporalAA`, `sunShafts`, `lightVolumes` exist only on WebGPU: `@threedog/post-effects/tsl`. Materials and lighting as TSL: `threedog/tsl`; the three.js layers the engine keeps (`RESERVED_LAYERS`): `threedog/layers`.
+  An added effect is on (`enabled: false` adds it off, for `handle.enabled = true` later). The heavy ones (`bloom`, `ao`, `dof`, outline `normal`/`both`) are the game's call on weak devices (`threedog shot` renders the desktop tier, `--tier low` checks the low one).
 - Depth: an effect that reads scene depth (`needsDepth: true`, e.g. `outline`) must run before any pass that swaps buffers (a `ShaderPass`, a
   scene-slot pixelation pass, the tone-mapping output). A chain that breaks this throws when the effect is added or enabled, naming both effects;
   give the depth reader a lower `order`. `dof` keeps the scene depth (`pass.keepsDepth = true`), so `dof` and `outline` can both be on while `dof`
   has the lower `order` (default: dof 5, outline 10). The other order throws.
-- Order of glow and a step-style grade (posterize, palette snap, toon-style color banding, a few-level LUT). Glow (bloom) is a smooth falloff: the
-  brightest pixels spread a fading halo. A grade that snaps every pixel to a few levels, run **after** the glow, cuts that falloff into flat plateaus:
-  each plateau is a hard-edged disc, and the middle ones are a flat mid-tone that reads as a grey stain around a light, not as light. It shows in any
-  art style that mixes glow with banded color (a pixel-art lantern, a flat-shaded neon sign, a cel-shaded campfire, a palette-locked sun), and it
-  gets worse the fewer levels the grade has. By default `bloom` is an `hdr` effect and a grade is an `ldr` one, so the default order is the bad one.
-  Ways out, pick by the picture you want: (1) grade first, glow after: give the grade `slot: 'hdr'` and an `order` lower than bloom's, so the glow is
-  computed from the banded picture and stays smooth (the halo may then use colors outside the palette: fine for soft light, wrong for a strict
-  palette); (2) keep the grade last and make the glow itself stepped on purpose, one or two clean rings with a threshold, so the discs are a decision
-  and not a side effect; (3) drop the glow for that picture and paint the light (emissive sprites, a lighter ring in the art). Judge it with a
-  `threedog shot` close on one bright light against a dark ground: the falloff should read as a gradient (1) or as deliberate rings (2); a grey flat
-  disc with no gradient and no ring is the trap. Checked on a one-dimensional model of the two orders (a bright source, a blur, a four-level snap): glow
-  then snap gave plateaus, snap then glow gave a smooth falloff. Not yet checked in a rendered scene with the real passes.
-- Pause or unload: `handle.enabled = false` pauses an effect where it is (its place and params stay); `engine.plugins.off('<file>')`
-  unloads the plugin (the effect leaves the chain; `on` plugs it again). Either way the effect comes back in the same place: inside a slot,
-  `order` decides, and equal orders keep the order the names were first added in (a plugin's effects are placed in plugin-list order, even
-  one that starts off), so off / on never reorders the chain.
-- On / off is `engine.post.get('bloom').enabled = false` for every effect, whoever added it (there is no `createEngine({ post })`: the engine ships no
-  effect to switch on, add one with `engine.post.add(bloom())`). The switch is the shared point `post.<name>.enabled`: `enabled` writes its game layer, a hold of your own goes through `engine.mod('post.bloom.enabled', { owner, set, layer })`, and reading `enabled` gives what runs now. MSAA is `engine.post.setAntialias(on)` and works with every effect on. The settings menu shows `bloom` / `ao` toggles only when effects with those names exist; a toggle the player turns off sits on the settings layer of that point, above the game and any hold (`describe().render.post` reads `writer: 'settings'`), and the menu writes nothing for a value it only re-applies unchanged.
+- Order of glow and a step-style grade (posterize, palette snap, a few-level LUT). Glow is a smooth falloff; a grade that snaps every pixel to a few levels, run **after** it, cuts that falloff into flat
+  plateaus, and the middle ones read as a grey stain around a light, not as light. It shows in any style that mixes glow with banded color and gets worse the fewer levels the grade has, and the default
+  order is the bad one (`bloom` is `hdr`, a grade `ldr`). Ways out, by the picture you want: (1) grade first, glow after: give the grade `slot: 'hdr'` and an `order` lower than bloom's (the halo may then
+  use colors outside the palette: fine for soft light, wrong for a strict palette); (2) keep the grade last and make the glow stepped on purpose, one or two clean rings; (3) drop the glow and paint the light
+  (emissive sprites, a lighter ring in the art). Judge it with a `threedog shot` close on one bright light against a dark ground: a gradient (1) or deliberate rings (2) are fine; a grey flat disc is the trap.
+  This was reasoned on a one-dimensional model of the two orders, not yet checked with the real passes.
+- On / off: `engine.post.get('bloom').enabled = false` for every effect, whoever added it, pauses it where it is (place and params stay); `engine.plugins.off('<file>')` unloads a plugin (the effect leaves the chain; `on` plugs it again; a pack's file: `'<pack>/<file>'`). Either way
+  it comes back in the same place: inside a slot `order` decides, and equal orders keep the order the names were first added in. There is no `createEngine({ post })`. The switch is the shared point `post.<name>.enabled`: `enabled` writes its game layer, a hold of your own goes through `engine.mod('post.bloom.enabled', { owner, set, layer })`, and reading `enabled` gives what runs now.
+  The settings menu shows `bloom` / `ao` toggles only when effects with those names exist; a toggle the player turns off sits on the settings layer of that point, above the game and any hold (`describe().render.post` reads `writer: 'settings'`). MSAA is `engine.post.setAntialias(on)` and works with every effect on.
 - `fuse`: a light color effect can skip its own fullscreen pass by carrying a GLSL snippet instead of `create()`:
   `fuse: { uniforms: { uMyAmount: 'float' }, values: p => ({ uMyAmount: p.amount }), glsl: 'color.rgb *= 1.0 - uMyAmount * length(vUv - 0.5);' }`.
   Fused effects that are on and next to each other in one slot (never `scene`) compile into one shader and draw in one pass, in `order`. The
@@ -138,14 +95,10 @@ export default bloom({ strength: 0.2 });
   `engine.post.add({ name, fuse: { glsl }, slot: 'ldr' })` adds just a snippet.
 - Outline: `outline({ mode: 'depth' | 'normal' | 'both' })`: `depth` (default, silhouettes), `normal` (creases; draws the scene once more with
   normals, so it costs more), `both`. `fadeWithDistance: false` keeps lines at any distance; `wobble: 1.5` jitters lines by up to 1.5 px at 8 steps a
-  second. To exempt objects: `outline({ offLayer: OUTLINE_OFF_LAYER })` and `mesh.layers.enable(OUTLINE_OFF_LAYER)` (one extra render of just
-  those objects; nothing when `offLayer` is `null`).
-- Ambient occlusion (darker creases and contact corners): `ao({ radius, intensity })` wraps three's `GTAOPass`; `radius` is in world units
-  (default 0.25), `intensity` 0..1 (default 1), both change in place: `engine.post.get('ao').set({ radius: 0.6 })`. Order 20 runs it before bloom and the tone mapping. It follows resize,
-  render scale and MSAA like every effect. It draws the scene once more with normals: points and lines are skipped, and a vertex-moving shader
-  patch (wind) is not applied there, so swaying leaves get the AO of their rest pose. Cost on a laptop GPU (AMD 780M, 1280x720, MSAA, a street
-  scene): about +6 ms a frame (4.4 -> 10.7 ms). Other GTAOPass settings (`samples`, `thickness`, `output`):
-  `engine.post.object().passes.find(p => p.gtaoMaterial)`.
+  second. To exempt objects: `outline({ offLayer: OUTLINE_OFF_LAYER })` and `mesh.layers.enable(OUTLINE_OFF_LAYER)` (one extra render of just those objects; nothing when `offLayer` is `null`).
+- Ambient occlusion (darker creases and contact corners): `ao({ radius, intensity })` wraps three's `GTAOPass`; `radius` is in world units, `intensity` 0..1, both change in place: `engine.post.get('ao').set({ radius: 0.6 })`.
+  Order 20 runs it before bloom and the tone mapping. It draws the scene once more with normals: points and lines are skipped, and a vertex-moving shader patch (wind) is not applied there, so swaying leaves get the AO of their rest pose.
+  Other GTAOPass settings (`samples`, `thickness`, `output`): `engine.post.object().passes.find(p => p.gtaoMaterial)`.
 
 ### dof: blur the background (focus blur, bokeh, miniature, tilt shift, cinematic)
 `dof` from `@threedog/post-effects` blurs what is away from the focus distance: `engine.post.add(dof({ focus: 8, range: 3, maxBlur: 5 }))`, then `engine.post.get('dof').set({ focus: distanceToTarget })` each frame for a follow focus. A small `range` and a large `maxBlur` read as a miniature; a long `range` as a soft cinematic backdrop. It is not a shadow setting (`engine.shadows` blur is edge softness).
@@ -162,9 +115,7 @@ Each of them is registered once (`core/owned.js`), and every one behaves the sam
   hand-back call. This happens in release builds too (only the warning is dev-only), so a game behaves the same with and without checks.
 - A `timeline.tween` on an object is a temporary takeover of that object only: no warning, no hand-over (other objects stay checked).
 
-`engine.describe().owned` lists every registered value and who writes it now, as `writer` (`engine`, `manual:game`,
-`three (engine yielded)`). A test (`tests/specs/owned.mjs`) runs the three
-behaviors for every registered value and fails when one is registered without a row here.
+`engine.describe().owned` lists every registered value and who writes it now, as `writer` (`engine`, `manual:game`, `three (engine yielded)`).
 
 | id | part | written when | take it | adjust while the engine drives |
 |---|---|---|---|---|
@@ -184,6 +135,3 @@ Not in this table, because the engine writes them once rather than keeps writing
 and says so once in the dev console and in `describe().perf.batching`; turn it off per object with `userData.batch = false`, see
 [05-props-bake.md](05-props-bake.md) §2b) and `castShadow` on generator props (set when the model is made: a generator's own flags are kept, the
 manifest entry can set them; change it on the object afterwards).
-
-## Lower-level forms that stay
-

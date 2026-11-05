@@ -50,15 +50,24 @@ export function readableMap(input) {
   return input._readable = m;
 }
 
+/** Queued pushes and removes played onto a stack @internal */
+function playQueue(q, stack) {
+  for (const op of q) {
+    if (op.add) stack.push(op.add);
+    else { const i = stack.indexOf(op.del); if (i > 0) stack.splice(i, 1); }
+  }
+  return stack;
+}
+
+/** The stack as the next fixed step will leave it: what reports read, because a halted page may wait long for that step @internal */
+export function settledStack(input) { return playQueue(input._pendingCtx, input._stack.slice()); }
+
 /** Apply queued push/remove at the start of a fixed step; held keys of newly blocked actions are cleared (a key stays dead until released) @internal */
 export function applyContexts(input) {
   const q = input._pendingCtx;
   if (!q.length) return;
   const before = readableMap(input);
-  for (const op of q) {
-    if (op.add) input._stack.push(op.add);
-    else { const i = input._stack.indexOf(op.del); if (i > 0) input._stack.splice(i, 1); }
-  }
+  playQueue(q, input._stack);
   q.length = 0;
   input._readable = null;
   const after = readableMap(input);
