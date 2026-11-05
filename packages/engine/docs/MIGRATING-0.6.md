@@ -83,7 +83,7 @@
 
 ## The rest of the look and style layer is gone
 
-Older parts and every `style.*` key, row by row: [MIGRATING-0.4.md](MIGRATING-0.4.md).
+Older parts and every `style.*` key, row by row (the 0.3 to 0.5 notes are no longer shipped; the repository history keeps them):
 
 | 0.5 | 0.6 |
 |---|---|

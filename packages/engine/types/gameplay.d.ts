@@ -307,6 +307,41 @@ export interface ParticlesOptions {
 
 // Particles (engine.particles) is generated from the JSDoc in modules/particles/Particles.js (npm run map); only the type is re-exported here
 import type { Particles } from './generated/modules/particles/Particles';
+
+// Swarm swarm()
+
+/** Options of engine.swarm(). See recipes/65-swarm.md */
+export interface SwarmOptions {
+  /** Unique name: shown in describe(), the key in a save */
+  name: string;
+  /** Most objects alive at once; all memory is taken up front */
+  capacity: number;
+  /** Plain three.js geometry, stays the game's to dispose. Leave out with material for a swarm that draws nothing */
+  geometry?: import('three').BufferGeometry;
+  /** Plain three.js material, stays the game's to dispose */
+  material?: import('three').Material;
+  /** Number columns beside x, y, z. yaw, pitch, roll (radians, order YXZ) and scale are also drawn by the engine */
+  fields?: string[];
+  /** Per-object colour: columns r, g, b (linear) and spawn({ color: 0xff8800 }) */
+  color?: boolean;
+  /** Time channel of the onStep dt (default 'world') */
+  channel?: string;
+  /** Grid cell for near, in meters: about the usual query radius (default 2) */
+  cell?: number;
+  /** Keep this swarm in saves; otherwise it is empty after a load or new game */
+  save?: boolean;
+}
+/** The columns of a swarm: d.x[row], d.vx[row]... and d.id[row], the handle of that row */
+export type SwarmData = { x: Float32Array; y: Float32Array; z: Float32Array; id: Float64Array } & Record<string, Float32Array>;
+/** Runs for each live row every fixed step; returning false removes the object, anything else keeps it */
+export type SwarmRowFn = (d: SwarmData, i: number, dt: number) => unknown;
+import type { Swarm } from './generated/modules/swarm/Swarm';
+export type { Swarm };
+/** engine.swarm: call it to make a swarm */
+export interface SwarmMaker {
+  /** Make a swarm. Returns a Swarm: spawn, free, row, onStep, near, clear, dispose, count, capacity, data, mesh */
+  (opts: SwarmOptions): Swarm;
+}
 export type { Particles };
 
 // ======================================================================

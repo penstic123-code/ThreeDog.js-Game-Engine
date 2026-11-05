@@ -6,10 +6,11 @@
 // Which renderer: a new game starts on WebGPU, its shaders in TSL; --webgl starts on WebGLRenderer, its shaders in GLSL. It is chosen here, once, because it decides the
 // language of the game's own shaders; plain three.js materials and lights work on both. createEngine's own default stays WebGL: the choice is written into each new
 // game's main.js. A browser without WebGPU gets createEngine's fallback: 'webgl2', the same game on three's WebGL2 backend, TSL still drawing.
-// Placeholders in text files: __NAME__, __GAMEPLAY_NOTE__ and the ROUTE words below. The art always starts in the game's own gray picture/ folder (the engine ships no art).
+// Placeholders in text files: __NAME__, __GAMEPLAY_NOTE__, __DEFAULT_LAYER__ (rows of AI.md) and the ROUTE words below. The art always starts in the game's own gray picture/ folder (the engine ships no art).
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { TOOLS } from '../paths.mjs';
+import { TOOLS, ENGINE } from '../paths.mjs';
+import { defaultLayer } from './default-layer.mjs';
 import { parseOptions } from './cli-args.mjs';
 
 const GAMEPLAY = {
@@ -50,10 +51,17 @@ export function parseArgs(argv, env = {}) {
   return { name: p.rest[0], openWorld, webgl };
 }
 
+/** The "Already here" table: rows of the engine's AI.md (the one task table). Without the engine docs next to the tools: a pointer, not a stale copy */
+function defaultLayerTable() {
+  const f = join(ENGINE, 'docs', 'AI.md');
+  return existsSync(f) ? defaultLayer(readFileSync(f, 'utf8')).table : 'Read `AI.md` in `node_modules/threedog/docs/` (one row per task).';
+}
+
 /** Fill the placeholders of one text file */
 export function render(text, { name, openWorld, webgl }) {
   const route = ROUTE[webgl ? 'webgl' : 'webgpu'];
   let out = text.replaceAll('__NAME__', name).replaceAll('__GAMEPLAY_NOTE__', GAMEPLAY[openWorld ? 'openWorld' : 'clean']);
+  out = out.replace('__DEFAULT_LAYER__', () => defaultLayerTable());
   out = out.replace(/__TSL_IMPORT__\r?\n/g, route.__TSL_IMPORT__ && `${route.__TSL_IMPORT__}\n`);
   for (const [word, value] of Object.entries(route)) out = out.replaceAll(word, value);
   return out;
@@ -62,7 +70,7 @@ export function render(text, { name, openWorld, webgl }) {
 /** package.json dependencies: --open-world adds @threedog/terrain-noise (its main.js imports it; the blank base does not) */
 export function applyDeps(deps, { openWorld }) {
   const out = { ...deps };
-  if (openWorld) out['@threedog/terrain-noise'] ??= '^0.7.0';
+  if (openWorld) out['@threedog/terrain-noise'] ??= '^0.7.1';
   return out;
 }
 
@@ -77,7 +85,12 @@ export function copyTemplates(dir, opts, { skipPackage = false } = {}) {
       if (e.isDirectory()) { walk(src, dst, false); continue; }
       if (skipPackage && top && e.name === 'package.json') continue;
       if (existsSync(dst)) { kept.push(dst); continue; }
-      writeFileSync(dst, render(readFileSync(src, 'utf8'), opts)); made.push(dst);
+      const text = render(readFileSync(src, 'utf8'), opts);
+      writeFileSync(dst, text); made.push(dst);
+      // AGENTS.md is the same rendered text as CLAUDE.md, for tools that do not read CLAUDE.md. Written only beside a CLAUDE.md made now,
+      // and never over a file already there (init into a project that has its own AGENTS.md)
+      const agents = join(to, 'AGENTS.md');
+      if (top && e.name === 'CLAUDE.md' && !existsSync(agents)) { writeFileSync(agents, text); made.push(agents); }
     }
   };
   for (const l of layers) walk(join(TOOLS, 'templates', l), dir, true);

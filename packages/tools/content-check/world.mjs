@@ -63,7 +63,12 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
     }
   }
 
-  // 11. Props
+  // Places: rot is the one field the load refuses (a turned place moves everything standing on it, so a bad value must stop here, not at the first load)
+  for (const [name, p] of Object.entries(c.places || {})) {
+    if (p?.rot !== undefined && !Number.isFinite(p.rot)) err('places', `place ${name}: rot must be a number of radians about Y, got ${JSON.stringify(p.rot)}`);
+  }
+
+  // 11. Props (a missing place is reported by checkPos; a wrong-typed source by fields.mjs, from the field table)
   const props = c.props || [];
   if (props.length) {
     if (!Array.isArray(props)) err('props', 'props.js must export a list [{ model, place, x, z }, …]');

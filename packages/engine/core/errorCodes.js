@@ -87,7 +87,7 @@ export const ERROR_CODES = {
     fix: 'Ops are defined with ops.define(name, { can, run }) and run with ops.run(name, args); args are plain data and can() only ' +
       'reads. The message says which rule was broken.' },
   'renamed-field': {
-    docs: ['MIGRATING-0.4.md'],
+    docs: ['api/engine.md'],
     fix: 'A name removed in 0.4 was read (engine.elapsed); the message names the new form (engine.time.now(\'real\') or engine.time.now(\'ambient\')). Checked in dev only.' },
   'pause-owner': {
     docs: ['recipes/23-ops.md', 'api/engine.md'],
@@ -141,6 +141,14 @@ export const ERROR_CODES = {
     docs: ['recipes/15-perf.md', 'api/budget.md'],
     fix: 'A performance budget set with createEngine({ budget }) was exceeded; the message names the biggest costs. Measure with ' +
       'describe().perf or npm run perf.' },
+  'webgpu-records-unread': {
+    docs: ['recipes/56-webgpu-tsl.md'],
+    fix: 'three.js changed the private list of draw records the WebGPU sweep reads (usually a three upgrade), so the sweep is off and the game runs on. ' +
+      'Until the engine is updated, send the event yourself when a mesh is gone for good: mesh.dispatchEvent({ type: \'dispose\' }).' },
+  'geometry-undisposed': {
+    docs: ['recipes/56-webgpu-tsl.md'],
+    fix: 'Meshes are leaving the scene with their geometry never disposed, so the renderer keeps counting it. Call mesh.geometry.dispose() when a mesh is gone for good, ' +
+      'or engine.remove(mesh). Geometry parked for reuse is fine; this warns only about a steady climb.' },
   'jobs-slow': {
     docs: ['recipes/15-perf.md', 'api/jobs.md'],
     fix: 'A job step ran too long or a job queued too many steps. Yield more often inside the generator (engine.jobs.add(function* ' +
@@ -645,6 +653,24 @@ export const ERROR_CODES = {
     fix: "On WebGPURenderer the engine draws with node materials. Either threedog/tsl is not loaded (add import 'threedog/tsl' at the top of the entry), " +
       'or a part is written only as GLSL text: give it a tsl form too (a patch: tsl next to glsl; sky / fog hooks: { glsl, tsl }; a weather glsl spec: ' +
       'create(engine) returning your own node-material object). The message names the part.' },
+  'swarm-full': {
+    docs: ['recipes/65-swarm.md'],
+    fix: 'The swarm holds capacity objects and spawn returned -1, so that object does not exist. Raise capacity in engine.swarm({ capacity }), or remove objects sooner; describe().swarm.<name>.dropped counts the refused spawns.' },
+  'swarm-handle': {
+    docs: ['recipes/65-swarm.md'],
+    fix: 'free takes a handle, not a row: rows move when objects are removed. Inside onStep or near pass d.id[i]; to remove the object onStep is on, return false.' },
+  'swarm-step': {
+    docs: ['recipes/65-swarm.md'],
+    fix: 'swarm.onStep(fn) sets the one function that runs every fixed step: call it once at setup, not from onFixed. Do several jobs in one function, or h.remove() the old one first.' },
+  'swarm-field': {
+    docs: ['recipes/65-swarm.md'],
+    fix: 'spawn() was given a name that is no column. Columns are x, y, z, the names in engine.swarm({ fields }), and with { color: true } r, g, b and the spawn key color.' },
+  'swarm-name': {
+    docs: ['recipes/65-swarm.md'],
+    fix: 'Swarm names are unique: they are the keys in describe() and in saves. Pick another name, or dispose() the old swarm first.' },
+  'swarm-disposed': {
+    docs: ['recipes/65-swarm.md'],
+    fix: 'This swarm was disposed. Make a new one with engine.swarm(options), or keep it and call clear() to empty it.' },
   'module-disabled': {
     docs: ['recipes/14-custom-module.md'],
     fix: 'A picture or ui module (particles, sky, music, a panel...) threw and was switched off; the game keeps running without it. The error printed with it is the real cause.' },

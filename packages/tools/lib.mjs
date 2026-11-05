@@ -65,7 +65,7 @@ export function readLibrary(lib) {
     try {
       const e = JSON.parse(readFileSync(join(lib, d.name, 'entry.json'), 'utf8'));
       if (typeof e?.name !== 'string' || !e.name) broken.push({ folder: d.name, why: 'entry.json has no "name"' });
-      else ok.push(withCard({ ...e, dir: join(lib, d.name) }));
+      else ok.push(withCard({ ...e, kind: e.kind === 'look' ? 'picture' : e.kind, dir: join(lib, d.name) }));   // 'look' was the old name of picture; a library stored before the rename still reads
     } catch (err) { broken.push({ folder: d.name, why: `entry.json: ${err.message.split('\n')[0]}` }); }
   }
   return { entries: ok.sort((a, b) => a.name.localeCompare(b.name)), broken };
@@ -255,7 +255,7 @@ export async function pullEntry(name, { game: w, cwd = process.cwd(), lib, to, p
   to ??= e.kind === 'picture' ? (readdirSync(e.dir).some(f => /\.glsl$/.test(f)) ? 'picture/shaders' : 'picture') : e.kind === 'material' ? 'picture' : PLUGGABLE.includes(e.kind) ? 'plugins' : 'art';   // the plugins folder plugs code by what it exports (engine.plugins)
   if (e.kind === 'system') {
     const plugText = sys => { const text = (plug ? plugOf(e.dir, { call: plug, who: 'lib pull' }) : e.plug ?? plugOf(e.dir, { call: sys.plug, who: 'lib pull' })); if (!text) throw new Error(`lib pull: ${name} does not say what to call: add "plug" to its system.json, or pass --plug "makeIt({ ... })"`); return text.replace(/(from\s*['"])\.\//g, `$1../systems/${e.name}/`); };
-    const r = pullSystem(e, game, { force, dry, plugText });
+    const r = await pullSystem(e, game, { force, dry, plugText });
     if (!dry && (force || !r.conflicts.length)) recordPull(game, e, [...r.writes.map(x => x.to), ...r.same, r.wiring.file]);
     return { entry: e, game, to: 'plugins', ...r };
   }

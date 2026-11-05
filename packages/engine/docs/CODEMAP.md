@@ -24,6 +24,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 | weatherDraw | picture | modules/weather/weatherDraw.js |
 | pickups | rules | modules/gameplay/pickups.js |
 | grids | world | modules/grid/index.js |
+| swarm | rules | modules/swarm/Swarm.js |
 | triggers | rules | modules/triggers/index.js |
 | particles | picture | modules/particles/Particles.js |
 | terrainDraw | picture | modules/terrain/index.js |
@@ -98,6 +99,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - errors.js: Error tiers
 - events.generated.js: Generated, do not edit by hand: npm run map generates it fr…
 - gameLights.js: Plain three.js lights are adopted (docs/plans/2026-11-03-sl…
+- geometryWatch.js: Dev-only check (called from loop.js after each render once …
 - grayMap.js: Gray images as data maps over the ground: a terrain height …
 - grid.js: 2D grid fields: sampleGrid turns an array of numbers laid o…
 - gridLoad.js: Load an image file as grid data (assets.gridFromImage)
@@ -192,6 +194,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - rigid/ Real physics (Rapier): objects that topple, roll, get pushed an… — RigidBodies.js, Vehicles.js, sync.js
 - settings/ Settings menu module entry — Settings.js, apply.js, sections.js, strings.js, view.js
 - sky/ Sky module: signals (engine.uniforms: uSunDir, uSunColor, uSkyT… — Sky.js, clouds.js, dome.js, domeLayers.js, environment.js, fog.js, frame.js, season.js, shader.js, skyModule.js, tint.js
+- swarm/ Swarm module: many same-kind gameplay objects (bullets, enemy c… — Swarm.js, draw.js, grid.js
 - terrain/ Terrain module: chunked, streamed ground built from a height fu… — ChunkManager.js, chunkJob.js, chunkQueries.js, chunkWorker.js, draw.js, terrainColorMap.js, terrainDefaults.js, terrainEdit.js, terrainGen.js, terrainIsland.js, terrainMesh.js, terrainShape.js, terrainShapeMain.js, terrainTexture.js
 - timeline/ Timeline: cutscenes, camera moves, scripted movement — Timeline.js, Tween.js, letterbox.js, shots.js
 - triggers/ Trigger zones: who enters, stays, leaves — 
@@ -225,6 +228,7 @@ Type = what the module may own (core/moduleTypes.js): world, picture, actor, rul
 - patches.js: Named shader patches
 - postWebGL.js: Post chain on WebGLRenderer (EffectComposer)
 - probes.js: Baked light probes
+- recordSweep.js: WebGPURenderer keeps one RenderObject per drawn mesh in a s…
 - shaderErrors.js: Shader errors naming the patch and slot
 - slots.js: Semantic patch slots
 - terms.js: Built-in material terms a game can take over whole: the clo…
@@ -393,6 +397,7 @@ Modules declare actions without keys; the game binds them (createEngine({ bindin
 - modules/rigid/Vehicles.js: vehicle.* (2)
 - modules/settings/strings.js: settings.* (42), title.* (1), module.* (1)
 - modules/sky/skyModule.js: module.* (1)
+- modules/swarm/Swarm.js: module.* (1)
 - modules/terrain/index.js: module.* (2)
 - modules/timeline/Timeline.js: module.* (1), timeline.* (2)
 - modules/triggers/index.js: module.* (1), triggers.* (1)

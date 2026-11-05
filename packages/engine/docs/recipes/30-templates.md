@@ -1,14 +1,15 @@
 # Templates: reusable objects, definition vs instance state
 
 **In this recipe**: 1. Define a template · 2. Place instances · 3. What belongs to the definition, what to the instance · 4. Tests ·
-5. Point -> thing · 6. When to use a template
+5. Point -> thing · 6. When to use a template · 7. A group of things
 
 Requires `world()` (in `openWorld()`); a template with `interact` needs `interactions({ ...presets.interactions.nearest })`, with `container` needs
 `inventory()`. The code is `modules/content/templates.js`.
 
 A **template** describes one kind of object once: its model, collision, interaction, container, sound, animation and the default values of its saved
 state. Every chest, campfire or bed you place is an **instance**: a world record that names the template (its `kind` is the template name) and holds
-only its own state. There is no inheritance and no variant layer; a different look or behaviour is another template.
+only its own state. There is no inheritance and no variant layer; a different look or behaviour is another template, and a template is plain JS, so
+`{ ...chest, model: 'iron-chest' }` is that other template in one line.
 
 ## 1. Define a template
 `games/<game>/content/templates.js` (add it to `content/index.js`):
@@ -186,3 +187,45 @@ anywhere. Warning: code that `engine.add`s a `world.view(id)` model or writes it
 The fix is a placement in content, or an op. Places computed from the seed (a flat spot for `home`) stay in code and are passed as `places` to
 `content.load`; a mesh built in code becomes a model by name (`engine.assets.manifest({ models: { cabin } })`) when you want it as a template.
 A line that really must do it from code at startup carries `// runtime: <reason>`.
+
+## 7. A group of things
+A market stall, a gun nest, a pit lane, a shop shelf, a puzzle room: several things that belong together. Content stays flat. Each thing is its own plain
+entry with its own id, and what holds them together is the **place** they stand at. Nothing nests at runtime: there is no group object, no parent and no
+per-part override, so `engine.thing(id)`, the save, `threedog content set` and `engine.pick` see each entry the same way as any other.
+
+`content/places.js`, one place per group; `rot` is optional, radians about Y:
+```js
+export default { 'stall-1': { x: 40, z: -12 }, 'nest-1': { x: 8, z: 30, rot: 1.57 } };
+```
+`content/props.js`, entries around that place (`template` is the prototype, `id` the instance):
+```js
+export default [
+  { id: 'stall-1-counter', model: 'counter', collide: 'box', place: 'stall-1', source: 'stall' },
+  { id: 'stall-1-chest', template: 'chest', place: 'stall-1', x: 1, source: 'stall' },
+  { id: 'nest-1-wall', template: 'sandbags', place: 'nest-1', z: 2, source: 'nest' },
+  { id: 'nest-1-gun', template: 'turret', place: 'nest-1', x: 1, rot: 0.5, ammo: 5, source: 'nest' },
+];
+```
+**One edit moves the group.** An entry's `x`, `z` are offsets from the place and turn with its `rot` (the same sense as a model's `rotation.y`); its own `rot` adds to
+the place's. Change the place and every entry follows, with its model and collision. This also holds without a page reload when the place changes through a
+second `engine.content.load(data, { places })`. What play moved or turned stays where the player left it, and a save keeps only what play changed, so an old
+save follows the new place too. Only places in `places.js` (or the `places` of `content.load`) have `rot`; a level marker gives a position.
+
+**`source`** is a plain optional string on a model or template entry, naming what the entry was copied from. It has no effect at runtime; it is there to ask:
+```js fragment
+engine.world.query({ where: r => r.source === 'stall' });   // every thing copied from that arrangement
+```
+**Arrangements.** To stamp out the same group again (`threedog content stamp <name> id=stall-1 x=20 z=5 rot=1.6`, then `threedog content set --source <name> <part> y=2` changes that part in every copy, as one explicit edit), keep it as a small file, `content/arrangements/<name>.js`: entries around zero, with a local `part` name
+instead of an id and no place. Only the tools read it, when they copy it into `props.js`; the game never loads it, so the copies are ordinary entries from then
+on and changing the file later changes nothing already placed.
+```js
+export default [
+  { part: 'counter', model: 'counter', collide: 'box' },
+  { part: 'chest', template: 'chest', x: 1 },
+];
+```
+Copied to `stall-1`, part `chest` becomes `{ id: 'stall-1-chest', template: 'chest', place: 'stall-1', x: 1, source: 'stall' }`.
+
+**Deleting.** Delete an entry and a save that changed it still loads: the change is an orphan, kept in the save, listed in `engine.describe().world.orphans` and warned
+about once; the `renames` content file says where it went (`null` = deleted on purpose). Delete a place and `threedog check` names every entry still standing on it; the
+load refuses it too (`content-place`), because an entry with no place has no position.

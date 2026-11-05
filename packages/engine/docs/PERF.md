@@ -117,6 +117,37 @@ Draw calls fall 43x (6742 -> 156); 56 of the 79 (cell, geometry, material) group
 The batching bookkeeping itself costs about 0.46 ms/frame with 3000 batched objects and nothing moving (a transform check per batched object plus a
 256-object round robin that looks for parts changed behind its back). With nothing repeating it only checks a few transforms.
 
+## 3d. Swarm against one Mesh per object (`engine.swarm`), 2026-11-05
+
+**Where: a real GPU.** System Chrome 156, headless, on the hardware adapter WebGPU reports as `nvidia/blackwell`, 1280x720, pixel ratio 1. Not software rendering. Page
+`tests/swarm-perf/index.html?mode=swarm|mesh&n=...` (`&renderer=webgpu`), through `node packages/tools/real-webgpu.mjs --urls=... --eval=<file: window.measure()>`, `--webgl` for
+the WebGL renderer. The same objects both ways: lit boxes of 12 triangles bouncing in a 200 x 200 m square, one light, shared geometry and material; the Mesh side is what a
+hand-written game does, a `new Mesh` per object and a plain array of them.
+
+Each number is the median of 120 frames (40 for 50k meshes), from one run of each page, not repeated, so read them as sizes, not to the last digit; `performance.now()` here ticks in 0.1 ms.
+Frames are driven by `engine.step()`, not `requestAnimationFrame`, so the display refresh does not cap them.
+step = one fixed step without drawing (the game's movement). cpu = step + hooks + render submission. frame = cpu + waiting for the GPU to finish, no overlap: an upper bound, as in section 6.
+near = 100 queries of radius 3 in one step, grid rebuild included; the Mesh side loops over its array.
+
+| Backend | Objects | Swarm step / cpu / frame ms (p95) | Meshes step / cpu / frame ms (p95) | Draw calls swarm / meshes | near swarm / loop ms |
+|---|---|---|---|---|---|
+| WebGPU | 1,000 | 0.1 / 1.1 / 4.6 (6.7) | 0.2 / 14.6 / 24.4 (28.4) | 2 / 988 | 0.1 / 1.6 |
+| WebGPU | 10,000 | 0.3 / 1.5 / 5.5 (7.5) | 0.8 / 151.6 / 233.3 (252.7) | 2 / 9,870 | 0.4 / 55.9 |
+| WebGPU | 50,000 | 1.1 / 6.3 / 7.7 (13.2) | 4.6 / 955.7 / 1208.5 (1380.7) | 2 / 49,410 | 3.6 / 392.4 |
+| WebGL | 1,000 | 0.1 / 0.4 / 1.1 (3.3) | 0.2 / 4.6 / 7.1 (11.4) | 1 / 987 | 0.1 / 1.5 |
+| WebGL | 10,000 | 0.3 / 0.9 / 2.1 (5.4) | 0.7 / 52.8 / 55.4 (61.0) | 1 / 9,869 | 0.6 / 30.6 |
+| WebGL | 50,000 | 0.7 / 1.9 / 3.9 (5.6) | 3.8 / 304.7 / 307.1 (327.6) | 1 / 49,409 | 2.6 / 348.7 |
+
+Reading it: the difference is almost all draw submission, one call against thousands; moving the objects was never the expensive part. This machine is fast and a phone is not:
+take the ratio, not the milliseconds. The boxes are tiny and nothing else is in the scene, so a real game has less room. At 1,000 objects on WebGL the Mesh side still fits a frame,
+so a game of a few hundred objects gains little from the frame time, only from `near` and the bookkeeping. Meshes cull one by one and a swarm draws whole or not at all; on this page only about 1% is off-screen,
+so that is not tested here, and in a wide world a swarm spread over the map draws its off-screen objects too.
+
+Heap (Node, one run, `--expose-gc`): 200,000 spawns, 2,000 update steps and 40,000 queries grew the heap by about 3.1 MB before collection, which is the one number box of each returned handle
+(16 bytes); update, free and near allocated nothing measurable.
+
+GPU compute (recipe 65, `tests/compute-snow`), same machine, real WebGPU, one run: 100,000 sprites moved by a TSL compute shader, 3.5 ms a frame (median of 60, draw + compute + GPU wait, 320 x 240 canvas, so fill is nearly free here). All 100,000 read back from the GPU buffer as moved and inside the box.
+
 ## 4. Open to playable (engine.startup)
 
 > Dated: the tables below predate the 2026-11-02 cold-start change (no scene render before ready, `compileAsync` for the real render target, the

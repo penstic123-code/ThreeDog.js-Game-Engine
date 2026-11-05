@@ -8,6 +8,7 @@ import { createEngine, presets, openWorld, followCamera, content } from 'threedo
 import { createPicture } from './picture/index.js';   // the game's own picture in plain three.js: gray for now; make it yours, recipe 62
 import { terrainPreset } from '@threedog/terrain-noise';   // optional: a terrain generator (the engine ships none)
 import data from './content/index.js';
+import packs from './assets.js';
 
 const engine = createEngine({ __RENDERER__bindings: { ...presets.bindings.walk, ...presets.bindings.interact, ...presets.bindings.debug }, canvas: /** @type {HTMLCanvasElement} */ (document.getElementById('view')), lights: false, ui: { loading: { title: '__NAME__' }, title: { title: '__NAME__' } }, saveKey: '__NAME__' });   // sounds are content: content/audio.js
 // openWorld installs the world and environment (terrain, vegetation, sky, weather, water, collision, camera, characters, settings, debug); add gameplay modules yourself.
@@ -16,6 +17,7 @@ engine.use(openWorld({ camera: followCamera({ pointerLock: true }), seed: 42, te
   settings: { freezeWorld: true } }), content());   // the sky gives the signals and draws its dome; lights and fog are picture/'s; settings: Esc pauses and opens the menu
 engine.saves.autosave(0.5);   // minutes of play; Continue on the start screen loads it. The game's own state joins with engine.saves.register('game', { version: 1, save, load }), recipe 20
 const picture = createPicture(engine);   // picture.materials: the game's materials by name
+engine.assets.manifest(packs);   // assets.js: the models / sounds / textures content names (the marker example for now)
 // Camera: click the view once to capture the mouse, then the mouse turns the view (Esc releases it). For drag-to-turn instead: followCamera({ pointerLock: false }).
 
 const home = engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 });   // the terrain is generated: find a flat spot as "home". home is a Vector3, use home.x / home.z, not home[0]

@@ -170,7 +170,7 @@ export async function setParams(e, name, values) {
   paramValues(ent, values);   // a typo or a wrong type throws here, before anything is rebuilt
   const old = { ...ent };
   ent.tuned = { ...ent.tuned, ...values };
-  if (ent.value) { ent.value = null; ent.promise = null; }
+  e.assets._retire(ent);
   return swapModels(e, [{ name, type: 'model', old }], 'params');
 }
 

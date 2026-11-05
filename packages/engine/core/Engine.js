@@ -24,6 +24,7 @@ import { groundMethods, flatGround } from './ground.js';
 import { actorMethods } from './actor.js';
 import { forcedTier, defaultPixelRatio } from './tier.js';
 import { tier as detectTier, tierBeforeRenderer, ownMsaa, timerContext, isWebGPU, webgpuPart, watchNodePrograms } from '../render/backend.js';
+import { recordSweep } from '../render/recordSweep.js';
 import { dressNodeTwins } from '../render/patches.js';
 import { lifecycleMethods, clearHooks, checkCanvasUsable } from './lifecycle.js';
 import { createAdaptive, GpuTimer } from './adaptive.js';
@@ -134,6 +135,7 @@ export class Engine {
     /** @internal what the game asked for and what to do without WebGPU; start() fills describe().renderer from it */
     this._backendWant = rendererWant(r, rendererIn, fallback);
     watchNodePrograms(r);                      // WebGPU: generated code per material, for debug.view('shaderCost') (render/backend.js)
+    this._records = recordSweep(r);            // WebGPU: meshes that left the scene free their records (render/recordSweep.js)
     if (isWebGPU(r)) dressNodeTwins(r);        // WebGPU: classic materials get their patches as nodes (render/patches.js)
     nameShaderErrors(r);                       // compile errors name the patch and slot (render/shaderErrors.js); a game's own handler stays
     this.tier = tierFirst || detectTier(r);
@@ -186,6 +188,8 @@ export class Engine {
     this.headless = headless;
     this.paused = headless;                    // while paused the real-time loop does not advance; only step() does
     this.fps = 0;
+    /** How far the drawn frame is from the last fixed step to the next, 0-1 (real loop); 1 after step(). Holds still while frozen. For drawing fixed-step state smoothly: prev + (now - prev) * stepBlend */
+    this.stepBlend = 1;
     this.cpuMs = 0;                            // main-thread ms of the last real-time frame; cpuPhases splits it (loop.js)
     this.cpuPhases = { fixed: 0, frame: 0, render: 0, afterRender: 0 };
     this.openWindows = new Set();              // ids of open windows (for describe)

@@ -254,6 +254,24 @@ export function tryNext(res) {
   return `${drop}Try 2-4 English task words (e.g. "perf", "save game", "rigid push", "2d lights"), or read the table in packages/engine/docs/AI.md ("One thing, one entry point"; ${row}).`;
 }
 
+/**
+ * Library entries (name, summary) that answer the query, as printed lines with the pull command. Why a separate list and not part of search():
+ * the library is the user's own folder, so the same docs give the same ranking on every machine; library hits are listed after the docs hits and
+ * never above the one recommended entry. A hit must cover at least half of the typed words (all of them when there are two or fewer).
+ * @param {{ name: string, kind?: string, summary?: string }[]} list entries (lib.entries(libraryDir()))
+ */
+export function libraryHits(list, q, max = 3) {
+  const { concepts } = queryTokens(q);
+  if (!concepts.length) return [];
+  const need = Math.ceil(concepts.length / 2), out = [];
+  for (const e of list) {
+    const text = `${e.name.replace(/[-_]/g, ' ')} ${e.summary ?? ''}`, n = concepts.filter(c => conceptHit(text, c) > 0).length;
+    if (n >= need) out.push({ n, e });
+  }
+  out.sort((a, b) => b.n - a.n || a.e.name.localeCompare(b.e.name));
+  return out.slice(0, max).map(({ e }) => `library · ${e.name} (${e.kind ?? 'other'}) — ${clip(e.summary ?? '', 90)} → threedog lib pull ${e.name}`);
+}
+
 /** CLI body: threedog how "<task>" [-w game] */
 export async function main(argv) {
   let dir, rest;
@@ -273,10 +291,14 @@ export async function main(argv) {
       if (r?.ok && Array.isArray(r.data)) live = r.data.slice(0, 3).map(m => `live catalog · ${m.id} (${m.kind}${m.ops?.length ? ', ops: ' + m.ops.slice(0, 4).map(o => o.name ?? o).join(', ') : ''}) → threedog catalog ${m.id}`);
     } catch { /* no page */ }
   }
-  if (!res.length && !live.length) { console.log(`No match for "${q}". ${tryNext(res)}`); return 0; }
+  // the user's library, read last: a missing or broken library is no reason to fail a docs search
+  let lib = [];
+  try { const L = await import('./lib.mjs'); lib = libraryHits(L.entries(L.libraryDir()), q); } catch { /* no library */ }
+  if (!res.length && !live.length && !lib.length) { console.log(`No match for "${q}". ${tryNext(res)}`); return 0; }
   if (res.weak) console.log(`No good match for "${q}": the closest hits below cover less than a third of it. ${tryNext(res)}\n`);
   live.forEach((l, i) => console.log(`${i + 1}. ${l}`));
   res.forEach((h, i) => console.log(format(h, live.length + i)));
+  lib.forEach((l, i) => console.log(`${live.length + res.length + i + 1}. ${l}`));
   return 0;
 }
 

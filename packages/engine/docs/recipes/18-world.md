@@ -1,7 +1,7 @@
 # World data: things that must be saved, grow, and keep changing while far away
 
 **In this recipe**: 1. Three steps · 2. How to change data · 3. Example: a crop grows with game time, press E to… · 4. Data written in content ·
-5. Example: something that wanders · 6. Near, far, camera, player · 7. Time and ordering rules · 8. Querying nearby things ·
+4b. One object from start to end · 5. Example: something that wanders · 6. Near, far, camera, player · 7. Time and ordering rules · 8. Querying nearby things ·
 9. zone and data limits · 10. Stream sources
 
 Requires module `world()` (already included in the `openWorld()` preset). The interaction prompts in the examples need
@@ -120,6 +120,29 @@ record (`ops.run('thing.set', { id, position })`, `world.set` / `world.move`); d
 
 A world record's model belongs to the scene too (`40-scene.md`; `engine.thing(id)` shows it, recipe 40). Do not move that model from code: the record owns its <!-- r18-ignore-line -->
 position, so change the record (`world.set`, `world.move`) and the model follows.
+
+## 4b. One object from start to end: who owns what
+Four questions meet in every object: where its state lives, when it may change, who owns each part, what a save keeps. Here one chest answers all four; a door,
+a switch or a parked vehicle goes the same way. It is a flat content entry (recipe 30 §2 and §7) with the `chest` template and `chest.toggle` op of recipe 30 §1:
+`content/places.js`:
+```js
+export default { yard: { x: 12, z: -6 } };
+```
+`content/props.js`:
+```js
+export default [{ id: 'yard-chest', template: 'chest', place: 'yard', x: 1 }];
+```
+
+| Step | What happens | Who owns what | What a save keeps |
+|---|---|---|---|
+| Creation | `content.load` makes the record `yard-chest` from the entry and the template's `state` | The content files own the definition and the starting position; `engine.world` owns the record | Nothing: the record equals the content |
+| Near | The model is built at the record's position | The record owns position and `opened`; the model only shows them. Geometry and materials belong to `engine.assets`, shared by every chest | Nothing: models are not saved |
+| Interaction | Using it runs the op: `e.world.set(id, { opened: true })` | Only an op or a fixed step changes the record; `animate` reads it. Nothing writes to the model | `opened: true`, the one changed field |
+| Leaving the area | The model is torn down; the record stays, and `simulate.far` still runs if the kind has it | The world still owns the record; there is nothing to clean up. The shared model data outlives this copy | The same |
+| Loading a save | The record becomes a new object with the saved change on top of today's content; the model is built again when near | Code keeps the id and calls `W.get(id)`: a rec or a model held from before is stale | The same; a place moved since the save moves the chest too |
+| Removal | An op calls `e.world.remove(id)`; the model goes with the record | The record is gone. The shared model data stays until nothing uses it and `assets.trim()` runs (a level change does) | The deletion: the chest stays gone after loading, while a new game has it again |
+
+The one habit that follows: hold `'yard-chest'`, never the record or the model, across any of these steps.
 
 ## 5. Example: something that wanders
 For enemies that chase the player / wandering NPCs there is the ready-made `engine.npcs.behavior(name, { near, far })` + `engine.npcs.avoid` (mutual

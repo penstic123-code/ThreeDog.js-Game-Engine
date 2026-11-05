@@ -26,6 +26,7 @@ export function addRecord(w, def, opts) {
   const rec = { id, kind, position: p, ...rest };
   if (initial) {
     if (!w._base.has(id)) w._base.set(id, structuredClone(rec));
+    else if (!have || have.kind === kind) repose(w, have, w._base.get(id), rec);
     if (have) return have;
     claimId(w.engine, id);
     if (w._removed.has(id)) return null;
@@ -36,6 +37,22 @@ export function addRecord(w, def, opts) {
   if (opts?.save === false) w._unsaved.add(id);
   if (DEV) w._origin.set(id, { spawned: { op: w.engine.ops.running, tick: w.engine.tick } });   // who made it (inspect / pick)
   return w._insert(rec, true);
+}
+
+/**
+ * Content loaded again with another pose for an authored entry (its place moved or turned): the baseline takes the new pose, and so does the live record
+ * unless play moved or turned it, because a change the player made stays on top of the content. The presenter sees the new fit and moves model and collision.
+ * Only position and rot: they are what a place decides, and a same-id clash on any other field must still reach the caller's check.
+ * x and z decide "unmoved": y is settled from the ground when the model is built, so it may differ from the baseline without anyone having moved it.
+ * shortcut: a physics body keeps its own place (positionFrom 'view') until the page reloads; teach restBody to teleport if an editor moves such a place live.
+ */
+function repose(w, have, base, rec) {
+  const pose = r => `${r.position.x},${r.position.z},${r.rot}`;
+  if (pose(base) === pose(rec)) return;
+  if (have?.position.x === base.position.x && have.position.z === base.position.z) { Object.assign(have.position, rec.position); w._index(have); }
+  if (have && have.rot === base.rot) { if (rec.rot === undefined) delete have.rot; else have.rot = rec.rot; }
+  Object.assign(base.position, rec.position);
+  if (rec.rot === undefined) delete base.rot; else base.rot = rec.rot;
 }
 
 export function restRecord(w, id, position, tolerance) {

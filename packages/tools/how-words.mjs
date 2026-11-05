@@ -33,6 +33,7 @@ export const SYNONYMS = [
   ['climb', 'climbing', 'ladder', 'ladders', 'stairs', 'scramble'],
   ['playthrough', 'walkthrough', 'headless'],
   ['enemy', 'enemies', 'monster', 'monsters', 'mob', 'mobs'],
+  ['swarm', 'swarms', 'bullets', 'projectile', 'projectiles', 'crowd', 'crowds', 'horde', 'hordes'],
   ['npc', 'npcs', 'villager', 'villagers'],
   ['dialogue', 'dialog', 'conversation'],
   ['inventory', 'backpack', 'bag'],

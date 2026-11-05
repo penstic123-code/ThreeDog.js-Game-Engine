@@ -5,7 +5,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ENGINE } from '../paths.mjs';
-import { search, tryNext } from '../how.mjs';
+import { search, tryNext, libraryHits } from '../how.mjs';
 
 export const name = 'how: offline doc search is deterministic, matches word starts only, plain three.js first, weighs rare words, knows synonyms, says when nothing fits';
 
@@ -15,7 +15,7 @@ export async function run({ check }) {
   check('"rain" finds the weather recipe in the top 3 and never terrain', rain.slice(0, 3).some(h => /weather/.test(h.line)) && !rain.some(h => /28-terrain/.test(h.line)), JSON.stringify(rain.map(h => h.line)));
   check('same query twice gives the same list', JSON.stringify(rain) === JSON.stringify(again));
   check('a hit names a recipe path, an AI.md row or THREE.md, at most 5', rain.length <= 5 && rain.every(h => /recipes\/|AI\.md|THREE\.md/.test(h.line)));
-  check('English task words find the picture rows (brush strokes, colored shadows)', search(docs, 'brush strokes').length > 0 && search(docs, 'colored shadows').length > 0);
+  check('English task words find the (picture) rows (brush strokes, colored shadows)', search(docs, 'brush strokes').length > 0 && search(docs, 'colored shadows').length > 0);
   check('nonsense gives no hit', search(docs, 'qqzzxx').length === 0);
   const tone = search(docs, 'tone mapping'), rt = search(docs, 'mirror render target'), bvh = search(docs, 'raycast');
   check('"tone mapping" answers with the plain three.js row first (recipe 54: set renderer.toneMapping)', /^plain three\.js .*toneMapping.*54-three-idioms/.test(tone[0]?.line ?? ''), JSON.stringify(tone.map(h => h.line)));
@@ -55,6 +55,9 @@ export async function run({ check }) {
     ['speed up time', /engine\.mod\('clock\.rate'/],
     ['timer after 3 seconds', /engine\.clock \(after/],
     ['bullet time on enemies', /engine\.mod/],
+    ['many bullets', /engine\.swarm/],
+    ['enemy crowd', /engine\.swarm/],
+    ['thousands of projectiles', /65-swarm/],
     ['add a fixed camera', /fixedCamera/],
     ['switch camera at runtime', /setCamera/],
     ['third person camera', /followCamera/],
@@ -67,6 +70,8 @@ export async function run({ check }) {
     ['environment lighting reflections', /engine\.sky\.environment/],
     ['baked light probes', /bakeProbes/],
     ['bloom', /post-effects/],
+    // 0.8: words a player uses for depth of field must name dof (they used to land on the shadows row)
+    ['blur background', /dof/], ['focus blur', /dof/], ['bokeh', /dof/], ['miniature', /dof/], ['tilt shift', /dof/], ['cinematic', /dof/],
     ['add a post processing pass', /engine\.post\.add/],
     ['tone mapping', /toneMapping/],
     ['save game', /saves\.register/],
@@ -84,6 +89,10 @@ export async function run({ check }) {
     ['tsl shader', /56-webgpu-tsl/],
     ['node material', /56-webgpu-tsl/],
   ];
+  // library hits come from name and summary, show the pull command, and are printed after the docs hits (they are not part of search())
+  const libList = [{ name: 'rain', kind: 'picture', summary: 'Rain: slanted line segments in the vertex shader' }, { name: 'sea-night', kind: 'picture', summary: 'night sea colors' }];
+  const lh = libraryHits(libList, 'rain'), none2 = libraryHits(libList, 'qqzzxx');
+  check('how also lists library entries by name and summary, with the pull command', lh.length === 1 && /library · rain \(picture\).*threedog lib pull rain/.test(lh[0]) && none2.length === 0, JSON.stringify(lh));
   // [guard] full sentences, casual and player wording (queries a first-time AI actually typed, which the old version answered wrong first): rarity weighs common words down, how-words.mjs synonym groups,
   // camelCase splitting. The first result must be on target. When it is wrong, first see whether the docs lack the word (an AI.md line, a recipe title) or a synonym group does, and fix that, not the expectation here
   const SPOKEN = [
@@ -106,10 +115,10 @@ export async function run({ check }) {
     ['horizon color', /Sky color for my shader/],
     ['title start continue', /Title -> start -> continue/],
     // the judging map (recipe 60): asked as a wish, not as a knob name
-    ['make it look good', /60-judge-the-picture/],
-    ['tune the picture', /60-judge-the-picture/],
-    ['look prettier', /60-judge-the-picture/],
-    ['visual polish', /60-judge-the-picture/],
+    ['make it look good', /60-judge-the-(picture)/],
+    ['tune the (picture)', /60-judge-the-picture/],
+    ['look prettier', /60-judge-the-(picture)/],
+    ['visual polish', /60-judge-the-(picture)/],
   ];
   const off = SPOKEN.map(([q, want]) => [q, search(docs, q)[0]?.line ?? '(none)', want]).filter(([, first, want]) => !want.test(first));
   check(`${SPOKEN.length} whole-sentence / spoken queries: the first answer is the right recipe or row`, off.length === 0, off.map(([q, l]) => `"${q}" -> ${l}`).join('\n'));

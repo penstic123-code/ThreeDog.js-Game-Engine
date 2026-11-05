@@ -39,14 +39,22 @@ export function registerManifest(a, pack, hot = null) {
       const schema = type === 'model' && o.params ? parseSchema(`assets.manifest() models.${name}.params`, o.params) : null;
       if (hot && old?.named && old.type === type) {
         if (old.opts.build === o.build && old.url === (o.url ?? name) && JSON.stringify(old.opts.params ?? null) === JSON.stringify(o.params ?? null)) continue;
-        a.entries.set(name, { ...old, url: o.url ?? name, opts: o, schema, promise: null, value: null, users: 0 });
-        hot.changed.push({ name, type, old });
+        const was = { ...old };   // the swap pairs the old data with the new
+        a._retire(old);
+        Object.assign(old, { url: o.url ?? name, opts: o, schema });
+        hot.changed.push({ name, type, old: was });
         continue;
       }
       if (old?.named && !old.builtIn && old.type !== type) throw codedError('asset-name-clash', fmt(STRINGS.clash, { name, was: old.type, list: old.manifest, type }));
       // same type from another manifest: allowed (a mod overriding a model) but never silent, the two packs may just share a name by accident
-      if (old?.named && !old.builtIn && old.manifest !== list) warnOnce(fmt(STRINGS.replaced, { type, name, was: old.manifest, list }));
-      a.entries.set(name, { type, name, url: o.url ?? name, opts: o, schema, promise: null, named: true, manifest: list });
+      // the pack named 'optimized' (written by `threedog assets optimize`) exists to replace the originals, so that override is no accident
+      if (old?.named && !old.builtIn && old.manifest !== list && list !== 'optimized') warnOnce(fmt(STRINGS.replaced, { type, name, was: old.manifest, list }));
+      const fresh = { type, name, url: o.url ?? name, opts: o, schema, promise: null, named: true, manifest: list };
+      if (!old) { a.entries.set(name, fresh); continue; }
+      // the same object, rewritten: code awaiting the old registration lands on the new one, and copies already out still count here
+      a._retire(old);
+      for (const k of Object.keys(old)) if (k !== 'users') delete old[k];
+      Object.assign(old, fresh);
     }
   };
   add('model', models); add('texture', textures); add('sound', sounds); add('font', fonts);

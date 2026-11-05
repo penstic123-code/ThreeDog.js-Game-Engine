@@ -2,6 +2,25 @@
 
 What changed in each version and how a game upgrades.
 
+## 0.7.1 (2026-11-05)
+
+Bug fixes for asset lifetime, WebGPU memory and `assets optimize`, plus new optional tools; nothing public was removed. Upgrade notes are at the end of `docs/MIGRATING-0.7.md`.
+
+- Asset lifetime: a load now owns its data. Copies of a model that fell back count on the entry that really has the data, so `assets.trim()` and `release` no longer free what those copies use, and `modelNow` works for such a name. `users('shrub')` is the copies asked for by that name; `users('rock')`, the name it fell back to, counts them too. When the fallback's data is freed, the name loads again on its next use.
+- A load ended while it runs (`release`, `trim`, a palette write, a name registered again, `dispose`) is freed when it arrives and never written back; a download is aborted, and a font never reaches `document.fonts`. Code awaiting it: after `release` and the like it gets a fresh load, never freed data; after `dispose` the promise stays pending for good, and so does any later `model()` / `texture()` / `font()`, so nothing rejects during teardown or resumes against a dead engine.
+- A palette write no longer leaves a generated model's old build behind: it is freed with its last copy, or at once with none. Registering a name again does the same. Generated textures and internal `cached()` builds stay as they were, because nothing counts who uses them.
+- Recipe 18 §4b follows one object from creation to removal and says who owns what at each step.
+- New `--json` on `threedog check` and `threedog test`: one result on stdout, `{ ok, summary, items: [{ code, level, file, line, message, fix }] }` (fields only when known); the text goes to stderr and the exit code is unchanged. Items carry the rule id, the TS code, `content` or `test`, and the rule's fix. The MCP `check` tool reads this shape instead of parsing text.
+- `new-game` and `init` write `AGENTS.md` beside `CLAUDE.md` (the same text) for tools that do not read CLAUDE.md; an existing `AGENTS.md` is kept.
+- New optional module `swarm()`: many same-kind gameplay objects (bullets, enemy crowds, pickups, debris) in typed arrays, one `InstancedMesh` each. `engine.swarm({ name, capacity, geometry, material, fields })`, then `spawn`, `free`, `row`, `onStep`, `near`, `clear`, `dispose`. Stable handles, fixed-step update on a time channel, drawing smoothed between fixed steps, opt-in saves. Recipe 65; numbers in `PERF.md`. Nothing changes for a game that does not install it.
+- New `engine.stepBlend`: how far the drawn frame is between two fixed steps, for drawing fixed-step state smoothly.
+- New `threedog content stamp`, `content set --source` and `content capture`: copy an arrangement (`content/arrangements/<name>.js`, read by tools only) into plain entries, batch-edit every copy explicitly, and capture a named group from the running game into an arrangement. Rule R52 warns while a captured and stamped group is still named in code.
+- Recipe 65 shows pure-picture bulk with TSL compute on WebGPU (plain three.js, no engine API).
+- WebGPU memory: a mesh dropped while its material stayed in use kept its render record, geometry arrays and GPU buffers until the renderer died. The engine now sweeps these records every few seconds, for engine paths and plain `scene.remove` alike, so a game has nothing to do (recipe 56): a plain three.js scene dropping 60,000 meshes went from 1.1 GB of heap to a flat 200-260 MB, and a 7.8 km terrain flight from +72 MB to +25 MB, flat to 15.6 km. It reads a private three.js list; if an upgrade moves it, the sweep turns off with the warning `webgpu-records-unread`. `threePatches.off('webgpu-record-sweep')` switches it off.
+- Dev warning `geometry-undisposed`: geometries nothing in the scene uses keep piling up on the renderer. The fix is `geometry.dispose()` when a mesh is gone for good.
+- `threedog check` rule R53 fails on merge conflict markers committed in any tracked text file.
+- `threedog assets optimize`: the optimized pack now comes last in `assets.js` (a game rewritten by the old command is moved over), so `/optimized/x.glb` wins over an original of the same name, and that override no longer prints the "replaced by manifest" warning. A cached model is no longer skipped from the problem count: `--strict` and a lower `--budget` judge it like a fresh run. `module-cycle` no longer fails with an internal TypeError when the first module in the list only waits behind a cycle.
+
 ## 0.7.0 (2026-11-05)
 
 - Public surface audit (`threedog api-count --unused`): removed `engine.level.object` (same as `level.root`); dropped from the public types (code stays, engine-internal) `engine.triggers.action`, `engine.settings.action`, `engine.interactions.action` (copies of the module option), `engine.inventory.defs`, `engine.quests.defs` (use `inventory.item(id)` and `quests.list()`). 98 more unused names are kept on purpose, each with a reason in `packages/tools/api-count.mjs`

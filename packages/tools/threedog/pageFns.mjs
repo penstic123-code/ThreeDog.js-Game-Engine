@@ -245,6 +245,24 @@ const PAGE = {
   },
   // thing: engine.thing(id).explain() as JSON text (the same object tests and describe read)
   thing: (a, e) => { try { const d = e.thing(a.id).explain(); return { ok: true, text: JSON.stringify(d, null, 1), data: d }; } catch (x) { return { ok: false, text: String(x.message ?? x) }; } },
+  // contentGroup: every object with this name that can hold parts, each with its direct children as plain numbers (content capture; the judging is in
+  // content-stamp.mjs). A model comes from userData: modelKey (content and namedModel prototypes, JSON) or modelName (assets.model copies and their clones)
+  contentGroup: (a, e) => {
+    const yaw = q => 2 * Math.atan2(q.y, q.w), tilted = q => Math.abs(q.x) > 1e-3 || Math.abs(q.z) > 1e-3;   // from the quaternion: an Euler y wraps past 90 degrees
+    const holder = o => o.isGroup || o.type === 'Object3D', found = [], names = new Set();
+    e.scene.traverse(o => { if (!holder(o) || !o.name) return; names.add(o.name); if (o.name === a.name) found.push(o); });
+    const child = o => {
+      const ud = o.userData, q = o.quaternion;
+      return { name: o.name, type: o.type, template: ud.template ?? null, model: ud.modelKey ? JSON.parse(ud.modelKey) : ud.modelName ?? null, visible: o.visible,
+        x: o.position.x, y: o.position.y, z: o.position.z, rot: yaw(q), tilted: tilted(q), scale: [o.scale.x, o.scale.y, o.scale.z] };
+    };
+    const groups = found.map(g => {
+      g.updateWorldMatrix(true, false);
+      const s = g.getWorldScale(g.position.clone()), p = g.getWorldPosition(g.position.clone()), q = g.getWorldQuaternion(g.quaternion.clone());
+      return { x: p.x, y: p.y, z: p.z, rot: yaw(q), tilted: tilted(q), scale: [s.x, s.y, s.z], children: g.children.map(child) };
+    });
+    return { groups, names: [...names].slice(0, 20) };
+  },
   // loading: the same view as describe().loading, or one task with its source; formatted in node so the hint table applies
   loading: (a, e) => (a.name ? { task: e.loading.get(a.name) } : { view: e.loading.view(), ready: e.ready }),
 };

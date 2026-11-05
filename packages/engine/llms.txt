@@ -69,3 +69,4 @@ Reading order: docs/AI.md (the index: one line per task) -> the recipe for the t
 - [62-picture-code](docs/recipes/62-picture-code.md): The whole picture in plain three.js: signals in, picture out
 - [63-third-person-start](docs/recipes/63-third-person-start.md): Third-person start: walking, camera, save, pause, menu
 - [64-particles](docs/recipes/64-particles.md): Particles: dust, smoke, sparks, splashes
+- [65-swarm](docs/recipes/65-swarm.md): Swarm: shots, crowds, pickups, debris by the thousand

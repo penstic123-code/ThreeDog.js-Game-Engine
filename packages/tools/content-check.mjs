@@ -17,6 +17,7 @@ import { checkFields } from './content-check/fields.mjs';
 import { glbLevels } from './content-check/glb.mjs';
 import { writeIndex } from './content-check/index-ids.mjs';
 import { cli, within } from './paths.mjs';
+import { item, result, startJson } from './lib/result.mjs';
 import { ROOT, rel, findGames, loadGame, dupKeys, gameAssets, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 export { ROOT, findGames, loadGame, gameAssets, levelIsFile };
 
@@ -241,10 +242,15 @@ export async function checkGame(dir) {
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   let nErr = 0, nWarn = 0;
   // -w (or the current folder) narrows the run to the games inside that workspace (the engine's examples, or one game)
-  const { dirs, named } = cli(process.argv.slice(2), { workspace: 'targets' });
+  const { dirs, named, opt } = cli(process.argv.slice(2), { workspace: 'targets', flags: ['json'] });
   const games = findGames().filter(g => !named || dirs.some(d => within(g, d)));
+  // --json: one result (lib/result.mjs); the messages are "<file>: <text>" strings, so the file is split off. Content checks have no code of their own
+  const jsonItems = [];
+  const toItem = (level, s) => { const m = /^(\S+?): (.*)$/s.exec(s); return item({ code: 'content', level, file: m?.[1], message: m ? m[2] : s }); };
+  if (opt.json) startJson(code => result(jsonItems, `content validation: ${nErr} errors, ${nWarn} warnings`, code === 0));
   for (const dir of games) {
     const { errors, warnings } = await checkGame(dir);
+    jsonItems.push(...errors.map(e => toItem('error', e)), ...warnings.map(w => toItem('warn', w)));
     for (const e of errors) console.log('✗ ' + e);
     for (const w of warnings) console.log('! ' + w);
     nErr += errors.length; nWarn += warnings.length;

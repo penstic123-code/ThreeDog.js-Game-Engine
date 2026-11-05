@@ -16,6 +16,7 @@ import { reportError } from './errors.js';
 import { DEV, warnOnce } from './validate.js';
 import { codedError } from './errorHints.js';
 import { watchLights } from './lightWatch.js';
+import { watchGeometries } from './geometryWatch.js';
 import { followFocus } from '../render/lights.js';
 import { STEP } from './time.js';   // fixed step length: 60 per second
 import { adapt } from './adaptive.js';
@@ -121,7 +122,11 @@ export const loopMethods = {
     gpu?.end();
     // frames that first draw new objects pay their GPU upload here (Budget.js ApplyCost); a frame that compiled shaders is not judged by adaptive resolution
     this._compiled = this.budget.cost.rendered(performance.now() - t0, programCount(r) ?? -1, t0 / 1000);   // measure
-    if (DEV && this.ready && !this._probing) watchLights(this);   // dev: a light added / removed mid-play compiled new shaders (one long frame): say so (lightWatch.js)
+    if (DEV && this.ready && !this._probing) {
+      watchLights(this);   // dev: a light added / removed mid-play compiled new shaders (one long frame): say so (lightWatch.js)
+      watchGeometries(this, dt);   // dev: geometries piling up that nothing in the scene uses (geometryWatch.js)
+    }
+    this._records?.step(dt);   // WebGPU: free the records of meshes that left the scene, a slice per frame (render/recordSweep.js)
   },
   _runHooks(kind, dt) {
     const p = this._prof;
@@ -180,6 +185,8 @@ export const loopMethods = {
       s0 = t;
     }
     this._acc = acc;
+    // held while frozen: with no fixed steps positions stand still, and a moving ratio would make interpolated things shake in place
+    if (!this.frozen) this.stepBlend = acc / STEP;
     return n;
   },
 
@@ -260,6 +267,7 @@ export const loopMethods = {
       }
     }
     if (render) {
+      this.stepBlend = 1;   // step() took the state to the end of this step, so the latest state is what gets drawn
       safe(this, STRINGS.render, this._render, SOFT, this, STEP);
       this._runHooks('afterRender', STEP);
     }

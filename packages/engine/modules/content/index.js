@@ -71,12 +71,14 @@ export function content() {
     /**
      * Load content data: one pack (the object of content/index.js) or a list of packs loaded together in order, where an id defined by two packs is an error
      * (packs.js).
-     * Models are asset names (engine.assets.manifest / an asset pack), never paths. places: place name -> position
+     * Models are asset names (engine.assets.manifest / an asset pack), never paths. places: place name -> position, plus rot (radians about Y).
+     * Loading again with a place moved or turned moves what stands there, models and collision too, unless play moved that record (world.add).
      * @example engine.content.load([baseContent, forestDlc], { places: { home: { x: 0, z: 0 } } })
      * @param {any} data
      * @param {{ places?: Record<string, any> }} [opts]
      */
     load(data, { places: pl = {} } = {}) {
+      for (const [name, p] of Object.entries(pl)) if (p?.rot !== undefined && !Number.isFinite(p.rot)) throw codedError('content-place', `Place "${name}": rot must be a number of radians about Y, got ${JSON.stringify(p.rot)}`);
       Object.assign(places, pl);
       const packs = packsOf(data), ids = new IdCheck();   // one IdCheck for the whole call: an id used in two packs' props / pickups is an error too
       e.ops.allow(() => { for (const p of packs) loadContent(e, api, p, st, ids); });   // loading data is setup, not a gameplay action (ops guard)
@@ -174,27 +176,31 @@ export function content() {
     },
     /** @internal dev: where a template is defined ('content/templates.js:12'), null if unknown */
     templateSource(name) { return st.templateSrc.get(name) ?? null; },
-    /** Place name -> position { x, z } plus y when the place has a height (level markers, places given with y); null if not found */
+    /** Place name -> position { x, z } plus y when the place has a height (level markers, places given with y) and rot when it is turned; null if not found */
     place(name) {
       const p = places[name] ?? e.level?.marker(name)?.position;
-      return p ? { x: p.x, z: p.z, ...(p.y !== undefined && { y: p.y }) } : null;
+      return p ? { x: p.x, z: p.z, ...(p.y !== undefined && { y: p.y }), ...(p.rot !== undefined && { rot: p.rot }) } : null;
     },
     /**
      * Position notation in content { place?, x?, z?, floor?, y? } -> world coordinates { x, z }, plus y when the notation pins a height.
      * floor: reference height for multi-layer ground (second storey, bridge deck, lower dungeon level): it stands on the highest layer not above floor;
      * a level-marker place lends its own height as floor. y: meters above that ground (shelves, floating pickups).
      * Without floor / y / a marker height the result is { x, z } and the thing sits on the top layer.
+     * A place with rot turns the offsets x, z with it (the same sense as a model's rotation.y), so what stands there keeps its layout when the place turns.
      * @example engine.content.where({ place: 'tower', x: 1, floor: 6 })   // the tower's second floor, not its roof
      */
     where(p) {
       const base = p.place ? api.place(p.place) : null;
       if (p.place && !base) throw codedError('content-place', `Place "${p.place}" not found: give its coordinates in the places of content.load, or add this marker to the level`);
-      const x = (base?.x ?? 0) + (p.x ?? 0), z = (base?.z ?? 0) + (p.z ?? 0), floor = p.floor ?? base?.y;
+      const ox = p.x ?? 0, oz = p.z ?? 0, c = Math.cos(base?.rot ?? 0), s = Math.sin(base?.rot ?? 0);
+      const x = (base?.x ?? 0) + ox * c + oz * s, z = (base?.z ?? 0) - ox * s + oz * c, floor = p.floor ?? base?.y;
       if (floor === undefined && p.y === undefined) return { x, z };
       return { x, y: placeY(e, `content.where(${JSON.stringify(p.place ?? { x: p.x, z: p.z })})`, x, z, floor) + (p.y ?? 0), z };
     },
     /** @internal The floor a position notation stands on (its own floor, else its marker's height); undefined = top layer */
     _floorOf(p) { return p.floor ?? (p.place ? api.place(p.place)?.y : undefined); },
+    /** @internal The facing of an entry: its own rot on top of its place's; undefined = neither is written, so the record stays without rot */
+    _facingOf(p) { const r = p.place ? api.place(p.place)?.rot : undefined; return r === undefined ? p.rot : r + (p.rot ?? 0); },
   };
   return {
     name: 'content', type: 'rules', label: 'Content',

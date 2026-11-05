@@ -86,7 +86,7 @@ export const specs = [
       check('a casting game light at intensity 0 is idled and describe says shadowIdled; userData.idleShadow = false opts out', r.light.idled === false && r.light.shown && r.light.opt === true, JSON.stringify(r.light));
       check('the game writing shadow.autoUpdate while idled gets the light back: the engine never switches it again', r.light.handed === true && r.light.staysGame === true, JSON.stringify(r.light));
       const ids = r.patches.map(p => p.id);
-      const want = ['shadow-accessors', 'scene-add-hook', 'mesh-material-accessor', 'material-compile-accessor', 'renderer-render', 'shader-chunks', 'light-idle-shadow', 'hlod-visible', 'post-shadow-hold', 'post-background-tone', 'node-twin-dress', 'node-builder-hook', 'device-lost-hook'];
+      const want = ['shadow-accessors', 'scene-add-hook', 'mesh-material-accessor', 'material-compile-accessor', 'renderer-render', 'shader-chunks', 'light-idle-shadow', 'hlod-visible', 'post-shadow-hold', 'post-background-tone', 'node-twin-dress', 'node-builder-hook', 'device-lost-hook', 'webgpu-record-sweep'];
       check('threePatches lists every change (class, objects, renderer) with scope and what is lost', want.every(id => ids.includes(id)) && r.patches.every(p => p.scope && p.lost),
         JSON.stringify(r.patches.map(p => [p.id, p.scope, p.offable])));
       check('the three that cannot be undone say so (offable false): shader-chunks, hlod-visible, node-twin-dress', r.patches.filter(p => !p.offable).map(p => p.id).sort().join() === 'hlod-visible,node-twin-dress,shader-chunks', JSON.stringify(r.patches.filter(p => !p.offable)));

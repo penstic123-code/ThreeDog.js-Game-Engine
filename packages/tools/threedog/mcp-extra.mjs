@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TIME } from './runtime.mjs';
+import { item, result, parseResult } from '../lib/result.mjs';
 
 const str = description => ({ type: 'string', description });
 
@@ -75,11 +76,10 @@ export const EXTRA_TOOLS = {
 
 // Static tools: answered from the files alone (no dev server, no page). run(dir, input) → { ok, text, data }; mcp.mjs wraps it in the result shape.
 const HERE = dirname(fileURLToPath(import.meta.url));
-/** Keep the ✗ / ! lines and the count lines of a check run, capped (the full run is `npm run check` in a terminal) */
-const checkDigest = (out, max) => {
-  const lines = out.split('\n').map(l => l.trimEnd()).filter(Boolean);
-  const keep = lines.filter(l => /^\s*[✗!]|errors?,|warnings?|FAILED|passed/.test(l));
-  const text = (keep.length ? keep : lines.slice(-20)).join('\n');
+/** The errors of a `check --json` result (lib/result.mjs) as lines with their fix, then the summary; capped (the full run is `npm run check` in a terminal) */
+const checkDigest = (r, max) => {
+  const lines = r.items.filter(i => i.level === 'error').map(i => `✗ ${i.code ? i.code + ' ' : ''}${i.file ? i.file + (i.line ? ':' + i.line : '') + '  ' : ''}${i.message}${i.fix ? `\n    Fix: ${i.fix}` : ''}`);
+  const text = [...lines, r.summary].join('\n');
   return text.length > max ? text.slice(0, max - 40) + `\n… (${text.length - max + 40} more characters)` : text;
 };
 export const STATIC_TOOLS = {
@@ -122,11 +122,14 @@ export const STATIC_TOOLS = {
     description: 'Run npm run check on this game (rules R*, content, types, GAMEMAP up to date) from the files alone (no game needed); errors and counts.',
     schema: { type: 'object', properties: { rule: str('Optional: only these rules, e.g. "R33,R18"'), max: { type: 'number', description: 'Output cap in characters (default 2000)' } }, required: [] },
     run: (dir, a) => new Promise(res => {
-      const args = [join(HERE, '..', 'check.mjs'), ...(a.rule ? ['--rule', String(a.rule)] : [])];
+      const args = [join(HERE, '..', 'check.mjs'), '--json', ...(a.rule ? ['--rule', String(a.rule)] : [])];
       const c = spawn(process.execPath, args, { cwd: dir });
       let out = '';
-      c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d);
-      c.on('close', code => res({ ok: code === 0, text: (code === 0 ? '✓ check passed\n' : '✗ check failed\n') + checkDigest(out, a.max > 0 ? a.max : 2000), data: { exit: code } }));
+      c.stdout.on('data', d => out += d); c.stderr.resume();   // stdout is only the JSON result; the text goes to stderr
+      c.on('close', code => {
+        const r = parseResult(out) ?? result([item({ code: 'check', message: 'check did not print a result' })], 'check failed', false);
+        res({ ok: code === 0, text: (code === 0 ? '✓ check passed\n' : '✗ check failed\n') + checkDigest(r, a.max > 0 ? a.max : 2000), data: { exit: code, errors: r.items.filter(i => i.level === 'error') } });
+      });
     }),
   },
 };

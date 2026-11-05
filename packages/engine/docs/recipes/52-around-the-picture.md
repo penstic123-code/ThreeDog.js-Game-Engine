@@ -144,6 +144,9 @@ export default bloom({ strength: 0.2 });
   scene): about +6 ms a frame (4.4 -> 10.7 ms). Other GTAOPass settings (`samples`, `thickness`, `output`):
   `engine.post.object().passes.find(p => p.gtaoMaterial)`.
 
+### dof: blur the background (focus blur, bokeh, miniature, tilt shift, cinematic)
+`dof` from `@threedog/post-effects` blurs what is away from the focus distance: `engine.post.add(dof({ focus: 8, range: 3, maxBlur: 5 }))`, then `engine.post.get('dof').set({ focus: distanceToTarget })` each frame for a follow focus. A small `range` and a large `maxBlur` read as a miniature; a long `range` as a soft cinematic backdrop. It is not a shadow setting (`engine.shadows` blur is edge softness).
+
 ## Who writes it: the ownership table
 
 Some three.js values the engine writes **on its own**, every frame or on a timer: the camera module places the camera, a sky keeps the shadow box around the focus. Lights, fog, exposure and the environment are not among them: the game's `picture/` code is their one writer (recipe 62).

@@ -98,7 +98,7 @@ export const specs = [
         T.uiFocus(E);   // the engine's one focus stack (its own onFrame), made by whoever asks first: not a module's registration
         const s0 = snap();
         const mods = [...T.openWorld({ seed: 1, camera: 'follow' }), T.interactions({ ...T.presets.interactions.nearest }), T.dialogue(), T.inventory(), T.pickups(), T.quests(), T.photo(), T.level(),
-          T.triggers(), T.particles(), T.music(), T.timeline(), T.nav(), T.hlod(), T.lightPool(), T.content(), T.flow(), T.hud(), T.grids()];
+          T.triggers(), T.particles(), T.swarm(), T.music(), T.timeline(), T.nav(), T.hlod(), T.lightPool(), T.content(), T.flow(), T.hud(), T.grids()];
         out.names = mods.map(m => m.name);
         // diagnosis only: which module's install made each registration, so a leak names its module
         let cur = null;

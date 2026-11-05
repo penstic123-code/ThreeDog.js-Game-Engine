@@ -5,6 +5,9 @@
 // Dry run by default (prints each change as -/+ lines); --write applies. Which entries and which ids: missingIds in the engine's content/ids.js,
 // the same list the dev warning at load uses. Where they are in the file: the content source walker (vite/vite-threedog-content-src.js).
 // Only object literals written directly in the exported array are edited (an entry built by a loop or after a spread is listed as "edit by hand").
+//
+// threedog content set|add|remove: one entry (content-write.mjs). threedog content stamp|capture and set --source: arrangements (content-stamp.mjs).
+// set --source <arrangement> <part> field=value is an explicit batch edit of every copy: copies are plain entries and never follow on their own.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
@@ -52,8 +55,11 @@ export async function planIds(dir) {
 
 async function main(argv) {
   const [sub, ...rest] = argv;
+  if (sub === 'stamp') return (await import('./content-stamp.mjs')).stampMain(rest);
+  if (sub === 'capture') return (await import('./content-stamp.mjs')).captureMain(rest);
+  if (sub === 'set' && rest.some(a => a === '--source' || a.startsWith('--source='))) return (await import('./content-stamp.mjs')).sourceMain(rest);
   if (sub === 'set' || sub === 'add' || sub === 'remove') return (await import('./content-write.mjs')).main(sub, rest);
-  if (sub !== 'ids') { console.log('Usage: threedog content ids [-w game] [--write]   (dry run by default; --write applies) · threedog content set|add|remove … (threedog content set for its usage)'); return 1; }
+  if (sub !== 'ids') { console.log('Usage: threedog content ids [-w game] [--write]   (dry run by default; --write applies) · threedog content set|add|remove|stamp|capture … (each alone prints its usage)'); return 1; }
   let dir, folders, opt;
   // an optional game folder by path (the engine's examples are not workspaces)
   try { ({ dir, rest: folders, opt } = command(rest, { positional: true, flags: ['write'] })); } catch (e) { console.log('✗ ' + e.message); return 1; }

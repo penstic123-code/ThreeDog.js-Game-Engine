@@ -139,6 +139,7 @@ export async function packExternal({ check, browser, keep = false }) {
     check('cli: threedog map writes GAMEMAP.md with game-relative and node_modules/threedog/docs paths', map.code === 0 && gm.includes('node_modules/threedog/docs/') && !gm.includes('packages/'), map.out.slice(-300));
     const chk = await cli(app, 'check');
     check('cli: threedog check passes (game checks only)', chk.code === 0 && /GAMEMAP\.md is up to date/.test(chk.out), chk.out.split('\n').filter(l => /✗|error/i.test(l)).slice(0, 4).join(' | ') || chk.out.slice(-300));
+    check('template: AGENTS.md is written beside CLAUDE.md with the same text, and threedog check still passes with it there', existsSync(join(app, 'AGENTS.md')) && readFileSync(join(app, 'AGENTS.md'), 'utf8') === readFileSync(join(app, 'CLAUDE.md'), 'utf8'));
     const ty = await cli(app, 'types');
     check('cli: threedog types passes with the template tsconfig.json (game sources, lib ESNext, skipLibCheck)', ty.code === 0, ty.out.split('\n').filter(l => /✗|error/i.test(l)).slice(0, 4).join(' | ') || ty.out.slice(-300));
     // examples ship in the engine tarball and pull from node_modules/threedog into the game (examples.mjs, game mode of paths.mjs)

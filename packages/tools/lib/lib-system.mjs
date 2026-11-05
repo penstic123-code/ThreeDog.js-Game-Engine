@@ -60,32 +60,87 @@ const placesOf = (e, game) => contentFiles(e.dir).map(f => {
   return [join(e.dir, f), test ? join(game, 'tests', 'specs', `${e.name}-${test[1]}`) : join(game, 'systems', e.name, f)];
 });
 
-// shortcut: a spread, so a section the game already has (items, say) is replaced by the system's; merge section by section when a real system needs one
-/** The content/index.js with the system's content merged in, or null when its shape is not the usual one (the caller prints the line to add) */
-function withContent(text, id, path) {
-  const m = /export default \{([^}]*)\}/.exec(text);
-  if (!m) return null;
-  const merged = text.replace(m[0], () => `export default {${m[1].trimEnd()}, ...${id} }`);
-  return `import ${id} from '${path}';\n${merged}`;
+/** The top-level entries of an object literal body ("places, items: { a: 1 }, ...x"), split at commas outside brackets, strings kept whole */
+function splitTop(body) {
+  const out = []; let depth = 0, q = '', cur = '';
+  for (let i = 0; i < body.length; i++) {
+    const c = body[i];
+    if (q) { cur += c; if (c === '\\') cur += body[++i] ?? ''; else if (c === q) q = ''; continue; }
+    if (c === '"' || c === "'" || c === '`') q = c;
+    else if ('{[('.includes(c)) depth++;
+    else if ('}])'.includes(c)) depth--;
+    if (c === ',' && depth === 0) { out.push(cur.trim()); cur = ''; } else cur += c;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+
+/**
+ * The content/index.js with the system's content merged in section by section, or null when its shape is not the usual one (the caller prints the line to add).
+ * Why section by section: a bare spread (`...tide`) replaces a section the game already has, so a pulled system with an `items` section would wipe the game's own items.
+ * sections: { name: 'list' | 'object' } of the system's content. Handles `export default { a, b, c: expr }`; after a merge the entry reads `items: { ...items, ...tide.items }`.
+ */
+export function withContent(text, id, path, sections) {
+  const at = text.search(/export default\s*\{/);
+  if (at < 0) return null;
+  const open = text.indexOf('{', at);
+  let depth = 0, close = -1;
+  for (let i = open; i < text.length && close < 0; i++) { if (text[i] === '{') depth++; else if (text[i] === '}' && --depth === 0) close = i; }
+  if (close < 0) return null;
+  const parts = splitTop(text.slice(open + 1, close));
+  for (const [name, shape] of Object.entries(sections)) {
+    const i = parts.findIndex(x => x === name || x.startsWith(name + ':'));
+    const mine = `${id}.${name}`;
+    if (i < 0) { parts.push(`${name}: ${mine}`); continue; }
+    const there = parts[i] === name ? name : parts[i].slice(name.length + 1).trim();
+    parts[i] = `${name}: ${shape === 'list' ? `[...${there}, ...${mine}]` : `{ ...${there}, ...${mine} }`}`;
+  }
+  return `import ${id} from '${path}';\n` + text.slice(0, open) + `{ ${parts.join(', ')} }` + text.slice(close + 1);
+}
+
+/** The ids the system's content would add that the game's content already has with another value, as "items.sword"; null when the game's content cannot be loaded here */
+async function clashes(index, contentFile) {
+  const { pathToFileURL } = await import('node:url'), stamp = `?t=${Date.now()}`;
+  const mine = (await import(pathToFileURL(contentFile).href + stamp)).default ?? {};
+  let theirs;
+  try { theirs = (await import(pathToFileURL(index).href + stamp)).default ?? {}; } catch { return null; }
+  const byId = v => Array.isArray(v) ? new Map(v.map(x => [x?.id, x])) : new Map(Object.entries(v ?? {})), out = [];
+  for (const [name, v] of Object.entries(mine)) {
+    if (!theirs[name] || typeof theirs[name] !== 'object') continue;
+    const have = byId(theirs[name]);
+    for (const [k, x] of byId(v)) if (k !== undefined && have.has(k) && JSON.stringify(have.get(k)) !== JSON.stringify(x)) out.push(`${name}.${k}`);
+  }
+  return out;
 }
 
 /** Pull a system entry: same all-or-nothing rule as art copy. Returns the shape of copyArt's result plus wiring and contentNote */
-export function pullSystem(e, game, { force = false, dry = false, plugText }) {
+export async function pullSystem(e, game, { force = false, dry = false, plugText }) {
   const sys = readSystem(e.dir, 'lib pull'), places = placesOf(e, game), id = e.name.replace(/\W+(\w)/g, (_, c) => c.toUpperCase()).replace(/\W/g, '');
   const file = join(game, 'plugins', e.name + '.js'), text = plugText(sys);
   const differs = (to, body) => existsSync(to) && !readFileSync(to).equals(body);
   const conflicts = [...places.filter(([f, to]) => differs(to, readFileSync(f))).map(([, to]) => to), ...(differs(file, Buffer.from(text)) ? [file] : [])];
   const r = { writes: places.filter(([f, to]) => !existsSync(to) || differs(to, readFileSync(f))).map(([from, to]) => ({ from, to })), same: places.filter(([f, to]) => existsSync(to) && !differs(to, readFileSync(f))).map(([, to]) => to),
     conflicts, packages: e.needs?.packages ?? [], missing: [], register: [], wiring: { file, text }, contentNote: null };
+  const index = join(game, 'content', 'index.js');
+  let sections = null, was = null, path = null;
+  if (sys.content) {
+    path = `../systems/${e.name}/${sys.content}`; was = existsSync(index) ? readFileSync(index, 'utf8') : null;
+    const { pathToFileURL } = await import('node:url'), mine = (await import(pathToFileURL(join(e.dir, sys.content)).href)).default ?? {};
+    sections = Object.fromEntries(Object.entries(mine).map(([k, v]) => [k, Array.isArray(v) ? 'list' : 'object']));
+    // refuse before any file moves: two things with one id in one section would silently shadow each other
+    if (was && !was.includes(path)) {
+      const dup = await clashes(index, join(e.dir, sys.content));
+      if (dup?.length) throw new Error(`lib pull: ${e.name} adds ${dup.slice(0, 5).join(', ')}${dup.length > 5 ? ` and ${dup.length - 5} more` : ''}, but the game's content already has ${dup.length === 1 ? 'that id' : 'those ids'} with another value: rename in the game (or in ${e.name}'s content.js) and pull again. Nothing was written`);
+    }
+  }
   if (dry || (conflicts.length && !force)) return r;
   for (const [from, to] of places) { mkdirSync(dirname(to), { recursive: true }); copyFileSync(from, to); }
   mkdirSync(dirname(file), { recursive: true }); writeFileSync(file, text);
   if (sys.content) {
-    const index = join(game, 'content', 'index.js'), path = `../systems/${e.name}/${sys.content}`, was = existsSync(index) ? readFileSync(index, 'utf8') : null;
     if (was?.includes(path)) return r;   // pulled before: the line is there
-    const now = was && withContent(was, id, path);
-    if (now) { writeFileSync(index, now); r.contentNote = `content/index.js now merges systems/${e.name}/${sys.content}`; }
-    else r.contentNote = `add to the game's content: import ${id} from '${path}'; and ...${id} in the object content.load gets`;
+    const now = was && withContent(was, id, path, sections);
+    if (now) { writeFileSync(index, now); r.contentNote = `content/index.js now merges systems/${e.name}/${sys.content} section by section`; }
+    else r.contentNote = `add to the game's content: import ${id} from '${path}'; and merge its sections (${Object.keys(sections).join(', ')}) into the object content.load gets, e.g. items: { ...items, ...${id}.items }`;
   }
   return r;
 }

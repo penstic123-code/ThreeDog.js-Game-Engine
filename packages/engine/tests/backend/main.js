@@ -5,8 +5,9 @@
 import * as THREE from 'three';
 import * as TG from 'three/webgpu';
 import 'threedog/tsl';   // what a WebGPU game imports first: it brings three/webgpu for renderer: 'webgpu'
-import { createEngine, applyEffects } from '../../index.js';
+import { createEngine, applyEffects, world, terrain } from '../../index.js';
 import { renderOnce, stats } from '../../render/backend.js';
+import { watchGeometries } from '../../core/geometryWatch.js';
 
 const W = 160, H = 120;
 const base = { lights: false, pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, urlState: false };
@@ -259,5 +260,119 @@ window.shaderErrorCases = async () => {
     threeError(`WebGPURenderer: Render pipeline creation failed (renderPipeline_${bad.name}_${bad.id}): test validation error`);
     out.pipeline = errs.splice(0).join('\n');
   } finally { console.error = orig; g.dispose(); }
+  return out;
+};
+
+// What a dropped mesh leaves in WebGPURenderer until the record sweep comes by (tests/specs/webgpu-release.mjs). The WebGL2 backend runs the same RenderObjects bookkeeping as real WebGPU, so this needs no GPU.
+const gpuEngine = async () => { const e = make({ renderer: new TG.WebGPURenderer({ canvas: canvas(), antialias: false, forceWebGL: true }), batching: false }); await e.start(); e.pause(); return e; };
+const records = e => e.renderer._objects._renderObjects.size;
+window.releaseCases = async () => {
+  const out = {};
+  const e = await gpuEngine(), mat = new THREE.MeshLambertMaterial();   // outlives every mesh, like a ground or asset material
+  e.camera.position.set(0, 0, 8); e.camera.lookAt(0, 0, 0);
+  e.renderOnce();
+  const keep = new THREE.Mesh(new THREE.BoxGeometry(), mat); e.scene.add(keep); e.renderOnce();   // an emptied scene reads like three's fallback Scene (render/recordSweep.js)
+  const base = records(e);
+  const spawn = () => { const ms = []; for (let i = 0; i < 12; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(), mat); m.frustumCulled = false; ms.push(m); e.scene.add(m); } e.renderOnce(); return ms; };
+  let ms = spawn(); out.drawn = records(e) - base;
+  for (const m of ms) { m.removeFromParent(); m.geometry.dispose(); }
+  e.renderOnce(); out.plainDrop = records(e) - base;
+  const sweep = g => { g._records.sweepNow(); g._records.sweepNow(); };   // both, as a mesh must stay out across two
+  sweep(e); out.released = records(e) - base;
+  e.assets.shared.add(mat);   // what engine.remove skips: it may not dispose this material, and the records must go all the same
+  ms = spawn(); e.remove(...ms); e.renderOnce(); sweep(e); out.engineRemove = records(e) - base;
+  e.dispose();
+  // streamed terrain: fly until far more chunks have come and gone than stay loaded
+  const t = await gpuEngine();
+  t.use(world(), terrain({ height: () => 0, viewChunks: 1 }));
+  const cam = t.camera, seen = new Set(), dt = 1 / 60, say = console.warn, said = []; let x = 0, samples = 0;
+  console.warn = (...a) => said.push(a.join(' '));
+  cam.position.set(0, 40, 0); t.stream.source(cam, { detail: 'full' });
+  for (let i = 0; i < 600 && seen.size < 100; i++) {
+    x += 6; cam.position.set(x, 40, 0); cam.lookAt(x + 20, 0, 0);
+    t.input.poll(dt); t._fixedStep(); t._frameHooks(dt); t._render(dt); t.input.endFrame(); t._runHooks('afterRender', dt);
+    for (const k of t.terrain.chunks.keys()) seen.add(k);
+    if (i % 2 === 0) { watchGeometries(t, 10); samples++; }   // streaming that disposes what it unloads: the geometry warning must stay silent
+    await new Promise(r => setTimeout(r, 5));
+  }
+  console.warn = say; sweep(t);
+  out.terrain = { seen: seen.size, loaded: t.terrain.chunks.size, records: records(t), samples, geometryWarnings: said.filter(m => m.includes('[geometry-undisposed]')).length };
+  t.dispose();
+  return out;
+};
+
+// What the record sweep frees and what it must leave alone (render/recordSweep.js), and the dev geometry warning (core/geometryWatch.js). tests/specs/webgpu-release.mjs reads these.
+window.sweepCases = async () => {
+  const e = await gpuEngine(), r = e.renderer, s = e._records, out = {}, mat = new THREE.MeshLambertMaterial();
+  const set = () => r._objects._renderObjects, box = new THREE.BoxGeometry();
+  const spawn = (n, into = e.scene) => Array.from({ length: n }, () => { const m = new THREE.Mesh(new THREE.BoxGeometry(), mat); m.frustumCulled = false; into.add(m); return m; });
+  const both = () => { s.sweepNow(); s.sweepNow(); };
+  e.camera.position.set(0, 0, 8); e.camera.lookAt(0, 0, 0);
+  spawn(1);   // a scene that stays in use: an emptied one reads like three's internal fallback Scene (drawnWithoutScene)
+  e.renderOnce();
+  const base = set().size;
+  // plain three.js: scene.remove, material still in use, no event
+  const ms = spawn(12); e.renderOnce(); out.drawn = set().size - base;
+  ms.forEach(m => e.scene.remove(m));
+  s.sweepNow(); out.afterOneSweep = set().size - base;
+  s.sweepNow(); out.afterTwoSweeps = set().size - base;
+  // the record is a cache
+  const pool = ms[0]; e.scene.add(pool); e.renderOnce(); out.readded = set().size - base;
+  // a pooled mesh in and out between sweeps keeps its record
+  const rec = [...set()].find(o => o.object === pool);
+  for (let i = 0; i < 4; i++) { e.scene.remove(pool); s.sweepNow(); e.scene.add(pool); e.renderOnce(); s.sweepNow(); }
+  out.poolKept = set().has(rec);
+  e.scene.remove(pool); both(); out.poolFreed = !set().has(rec);
+  // a game's own second Scene and everything drawn with no Scene above it
+  const second = new THREE.Scene(); spawn(3, second);
+  const tex = new THREE.DataTexture(new Uint8Array([40, 90, 200, 255]), 1, 1); tex.mapping = THREE.EquirectangularReflectionMapping; tex.needsUpdate = true;
+  e.scene.background = tex;
+  const quad = new TG.QuadMesh(new TG.MeshBasicNodeMaterial());
+  const solo = new THREE.Mesh(box, mat), group = new THREE.Group(); group.add(new THREE.Mesh(box, mat));
+  const pmrem = new TG.PMREMGenerator(r), env = pmrem.fromScene(second, 0, 0.1, 100, { size: 32 }), equi = pmrem.fromEquirectangular(tex);
+  e.scene.environment = env.texture;
+  e.post.add({ name: 'dim', slot: 'hdr', node: input => input.mul(0.9) });
+  const draw = () => { e.renderOnce(); r.render(second, e.camera); quad.render(r); r.render(solo, e.camera); r.render(group, e.camera); };
+  draw();
+  const held = new Set(set());
+  for (let i = 0; i < 3; i++) { s.sweepNow(); draw(); }
+  out.rebuilt = [...held].filter(o => !set().has(o)).map(o => `${o.object.type}:${o.object.name}`);
+  const top = o => { while (o.parent) o = o.parent; return o; };
+  out.noScene = [...new Set([...set()].filter(o => !top(o.object).isScene).map(o => `${o.object.isQuadMesh ? 'QuadMesh' : o.object.type}:${o.object.name}`))];
+  e.scene.background = null; e.scene.environment = null; equi.dispose();
+  // a child taken out of a live render bundle is still replayed until the game sets needsUpdate; the WebGL2 backend has no bundles, there it is a plain group
+  out.bundles = r.backend.beginBundle !== undefined;
+  const bundle = new TG.BundleGroup(); spawn(2, bundle); e.scene.add(bundle); e.renderOnce();
+  const child = bundle.children[0], kept = [...set()].filter(o => o.object === child); bundle.remove(child);
+  both(); out.bundleKept = kept.length > 0 && kept.every(o => set().has(o));
+  e.renderOnce();
+  e.scene.remove(bundle); both(); out.bundleFreed = kept.every(o => !set().has(o));
+  // three moved the private field: off, one coded warning, no throw
+  const say = console.warn, said = []; console.warn = (...a) => said.push(a.join(' '));
+  try {
+    const Sweep = s.constructor, keep = r._objects._renderObjects, objects = r._objects;
+    const guard = change => { const g = new Sweep(r); change(); try { g.sweepNow(); g.sweepNow(); return g.off; } catch { return 'threw'; } finally { r._objects = objects; objects._renderObjects = keep; } };
+    out.guards = [guard(() => { delete objects._renderObjects; }), guard(() => { objects._renderObjects = new Set([{}]); }), guard(() => { r._objects = undefined; })];
+    out.guardWarnings = said.splice(0).filter(m => m.includes('[webgpu-records-unread]')).length;
+    out.sweeping = !s.off && s.sweeps > 0;
+    // the geometry warning: silent on what is not a leak
+    const round = (n, fn) => { e._geometryWatch = null; for (let i = 0; i < n; i++) { fn(); e.renderOnce(); watchGeometries(e, 10); } return said.splice(0).filter(x => x.includes('[geometry-undisposed]')).length; };
+    let live = [];
+    out.warnStreaming = round(30, () => { live.forEach(m => { e.scene.remove(m); m.geometry.dispose(); }); live = spawn(30); });
+    live.forEach(m => { e.scene.remove(m); m.geometry.dispose(); }); live = [];
+    const world = spawn(400); world.forEach(m => { m.visible = false; });
+    e.renderOnce();
+    let shown = 0;
+    out.warnFirstDraws = round(20, () => { for (let i = 0; i < 20; i++) world[shown++].visible = true; });
+    world.forEach(m => { e.scene.remove(m); m.geometry.dispose(); });
+    out.warnGrowingWorld = round(20, () => { live.push(...spawn(20)); });
+    live.forEach(m => { e.scene.remove(m); m.geometry.dispose(); }); live = [];
+    out.warnOneBurst = round(20, () => { if (!live.length) { live = spawn(300); e.renderOnce(); live.forEach(m => e.scene.remove(m)); } });
+    live.forEach(m => m.geometry.dispose());
+    const leak = () => { const lost = spawn(20); e.renderOnce(); lost.forEach(m => e.scene.remove(m)); };
+    out.warnLeak = round(20, leak);
+    out.warnLeakAgain = round(20, leak);
+  } finally { console.warn = say; }
+  e.dispose();
   return out;
 };

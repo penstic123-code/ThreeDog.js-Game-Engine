@@ -32,7 +32,7 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { warnMissing, warnOnce, fmt, DEV } from './validate.js';
 import { codedError, coded } from './errorHints.js';
 import { Animator } from './Animator.js';
-import { fetchEntry, freeEntry, preloadEntries, shadowDefaults } from './assetEntry.js';
+import { fetchEntry, freeEntry, retireEntry, dropCopy, disposeEntries, preloadEntries, shadowDefaults } from './assetEntry.js';
 import { registerManifest, paramValues } from './assetManifest.js';
 import { setParams } from './assetHot.js';
 import { schemaInfo } from './params.js';
@@ -51,19 +51,22 @@ const srcHash = s => { let h = 0; for (let i = 0; i < s.length; i++) h = (Math.i
 export class Assets {
   constructor(engine) {
     this.engine = engine;
-    this.entries = new Map();   // name -> { type, url, opts, promise, value }
+    this.entries = new Map();   // name -> { type, url, opts, promise, value, load, users } (who owns the data: top of assetEntry.js)
     this.gltf = new GLTFLoader();
     this.gltf.setMeshoptDecoder(MeshoptDecoder);
     this.draco = null;          // DRACOLoader / KTX2Loader：created on the first compressed data
     this.ktx2 = null;
     this.tex = new THREE.TextureLoader();
     this.shared = new WeakSet(); // geometry and materials shared by model copies (engine.remove does not dispose them)
-    this._instances = new WeakMap();   // model copy root -> asset entry (counts usage)
+    this._instances = new WeakMap();   // model copy root -> { e: the entry it was asked for by, load: the load that owns its data }
+    this._retired = new Set();   // old loads no entry points at, kept for the copies or geometry still using them
+    this._disposed = false;
     this._animators = new WeakMap();   // model root -> Animator from animate(): engine.remove disposes it with the model
     this.cacheMinMs = 20;       // builds faster than this are not cached (reading the file would be slower)
     /**
      * Named colors for what is made in code: a generator written with `function` reads this.palette. Plain data, read or replace it freely:
-     * it is part of the cache key, so a model or texture asked for after a write is built from the new colors. Copies already placed keep theirs.
+     * it is part of the cache key, so a model or texture asked for after a write is built from the new colors. Copies already placed keep theirs,
+     * and a model's old build is freed with its last copy.
      * @example engine.assets.palette = { leaf: 0xd98a3a, bark: 0x6b4a30 };
      * @type {Record<string, any>}
      */
@@ -134,7 +137,16 @@ export class Assets {
   /** @internal A generated model or texture built from a palette that has since been written */
   _stale(e) { return !!e.promise && !!e.opts.build && e.type !== 'sound' && e.palette !== this._paletteKey; }
   /** @internal Load an entry as a task in engine.loading (assetEntry.js) */
-  _fetch(e) { return fetchEntry(this, e); }
+  _fetch(e) { return this._with(e, v => v); }
+  /**
+   * @internal Run use(value, load) on an entry's live data, in the same tick it is checked. Why the loop: code resumed by an await runs after other
+   * continuations, and one of them may have released the entry since the load finished; handing out that value is a freed model
+   */
+  async _with(e, use) {
+    for (;;) { const v = await fetchEntry(this, e); if (v === e.load?.value) return use(v, e.load); }
+  }
+  /** @internal The entry moves on from its current load (assetEntry.js) */
+  _retire(e) { retireEntry(this, e); }
 
   /**
    * Preload manifest assets (all by default; onlyMarked=true loads only those marked preload). Code-generated models and fonts are loaded ahead only if marked
@@ -164,8 +176,8 @@ export class Assets {
 
   /** Get a model copy (name or path); skinned characters clone correctly. static: true registers it with engine.rays (builds ray acceleration) */
   async model(nameOrUrl, opts = {}) {
-    const e = this._resolve(nameOrUrl, 'model'), gltf = await this._fetch(e);
-    return this._copy(e, gltf, opts);
+    const e = this._resolve(nameOrUrl, 'model');
+    return this._with(e, () => this._copy(e, opts));
   }
   /**
    * A model copy right now if that model has already loaded, else null (never starts a load, never waits). For code that rebuilds often,
@@ -174,19 +186,23 @@ export class Assets {
    */
   modelNow(nameOrUrl, opts = {}) {
     const e = this.entries.get(nameOrUrl);
-    if (e?.type === 'model' && e.value && !this._stale(e)) return this._copy(e, e.value, opts);
+    if (e?.type === 'model' && e.load?.value && !this._stale(e)) return this._copy(e, opts);
     // Why warn: generated models also need one load() first (dev reads the baked-cache GLB, release reads the baked file), so before any await model() this is null;
     // in one playtest world.present only called modelNow, the model never showed up and nothing said why. Already loading (promise present) = no warning: that is a normal "not ready yet"
     if (DEV && e?.type === 'model' && !e.promise) warnOnce(coded('asset-not-loaded', fmt(STRINGS.notLoaded, { name: nameOrUrl })));
     return null;
   }
-  /** @internal one counted copy of a loaded model */
-  _copy(e, gltf, { castShadow, receiveShadow, static: isStatic = false } = {}) {
-    const root = skeletonClone(gltf.scene);
-    e.users = (e.users || 0) + 1; e.releasePending = false; this._instances.set(root, e);
+  /** @internal one copy of a loaded model, counted on the load that owns its data, which for a name that fell back belongs to the other entry */
+  _copy(e, { castShadow, receiveShadow, static: isStatic = false } = {}) {
+    const load = e.load, owner = load.owner, gltf = load.value, root = skeletonClone(gltf.scene);
+    load.users++; e.users = (e.users || 0) + 1;
+    if (owner !== e) owner.users = (owner.users || 0) + 1;
+    e.releasePending = owner.releasePending = false;
+    this._instances.set(root, { e, load });
     // the call, then the manifest entry; else a generator's own flags; else cast + receive (shadowDefaults, the same rule content props use)
     shadowDefaults(root, { castShadow: castShadow ?? e.opts.castShadow, receiveShadow: receiveShadow ?? e.opts.receiveShadow });
     root.userData.animations = gltf.animations;
+    if (e.named) root.userData.modelName = e.name;   // which named model this is; .clone() carries it, the _instances map does not (content capture reads it)
     if (isStatic) this.engine.rays.addStatic(root);
     return root;
   }
@@ -198,8 +214,8 @@ export class Assets {
    * @param {string | any} nameOrRoot
    */
   report(nameOrRoot) {
-    const root = typeof nameOrRoot === 'string' ? null : nameOrRoot, e = root ? this._instances.get(root) : this.entries.get(nameOrRoot);
-    const gltf = e?.value;
+    const root = typeof nameOrRoot === 'string' ? null : nameOrRoot, copy = root && this._instances.get(root);
+    const e = root ? copy?.e : this.entries.get(nameOrRoot), gltf = (root ? copy?.load : e?.load)?.value;
     if (!gltf?.scene) throw codedError('asset-misuse', `assets.report: ${root ? 'that object is not a model copy from assets.model()' : `model "${nameOrRoot}" is not loaded yet (await engine.assets.model(...) first)`}`);
     return reportGltf(gltf, e, root ?? gltf.scene, this.engine.renderer);
   }
@@ -207,10 +223,11 @@ export class Assets {
   reportText(nameOrRoot) { return reportText(this.report(nameOrRoot)); }
   /** Get the geometry of the first mesh in a model (for vegetation and bulk placement) */
   async geometry(nameOrUrl) {
-    const e = this._resolve(nameOrUrl, 'model'), gltf = await this._fetch(e);
-    e.pinned = true;   // the geometry was handed out and we cannot know who still uses it: trim does not free it
-    let g = null; gltf.scene.traverse(o => { if (!g && o.isMesh) g = o.geometry; });
-    return g;
+    return this._with(this._resolve(nameOrUrl, 'model'), (gltf, load) => {
+      load.pinned = true;   // the geometry was handed out and we cannot know who still uses it: trim does not free it
+      let g = null; gltf.scene.traverse(o => { if (!g && o.isMesh) g = o.geometry; });
+      return g;
+    });
   }
   /**
    * Get a texture (name or path; .ktx2 works too). Color textures default to sRGB; pass { color: false } for normal/roughness maps.
@@ -260,32 +277,44 @@ export class Assets {
 
   /**
    * Release an asset and return its GPU memory (reloaded on next use). A texture is released together with all its opts variants.
-   * A model with copies still in the scene is not released yet; it is freed when the last copy is engine.remove'd (copies in use are never broken)
+   * A model with copies still in the scene is not released yet; it is freed when the last copy is engine.remove'd (copies in use are never broken).
+   * A load still running ends here and its result is thrown away; code awaiting that load is a use, so it gets a fresh load, never the freed data.
+   * A name that fell back has no data of its own: release the name it fell back to (users(name) says what still holds it).
   */
   release(name) {
-    for (const [k, v] of this.entries) if (v.variantOf === name) { this.release(k); this.entries.delete(k); }
-    const e = this.entries.get(name); if (e) freeEntry(e);
+    for (const [k, v] of this.entries) if (v.variantOf === name) {
+      const waited = v.load && !v.load.settled;   // the fresh load of whoever waits must stay in the table, where the next release can reach it
+      this.release(k);
+      if (!waited) this.entries.delete(k);
+    }
+    const e = this.entries.get(name); if (e) freeEntry(this, e);
   }
   /** Release every model with no copy in use (call after a level change; level calls it). Returns the names released */
   trim() {
     const freed = [];
-    for (const [k, e] of this.entries) if (e.type === 'model' && e.value && !e.users && !e.pinned) { freeEntry(e); freed.push(k); }
+    for (const [k, e] of this.entries) if (e.type === 'model' && e.value && !e.users && !e.load.pinned) { freeEntry(this, e); freed.push(k); }
     return freed;
   }
-  /** How many copies of this model are in use (taken by model() and not yet engine.remove'd) */
+  /**
+   * How many copies of this model are in use (taken by model() and not yet engine.remove'd); these are what keep its data in memory. A model that failed
+   * and fell back: users('shrub') is the copies asked for as 'shrub', and users('rock') counts those too, since they show rock's data; 0 means it can be freed
+   */
   users(name) { return this.entries.get(name)?.users ?? 0; }
   /** Called when an object is fully removed (engine.remove calls it): decrements the usage count of model copies beneath it and stops their animators */
   forget(obj) {
     obj.traverse(o => {
       const anim = this._animators.get(o); if (anim) { this._animators.delete(o); anim.dispose(); }
-      const e = this._instances.get(o); if (!e) return;
+      const copy = this._instances.get(o); if (!copy) return;
       this._instances.delete(o);
-      if (--e.users <= 0 && e.releasePending) freeEntry(e);
+      dropCopy(this, copy);
     });
   }
-  /** Release all loaded assets and decoders (engine.dispose calls it) */
+  /**
+   * Release all loaded assets and decoders (engine.dispose calls it). A load still running ends and leaves nothing behind. Code awaiting one, and any later
+   * model() / texture() / font() call, stays pending for good: it never resumes against a disposed engine and never rejects during teardown
+   */
   dispose() {
-    for (const e of this.entries.values()) { e.users = 0; freeEntry(e); }
+    disposeEntries(this);
     this.draco?.dispose(); this.ktx2?.dispose();
   }
 
@@ -304,9 +333,12 @@ export class Assets {
     else this._cachedSrc.set(name, src);
     const key = 'cached:' + name + ':' + JSON.stringify(params ?? null) + ':' + this._paletteKey + ':' + srcHash(src);
     const e = this.entries.get(key) || this.entries.set(key, { type: 'model', url: name, opts: { build, params }, promise: null }).get(key);
-    const g = await this._fetch(e);
-    e.pinned = true;   // neither copies nor geometry are counted: trim does not free it
-    return g.geometry ?? skeletonClone(g.scene);
+    // Why pinned for good, also after a palette write: what leaves here is a bare geometry or a prototype that content, vegetation and pickups clone on
+    // their own, so nothing counts who uses it and a free would break placed props. Counting it needs those three modules to count their copies
+    return this._with(e, (g, load) => {
+      load.pinned = true;
+      return g.geometry ?? skeletonClone(g.scene);
+    });
   }
   /** Current usage: number of geometries and textures in GPU memory */
   get memory() { return memory(this.engine.renderer); }
@@ -318,7 +350,7 @@ export class Assets {
    * engine.assets.animate(await engine.assets.model('hero')).go('attack');
    */
   animate(root, config = {}) {
-    const m = this.mapping(root), src = this._instances.get(root);
+    const m = this.mapping(root), src = this._instances.get(root)?.e;
     const cfg = m ? { ...m, ...config, states: { ...m.states, ...config.states }, transitions: { ...m.transitions, ...config.transitions } } : config;
     const a = new Animator(this.engine, root, cfg, m && { label: `manifest "${src.manifest}" models.${src.name}.animation`, states: Object.keys(m.states || {}).filter(k => !config.states?.[k]) });
     this._animators.get(root)?.dispose();   // one animator per model: a new one replaces the old
@@ -330,5 +362,5 @@ export class Assets {
    * @example engine.assets.mapping(model)?.states.attack   // { clip: 'Slash', loop: false }
    * @param {import('three').Object3D} root @returns {{ states?: object, transitions?: object, fade?: number } | null}
    */
-  mapping(root) { return this._instances.get(root)?.opts.animation ?? null; }
+  mapping(root) { return this._instances.get(root)?.e.opts.animation ?? null; }
 }

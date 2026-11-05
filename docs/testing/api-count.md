@@ -1,6 +1,6 @@
 # 引擎对外接口有多少（AI 看得见的部分）
 
-<!-- api-count total: 1763 -->
+<!-- api-count total: 1782 -->
 
 0.5 的第一步是先数清楚：一个 AI 用这个引擎做游戏时，能看见、可能会去用的东西一共有多少个，其中哪些在仓库里根本没人用。0.4.0 那次只计数和列候选；之后做了两类不改游戏行为的清理（见"0.5 清理之后"）；第三类（把模块选项里的外观值挪进 `look.*`）主人同意后也做了（见"第三类：外观值只走 look.*"）。
 
@@ -450,3 +450,37 @@
 ## 两条分支合并之后（2026-11-05）
 
 上面“TSL 风格基础之后”（1736 → 1755）和“实时光和遮挡剔除”（1736 → 1760）是两条分支各自从 1736 数的，合并后重新数：合计 **1763**（没人用的候选 107，有意保留 127），以这一条为准，文件开头记的总数也是 1763。
+
+## Daily surface: what real games write (2026-11-05)
+
+The marker above was stale (1763); the real total is **1760** (it includes the new `--games` option of `threedog api-count`).
+
+`threedog api-count --games dirA,dirB,...` counts, per game folder, which public code names that game's own files (js, mjs, html, json; not node_modules, dist, public, docs) write, with the same name-matching heuristic as the unused list. CLI commands, CLI options and error codes are left out (a game does not write them): 1386 code names remain.
+
+| Sample | Games | Names used by at least one | Used by more than half | Used by all |
+|---|---:|---:|---:|---:|
+| Real games: island (R1), island (R2), cove (R3) | 3 | 182 (13%) | 118 | 82 |
+| Those plus 8 engine examples (action, sheepisland, world, plain-picture, techniques, webgpu-tsl, styletest, rc2d) | 11 | 415 (30%) | 72 | 13 |
+
+By group, three real games (names / at least one / most): createEngine options 27 / 9 / 7, engine members 154 / 34 / 25, engine sub-objects 473 / 35 / 15, module options 260 / 54 / 33, module APIs 346 / 23 / 18, exports of `threedog` 98 / 23 / 20, `threedog/tsl` 14 / 3 / 0, post-effects 14 / 1 / 0.
+
+The sample is small and R1 and R2 are the same kind of game, so read these as a rough shape: a game writes a couple of hundred names, not 1400. A name nobody here uses is not dead (a genre not in the sample may need it). What all three share is the default layer: `createEngine`, `terrain`, `collision`, `followCamera`, `characters`, `interactions`, `dialogue`, `inventory`, `pickups`, `quests`, `settings`, `content`, `sky`, `water`, `ambience`, `hud`, `toast`, `saves`, `assets`, `use`, `onFixed`, `onFrame`. The new-game CLAUDE.md "Already here" table (rows cut from AI.md, keys in `packages/tools/lib/default-layer.mjs`) was chosen from this list.
+
+## 2026-11-05 加 swarm：1760 → 1770
+
+新增 10 个：`swarm` 模块和 `engine.swarm` 的接口，以及 `engine.stepBlend`（固定步之间的插值比例，引擎原本没有）。理由：大量同类玩法对象以前每个游戏都要手写，每个对象一个 Mesh 在 1 万个时一帧要 233 毫秒，`swarm` 是 5.5 毫秒（见 `packages/engine/docs/PERF.md` 3d 节）。
+
+## 2026-11-05 平铺内容：1770，不变
+
+没有新增名字。`source`（条目的可选字符串）和 `rot`（地点的可选字段）是内容数据的字段，不是接口：查询用已有的 `engine.world.query({ where })`，挪地点用已有的 `engine.content.load(data, { places })`，所以不需要新的移动地点的方法。`content._facingOf` 是内部方法，不算。理由见 `docs/plans/2026-11-05-flat-content.md`：0.8 决定运行时不嵌套，也就不加新的对象层和它的接口。
+## 2026-11-05 content stamp / capture: 1770 → 1776
+
+All six are CLI options; no new command, no new game-facing name (`stamp` and `capture` are subcommands of `threedog content`, which the count does not list). The count is per tool file, so the new file `content-stamp.mjs` counts its options again: `--dry`, `--dir`, `--force`, `--page` are words other commands already have; only `--source` (batch edit by arrangement) and `--as` (the arrangement a capture writes) are new. Reason: moving placement from code into content needs a way to copy, batch-edit and capture without hand-writing content files; nine real games left content/props.js empty.
+
+## 2026-11-05 WebGPU 记录清扫：1776 → 1778
+
+新增 2 个错误代码：`webgpu-records-unread`（清扫读的 three 私有字段没了，自己关掉时的警告）和 `geometry-undisposed`（开发时几何体一路涨的提醒）。没有新的方法或选项。
+
+## 2026-11-05 `--json` on check and test: 1778 → 1782
+
+Four CLI options, all `--json`: on `check`, `test`, and the two parts of check that print their own result (`types.mjs`, `content-check.mjs`; the count is per tool file, so each counts it). Nothing game-facing: no engine name, no command. The shape `{ ok, summary, items }` is defined once in `packages/tools/lib/result.mjs`, which the MCP `check` tool now reads instead of parsing text.

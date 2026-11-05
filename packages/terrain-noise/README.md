@@ -6,7 +6,7 @@ Optional terrain generator for [threedog](https://www.npmjs.com/package/threedog
 npm install @threedog/terrain-noise@0.7
 ```
 
-This describes 0.7.0: `npm install @threedog/terrain-noise@0.7` (games made in the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine) already have it).
+This describes 0.7.1: `npm install @threedog/terrain-noise@0.7` (games made in the [repository](https://github.com/penstic123-code/ThreeDog.js-Game-Engine) already have it).
 
 ```js
 import { openWorld } from 'threedog';

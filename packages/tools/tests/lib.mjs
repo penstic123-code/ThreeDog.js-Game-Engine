@@ -40,6 +40,11 @@ export async function run({ check }) {
     // add by exported function name: the module, its helper and its texture come along, entry.json describes it
     const r = await addEntry('sparks', { game: a, cwd: tmp, lib, noPreview: true });
     const e = JSON.parse(readFileSync(join(lib, 'sparks', 'entry.json'), 'utf8'));
+    // [guard] an entry stored with the old kind word 'look' reads as picture
+    mkdirSync(join(lib, 'oldlook'), { recursive: true });
+    writeFileSync(join(lib, 'oldlook', 'entry.json'), JSON.stringify({ ...e, name: 'oldlook', kind: 'look' }));
+    check('[guard] kind "look" (the old word) reads as picture', listEntries(lib, ['oldlook'])[0]?.kind === 'picture');
+    rmSync(join(lib, 'oldlook'), { recursive: true });
     check('add: the module, its local import and its texture are copied into <library>/<name>/',
       ['sparks.js', 'parts/rand.js', 'tex/spark.png'].every(f => existsSync(join(lib, 'sparks', f))), JSON.stringify(r.writes));
     check('add: entry.json has name, kind, summary from the first JSDoc line, use line, backends, params and where it came from',

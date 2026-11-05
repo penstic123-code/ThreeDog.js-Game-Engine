@@ -2,6 +2,8 @@
 
 全量测试的命令是 `npm test`（在仓库根目录跑，跑全部工作区，也包括工具自己的测试）。下面的表越新越靠上，新的一行加在表的最上面。
 
+**2026-11-05 content stamp / set --source / capture（分支 feature/content-stamp）**：`check` 通过；只跑相关项 `content stamp`、`content capture`（真页面走开发桥）、`content write`、`content source`、`api count`、`rule R51`、`dev bridge`，8 项 161 条全过，没有全量。
+
 **2026-11-04 第一次真 WebGPU（分支 test/real-webgpu，系统 Chrome 156，NVIDIA Blackwell，三的后端是 webgpu）**：用 `packages/tools/real-webgpu.mjs` 跑了 19 个 WebGPU 用例页，加模板新游戏、picture-parts、webgpu-tsl、开放世界、city；画面都对，只有 detailBump 和 WebGL 差 3.5%（高频法线的细差，方向相关 0.98，肉眼看不出，留作已知差异）；修了 L3（目标有父级时级联方向错）和 picture-parts 页不认 renderer=webgpu；`npm run check` 通过，相关用例全过。截图在 `docs/testing/field/2026-11-04-real-webgpu/`。
 
 ## 2026-11-04：高级光照和体积效果可行性试验（分支 spike/light-volume）
@@ -182,6 +184,8 @@
 
 | 日期 | 提交 | 做了什么 | 结果 | 失败项与处理 |
 |---|---|---|---|---|
+| 2026-11-05 | feature/flat-content（基于 94239e59，ceb2e2cd） | 平铺内容：条目 `source`、地点 `rot`、再次 load 时没被玩家动过的记录跟着地点走。新增 `flat-content` 和 `content-flat` 两个测试；去掉跟随逻辑后 4 项检查变红，证明测试拦得住。跑了 check 和相关项（Flat content、Single source、Templates、Prop collision、content-check、api-count、how、packs），没跑全量 | check 通过；38 项 284 检查全过 | 无 |
+| 2026-11-05 | fix/asset-ownership（基于 5424715f） | 资源归属：一次加载拥有数据，兜底副本记在真正持有数据的条目上，被结束的加载到达后释放、不写回。新测试 `asset ownership` 9 项；相关测试（名字含 asset、加载、generator、palette、font、level、hot swap、模型、packs，再加 audio、character、vegetation、pickup、content）和 `threedog check` | 新测试 36 检查全过；同一测试放到修复前的代码上 25 项失败；另把 2 处保护（geometry 的钉住、等待中变体留在表里）逐一去掉，对应检查都失败；相关测试两批 424 + 753 检查全过，check 通过 | 无失败 |
 | 2026-11-05 | cleanup/unused-api（基于 351c81d6） | 删冗余接口：删 1、转内部 5、留 98（写进 api-count 的留名单），总数 1765→1759；跑了 check、types、api count 相关测试 | 见提交 |
 | 2026-11-04 | (分支 test/lifetime-and-coexist) | 新增 4 个 Lifetime 用例：共享资源（两个引擎共用材质/几何/贴图、游戏自留、重复 dispose）、重复创建销毁（WebGL 25 次、WebGPURenderer 的 WebGL2 后端 20 次，不是真 WebGPU 设备；没跑真 WebGPU）、第三方 Object3D.add 包装在引擎前后装入。发现并修了 1 个真问题：threePatches.off('scene-add-hook') 会把后装的第三方包装一起拆掉。`npm run check` 通过；`npm test -- Lifetime patch adopt` 26 项 217 检查全过；没跑全量 | 全过 |
 | 2026-11-04 | docs/recipes-tidy | 收尾：locale 测试补按键（引擎的无按键报错是对的）；`how` 排名和弱匹配修根因；R13 真错修掉（31 降到 26 条，其余是片段缺类型的噪音）；`grids.preview({ draw })`、`tiles.color`；菜谱 41 并入 40，52 的叠加规则并入 55，09/38 去重，47 改正；新增 `worktree-link.mjs`。用它逐包链接 node_modules，引擎和工具指向本工作树。`npm run check` 通过；相关测试（how、doc、grid、recipe、thing、locale、worktree-link）85 项 589 检查全过，未跑全量。 |
@@ -329,3 +333,15 @@
 | 2026-11-05 | docs/review3（基于 950f10f3） | 文档审查第三批：FAQ/README/design 的“还没进引擎”和“每个效果两种写法”改成现状；四个只有 TSL 的效果在四种情况下的表格；CHANGELOG、MIGRATING-0.7、AI.md、README 入口表补全；配方 52/56 加“从哪里导入”；lightVolumes 的 `resolution` 改名 `scale`；occlusion 用词与三种遮挡区分；层表注明 OUTLINE_OFF_LAYER。map、check（0 错）；how 132/132、doc rules 23/23、recipe code blocks 4/4、api count 3/3、light volumes 8/8 |
 | 2026-11-05 | d3958d58 | 0.7 候选版全量：736 项 5263 检查，0 失败，12.2 分钟。普通测试到 WebGL2 后端，真 WebGPU 另由 `real-webgpu.mjs` 分批跑过 | 全过 |
 | 2026-11-05 | release/0.7.0（ccc0b1ef、4449309c） | 0.7.0 发版准备：全量 736 项 5263 检查 0 失败（13.8 分钟）；`pack-external` 34 检查 0 失败，打包后的游戏在无头环境没有显卡，退到 WebGL2 跑；公开副本 `npm ci`、check、build、`npm pack --dry-run` 通过 | 全过 |
+| 2026-11-05 | docs/slim（基于 4449309c） | 文档瘦身：`api-count --games` 数真实游戏用到的公开名（3 个游戏 182/1386，加 8 个示例 415）；模板 CLAUDE.md 的 Already here 表改成从 AI.md 行生成，check 管漂移；删 MIGRATING-0.3/0.4/0.5；R22 加文档体积预算（手写 840 KB、生成 340 KB）。只跑了 template engine first、doc rules、how、api count 和 `threedog check` | 全过 |
+| 2026-11-05 | test/stress（基于 4449309c） | 压力实测（真 GPU 系统 Chrome）：物体数量 1k-100k 批处理开关、15 分钟长跑、200 次创建销毁、大地图飞行、存档 1k-50k、50 模块 + 每帧 1000 次 op。只测不修；脚本在 packages/engine/tests/stress-field/，结果 docs/testing/field/2026-11-05-stress/README.md；没有跑全量测试 | 见该文件：开批处理静止约 14k 物体守 60fps，在动约 6k，关批处理约 2k；WebGPU 飞行堆随距离涨；其余无泄漏 |
+| 2026-11-05 | feature/swarm | swarm 模块：`swarm`、`compute-snow`、`how` 三项和 `npm run check` 通过；`real-webgpu.mjs swarm` 在真 WebGPU（nvidia/blackwell）通过；100k 雪花在真 WebGPU 回读全部移动；PERF 3d 为系统 Chrome 硬件 GPU 上的单次测量；未跑全量 | 见 PERF 3d |
+| 2026-11-05 | 94239e59 | master 全量（含手册瘦身、压力脚本、swarm）：738 项 5310 检查，0 失败，14.7 分钟 | 全过 |
+| 2026-11-05 | fix/webgpu-terrain-heap（基于 2e1da19d） | 查 WebGPU 飞行堆增长（真 GPU 系统 Chrome，CDP 快照）：three 的 RenderObject 在强引用 Set 里，geometry.dispose 不释放，普通 Mesh 没有 dispose。加 `releaseDrawState`，地形、`engine.remove` 等路径调用；守护 `webgpu-release`。跑了 backend、terrain、water、hlod、pickup、level、trigger、particle 相关项和 check，没有跑全量 | 全过；7.8 km 飞行堆 19→92 MB 变 19→31 MB，15.6 km 仍是 31 MB；帧时间看不出差别。详见 docs/testing/field/2026-11-05-stress/README.md |
+| 2026-11-05 | feature/reuse-teach（基于 94239e59） | 让复用路径看得见：拉系统按栏合并内容并拒绝重复 id；旧 kind look 读作 picture（本机库 7 条已改）；how 同时列库条目并给出拉取命令；blur background、focus blur、bokeh、miniature、tilt shift、cinematic 直达 dof（配菜谱 52 新节）；模板加代码造模型 + content 放置的例子（assets.js、props.js，开放世界也注册 assets）；模板 CLAUDE.md 按生成后的全文量（上限 7.25 KB，实际 7.2 KB），菜谱 63 加第 6 节。跑了 how、lib system、lib、template、doc rules、pack-external 和 `threedog check`；未跑全量 | 见提交说明 |
+| 2026-11-05 | 1d65c988 | master 候选全量（平铺内容、content stamp、复用和教学、内存修复）：744 项 5369 检查，0 失败，18.0 分钟；stamp 后内容加载 0 错误 | 全过 |
+| 2026-11-05 | fix/webgpu-record-sweep（基于 5424715f） | 引擎定期清扫 WebGPU 记录，普通 `scene.remove` 也释放，删掉 `releaseDrawState` 和 9 处调用；开发提醒 `geometry-undisposed`；检查规则 R52 拦合并冲突标记。跑了 webgpu、record、backend、terrain、water、hlod、pickup、level、trigger、particle、post 相关项（154 项 1261 检查）、check，真 WebGPU 跑了相关页面和 heapdiff，没有跑全量 | 全过；6 万个网格的普通场景堆 1105 MB 变 200-258 MB 走平；20k 记录每次清扫 4 ms，单帧 0.5 ms；地形 15.6 km 堆 41 MB。机器同时有别的进程，数字有噪声。详见 docs/testing/field/2026-11-05-stress/README.md |
+| 2026-11-05 | fix/review-tools-0.7（基于 bcad14c4） | 外部审查四条：optimize 的包顺序（优化包最后）与缓存命中算问题、模块环路 TypeError、CI 去掉 continue-on-error 并加寿命/后端/optimize 步骤。跑了 S1 module order、Lifetime、Backend、assets optimize（本机无 ktx，用占位 ktx 只跑了无贴图那几项）和 check；未跑全量 | 全过；assets optimize 里带贴图的预算项本机未跑 |
+| 2026-11-05 | feature/json-agents（基于 bcad14c4） | check / test 加 --json（一种结果形状，MCP check 改读它）；new-game / init 在 CLAUDE.md 旁写 AGENTS.md：新测试 json-result、template 相关 8 项、api-count、pack-external、check | 见提交 |
+| 2026-11-05 | d6727a9a | 全量（加自动释放、资源所有权、工具修复）：755 项 5431 检查，0 失败，13.7 分钟；真 WebGPU 地形页 32 页失败全是不用 WebGPU 的 WebGL 页（no GPUDevice）。91dc7fd2（加 --json、AGENTS.md）只跑了 check 和相关 282 检查 | 全过 |
+| 2026-11-05 | 7ccda10d | 全量（含 --json、AGENTS.md）：756 项 5438 检查，0 失败，14.8 分钟，退出码 0 | 全过 |

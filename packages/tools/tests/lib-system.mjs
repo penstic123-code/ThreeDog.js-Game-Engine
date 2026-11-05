@@ -17,7 +17,7 @@ export async function run({ check }) {
     const src = join(tmp, 'src'), g = join(tmp, 'game'), lib = join(tmp, 'library');
     storeSystem(join(TOOLS, 'tests', 'fixtures', 'lib-system'), src);
     mkdirSync(join(g, 'content'), { recursive: true });
-    writeFileSync(join(g, 'package.json'), '{"name":"game"}');
+    writeFileSync(join(g, 'package.json'), '{"name":"game","type":"module"}');
     writeFileSync(join(g, 'content', 'index.js'), "import places from './places.js';\n\nexport default { places };\n");
     const add = (o = {}) => addEntry('systems/tide', { game: src, cwd: src, lib, kind: 'system', noPreview: true, noProof: true, ...o });
 
@@ -48,8 +48,22 @@ export async function run({ check }) {
     check('pull: the folder lands in systems/<name>/ and the tests where the game runs them', existsSync(join(g, 'systems', 'tide', 'tide.js')) && existsSync(join(g, 'tests', 'specs', 'tide-tide.mjs')) && !existsSync(join(g, 'systems', 'tide', 'tests')), JSON.stringify(p.writes.length));
     check('pull: the wiring file calls the plug line through systems/', readFileSync(join(g, 'plugins', 'tide.js'), 'utf8') === "import { tide } from '../systems/tide/tide.js';\nexport default tide({ period: 30 });\n", readFileSync(join(g, 'plugins', 'tide.js'), 'utf8'));
     const index = readFileSync(join(g, 'content', 'index.js'), 'utf8');
-    check('pull: the content piece joins content/index.js', index.startsWith("import tide from '../systems/tide/content.js';\n") && /export default \{ places, \.\.\.tide \}/.test(index), index);
+    check('pull: the content piece joins content/index.js', index.startsWith("import tide from '../systems/tide/content.js';\n") && /export default \{ places, triggers: tide\.triggers \}/.test(index), index);
     await pullEntry('tide', { game: g, cwd: g, lib });
+    // [guard] a section the game already has is merged, not replaced; an id both sides have with another value stops the pull before any file moves
+    const g2 = join(tmp, 'game2'), c2 = join(lib, 'tide', 'content.js'), c2good = readFileSync(c2, 'utf8');
+    mkdirSync(join(g2, 'content'), { recursive: true });
+    writeFileSync(join(g2, 'package.json'), '{"name":"game2","type":"module"}');
+    writeFileSync(join(g2, 'content', 'triggers.js'), "export default [{ id: 'own', n: 1 }, { id: 'same', n: 1 }];\n");
+    writeFileSync(join(g2, 'content', 'index.js'), "import triggers from './triggers.js';\n\nexport default { triggers };\n");
+    writeFileSync(c2, "export default { triggers: [{ id: 'same', n: 2 }] };\n");
+    let dup = ''; try { await pullEntry('tide', { game: g2, cwd: g2, lib }); } catch (x) { dup = x.message; }
+    check('[guard] a duplicate id is refused with its section and id, and nothing is written', /triggers\.same.*another value.*Nothing was written/.test(dup) && !existsSync(join(g2, 'systems')) && !existsSync(join(g2, 'plugins')), dup);
+    writeFileSync(c2, "export default { triggers: [{ id: 'new', n: 3 }] };\n");
+    await pullEntry('tide', { game: g2, cwd: g2, lib });
+    const idx2 = readFileSync(join(g2, 'content', 'index.js'), 'utf8');
+    check('[guard] pull merges a section the game has: [...triggers, ...tide.triggers], the game\'s own entries stay', /export default \{ triggers: \[\.\.\.triggers, \.\.\.tide\.triggers\] \}/.test(idx2), idx2);
+    writeFileSync(c2, c2good);
     check('pull again: content/index.js is not touched twice', readFileSync(join(g, 'content', 'index.js'), 'utf8') === index);
     check('pull: the record holds every file, the wiring and the tests; content/index.js stays the game\'s', Object.keys(readRecords(g)[0].files).includes('tests/specs/tide-tide.mjs') && Object.keys(readRecords(g)[0].files).includes('plugins/tide.js') && !Object.keys(readRecords(g)[0].files).includes('content/index.js'));
 

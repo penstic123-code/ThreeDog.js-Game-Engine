@@ -234,6 +234,7 @@ export const STRUCTS = {
   characters: ['NPCOptions', 'ScheduleStop', 'ScheduleEntry', 'PlayerOptions', 'CharacterOptions', 'FindSpawnOptions'],
   inventory: ['ItemDef', 'PickupOptions', 'PickupHandle'], quests: ['QuestDef', 'QuestStep'], triggers: ['TriggerOptions', 'Trigger'],
   particles: ['ParticleOptions', 'ParticleEmitter'],
+  swarm: ['SwarmOptions', 'Swarm'],
   interactions: ['InteractionOptions'], rigid: ['RigidBodyOptions', 'RigidEntry', 'VehicleOptions', 'VehicleWheel', 'Vehicle'],
   flow: ['FlowStateDef', 'FlowTransitionOptions'], content: ['ContentConditionDef'], hud: ['HudMarkerOptions', 'HudMarker', 'HudAnchor'],
   hlod: ['HlodAddOptions', 'HlodCell', 'HlodHandle'], lightPool: ['LightSourceOptions', 'LightSourcePatch', 'LightSource', 'LightPoolUsage'], water: ['WaterBodyOptions', 'WaterBody'],

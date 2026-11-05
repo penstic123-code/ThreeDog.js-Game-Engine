@@ -3,8 +3,10 @@
 //   1. AI.md entry table (error, engine repository): every public engine namespace (an Engine property whose type has methods, read from the d.ts
 //      with the program shared with R18) appears as `engine.<name>` in the "One thing, one entry point" table, and every row's last column names
 //      a recipe file that exists. Adding a public API means adding its row and recipe section in the same commit.
-//   2. Sizes: AI.md over 11 KB and the game template's CLAUDE.md over 6.5 KB are errors (both are read every session, so they stay indexes and
+//      The game template's "Already here" table is generated from AI.md rows (lib/default-layer.mjs); a key without a row is an error.
+//   2. Sizes: AI.md over 11 KB and the game template's CLAUDE.md over 7.25 KB (as new-game writes it, every placeholder filled) are errors (both are read every session, so they stay indexes and
 //      correctness rules; detail moves to the recipe it belongs to). A game's DESIGN.md over 8 KB and STATUS.md over 4 KB are warnings.
+//      Plus a size budget for all shipped AI docs: hand-written (recipes and the rest) and generated (API.md, api/, CODEMAP.md).
 //   3. Duplicates (warn): one sentence of 12 or more words in two hand-written docs (AI.md, recipes, READMEs, CLAUDE.md files, .claude/rules,
 //      game docs). Both places are printed; keep it in the one that owns the topic and link from the other.
 //   4. Copied passages (error): a run of 30 or more words that appears in two docs (all of 3's docs plus COMMANDS, THREE and PERF). Why an
@@ -13,11 +15,16 @@
 //      reader see what is inside before opening it.
 // Known limits: the duplicate check compares normalised sentences (case, markdown marks and spacing ignored), so a reworded copy passes.
 import { existsSync, statSync } from 'node:fs';
+import { defaultLayer } from '../lib/default-layer.mjs';
+import { render } from '../lib/scaffold.mjs';
 import { join } from 'node:path';
 import { walk, read, abs, rel, P, engineApi } from './_lib.mjs';
 import { docFiles } from './R18-doc-refs.mjs';
 
-const AI_REL = `${P.DOCS_REL}/AI.md`, AI_MAX = 11 * 1024, TPL_CLAUDE_MAX = 6.5 * 1024, DESIGN_MAX = 8 * 1024, STATUS_MAX = 4 * 1024, MIN_WORDS = 12;
+const AI_REL = `${P.DOCS_REL}/AI.md`, AI_MAX = 11 * 1024, TPL_CLAUDE_MAX = 7.25 * 1024, DESIGN_MAX = 8 * 1024, STATUS_MAX = 4 * 1024, MIN_WORDS = 12;
+// Size budget of what ships to an AI (set a little above the size after the 2026-11-05 cuts; growing past it is a decision, so raise it in the same change as the reason):
+// hand-written = recipes + the docs/*.md that people write (not API.md or CODEMAP.md); generated = API.md + api/ + CODEMAP.md
+const HAND_MAX = 840 * 1024, GENERATED_MAX = 340 * 1024, GENERATED_FILES = new Set(['API.md', 'CODEMAP.md']);
 const kb = n => (n / 1024).toFixed(1) + ' KB';
 const PASSAGE = 30, SUMMARY_OVER = 15 * 1024;
 
@@ -94,8 +101,18 @@ export default {
     if (P.MODE === 'monorepo' && existsSync(abs(AI_REL))) {
       const text = read(AI_REL), size = Buffer.byteLength(text);
       if (size > AI_MAX) out.push({ level: 'error', file: AI_REL, line: 0, msg: `AI.md is ${kb(size)} > ${kb(AI_MAX)}`, fix: 'AI.md is an index: keep one line per row and convention, move the detail into the recipe (or CONVENTIONS.md)' });
-      const tpl = `${P.TOOLS_REL}/templates/game/CLAUDE.md`, ts = existsSync(abs(tpl)) ? statSync(abs(tpl)).size : 0;
+      const tpl = `${P.TOOLS_REL}/templates/game/CLAUDE.md`, layer = defaultLayer(text);
+      // the template's "Already here" table is cut from AI.md rows (lib/default-layer.mjs): a row that was renamed or removed breaks the cut, and the size counts the table
+      for (const k of layer.missing) out.push({ level: 'error', file: AI_REL, line: 0, msg: `the new-game CLAUDE.md table takes the AI.md row starting "${k}", and none does`, fix: `rename the key in ${P.TOOLS_REL}/lib/default-layer.mjs to the row's new start, or drop it` });
+      // measured as new-game writes it: the renderer words (WebGPU route text) and the gameplay note count too, in the longest of the four variants;
+      // it once measured only the table and the file a game really reads was 7.2 KB against a 6.5 KB limit
+      const ts = existsSync(abs(tpl)) ? Math.max(...[false, true].flatMap(webgl => [false, true].map(openWorld => Buffer.byteLength(render(read(tpl), { name: 'game', openWorld, webgl }))))) : 0;
       if (ts > TPL_CLAUDE_MAX) out.push({ level: 'error', file: tpl, line: 0, msg: `the game template's CLAUDE.md is ${kb(ts)} > ${kb(TPL_CLAUDE_MAX)}`, fix: 'every game reads it every session: keep correctness rules and one-line pointers, move steps into the recipe that owns them' });
+      const sizeOf = fs => fs.reduce((n, f) => n + statSync(abs(f)).size, 0);
+      const docs = walk(P.DOCS_REL, ['.md']), isGen = f => GENERATED_FILES.has(f.split('/').pop()) || f.startsWith(`${P.API_DIR_REL}/`);
+      const hand = sizeOf(docs.filter(f => !isGen(f))), gen = sizeOf(docs.filter(isGen));
+      if (hand > HAND_MAX) out.push({ level: 'error', file: AI_REL, line: 0, msg: `hand-written AI docs (recipes, AI.md, CONVENTIONS, COMMANDS, THREE, PERF, MIGRATING) are ${kb(hand)} > ${kb(HAND_MAX)}`, fix: 'merge or cut before adding: a fact lives in one place; raise HAND_MAX in R22-doc-shape.mjs only with the reason in the same change' });
+      if (gen > GENERATED_MAX) out.push({ level: 'error', file: AI_REL, line: 0, msg: `generated docs (API.md, api/, CODEMAP.md) are ${kb(gen)} > ${kb(GENERATED_MAX)}`, fix: 'the public surface grew: see docs/testing/api-count.md; raise GENERATED_MAX in R22-doc-shape.mjs only with the reason' });
       const ns = engineApi().namespaces.map(n => n.name);
       for (const r of entryTable(text, ns, rec => existsSync(join(abs(P.DOCS_REL), rec)))) out.push({ ...r, file: AI_REL });
     }
@@ -107,6 +124,7 @@ export default {
     }
     // 3. duplicated sentences
     const docs = new Set(docFiles().filter(f => !/\/(COMMANDS|THREE|PERF)\.md$/.test(f)));
+    // AGENTS.md of a game is a generated copy of its CLAUDE.md (lib/scaffold.mjs): left out here on purpose, it would only repeat every sentence
     for (const f of ['CLAUDE.md', ...walk('.claude/rules', ['.md']), ...P.gameDirs().map(d => rel(join(d, 'CLAUDE.md'))), `${P.TOOLS_REL}/templates/game/CLAUDE.md`]) if (existsSync(abs(f))) docs.add(f);
     // a game's docs start as copies of the template and quote the engine docs: compare a game's file only with files of the same game
     const gameRoots = [...P.gameDirs().map(d => rel(d)).filter(Boolean).map(r => r + '/'), `${P.TOOLS_REL}/templates/game/`];

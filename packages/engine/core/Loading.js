@@ -52,6 +52,8 @@ export class Loading {
   /** Start (or restart) a task; engine-internal callers keep the returned task and move its phase */
   _begin(name, kind, opts) { const t = new Task(name, kind, opts); this.tasks.set(kind + ':' + name, t); return t; }   // keyed by kind too: a module and a model may share a name
   _done(t) { t.phase('done', 1); }
+  /** A load ended on purpose (assets.release, dispose): it neither finished nor failed, so the record goes; the next load of that name starts its own */
+  _drop(t) { if (this.tasks.get(t.kind + ':' + t.name) === t) this.tasks.delete(t.kind + ':' + t.name); }
   /** Record a failure: err may carry url / status (LoadError) */
   _fail(t, err, fallback = null) {
     t.phase('failed');

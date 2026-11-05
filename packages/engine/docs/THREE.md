@@ -43,6 +43,7 @@ that should not see it. It is page-wide: every engine on the page loses the chan
 | `node-twin-dress` | `renderer.library.fromMaterial` of a WebGPURenderer wrapped | WebGPU only: the node twin of a classic material gets its patches | no (patched materials would lose their picture on WebGPU) |
 | `node-builder-hook` | `renderer.debug.onNodeBuilderCreated` of a WebGPURenderer wrapped | WebGPU only: your own hook still runs; a later write of yours replaces the engine's | yes |
 | `device-lost-hook` | `renderer.onDeviceLost` of a WebGPURenderer wrapped | WebGPU only: three's hook still runs; a later write of yours replaces the engine's | yes |
+| `webgpu-record-sweep` | A `'dispose'` event sent to objects drawn earlier that have left every Scene for a few seconds, found through WebGPURenderer's private record list | WebGPU only: your `'dispose'` listener on such an object runs; drawing it again rebuilds its record | yes |
 | `hlod-visible` | `visible` on meshes registered with `engine.hlod.add` (and their `xxx_LOD1` nodes): an own get / set | Reads "your value and not hidden far"; your writes keep your value | per handle: `remove()` |
 
 

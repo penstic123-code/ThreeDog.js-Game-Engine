@@ -72,7 +72,7 @@ export function findings({ needs, bound }, groups) {
 }
 
 /** One game per folder: examples/<x>, games/<x>, templates are layers of one game and are read together */
-function gameFolders() {
+export function gameFolders() {
   if (P.MODE === 'game') return P.gameDirs().map(d => rel(d) || '.').map(d => walk(d, ['.js', '.mjs']));
   const under = dir => [...new Set(walk(dir, ['.js', '.mjs']).map(f => f.slice(dir.length + 1).split('/')[0]))].filter(x => !/\.m?js$/.test(x)).map(x => walk(`${dir}/${x}`, ['.js', '.mjs']));
   return [...under(P.EXAMPLES_REL), ...under(P.GAMES_REL), walk(`${P.TOOLS_REL}/templates`, ['.js', '.mjs'])];

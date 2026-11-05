@@ -27,9 +27,15 @@ jobs:
       - name: Install the browser the tests drive
         run: npx playwright install --with-deps chromium
       # Core hardening + save/session/threads guards: each builds fresh headless engines, no game content, a few seconds each
-      # continue-on-error until this step has run green on GitHub's runners once (it has only run on a local machine); then remove the line
       - name: Core browser tests (smoke)
-        continue-on-error: true
         run: npm test -- "Core modules" "Core review" "S1 module order" "Loading"
+      # Fixed checks that fit a few minutes (about 90 s locally): asset lifetime and backend selection (WebGPURenderer on its WebGL2 fallback).
+      # Real WebGPU is a separate run on a machine with a GPU, not here: the runner has no device.
+      - name: Asset lifetime and backend selection
+        run: npm test -- "Lifetime" "Backend"
+      # The tools test builds a real glb in a temp folder; texture compression needs the ktx command, which the runner does not have,
+      # so on the runner only the failed-model guard runs; the rest runs wherever ktx is installed (set THREEDOG_KTX_DIR)
+      - name: Assets optimize (tools)
+        run: npm test -- "assets optimize"
       - name: Build engine and games
         run: npm run build

@@ -295,7 +295,7 @@ const text1 = (text, n) => text.slice(n.start, n.end).replace(/\s+/g, ' ').slice
 
 /** A CLI value: JSON, or a bare word as a string (place=home) */
 const cliValue = v => { try { return JSON.parse(v); } catch { return BARE.test(v) ? v : undefined; } };
-const pairsOf = list => {
+export const pairsOf = list => {
   const o = {};
   for (const a of list) { const i = a.indexOf('='); if (i <= 0) return null; const v = cliValue(a.slice(i + 1)); if (v === undefined) return { bad: a }; o[a.slice(0, i)] = v; }
   return o;
@@ -303,6 +303,7 @@ const pairsOf = list => {
 
 const USAGE = `Usage:
   threedog content set <id> field=value [field=value …] [--expect field=value …] [--in kind] [--file content/x.js] [--dry]
+  threedog content set --source <arrangement> <part> field=value … [--dry]   (every copy of that part, in one explicit edit: copies never follow on their own; --dry lists them first)
   threedog content add <kind> id=<id> field=value … [--file content/props/town.js] [--dry]
   threedog content remove <id> [--in kind] [--file content/x.js] [--dry]
   (-w game or --dir folder picks the game; values are JSON, a bare word is a string: place=home)`;

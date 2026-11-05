@@ -1,9 +1,11 @@
 // A new game opens on the engine's path: three field runs on a template that said only "plain three.js" rewrote save, pause and menus by hand (more code than
 // plain three.js). So save, Esc pause and the start screen stay wired in main.js, the "Already here" table stays the first section of CLAUDE.md, every row points
 // at a recipe that exists, and the blank template stays genre-free (no player, no camera rig, no ground). Offline, reads files only.
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ENGINE, TOOLS } from '../paths.mjs';
+import { render, copyTemplates } from '../lib/scaffold.mjs';
 
 export const name = 'template engine first: save, pause and start screen wired; the Already here table leads; blank stays genre-free';
 
@@ -24,9 +26,21 @@ export async function run({ check }) {
 
   const claude = read('game', 'CLAUDE.md'), heads = [...claude.matchAll(/^## (.+)$/gm)].map(m => m[1]);
   check('Already here is the first section of the template CLAUDE.md', heads[0] === 'Already here', heads.join(' | '));
-  const table = claude.slice(claude.indexOf('## Already here'), claude.indexOf('## First session'));
-  for (const need of ['Save', 'Esc pause', 'quality', 'Input', 'Camera', 'character', 'HUD', 'Sounds', 'Tests']) check(`the table covers: ${need}`, table.includes(need));
+  // the table is cut from AI.md at new-game time: test the rendered text, as a new game gets it
+  const table = render(claude, { name: 'x', openWorld: false, webgl: false }).replace(/__\w+__/g, '');
+  const intro = table.slice(table.indexOf('## Already here'), table.indexOf('## First session'));
+  check('Already here tells where the rest is: threedog how', /threedog how "/.test(intro.slice(0, 1200)));
+  for (const need of ['Save', 'Esc pause', 'quality', 'Keys', 'Camera', 'character', 'HUD', 'Sound']) check(`the table covers: ${need}`, intro.includes(need));
+  // AGENTS.md: the same rendered text as CLAUDE.md for tools that do not read CLAUDE.md, written by copyTemplates beside it, never over an existing file
+  const tmp = mkdtempSync(join(tmpdir(), 'td-agents-')), kept = mkdtempSync(join(tmpdir(), 'td-agents-kept-'));
+  try {
+    copyTemplates(tmp, { name: 'x', openWorld: false, webgl: false });
+    check('copyTemplates writes AGENTS.md with exactly the text of CLAUDE.md', existsSync(join(tmp, 'AGENTS.md')) && readFileSync(join(tmp, 'AGENTS.md'), 'utf8') === readFileSync(join(tmp, 'CLAUDE.md'), 'utf8'));
+    writeFileSync(join(kept, 'AGENTS.md'), 'mine');
+    copyTemplates(kept, { name: 'x', openWorld: false, webgl: false });
+    check('an existing AGENTS.md is kept (init into a project that has one)', readFileSync(join(kept, 'AGENTS.md'), 'utf8') === 'mine');
+  } finally { rmSync(tmp, { recursive: true, force: true }); rmSync(kept, { recursive: true, force: true }); }
   const recipes = readdirSync(join(ENGINE, 'docs', 'recipes')).map(f => f.slice(0, 2));
-  const named = [...table.matchAll(/\| ([\d, §]+) \|$/gm)].flatMap(m => m[1].match(/(?<!§)\b\d\d\b/g) ?? []);
+  const named = [...intro.matchAll(/\b(\d\d)-[a-z0-9-]+\.md/g)].map(m => m[1]);
   check('the table names recipes, and each exists', named.length >= 6 && named.every(n => recipes.includes(n)), named.join());
 }

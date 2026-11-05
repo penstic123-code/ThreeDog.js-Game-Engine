@@ -8,8 +8,8 @@ import { apiCount, GROUPS } from '../api-count.mjs';
 
 export const name = 'api count: the public surface stays within the margin of the total recorded in docs/testing/api-count.md';
 
-/** How many items may be added before the record must be updated (a few new options or methods; a new module is bigger and gets recorded) */
-export const MARGIN = 30;
+/** No slack: a new public name updates the record in the same change, so each addition is a decision */
+export const MARGIN = 0;
 const RECORD = 'docs/testing/api-count.md';
 
 export async function run({ check }) {

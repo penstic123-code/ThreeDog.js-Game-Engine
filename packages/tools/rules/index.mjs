@@ -9,6 +9,7 @@ import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { RULES_REL } from '../paths.mjs';
+import { item } from '../lib/result.mjs';
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const WARN_LIMIT = 15;
@@ -22,8 +23,9 @@ export async function loadRules() {
   return Promise.all(files.map(async f => ({ file: f, rule: (await import(`./${f}`)).default })));
 }
 
-/** only: rule ids already normalized and validated by the caller (normRuleId); an id not in the list would just never match */
-export async function runRules({ only = null, all = false, verbose = false, game = false, scope = null } = {}) {
+/** only: rule ids already normalized and validated by the caller (normRuleId); an id not in the list would just never match.
+ *  items: an array to collect every result into (lib/result.mjs items, warnings included, code = the rule id) for --json; the printing stays as it is */
+export async function runRules({ only = null, all = false, verbose = false, game = false, scope = null, items = null } = {}) {
   let errors = 0, warns = 0, hidden = 0;
   const summary = [];
   console.log(`\nRule checks (${RULES_REL}/, each rule's criteria and allowlist are at the top of its file)`);
@@ -36,6 +38,7 @@ export async function runRules({ only = null, all = false, verbose = false, game
       for (const r of res) if (!r.crashed && !scope.mine(r.file)) scope.other(r.file, r.level);
       res = res.filter(r => r.crashed || scope.mine(r.file));   // a crash counts everywhere: a rule that did not run has checked nothing. The rule's note describes the whole repo, so it is dropped with the rest
     }
+    items?.push(...res.map(r => item({ code: rule.id, level: r.level === 'error' ? 'error' : 'warn', file: r.file, line: r.line, message: r.msg, fix: r.fix })));
     const es = res.filter(r => r.level === 'error'), ws = res.filter(r => r.level !== 'error');
     errors += es.length; warns += ws.length;
     summary.push(`${rule.id} ${es.length}✗ ${ws.length}!`);

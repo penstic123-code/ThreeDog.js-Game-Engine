@@ -204,6 +204,15 @@ emissive lines; a storybook is soft ramp edges (`rampTexture(ramp, soften)`) wit
   many stray colors has something running after the `lut`; grain and vignette belong before it there.
 - Put an effect in the stage that matches what it reads. A grade written for finished colors looks wrong before the tone curve, and a glow after it stops glowing.
 
+## Dropping a mesh whose material lives on
+A game has nothing to do here. WebGPURenderer keeps a record of every mesh it drew, and neither `scene.remove` nor `geometry.dispose()` frees it while the material stays in use. So every few seconds the engine looks for meshes that have left every Scene and frees theirs, after 4 to 8 seconds out. Adding such a mesh back is fine: its record is rebuilt.
+
+Two things stay yours:
+- Call `geometry.dispose()` (or use `engine.remove`) when a mesh is gone for good. Only you know it will not come back. A steady climb of unused geometries warns in dev, with the code `geometry-undisposed`.
+- A pool that sits out for more than a few seconds pays a rebuild on return: about 20 ms for 50 meshes whose material nothing else used, on one desktop GPU. Keep such a pool in the scene with `visible = false` and it pays nothing.
+
+A record of a mesh in a Scene you no longer draw stays, because a Scene may be drawn again. Send `mesh.dispatchEvent({ type: 'dispose' })` if you throw such a Scene away.
+
 ## Mistakes, each with the fix
 Each block shows the mistake as a comment and the working line under it.
 ```js

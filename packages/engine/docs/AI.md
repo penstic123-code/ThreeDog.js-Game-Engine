@@ -1,7 +1,7 @@
-# Using threedog.js (read this first)
+# Using threedog.js (read first)
 
 threedog.js is a web 3D game engine on plain three.js 0.187: **core** -> **modules** (`engine.use`); all art is the game's own (its `picture/` folder and
-`assets.js`; without them: gray placeholders). One row per task; the detail in its recipe.
+`assets.js`; without them: gray placeholders).
 Paths: `node_modules/threedog/docs/`. `threedog how "<2-4 English words>"` finds the section.
 
 ## Two routes
@@ -18,7 +18,7 @@ New games start on WebGPU with TSL (recipe 56). With no WebGPU the same game run
 - Something broke: read `.threedog/errors.log` first; recipe 16 §11.
 
 ## What to read, in order
-The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries for one task: `CONVENTIONS.md`. When needed: `THREE.md` · `COMMANDS.md` · `PERF.md` · `CODEMAP.md` · `MIGRATING-0.7.md`.
+The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries for one task: `CONVENTIONS.md`. When needed: `THREE.md` · `COMMANDS.md` · `PERF.md` · `MIGRATING-0.7.md`.
 
 ## One thing, one entry point (don't build another)
 ### Project, world, content
@@ -27,7 +27,7 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | New game, project layout, preset start | `npm run new-game name`, `createEngine`, `openWorld()` | 01-new-game.md |
 | Put something in the scene | `scene.add(obj)`; saved: `engine.add(obj, { id })` | 40-scene.md |
 | Content data, packs, change an entry for good | `engine.content`, `threedog content set` | 20-content-actions-save.md |
-| Reusable object definitions (prefabs) | content `templates` | 30-templates.md |
+| Reusable objects (prefabs), groups of them | `templates`, flat `props` | 30-templates.md |
 | Props, many repeated objects, static batching | content `props`, `engine.batching` | 05-props-bake.md |
 | What is this thing, does it persist | `engine.pick(x, y)`, `engine.thing(id).explain()` | 30-templates.md §5, 40-scene.md |
 | Teleport the player, far-away and saved objects, streaming | `player.placeAt`, `engine.stream.teleport`, `engine.world` | 18-world.md, 33-stream-sources.md |
@@ -60,6 +60,8 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | UI, menus, HUD, popup message, languages, settings, photo mode | `engine.ui`, `makeWindow`, `toast(engine, text)`, `engine.hud`, `engine.i18n`, `engine.settings`, `engine.photo` | 26-ui-parts.md |
 | A settings row that turns off your own effect | `engine.settings.define(key, true, { limits: 'post.<name>.enabled' })` | 26-ui-parts.md §6 |
 | Action game: hp, attacks, enemy AI, drops | your ops + `world.simulate` | 32-action-game.md |
+| Many bullets, debris with rules | `engine.swarm` | 65-swarm.md |
+| Enemy crowds, hordes | `engine.swarm` | 65-swarm.md |
 
 ### Rules, state, time
 | To do | Use | Recipe |
@@ -113,7 +115,7 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 ## Conventions (`CONVENTIONS.md`)
 - **A position is one argument**; sizes and counts go in the options object after it. **Units** are meters, Y up, north -Z; characters face +Z.
 - **Registrations return a handle** (`h.remove()`). **Ready is `ready`**. **Events are `noun:action`**. **`owner`** is the name you pass; `describe()` names the `writer`.
-- **Fixed step vs frame**: `onFixed` runs game time (damage, AI, timers); `onFrame` is presentation (animation, camera feel, HUD).
+- **Fixed step vs frame**: `onFixed` runs game time (damage, AI, timers); `onFrame` is presentation (animation, HUD).
 
 ## Stability
 May change before 1.0: `net()` · `engine.threads` · `grids()` · `terrain.edit` · `world.simulate({ worker })` · `post.add` · `stream.source` · `hlod()` · `ops.guard / allow`.

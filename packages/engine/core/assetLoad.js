@@ -37,7 +37,7 @@ function gltfExtensions(buf) {
 /** Download as ArrayBuffer, reporting progress when the server sends a length; records size and version headers on the task */
 async function download(url, task) {
   task.phase('download', 0);
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: task.signal });
   if (!res.ok) throw new LoadError(`${res.status} ${res.statusText}`.trim(), { url, status: res.status });
   if (isHtml(res)) throw new LoadError(NOT_THERE, { url, status: 404 });
   const total = +(res.headers.get('content-length') || 0);
@@ -61,12 +61,16 @@ function upload(assets, textures, task) {
   for (const t of textures) assets.engine.renderer.initTexture(t);
 }
 
+// task.signal aborts when the load is ended (assetEntry.js). Before a value exists a phase just stops (the throw goes nowhere: an ended load reports
+// nothing); once one exists it is returned as is, so the caller frees it, and nothing further touches the renderer or document.fonts, which may be gone.
+
 /** Download a glTF, set up the Draco / KTX2 decoder it needs, parse it and upload its textures. Returns the gltf */
 export async function loadGltf(assets, url, task) {
   const buf = await download(url, task), used = gltfExtensions(buf);
   task.phase('decode');
   if (used.includes('KHR_draco_mesh_compression')) await decoder(assets, 'draco');
   if (used.includes('KHR_texture_basisu')) await decoder(assets, 'ktx2');
+  task.signal.throwIfAborted();   // a disposed decoder would start its workers again
   // A per-file manager hears which referenced files (.bin, textures) failed; GLTFParser reads the manager when parse() starts,
   // so swapping it around the synchronous start of parseAsync scopes it to this file even with several loads in flight
   const mgr = new THREE.LoadingManager(), missing = task.missing;
@@ -78,6 +82,7 @@ export async function loadGltf(assets, url, task) {
   let gltf;
   try { gltf = restoreBaked(await parsing); }   // baked file: restore materials etc.
   catch (err) { throw new LoadError(String(err?.message ?? err) + (missing.length ? ` (missing: ${missing.join(', ')})` : ''), { url: missing[0] ?? url }); }
+  if (task.signal.aborted) return gltf;
   task.source.animations = gltf.animations.map(a => a.name);
   const tex = new Set();
   gltf.scene.traverse(o => { for (const m of [].concat(o.material || [])) for (const k in m) if (m[k]?.isTexture) tex.add(m[k]); });
@@ -100,15 +105,17 @@ export async function loadTexture(assets, e, task) {
   const hdr = /\.hdr(\?|$)/i.test(e.url);   // Radiance HDR (environment lighting): float data in linear color
   let t;
   try {
-    if (ktx) t = await (await decoder(assets, 'ktx2')).loadAsync(e.url);
+    if (ktx) { const k = await decoder(assets, 'ktx2'); task.signal.throwIfAborted(); t = await k.loadAsync(e.url); }
     else if (hdr) t = await new (await import('three/addons/loaders/HDRLoader.js')).HDRLoader().loadAsync(e.url);
     else t = await assets.tex.loadAsync(e.url);
   }
   catch (err) {
+    if (task.signal.aborted) throw err;
     // an <img> error carries no status: ask the server once so the report says 404 vs a broken file
     const status = await fetch(e.url, { method: 'HEAD' }).then(r => (!r.ok ? r.status : isHtml(r) ? 404 : 0), () => 0);
     throw new LoadError(status === 404 ? NOT_THERE : status ? `HTTP ${status}` : String(err?.message ?? 'not a decodable image'), { url: e.url, status });
   }
+  if (task.signal.aborted) return t;
   if (e.opts.color === false) t.colorSpace = THREE.NoColorSpace;
   else if (!t.isCompressedTexture && !hdr) t.colorSpace = THREE.SRGBColorSpace;   // KTX2 carries its own color space
   t.anisotropy = maxAnisotropy(assets.engine.renderer);
@@ -153,7 +160,7 @@ export async function loadFont(assets, e, task) {
   const desc = Object.fromEntries(FONT_DESCRIPTORS.filter(k => e.opts[k] != null).map(k => [k, String(e.opts[k])]));
   const face = new FontFace(family, buf, { display: 'swap', ...desc });
   try { await face.load(); } catch (err) { throw new LoadError(`not a font the browser can read (${err.message})`, { url: e.url }); }
-  document.fonts.add(face);
+  if (!task.signal.aborted) document.fonts.add(face);
   return face;
 }
 
@@ -178,6 +185,7 @@ export async function generated(assets, name, build, params, task) {
   const ctx = { palette: assets.palette, engine: assets.engine };   // a function() generator reads this.palette
   const colored = Object.keys(assets.palette).length > 0;
   const baked = (await bakedIndex(assets))[name];
+  task.signal.throwIfAborted();   // the generator has not run yet: an ended load need not start it
   // npm run bake has no engine, so a baked file carries no palette: with one set, only a hand-made file (source: 'file') stands in for the generator
   const bakedOk = baked && JSON.stringify(baked.params ?? null) === same && (!colored || baked.source === 'file');
   const file = async url => wrap(fromGLTF(await loadGltf(assets, url, task)));
@@ -194,6 +202,7 @@ export async function generated(assets, name, build, params, task) {
     if (r.ok && !/^\s*</.test(text)) info = JSON.parse(text);
     else if (!r.ok) why = `${r.status}${text ? ': ' + text.slice(0, 160) : ''}`;
   } catch (err) { why = String(err?.message ?? err); }
+  task.signal.throwIfAborted();
   if (!info) {
     warnOnce(coded('asset-cache', why ? CACHE_ERR.replace('{name}', name).replace('{why}', why) : NO_CACHE), why ? 'asset-cache-err' : undefined);
     return bakedOk ? file(BASE + 'models/baked/' + baked.file) : wrap(await build.call(ctx, params));

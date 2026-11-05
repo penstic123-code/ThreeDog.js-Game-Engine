@@ -31,7 +31,7 @@ import type { PostFX } from './generated/render/PostFX';
 import type { Occlusion } from './generated/render/occlusion';
 import type {
   Timeline, Level, LevelLoadedEvent, Triggers, TriggerEvent, TemplateStageEvent,
-  Particles, Settings, Music, MusicChangeEvent, CharactersApi, NPCManager, Character,
+  Particles, SwarmMaker, Settings, Music, MusicChangeEvent, CharactersApi, NPCManager, Character,
   Interactions, Dialogue, Inventory, ItemEvent, ItemUseEvent, PickupEvent, Pickups, PickupsOptions, Quests, Photo, PhotoShot, Ambience, DebugPanel,
   Clock, Vars, Content, Flow, Hud,
 } from './gameplay';
@@ -532,7 +532,8 @@ export interface Assets {
   useTexture(nameOrUrl: string, use: (texture: Texture) => void, o?: { where?: string; instead?: string; opts?: { color?: boolean; pixelated?: boolean; repeat?: number[] } }): Promise<boolean>;
   /**
    * Release a resource and return GPU memory. Not released while copies of the model are still in the scene; it is released when the last copy is
-   * removed with engine.remove
+   * removed with engine.remove. A load still running ends and its result is thrown away; code awaiting it gets a fresh load, never freed data. A name that
+   * fell back holds no data of its own: release the name it fell back to
    */
   release(name: string): void;
   /**
@@ -540,7 +541,10 @@ export interface Assets {
    * code-generated models are not released automatically. Returns the released names
    */
   trim(): string[];
-  /** How many copies of this model are in use now (taken with model() and not yet removed with engine.remove) */
+  /**
+   * How many copies of this model are in use now (taken with model() and not yet removed with engine.remove). A model that fell back: the copies asked for
+   * by that name, and the name it fell back to counts them too, since they use its data
+   */
   users(name: string): number;
   /**
    * Called when an object is fully removed (engine.remove already calls it, normally you don't need to): decrements the use count of the model copies
@@ -1649,6 +1653,8 @@ export declare class Engine {
    * (not GPU time, not the wait for the next frame). Only the real-time loop updates it; step() does not.
    */
   cpuMs: number;
+  /** How far the drawn frame is from the last fixed step to the next, 0-1 (real loop); 1 after step(). Holds still while frozen. For drawing fixed-step state smoothly */
+  stepBlend: number;
   /** cpuMs split by phase (last frame): fixed = input + fixed steps, frame = frame hooks incl. stream / jobs, render = draw submission, afterRender = its hooks */
   cpuPhases: { fixed: number; frame: number; render: number; afterRender: number };
   /** The camera holder in charge (latest engine.takeCamera claim), null when nobody holds it. Read-only */
@@ -1793,6 +1799,8 @@ export declare class Engine {
   triggers?: Triggers;
   /** Particles (particles() module) */
   particles?: Particles;
+  /** Makes a swarm of same-kind gameplay objects (swarm() module): engine.swarm({ name, capacity, geometry, material, fields }) */
+  swarm?: SwarmMaker;
   /** Settings menu (settings() module) */
   settings?: Settings;
   /** Background music (music() module) */
@@ -2194,6 +2202,8 @@ export interface EngineCounts {
   rigid?: number;
   /** Only with particles() installed: alive is the number of live particles, emitters the number of attached emitters */
   particles?: { alive: number; emitters: number };
+  /** Only with swarm() installed: alive is the live objects of all swarms, swarms how many exist */
+  swarm?: { alive: number; swarms: number };
   /** Only with sky() installed: timers is the number of at / between / daily / onSeason timers */
   calendar?: { timers: number };
   /** Any other module's counts(e) hook result, under the module name */

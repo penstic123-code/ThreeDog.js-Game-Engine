@@ -12,12 +12,16 @@ import { createRequire } from 'node:module';
 import { join, relative, dirname, sep, resolve } from 'node:path';
 import ts from 'typescript';
 
+import { item, result, startJson } from './lib/result.mjs';
 import * as P from './paths.mjs';
 import { checkScope } from './lib/scope.mjs';
 
 const { ROOT } = P;
 // --tally-json: run by check -w (hands the other workspaces' counts back as one line, lib/scope.mjs)
-const { dir: SCOPE_DIR, opt: OPT } = P.cli(process.argv.slice(2), { workspace: 'scope', flags: ['strict-dom', 'tally-json'], values: ['project'] });
+const { dir: SCOPE_DIR, opt: OPT } = P.cli(process.argv.slice(2), { workspace: 'scope', flags: ['strict-dom', 'tally-json', 'json'], values: ['project'] });
+// --json: one result (lib/result.mjs) on stdout, built from these at exit so every early exit below still reports
+const jsonItems = [];
+if (OPT.json) startJson(code => result(jsonItems, jsonItems.length ? `type check: ${jsonItems.filter(i => i.level === 'error').length} errors, ${jsonItems.filter(i => i.level === 'warn').length} hints` : 'type check passed', code === 0));
 const STRICT_DOM = !!OPT['strict-dom'];
 const SCOPE = checkScope(SCOPE_DIR), ENG = SCOPE?.notEngine;
 // --project <tsconfig>: another config instead of the root one (the types guard test uses a probe file)
@@ -39,16 +43,16 @@ function defaultConfig() {
 
 // 1. Run tsc
 let tscBin;
-try { tscBin = createRequire(import.meta.url).resolve('typescript/bin/tsc'); } catch { console.error('✗ TypeScript not found, run npm install first'); process.exit(1); }
+try { tscBin = createRequire(import.meta.url).resolve('typescript/bin/tsc'); } catch { jsonItems.push(item({ code: 'tsc', message: 'TypeScript not found', fix: 'run npm install first' })); console.error('✗ TypeScript not found, run npm install first'); process.exit(1); }
 const run = spawnSync(process.execPath, [tscBin, '-p', PROJECT, '--pretty', 'false', '--listFiles'], { cwd: ROOT, encoding: 'utf8' });
-if (run.error) { console.error('✗ failed to run tsc:', run.error.message); process.exit(1); }
+if (run.error) { jsonItems.push(item({ code: 'tsc', message: 'failed to run tsc: ' + run.error.message })); console.error('✗ failed to run tsc:', run.error.message); process.exit(1); }
 const out = (run.stdout || '') + (run.stderr || '');
 
 // Generated declarations (types/generated/) must match the source, or games see the wrong types (monorepo only)
 if (P.MODE === 'monorepo') {
   const g = spawnSync(process.execPath, [join(P.TOOLS, 'gentypes.mjs'), '--check'], { encoding: 'utf8' });
   if (g.status && ENG) SCOPE.engine(1);
-  else if (g.status) { process.stdout.write(g.stdout + g.stderr); process.exit(1); }
+  else if (g.status) { jsonItems.push(item({ code: 'generated-declarations', message: (g.stdout + g.stderr).trim().slice(0, 500) })); (OPT.json ? process.stderr : process.stdout).write(g.stdout + g.stderr); process.exit(1); }
 }
 
 // Game files checked (the project .js files listed by --listFiles)
@@ -230,8 +234,8 @@ for (const d of diags) {
   const text = d.code ? translate(d) : d.msg;
   const hint = !d.code ? null : !STRICT_DOM && isDom(d) ? 'web (DOM) type hint' : isPlainJs(d) ? 'plain JS TypeScript cannot follow' : null;
   if (SCOPE?.mine(d.file) === false) SCOPE.other(d.line && d.file, hint ? 'warn' : 'error');
-  else if (hint) hints.push(`${at}  ${text}  ← ${hint}`);
-  else errors.push(`${at}  ${text}`);
+  else if (hint) { hints.push(`${at}  ${text}  ← ${hint}`); jsonItems.push(item({ code: d.code ? 'TS' + d.code : undefined, level: 'warn', file: d.file, line: d.line, message: `${text}  ← ${hint}` })); }
+  else { errors.push(`${at}  ${text}`); jsonItems.push(item({ code: d.code ? 'TS' + d.code : undefined, file: d.file, line: d.line, message: text })); }
 }
 
 // ---------------------------------------------------------------------
@@ -282,6 +286,7 @@ else {
 // Grouped by source: examples, each game games/<name> (a game's picture/ folder counts as that game)
 const group = f => P.under(f, P.EXAMPLES_REL) ? 'examples' : P.MODE === 'game' ? (f.startsWith('games/') ? f.split('/').slice(0, 2).join('/') : 'game') : f.split('/').slice(0, 2).join('/');
 if (ENG) { SCOPE.engine(coverage.length); coverage.length = 0; }   // the engine's
+for (const c of coverage) jsonItems.push(item({ code: 'declarations', message: c}));
 const shown = SCOPE ? checked.filter(SCOPE.mine) : checked;
 console.log(`Type check: ${shown.length} game files (${[...new Set(shown.map(group))].join(', ') || 'none'})`);
 for (const e of errors) console.log('  ✗ ' + e);

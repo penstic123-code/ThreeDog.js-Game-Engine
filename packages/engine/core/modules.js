@@ -85,7 +85,10 @@ function sortModules(list) {
   }
   if (out.length === list.length) return out;
   // What is left is on a cycle or behind one: walk edges from any node; revisiting a node closes the cycle
+  // First drop, repeatedly, the nodes with no successor still left: those are only blocked behind a cycle (a walk starting there would dead-end
+  // on a node without a next step); every node that remains has a successor in the set, so the walk always ends in a real cycle
   const left = new Set(list.filter(m => !out.includes(m)).map(m => m.name)), path = [];
+  for (let drop = true; drop;) { drop = false; for (const n of left) if (![...succ.get(n)].some(x => left.has(x))) { left.delete(n); drop = true; } }
   for (let n = left.values().next().value; !path.includes(n); n = [...succ.get(n)].find(x => left.has(x))) path.push(n);
   const cyc = path.slice(path.indexOf([...succ.get(path.at(-1))].find(x => path.includes(x))));
   throw codedError('module-cycle', STRINGS.cycle.replace('{path}', [...cyc, cyc[0]].join(' -> ')));

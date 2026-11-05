@@ -30,6 +30,7 @@ engine.assets.manifest(packs);   // assets.js: the models / sounds / textures co
 // engine.interactions.add(shell, { id: 'shell-1', label: 'Pick up', once: true, counter: 'coins' });   // E (presets.bindings.interact above) near any mesh: hides it, counts it, both saved
 // engine.interactions.add(guide, { label: 'Talk', onUse: () => engine.dialogue.start('guide') });   // E near it; works on any mesh, "Talk" can as well be "Open" or "Pick up"
 // engine.hud.counter('coins', { label: 'Coins', value: 0 });   // update: call it again with the new value
+// engine.input.action('use', { label: 'Use', keys: ['KeyE'] });   // your own key: read it with engine.input.pressed('use') in onFixed; every key the game needs must be bound
 // engine.quests.define('visit', { title: 'Visit the well', steps: [{ text: 'Talk to the guide', target: guide, done: e => !!e.dialogue.state.flags.met }, { text: 'Go to the well', target: { x: -6, z: 5 }, done: e => { const p = e.actorPosition(); return !!p && Math.hypot(p.x + 6, p.z - 5) < 2; } }] });   // a marker arrow shows the target
 // engine.quests.start('visit');
 // engine.input.bind(presets.bindings.quests);   // J opens the quest log

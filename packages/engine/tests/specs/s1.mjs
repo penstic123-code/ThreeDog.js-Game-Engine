@@ -137,12 +137,15 @@ export const specs = [
         const err = fn => { try { fn(); return null; } catch (e) { return e.message; } };
         engine.use({ name: 's1x', type: 'rules', after: ['s1y'] });
         const cycle = err(() => engine.use({ name: 's1y', type: 'rules', after: ['s1x'] }));
+        // a node only blocked behind a cycle comes first in the list: the cycle walk must not start (and dead-end) there
+        const blocked = err(() => engine.use([{ name: 's1tail', type: 'rules', after: ['s1a'] }, { name: 's1a', type: 'rules', after: ['s1b'] }, { name: 's1b', type: 'rules', after: ['s1a'] }]));
         const stage = err(() => engine.use({ name: 's1z', type: 'rules', stage: 'gamplay' }));
         engine.use({ name: 's1early', type: 'rules', stage: 'control', frame() {} });
-        return { order, wrong, cycle, stage, yInstalled: engine.has('s1y'), earlyFirst: engine.moduleOrder.indexOf('s1early') < engine.moduleOrder.indexOf('terrain') };
+        return { order, wrong, cycle, blocked, stage, yInstalled: engine.has('s1y'), earlyFirst: engine.moduleOrder.indexOf('s1early') < engine.moduleOrder.indexOf('terrain') };
       });
       check('moduleOrder sorts by stage and before / after (timeline -> camera, weather -> sky -> water, interaction -> dialogue, particles -> target marker...)', r.wrong.length === 0, r.wrong.join('; ') + ' | ' + r.order.join(' '));
       check('before / after form a cycle: use() throws and names the cycle, the module is not installed', /s1y -> s1x -> s1y|s1x -> s1y -> s1x/.test(r.cycle ?? '') && !r.yInstalled, r.cycle);
+      check('a module blocked behind a cycle (not on it) still gives module-cycle with the real path, not an internal TypeError', /module-cycle|s1a -> s1b -> s1a|s1b -> s1a -> s1b/.test(r.blocked ?? '') && /s1a -> s1b -> s1a|s1b -> s1a -> s1b/.test(r.blocked ?? ''), r.blocked);
       check('Misspelled stage: throws and lists the available stages', /gamplay/.test(r.stage ?? '') && /gameplay/.test(r.stage ?? ''), r.stage);
       check('A control-stage module installed later is ordered before the world stage (terrain)', r.earlyFirst);
     },

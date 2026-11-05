@@ -61,7 +61,7 @@ const RULE_STRINGS = {
     dialogues: 'dialogues (id -> speaker, nodes)',
     quests: 'quests (id -> title, steps, reward; a step can have a target position)',
     actions: 'own key actions of the game (action name -> default key, label)',
-    places: 'place names (coordinates computed at runtime in main.js)',
+    places: 'place names (name -> { x, z, y?, rot? }; rot turns everything placed there about Y; coordinates may be computed at runtime in main.js)',
     triggers: 'trigger zones (tag -> position / from level, enter/exit effects)',
     level: 'level markers (spawn point, NPCs, trigger zones)',
     vegetation: 'vegetation (name -> model, growth rule)',
@@ -80,7 +80,7 @@ const RULE_STRINGS = {
   // (x, z are optional when place is given), so they are marked optional here.
   fields: (() => {
     const at = {
-      place: { type: 'string', optional: true, desc: 'place name (places.js / level marker); x and z are then offsets from it' },
+      place: { type: 'string', optional: true, desc: "place name (places.js / level marker); x and z are then offsets from it and turn with the place's rot" },
       x: { type: 'number', optional: true, desc: 'meters along x (offset from place when place is given)' },
       z: { type: 'number', optional: true, desc: 'meters along z (offset from place when place is given)' },
       floor: { type: 'number', optional: true, desc: 'reference height of the storey it stands on (multi-layer ground)' },
@@ -90,10 +90,12 @@ const RULE_STRINGS = {
       rot: { type: 'number', optional: true, desc: 'facing around the vertical axis, radians' },
       scale: { type: 'number', optional: true, min: 0, desc: 'uniform scale (1 = model size)' },
     };
+    // a plain tag, so world.query({ where: r => r.source === 'stall' }) finds every copy of one arrangement; nothing else reads it
+    const copied = { source: { type: 'string', optional: true, desc: 'name of the arrangement this entry was copied from; queryable, no other effect' } };
     return {
       props: {
         id: { type: 'string', optional: true, desc: 'stable id (needed when entries are later inserted in the middle)' },
-        model: { type: 'any', desc: "model name, or [name, ...args] for a generated model" }, ...at, ...pose,
+        model: { type: 'any', desc: "model name, or [name, ...args] for a generated model" }, ...at, ...pose, ...copied,
         collide: { type: 'any', optional: true, desc: "collision: 'box', 'circle', { circle: radius, occluder?: false }, or false = none" },
         occluder: { type: 'bool', optional: true, desc: 'false = a solid prop the follow camera may pass through (walkers are still stopped)' },
         static: { type: 'bool', optional: true, desc: 'never moves (may be merged into one draw call)' },
@@ -101,7 +103,7 @@ const RULE_STRINGS = {
       },
       'props.template': {
         template: { type: 'string', desc: 'template name (content/templates.js)' },
-        id: { type: 'string', optional: true, desc: 'stable id; instances with state should have one' }, ...at, ...pose,
+        id: { type: 'string', optional: true, desc: 'stable id; instances with state should have one' }, ...at, ...pose, ...copied,
         items: { type: 'object', optional: true, desc: "starting goods of the instance's container { itemId: count }" },
       },
       'props.grid': {

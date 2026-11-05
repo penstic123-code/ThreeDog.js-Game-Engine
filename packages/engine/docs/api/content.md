@@ -52,7 +52,7 @@ Conditions are used in quest step done, dialogue option if and line variant if; 
   - `dialogues.js` dialogues (id -> speaker, nodes)
   - `quests.js` quests (id -> title, steps, reward; a step can have a target position)
   - `actions.js` own key actions of the game (action name -> default key, label)
-  - `places.js` place names (coordinates computed at runtime in main.js)
+  - `places.js` place names (name -> { x, z, y?, rot? }; rot turns everything placed there about Y; coordinates may be computed at runtime in main.js)
   - `triggers.js` trigger zones (tag -> position / from level, enter/exit effects)
   - `level.js` level markers (spawn point, NPCs, trigger zones)
   - `vegetation.js` vegetation (name -> model, growth rule)

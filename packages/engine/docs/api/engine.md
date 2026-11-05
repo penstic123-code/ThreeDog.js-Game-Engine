@@ -115,6 +115,7 @@
 - `ui: UIParts` UI parts: every piece of screen UI is replaceable or off (see recipes/26-ui-parts.md)
 - `adaptive: AdaptiveState` Automatic resolution state
 - `cpuMs: number` Main-thread CPU milliseconds of the last real-time frame: input, fixed steps, frame hooks, render submission and afterRender hooks (not GPU time, not the wait for the next frame). Only the real-time loop updates it; step() does not.
+- `stepBlend: number` How far the drawn frame is from the last fixed step to the next, 0-1 (real loop); 1 after step(). Holds still while frozen. For drawing fixed-step state smoothly
 - `cpuPhases: { fixed, frame, render, afterRender }` cpuMs split by phase (last frame): fixed = input + fixed steps, frame = frame hooks incl. stream / jobs, render = draw submission, afterRender = its hooks
 - `cameraOverride: CameraOverride | null` The camera holder in charge (latest engine.takeCamera claim), null when nobody holds it. Read-only
 - `runState: RunState` Why the page is (not) advancing; the dev bridge and MCP tools copy it as-is

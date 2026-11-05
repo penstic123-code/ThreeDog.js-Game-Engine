@@ -39,7 +39,7 @@ const BODY_KEYS = ['shape', 'mass', 'friction', 'restitution', 'damping', 'angul
 // what a placement may set besides the state fields: the placement field table (rules.js), so the loader, content-check and content.fields() agree
 const PLACE_KEYS = Object.keys(PLACEMENT_FIELDS['props.template']);
 // content.spawn gets its position as an argument, so only the id and the picture / goods keys of the same table
-const SPAWN_KEYS = PLACE_KEYS.filter(k => !['template', 'place', 'x', 'z', 'floor'].includes(k));
+const SPAWN_KEYS = PLACE_KEYS.filter(k => !['template', 'place', 'x', 'z', 'floor', 'source'].includes(k));
 
 const STRINGS = {
   noModel: "template '{name}' needs a model: a model name from an asset pack (engine.assets.manifest({ models: { chest: '/models/chest.glb' | fn } })), e.g. { model: 'chest' }",
@@ -117,6 +117,9 @@ export function placeTemplate(e, api, st, p, i, zone, ids, origin) {
   const name = p.template, d = templateOf(st, name), id = templateId(p, i), { x, y, z } = api.where(p), floor = api._floorOf(p);
   const own = instanceFields(name, d, p, PLACE_KEYS, st.templateFields.get(name));
   if (floor !== undefined) own.floor = floor;   // same as props: a moved instance lands on the same storey
+  const rot = api._facingOf(p);
+  if (rot !== undefined) own.rot = rot;
+  if (p.source !== undefined) own.source = p.source;
   if (ids && p.id != null) ids.claim(p.id, `props[${i}] (template ${name})`);
   else if (ids && stateful(d)) ids.unnamed(id, `props[${i}] (template ${name})`);
   const rec = e.world.add({ id, kind: name, position: { x, y: y ?? placeY(e, `props[${i}] (template ${name})`, x, z), z }, ...own, ...(zone != null && { zone }) }, { initial: true });

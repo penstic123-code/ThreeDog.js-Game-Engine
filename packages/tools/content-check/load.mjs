@@ -36,9 +36,9 @@ export async function loadGame(dir) {
   const data = {}, files = {}, parts = {}, errors = [];
   const cdir = join(dir, 'content');
   if (!existsSync(cdir)) return { data, files, parts, errors };
-  // rules.js first: its kinds decide which other names are known (the same contentFiles() the engine loader uses)
+  // arrangements/ is read by `content stamp` only, never at runtime, so it is no content kind. rules.js first: its kinds decide which other names are known (the same contentFiles() the engine loader uses)
   const names = readdirSync(cdir).filter(f => f !== 'index.js' && (f.endsWith('.js') || statSync(join(cdir, f)).isDirectory()))
-    .map(f => f.replace(/\.js$/, '')).filter((f, i, a) => a.indexOf(f) === i).sort((a, b) => (b === 'rules') - (a === 'rules'));
+    .map(f => f.replace(/\.js$/, '')).filter((f, i, a) => a.indexOf(f) === i && f !== 'arrangements').sort((a, b) => (b === 'rules') - (a === 'rules'));
   for (const name of names) {
     const folder = join(cdir, name), isFolder = existsSync(folder) && statSync(folder).isDirectory();
     if (isFolder && existsSync(folder + '.js')) { errors.push(`${rel(folder)}: both content/${name}.js and the folder content/${name}/ exist: keep one (move the file into the folder)`); continue; }

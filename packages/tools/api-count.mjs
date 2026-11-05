@@ -1,4 +1,4 @@
-// threedog api-count [--json] [--unused]: count the public surface an AI meets, and list the items nothing uses (deletion candidates;
+// threedog api-count [--json] [--unused] [--games dirA,dirB,…]: count the public surface an AI meets, and list the items nothing uses (deletion candidates;
 // the ones kept on purpose are reported apart, see keptWhy).
 // Source of truth: the public type declarations (index.d.ts, types/tsl.d.ts, @threedog/post-effects index.d.ts) read with the TypeScript checker,
 // because that is what an AI's editor and `npm run types` see, and the checker resolves generated re-exports, inheritance and ModuleDef<Api>.
@@ -6,7 +6,7 @@
 // "Used" = found in engine sources, examples, the new-game templates or recipe code blocks (tests and prose docs are not users). Name matching is
 // a heuristic: a name shared by several items must be written qualified (parent.name) to count. Record: docs/testing/api-count.md.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative, sep, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { ROOT, ENGINE, TOOLS, MODE, addonDir, cli } from './paths.mjs';
 
@@ -182,6 +182,23 @@ export function keptWhy(i) {
   return KEPT_API.get(i.name) ?? null;
 }
 
+/**
+ * The daily surface: which public code names do real games write? Each folder in `dirs` is one game (its own .js/.mjs/.html/.json files, not
+ * node_modules, dist, public or docs). A name counts for a game when that game's text alone matches (same heuristic as `usage`).
+ * Only the groups a game's code can touch are counted: CLI commands and options, and error codes are not code a game writes.
+ */
+export function dailySurface(dirs) {
+  const items = collect().filter(i => !['CLI commands', 'CLI options', 'error codes'].includes(i.group));
+  for (const i of items) i.games = 0;
+  for (const d of dirs) {
+    const texts = files(d, /\.(m?js|html|json)$/).map(f => ({ file: relp(f), where: 'example', text: readFileSync(f, 'utf8') }));
+    const probe = items.map(i => ({ ...i }));
+    usage(probe, texts);
+    probe.forEach((p, k) => { if (p.used) items[k].games++; });
+  }
+  return items;
+}
+
 /** Totals per group in a fixed order */
 export const GROUPS = ['createEngine options', 'engine members', 'engine sub-objects', 'module options', 'module APIs',
   'exports threedog', 'exports threedog/tsl', 'exports @threedog/post-effects', 'CLI commands', 'CLI options', 'error codes'];
@@ -196,7 +213,20 @@ export async function apiCount() {
 
 if (import.meta.url === new URL('file:///' + process.argv[1].replace(/\\/g, '/')).href || process.argv[1]?.endsWith('api-count.mjs')) {
   if (MODE !== 'monorepo') { console.error('api-count reads the engine sources: run it in the threedog repository'); process.exit(1); }
-  const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['json', 'unused'] });
+  const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['json', 'unused'], values: ['games'] });
+  if (opt.games) {
+    const dirs = opt.games.split(',').filter(Boolean).map(d => resolve(d));
+    const items = dailySurface(dirs), used = items.filter(i => i.games > 0), most = items.filter(i => i.games > dirs.length / 2);
+    if (opt.json) console.log(JSON.stringify({ games: dirs.length, names: items.length, usedByAny: used.length, usedByMost: most.length, usedByAll: items.filter(i => i.games === dirs.length).length,
+      byGroup: Object.fromEntries(GROUPS.map(g => [g, [items.filter(i => i.group === g).length, used.filter(i => i.group === g).length, most.filter(i => i.group === g).length]])), used: used.map(i => [i.group, i.name, i.games]) }));
+    else {
+      console.log(`${dirs.length} games; ${items.length} code names (CLI and error codes left out)`);
+      console.log(`used by at least one game: ${used.length}   by more than half: ${most.length}   by all ${dirs.length}: ${items.filter(i => i.games === dirs.length).length}`);
+      for (const g of GROUPS) { const t = items.filter(i => i.group === g); if (t.length) console.log(`${g.padEnd(32)} ${String(t.length).padStart(4)}  any ${String(used.filter(i => i.group === g).length).padStart(3)}  most ${String(most.filter(i => i.group === g).length).padStart(3)}`); }
+      console.log('(small sample: a name no game here uses is not necessarily dead; --json lists the used names)');
+    }
+    process.exit(0);
+  }
   const r = await apiCount();
   if (opt.json) console.log(JSON.stringify(opt.unused ? r : { ...r, unused: undefined, kept: undefined }));
   else {

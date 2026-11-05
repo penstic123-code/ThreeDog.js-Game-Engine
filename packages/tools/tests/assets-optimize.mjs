@@ -5,6 +5,7 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, statSync } from 'node:fs';
 import { join, resolve, delimiter } from 'node:path';
 import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
@@ -52,6 +53,37 @@ export async function run({ check }) {
       check('a failed model: exit 1, assets.js unchanged, no pack written, and it says so', rb.code === 1 && readFileSync(join(bad, 'assets.js'), 'utf8') === '// a game\nexport default [];\n'
         && !existsSync(join(bad, 'assets.optimized.js')) && /were not changed/.test(rb.text), rb.text);
     } finally { rmSync(bad, { recursive: true, force: true }); }
+    // [guard] a model without textures (no real ktx needed, but the CLI wants one on PATH): which URL a name finally resolves to, and what a cache hit still reports
+    // [guard] no texture, so no ktx needed: which URL a name finally resolves to, and what a cache hit still reports
+    const plain = ktxOk ? mkdtempSync(join(tmpdir(), 'threedog-optimize-plain-')) : null;   // the CLI wants ktx on PATH even for a model without textures
+    if (plain) try {
+      mkdirSync(join(plain, 'art/models'), { recursive: true });
+      const core = createRequire(resolve(ROOT, 'package.json'))('@gltf-transform/core'), pd = new core.Document(), pb = pd.createBuffer();
+      const pp = pd.createPrimitive().setAttribute('POSITION', pd.createAccessor().setType('VEC3').setArray(new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0])).setBuffer(pb));
+      pd.createScene().addChild(pd.createNode('tri').setMesh(pd.createMesh('tri').addPrimitive(pp)));
+      await new core.NodeIO().write(join(plain, 'art/models/tri.glb'), pd);
+      const ORIGINAL = 'export default [{ name: \'old\', models: { tri: \'/models/tri.glb\' } }];\n';
+      writeFileSync(join(plain, 'assets.js'), ORIGINAL);
+      let nImport = 0;
+      // later packs win in engine.assets.manifest, so the last pack naming the model decides its URL
+      const finalUrl = async () => { let url; for (const p of (await import(pathToFileURL(join(plain, 'assets.js')).href + '?v=' + (++nImport))).default) url = p.models?.tri ?? url; return { url }; };
+      const p1 = await quiet(() => runOptimize(plain, {})), fu1 = await finalUrl();
+      check('a name in an older pack resolves to the optimized copy', p1.code === 0 && /\/optimized\/tri\.glb$/.test(fu1.url), p1.text + JSON.stringify(fu1));
+      // a game rewritten by the older command (`[...optimized, ` first) is moved over: the optimized pack comes last
+      writeFileSync(join(plain, 'assets.js'), `import optimized from './assets.optimized.js';\n` + ORIGINAL.replace('export default [', 'export default [...optimized, '));
+      await quiet(() => runOptimize(plain, {}));
+      const fu2 = await finalUrl();
+      check('a game in the old [...optimized, form is migrated and resolves to the optimized copy', /\/optimized\/tri\.glb$/.test(fu2.url) && !/\[\.\.\.optimized, /.test(readFileSync(join(plain, 'assets.js'), 'utf8')), JSON.stringify(fu2));
+      // cache hits still count problems: a stored output-side problem fails --strict (no reconversion)
+      const outP = join(plain, 'public/optimized/tri.glb'), mt = statSync(outP).mtimeMs, repPath = join(plain, '.threedog/optimize-report.json'), rep = JSON.parse(readFileSync(repPath, 'utf8'));
+      const c0 = await quiet(() => runOptimize(plain, { strict: true }));
+      rep['tri.glb'].problems.push({ code: 'bad-ktx2', msg: 'planted output problem' });
+      writeFileSync(repPath, JSON.stringify(rep));
+      const c1 = await quiet(() => runOptimize(plain, {})), c2 = await quiet(() => runOptimize(plain, { strict: true }));
+      check('cached, no problems: --strict passes', c0.code === 0, c0.text);
+      check('cached with a stored problem: a lenient run reports it and exits 0, --strict exits 1, nothing is reconverted',
+        c1.code === 0 && /bad-ktx2/.test(c1.text) && c2.code === 1 && /unchanged\s+tri\.glb/.test(c2.text) && statSync(outP).mtimeMs === mt, c1.text + c2.text);
+    } finally { rmSync(plain, { recursive: true, force: true }); }
 
     const dry = await quiet(() => runOptimize(dir, { dry: true }));
     check('--dry reports the file and writes nothing', dry.code === 0 && /crate\.glb/.test(dry.text) && !existsSync(join(dir, 'public')) && !existsSync(join(dir, '.threedog')) && !existsSync(join(dir, 'assets.optimized.js')), dry.text);
@@ -78,6 +110,9 @@ export async function run({ check }) {
     check('assets.js imports the result pack', /import optimized from '\.\/assets\.optimized\.js'/.test(readFileSync(join(dir, 'assets.js'), 'utf8')) && /\/optimized\/crate\.glb/.test(readFileSync(join(dir, 'assets.optimized.js'), 'utf8')));
     const mtime = statSync(out).mtimeMs, r2 = await quiet(() => runOptimize(dir, {}));
     check('a rerun skips the unchanged file', r2.code === 0 && /unchanged\s+crate\.glb/.test(r2.text) && statSync(out).mtimeMs === mtime, r2.text);
+    // cached, lowered --budget: over-budget is judged again against this run's budget (needs a texture, so it lives on the ktx path)
+    const mt2 = statSync(out).mtimeMs, s3 = await quiet(() => runOptimize(dir, { strict: true, budget: 0.0001 }));
+    check('cached, lowered --budget: over-budget is reported again, --strict exits 1, nothing is reconverted', s3.code === 1 && /over-budget/.test(s3.text) && statSync(out).mtimeMs === mt2, s3.text);
     const r3 = await quiet(() => runOptimize(dir, { force: true }));
     check('--force redoes it', /✓ crate\.glb/.test(r3.text), r3.text);
   } finally { process.env.PATH = oldPath; rmSync(dir, { recursive: true, force: true }); }

@@ -186,6 +186,8 @@ export function level(opts?: LevelOptions): ModuleDef<Level>;
 export function triggers(opts?: TriggersOptions): ModuleDef<Triggers>;
 // Migrated: particles() is generated from the JSDoc in modules/particles/Particles.js
 export { particles } from './types/generated/modules/particles/Particles';
+// swarm() and the Swarm class are generated from the JSDoc in modules/swarm/Swarm.js
+export { swarm } from './types/generated/modules/swarm/Swarm';
 /** Settings menu -> engine.settings */
 export function settings(opts?: SettingsOptions): ModuleDef<Settings>;
 // Migrated: music() is generated from the JSDoc in modules/music/Music.js

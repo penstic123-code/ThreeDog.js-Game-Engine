@@ -1,6 +1,6 @@
 # Third-person start: walking, camera, save, pause, menu
 
-**In this recipe**: 1. About twenty lines · 2. What each line gives · 3. Where it stops · 4. Talk, press E, a quest, a counter · 5. Not worth it for a small game
+**In this recipe**: 1. About twenty lines · 2. What each line gives · 3. Where it stops · 4. Talk, press E, a quest, a counter · 5. Not worth it for a small game · 6. A model made in code, placed in content
 
 The shortest working path for a game where a character walks around a place you built yourself. It is the blank template's `main.js` plus a few lines, on any
 ground (`--open-world` adds generated terrain and a sky on top of the same parts). The picture stays plain three.js in `picture/`; nothing here touches it.
@@ -75,3 +75,16 @@ Plain three.js and `engine.setGround` are the shorter road for the things below;
 - Full terrain: a flat or gently rolling island is `engine.setGround({ height: (x, z) => ... })` plus meshes. `terrain()` is for large streamed worlds.
 - The sky module for a fixed time of day: a background color or a gradient mesh and your own lights. `sky()` is for a day that changes.
 - Rigid vehicles: a mesh that moves by your own rule needs no physics. `rigid()` is for things that must push, roll and collide.
+
+## 6. A model made in code, placed in content
+Any game, any genre: the shape is code, where it stands is content. The blank game ships one example, and it is neutral gray on purpose.
+```js
+// assets.js: a generator returns a geometry (drawn gray) or an Object3D; it runs once per name, every placement is a clone
+const marker = () => new THREE.CylinderGeometry(0.2, 0.25, 1.2, 12).translate(0, 0.6, 0);
+export default [{ name: 'starter', models: { marker } }];
+```
+```js
+// content/props.js: placements, each with a stable id (saved with the game)
+export default [{ id: 'marker-1', model: 'marker', x: 0, z: -2 }, { id: 'marker-2', model: 'marker', x: 3, z: -5 }];
+```
+Do not call `scene.add` or `world.add` for these at startup: `npm run check` rejects it, because the save would not know them. A `.glb` registered under the same name later replaces the generator with no other change (recipe 05). Before building a model or an effect from scratch, `threedog lib list` and `threedog how "<words>"` also search the library.

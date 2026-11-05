@@ -66,9 +66,11 @@ export function sourceProblems(doc, core, budgetMb, gpuAfter) {
       out.push({ code: 'missing-second-uv', msg: `mesh ${mesh.getName() || '(unnamed)'}: a texture reads the second UV set (TEXCOORD_1) but the mesh has none. Add a second UV map in Blender (lightmap / AO unwrap) and export again.` });
     }
   }
-  if (gpuAfter > budgetMb * 1048576) out.push({ code: 'over-budget', msg: `texture GPU memory ≈ ${MB(gpuAfter)} even as KTX2, over the ${budgetMb} MB budget. Lower the texture sizes in the source (a size is an art decision, so it is not done here) or raise --budget.` });
+  if (gpuAfter > budgetMb * 1048576) out.push(overBudget(gpuAfter, budgetMb));
   return out;
 }
+
+const overBudget = (gpuAfter, budgetMb) => ({ code: 'over-budget', msg: `texture GPU memory ≈ ${MB(gpuAfter)} even as KTX2, over the ${budgetMb} MB budget. Lower the texture sizes in the source (a size is an art decision, so it is not done here) or raise --budget.` });
 
 /** Read the KTX2 header of every output texture and compare with its slot: { code, msg }[] */
 export function encodingProblems(doc, ktxParse) {
@@ -95,11 +97,17 @@ function pointGameAtResults(dir, models) {
   if (!existsSync(pack) || readFileSync(pack, 'utf8') !== body) writeFileSync(pack, body);
   const assets = resolve(dir, 'assets.js');
   if (!existsSync(assets)) return `no assets.js here: import ./assets.optimized.js where you call engine.assets.manifest(...)`;
-  const text = readFileSync(assets, 'utf8');
-  if (text.includes('assets.optimized')) return null;
-  if (!/export default \[/.test(text)) return `add to assets.js: import optimized from './assets.optimized.js'; and spread ...optimized into the packs`;
-  writeFileSync(assets, `import optimized from './assets.optimized.js';\n` + text.replace(/export default \[/, 'export default [...optimized, '));
-  return 'assets.js now imports ./assets.optimized.js. If a model name there also appears in an older pack, keep one of them';
+  let text = readFileSync(assets, 'utf8');
+  // Packs registered later win (core/assetManifest.js), so the optimized pack must come LAST: an older version of this command wrote
+  // `[...optimized, ` first, which let the original path replace /optimized/x.glb. Move such a game over.
+  const old = text.includes('[...optimized, ');
+  if (text.includes('assets.optimized') && !old) return null;
+  if (!/export default \[/.test(text)) return `add to assets.js: import optimized from './assets.optimized.js'; and spread ...optimized LAST in the packs (the later pack wins)`;
+  if (old) text = text.replace('export default [...optimized, ', 'export default [');
+  else text = `import optimized from './assets.optimized.js';\n` + text;
+  // the game's own array keeps its text; only its name and the final export change
+  writeFileSync(assets, text.replace(/export default \[/, 'const gamePacks = [') + `\nexport default [...gamePacks, ...optimized];   // optimized last: the later pack wins\n`);
+  return 'assets.js now imports ./assets.optimized.js as the last pack, so its models win over the originals of the same name';
 }
 
 /** @returns {Promise<number>} exit code */
@@ -132,7 +140,19 @@ export async function runOptimize(dir, opt) {
   console.log(`${dry ? 'Dry run (nothing is written): ' : ''}${files.length} model(s) in ${SRC}`);
   for (const f of files) {
     const name = basename(f, extname(f)), src = resolve(SRC, f), out = resolve(OUT, name + '.glb'), key = sourceHash(src, toolKey);
-    if (!force && existsSync(out) && cache[f] === key) { console.log(`  unchanged  ${f}`); names[name] = `/optimized/${name}.glb`; continue; }
+    if (!force && existsSync(out) && cache[f] === key) {
+      // No reconversion, but the verdict must match THIS run's flags: the budget problem is judged again against the current --budget, the other
+      // problems (source and KTX2 slot checks) do not depend on flags and come from the stored report, so a cache hit cannot hide them from --strict
+      console.log(`  unchanged  ${f}`); names[name] = `/optimized/${name}.glb`;
+      const prev = report[f];
+      if (prev?.source) {
+        const gpu = (prev.source.textures?.list || []).reduce((s, t) => s + ktx2Gpu(t), 0);
+        const now = [...(prev.problems || []).filter(p => p.code !== 'over-budget'), ...(gpu > budget * 1048576 ? [overBudget(gpu, budget)] : [])];
+        for (const p of now) console.log(`  ! ${p.code}: ${p.msg}`);
+        problemCount += now.length; prev.problems = now;
+      }
+      continue;
+    }
     let src0;
     try { src0 = await readModel(src); } catch (e) { console.log(`✗ ${f}: cannot read (${e.message})`); failed++; continue; }
     const s0 = modelStats(src0.doc, src0.core), hasTex = s0.textures.count > 0;

@@ -1,6 +1,6 @@
 // [守] Options that are not options fail loudly: dialogue.say / start and pickups() go through readParams, so an unknown key (a typo, or a
 // form an older version had, like dialogue { lock } or pickups({ model })) throws module-params naming it instead of being ignored.
-// The 0.2 -> 0.3 rename traps (renamed-field) were removed in 0.4 as announced; MIGRATING-0.3.md keeps the table.
+// The 0.2 -> 0.3 rename traps (renamed-field) were removed in 0.4 as announced; git history keeps the table (MIGRATING-0.3).
 const PAGE = '/tests/threads/';
 export const specs = [
   {

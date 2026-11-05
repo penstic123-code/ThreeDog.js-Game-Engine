@@ -15,6 +15,7 @@
 //   npm test -- city settings         only test items whose names contain these words, any case (searched across all workspaces); no match fails
 //   npm test -- -w my-farm            one workspace only (also npm test -w games/my-farm, or run npm test inside the game directory)
 //   npm test -- --verbose             also print every passing item and check
+//   npm test -- --json                the run as one JSON result on stdout (lib/result.mjs: { ok, summary, items }, one item per failed check); the text goes to stderr
 // Rendering: a spec that reads rendered pixels runs on software rendering (SwiftShader: same pixels on every machine), the rest on the GPU.
 //   spec.software: true / false decides; unset, it is true when run() itself calls a pixel API (readPixels, getImageData, screenshot ...). A spec
 //   whose pixel reading sits in a helper must set it. A spec that reads pixels on the GPU unmarked is listed at the end of the run.
@@ -28,6 +29,7 @@ process.env.THREEDOG_TEST = '1';
 import { readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, basename, relative, sep } from 'node:path';
 import { packTest } from './pack-test.mjs';
+import { item, result, startJson } from './lib/result.mjs';
 import { waitEngine } from './wait-engine.mjs';
 import { scenarioSpecs } from './scenario.mjs';
 import { launchBrowser, forcedRender, newGamePage, buildAndPreview, withTimeout } from './browser.mjs';
@@ -78,7 +80,11 @@ function pageHelpers() {
 // named: -w was given or the current folder chose the workspace; only a run over everything adds the tools' own tests (counting the targets
 // against workspaces() could not tell `test -w engine` from a full run in a repo without games)
 const { dirs: targets, named, opt, rest: only } = cli(process.argv.slice(2), { workspace: 'targets', positional: true,
-  flags: ['update-snapshots', 'gpu', 'software', 'verbose'], values: ['jobs'], short: { j: 'jobs', v: 'verbose' }, conflicts: [['gpu', 'software', 'they pick opposite renderers']] });
+  flags: ['update-snapshots', 'gpu', 'software', 'verbose', 'json'], values: ['jobs'], short: { j: 'jobs', v: 'verbose' }, conflicts: [['gpu', 'software', 'they pick opposite renderers']] });
+// --json: a failed check is one item (code 'test', message "<item name>: <check> → <detail>"); the result is written at exit, so the early exits report too
+const jsonItems = [];
+let totals = '';
+if (opt.json) startJson(code => result(jsonItems, totals || (code ? 'test run failed before any check ran' : 'no checks ran'), code === 0));
 if (!targets.length) { console.error(`✗ no workspace to test under ${ROOT} (a game needs package.json and main.js)`); process.exit(1); }
 // The engine the games import must be the one this checkout reads: in a worktree without its own node_modules the build would test another copy
 const mismatch = engineMismatch();
@@ -133,7 +139,7 @@ const seenNames = [];
 /** Items expected this run (for the progress line); set once the plan is made */
 let expected = 0;
 const failedItems = [];
-const tty = !!process.stdout.isTTY;
+const tty = !!process.stdout.isTTY && !opt.json;
 let progressShown = false;
 /** Progress: on a terminal one line rewritten in place, otherwise a line every 50 items (logs stay short) */
 function progress() {
@@ -148,6 +154,7 @@ function report(name, results, t0, extra = '') {
   const bad = results.filter(r => !r.ok);
   pass += results.length - bad.length; fail += bad.length; ran++;
   if (bad.length) failedItems.push(name);
+  for (const r of bad) jsonItems.push(item({ code: 'test', message: `${name}: ${r.label}${r.detail ? ' → ' + r.detail : ''}` }));
   if (verbose || bad.length) {
     endProgress();
     console.log(`\n${bad.length ? '✗' : '✓'} ${name} (${((Date.now() - t0) / 1000).toFixed(1)} s${extra})`);
@@ -379,5 +386,6 @@ const time = took >= 90 ? `${(took / 60).toFixed(1)} min` : `${took.toFixed(1)} 
 if (failedItems.length) console.log(`\n${failedItems.length} item(s) failed (details above):\n${failedItems.map(n => '   ✗ ' + n).join('\n')}`);
 // Nothing ran at all (every workspace empty, say) is never a pass
 if (!ran) { console.log(`\n✗✗ NOTHING RAN — FAILED, nothing was tested (${time})`); process.exit(1); }
-console.log(`\nTotal: ${pass + fail} checks in ${ran} items, ${pass} passed, ${fail} failed (${time})`);
+totals = `${pass + fail} checks in ${ran} items, ${pass} passed, ${fail} failed (${time})`;
+console.log(`\nTotal: ${totals}`);
 process.exit(fail ? 1 : 0);

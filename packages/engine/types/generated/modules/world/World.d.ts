@@ -48,7 +48,7 @@ export class World {
      * Add a record and return it (a plain object). kind is required; without id one is numbered automatically (kind#1, kind#2…, saved; `#` never appears in an
      * authored id, so the two can never collide).
      * opts.initial: initial record written in content (needs an id); saves only keep its changes and removal; if the id already exists the existing one is
-     * returned (content may load twice);
+     * returned (content may load twice), after taking a new position / rot from the content unless play moved it;
      * returns null if the save removed it (it is not added back). opts.save: false: not saved (temporary things).
      * @example engine.world.add({ id: 'shop_owner', kind: 'npc', position: [12, 0, -30], name: '店主', mood: 'calm' }, { initial: true })
      * @param {{ kind: string, id?: string, position?: any, [field: string]: any }} def
