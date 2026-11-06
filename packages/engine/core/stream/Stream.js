@@ -78,10 +78,10 @@ export class Stream {
     this._dirty = true;
     return h;
   }
-  /** @internal Clear all entries and drop added sources (called by engine.dispose; built objects are released with the scene; the two built-in sources stay) */
+  /** @internal Clear all entries and remove every source, so no whenReady is left waiting for a frame (called by engine.dispose; built objects are released with the scene) */
   dispose() {
     this.entries.clear(); this.cells.clear(); this.live.clear(); this.queued = 0;
-    for (const s of [...this._sources]) if (s !== this.player && s !== this.camera) s.remove();
+    for (const s of [...this._sources]) s.remove();
     this._checks.clear();
   }
   /**
@@ -120,6 +120,7 @@ export class Stream {
     if (opts.detail != null && opts.detail !== 'full' && opts.detail !== 'simple') throw codedError('stream-option', fmt(SOURCE_STRINGS.detail, { got: String(JSON.stringify(opts.detail)) }));
     const s = new Source(this, position, opts);
     this._sources.add(s); this._version++;
+    if (this.engine.disposed) s.remove();   // no frame will ever settle it
     return /** @type {any} */ (s);
   }
 

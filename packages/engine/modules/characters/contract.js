@@ -5,7 +5,7 @@ export default {
   name: 'characters',
   api: ['createPlayer', 'removePlayer', 'findSpawn', 'findPath', 'findPathAsync', 'support', 'moveInput', 'carryRiders'],
   ops: [],
-  events: ['character:jump', 'character:step', 'character:land', 'character:launch', 'character:fall'],
+  events: ['character:jump', 'character:step', 'character:land', 'character:launch', 'character:fall', 'link:enter', 'link:exit'],
   saves: {},
   describe: true,
   options: { npcs: false },

@@ -1,4 +1,4 @@
-// The picture check's pixel maths, node side: whole-picture numbers, shadow edges, and what counts as clipped or near white (the probe gets HOT passed in).
+// The picture check's pixel maths, node side: whole-picture numbers, shadow stripes, and what counts as clipped or near white (the probe gets HOT passed in).
 import { luma } from './pixels.mjs';
 
 /** the probe picture's width (the probe's default size): a saved picture is read at this width too, so its spots and shares compare with a shot's */
@@ -59,48 +59,34 @@ function spots(mask, w) {
 }
 
 /**
- * Shadow stripes and stepped edges from the mask of shadowed pixels at canvas pixels (1 = the shadow darkens this pixel). Why on the mask and not
- * on the picture: textures and geometry are full of edges, the mask holds only what the shadow map adds. Why at canvas pixels: the probe's small
- * copy averages stripes a few pixels wide away. Read in 16-pixel cells.
- *   stripes: most rows or columns of a cell cross several lit / shadowed bands (a surface shadowing itself). A solid shadow's edge crosses once.
- *   jag:     outer and inner corners side by side in a 128-pixel window (2 x 2 blocks of 64, so a block border cannot split a stair). Why: a majority filter leaves a straight edge alone at any slope and rounds off
- *            every corner, so what it changes are the corners; a stair of shadow map pixels alternates outer and inner ones, while a real shadow
- *            has a few, far apart and mostly outer.
- * Shares are of the cells or blocks read; the numbers decide whether a fact is worth a line, they are no goal.
- * @param {Uint8Array} m one value per pixel, 0 or 1 @param {number} w @param {number} h
- * @returns {{ stripes: number, jag: number }}
+ * Shadow stripes from the mask of shadowed pixels at canvas pixels (1 = the shadow darkens this pixel, 2 = unread, this pixel can show no shadow). Why on the mask and
+ * not on the picture: textures and geometry are full of edges, the mask holds only what the shadow map adds. Why at canvas pixels: the probe's small copy averages
+ * stripes a few pixels wide away. Read in 16-pixel cells: rows or columns of a cell cross three lit / shadowed edges on average, so at least two bands. One band crosses
+ * twice, and one thin shadow is a shadow: a beam's seen along the road, however long it runs. Unread pixels are stepped over, so they split nothing.
+ * The share is of the cells read; the number decides whether a fact is worth a line, it is no goal.
+ * @param {Uint8Array} m one value per pixel, 0, 1 or 2 @param {number} w @param {number} h
+ * @returns {{ stripes: number }}
  */
 export function shadowEdges(m, w, h) {
-  const S = 16, B = 64, R = 4, STAIR = 3, cw = Math.floor(w / S), ch = Math.floor(h / S);
-  if (!cw || !ch) return { stripes: 0, jag: 0 };
+  const S = 16, cw = Math.floor(w / S), ch = Math.floor(h / S);
+  if (!cw || !ch) return { stripes: 0 };
   let striped = 0;
+  const above = new Uint8Array(S);
   for (let cy = 0; cy < ch; cy++) for (let cx = 0; cx < cw; cx++) {
-    let on = 0, tx = 0, ty = 0;
-    for (let y = cy * S; y < cy * S + S; y++) for (let x = cx * S; x < cx * S + S; x++) {
-      const v = m[y * w + x]; on += v;
-      if (x > cx * S && v !== m[y * w + x - 1]) tx++;
-      if (y > cy * S && v !== m[(y - 1) * w + x]) ty++;
+    let on = 0, known = 0, tx = 0, ty = 0;
+    above.fill(2);
+    for (let y = cy * S; y < cy * S + S; y++) {
+      let left = 2;
+      for (let k = 0; k < S; k++) {
+        const v = m[y * w + cx * S + k];
+        if (v === 2) continue;
+        known++; on += v;
+        if (left !== 2 && v !== left) tx++;
+        if (above[k] !== 2 && v !== above[k]) ty++;
+        left = above[k] = v;
+      }
     }
-    if (on >= 0.1 * S * S && on <= 0.9 * S * S && Math.max(tx, ty) >= 2 * S) striped++;
+    if (on >= 0.1 * known && on <= 0.9 * known && Math.max(tx, ty) >= 3 * S) striped++;
   }
-  const sum = new Int32Array((w + 1) * (h + 1));   // summed-area table: any window's count in four reads
-  for (let y = 0; y < h; y++) for (let x = 0, row = 0; x < w; x++) { row += m[y * w + x]; sum[(y + 1) * (w + 1) + x + 1] = sum[y * (w + 1) + x + 1] + row; }
-  const outer = new Uint8Array(w * h), inner = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
-    const a = Math.max(0, x - R), b = Math.max(0, y - R), c = Math.min(w, x + R + 1), d = Math.min(h, y + R + 1);
-    const n = sum[d * (w + 1) + c] - sum[b * (w + 1) + c] - sum[d * (w + 1) + a] + sum[b * (w + 1) + a], most = 2 * n > (c - a) * (d - b) ? 1 : 0, v = m[y * w + x];
-    if (v && !most) outer[y * w + x] = 1; else if (!v && most) inner[y * w + x] = 1;
-  }
-  const bw = Math.ceil(w / B), bh = Math.ceil(h / B), blocks = bw * bh, perBlock = mask => {
-    const c = new Uint16Array(blocks);
-    for (const { at } of spots(mask, w)) c[Math.floor(at / w / B) * bw + Math.floor(at % w / B)]++;
-    return c;
-  };
-  const o = perBlock(outer), n = perBlock(inner);
-  const stepped = new Uint8Array(blocks);
-  for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
-    const win = [by * bw + bx, by * bw + bx + 1, (by + 1) * bw + bx, (by + 1) * bw + bx + 1].filter((_, k) => bx + (k & 1) < bw && by + (k >> 1) < bh);
-    if (Math.min(...[o, n].map(c => win.reduce((a, i) => a + c[i], 0))) >= STAIR) for (const i of win) if (o[i] + n[i]) stepped[i] = 1;
-  }
-  return { stripes: striped / (cw * ch), jag: stepped.reduce((a, b) => a + b, 0) / blocks };
+  return { stripes: striped / (cw * ch) };
 }

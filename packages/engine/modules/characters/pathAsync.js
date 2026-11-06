@@ -102,7 +102,7 @@ export class AsyncPaths {
   mirror(key) {
     const e = this.e;
     this.lane ??= e.threads.lane({ create: () => new Worker(new URL('./pathWorker.js', import.meta.url), { type: 'module' }), local: pathHandler });
-    if (key[0] === 'n' && this.sent.rev !== e.nav.revision) { this.sent.rev = e.nav.revision; this.lane.broadcast({ type: 'mesh', data: e.nav.exportMesh() }, 'mesh'); }
+    if (key[0] === 'n' && this.sent.rev !== e.nav.revision) { this.sent.rev = e.nav.revision; this.lane.broadcast({ type: 'mesh', data: e.nav.exportMesh(), links: e.nav.links }, 'mesh'); }
     if (key[0] === 'g' && this.sent.ver !== e.collision.version) {
       this.sent.ver = e.collision.version;
       const items = [];
@@ -113,7 +113,7 @@ export class AsyncPaths {
   /** Due step: worker answer if it arrived and the walkable state is unchanged, else the same solver here on the current state */
   land(batch, list, r) {
     const e = this.e, key = this.key();
-    if (!r || key !== batch.key) r = solveBatch(key === batch.key ? batch : this.build(list), { query: e.nav?.query, grid: e.collision?.grid });
+    if (!r || key !== batch.key) r = solveBatch(key === batch.key ? batch : this.build(list), { nav: e.nav, grid: e.collision?.grid });
     list.forEach((h, i) => { if (!h.canceled) h.done(r[i].path, r[i].status); });
   }
 }

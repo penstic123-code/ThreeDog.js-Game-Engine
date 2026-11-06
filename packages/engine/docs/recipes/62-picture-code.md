@@ -230,7 +230,7 @@ environment map comes out too dark on faces away from the sun: raise the ambient
 ## 4b. Pixel art: low-resolution rendering with sharp scaling
 Pixel art means drawing fewer pixels and then keeping every edge hard when they are enlarged. It takes two engine options and plain three.js and CSS:
 - **Render fewer pixels.** `pixelRatio` below 1 makes the drawing buffer smaller than the canvas on the page. Pick it from the art resolution you want against the canvas
-  size, and call `engine.setPixelRatio(p)` again when the size changes. A value that makes one art pixel a whole number of screen pixels keeps them all the same size.
+  size, and call `engine.setPixelRatio(p)` again when the size changes. A value that makes one art pixel a whole number of real screen pixels keeps them all the same size: for k screen pixels per art pixel that is `devicePixelRatio / k`, not `1 / k`, which comes out uneven on a display scaled to 150%.
 - **Turn adaptive resolution off.** `adaptiveResolution: false`: it changes the render scale with frame cost, so the size of a pixel would drift during play.
   `antialias: false` too, since it blends the edges you want hard.
 - **Scale sharply.** The browser smooths an enlarged canvas unless told otherwise: CSS `image-rendering: pixelated` on it.

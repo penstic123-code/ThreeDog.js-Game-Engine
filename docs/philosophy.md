@@ -6,7 +6,7 @@ An AI coding agent asked for a three.js game starts from an empty scene. Before 
 
 The main user of the engine is an agent, not a person at a keyboard. That one fact explains most of the decisions below: an agent already knows three.js well, it reads little documentation, and it trusts whatever a tool tells it. So the engine stays close to three.js, keeps its index short, and has to report problems honestly.
 
-> **Where this stands.** This page describes version 0.8. Version 0.6 was the first in which the engine no longer drew the picture. Versions up to 0.5 had the look layer described in the next section. The last section lists what is planned and not yet built.
+> **Where this stands.** This page describes version 0.9. Version 0.6 was the first in which the engine no longer drew the picture. Versions up to 0.5 had the look layer described in the next section. The last section lists what is planned and not yet built.
 
 ## Why the engine stopped drawing the picture
 

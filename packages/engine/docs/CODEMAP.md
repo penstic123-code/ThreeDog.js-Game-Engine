@@ -163,6 +163,8 @@ Type = what the module may own (core/engine/moduleTypes.js): world, picture, act
 | interaction:interrupt | gameplay | — |
 | item:use | gameplay | — |
 | level:loaded | level | characters, hlod, nav |
+| link:enter | characters | — |
+| link:exit | characters | — |
 | module:disabled | core/base/errors.js | — |
 | music:change | music | — |
 | music:stinger | music | — |

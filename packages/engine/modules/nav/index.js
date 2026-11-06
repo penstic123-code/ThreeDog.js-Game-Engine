@@ -6,30 +6,37 @@
 // Where the mesh comes from: the ground API's staticTrimeshes() (the level's walkable mesh).
 // Walls and obstacles: boxes/circles in the collision module (level col_ boxes, ones added by game collision.addBox) are all synced into TileCache dynamic obstacles,
 // and affected tiles are rebuilt on add/remove, so level walls and later-added obstacles work the same way.
-// Levels only for now (ground with staticTrimeshes); procedural terrain keeps using A*. Recast (about 1MB) is downloaded only at init.
+// Levels only for now (ground with staticTrimeshes); procedural terrain keeps using A*. Recast (728 KB, 218 KB gzipped) starts loading when nav() is installed.
 // The mesh is built once per level: ground edits (engine.terrain.edit, 'ground:change') do not update it, so paths keep following the ground as it was
 // at level load (rebuilding all tiles per edit is too slow to do automatically). A game that reshapes walkable ground at runtime leaves nav out:
 // characters.findPath then uses A*, which resamples the edited area (its rasters are dropped on 'ground:change').
+// Links (Recast off-mesh connections): nav({ links: [{ id, from, to }] }) joins two places a walker cannot walk between, a gap to jump or a ladder to climb.
+// generateTileCache has no offMeshConnections option (generateTiledNavMesh does), so they go in through the tile cache's mesh process, which Detour runs for
+// every tile it builds: a tile rebuilt around an obstacle gets them back the same way. They live in the tile data, so exportMesh carries them to the path worker.
 import { readParams, keysSchema } from '../../core/base/params.js';
-import { xzOf } from '../../core/base/math.js';
+import { xzOf, yOf } from '../../core/base/math.js';
 import { navSearch } from './navPath.js';
 import { warnOnce } from '../../core/base/validate.js';
 import { coded } from '../../core/base/errorHints.js';
 
-const NAV_PARAMS = keysSchema(['cellSize', 'agentRadius', 'agentHeight', 'maxClimb', 'maxSlope', 'tileSize', 'crowd', 'debug', 'maxObstacles', 'maxAgents', 'arrive']);
+const NAV_PARAMS = keysSchema(['cellSize', 'agentRadius', 'agentHeight', 'maxClimb', 'maxSlope', 'tileSize', 'crowd', 'debug', 'maxObstacles', 'maxAgents', 'arrive', 'links']);
+const LINK_PARAMS = keysSchema(['id', 'from', 'to', 'oneWay', 'radius']);
+const NO_LINK = -1;   // Detour's DT_NULL_LINK, the end of a polygon's link list: 0xffffffff in C++, but the wrapper reads it back signed
 
 export function nav(opts = {}) {
   readParams('nav', NAV_PARAMS, opts);
   // maxObstacles / maxAgents: Recast's fixed capacities (a city of 3000 wall pieces needs more than a village; a crowd scene more than 128 agents).
   // arrive: meters past the character's radius a path may end short of its goal and still count as arrived (a ledge-strict platformer wants less)
-  const { cellSize = 0.3, tileSize = 32, crowd = false, debug = false, maxObstacles = 1024, maxAgents = 128, arrive = 0.6 } = opts;
+  const { cellSize = 0.3, tileSize = 32, crowd = false, debug = false, maxObstacles = 1024, maxAgents = 128, arrive = 0.6, links = [] } = opts;
+  for (const l of links) readParams('nav links', LINK_PARAMS, l);
   // agent size defaults come from engine.movement (filled at install); opts values override them
   let agentRadius, agentHeight, maxClimb, maxSlope;
   let e = null, lib = null, gen = null, pending = false, wasm = null;   // wasm: the recast import + init begun at install
+  let meshProcess;       // runs for every tile built, with links only: without them the generator's default is the same thing
   let obstacles = null;   // engine.collision.mirror: collision-module collider -> its Recast obstacles (big boxes are cut into several pieces)
 
   const api = {
-    ready: false, agent: null, navMesh: null, query: null, tileCache: null, crowd: null, helper: null,
+    ready: false, agent: null, links: [], navMesh: null, query: null, tileCache: null, crowd: null, helper: null,
     /** +1 on rebuild / unload: code that cached native objects such as crowd agents must re-create them when it changes */
     version: 0,
     /**
@@ -59,7 +66,7 @@ export function nav(opts = {}) {
   function search(from, to, o) {
     if (!api.ready) return { status: 'notReady', path: null };
     const [sx, sz] = xzOf(from), [gx, gz] = xzOf(to);
-    return navSearch(api.query, { x: sx, y: e.surface(sx, sz), z: sz }, { x: gx, y: e.surface(gx, gz), z: gz }, api.reach(o.radius));
+    return navSearch(api, { x: sx, y: e.surface(sx, sz), z: sz }, { x: gx, y: e.surface(gx, gz), z: gz }, api.reach(o.radius));
   }
 
   /** Walkable triangle mesh of the ground (world coordinates), merged into one */
@@ -74,19 +81,75 @@ export function nav(opts = {}) {
     return { positions, indices };
   }
 
+  /** The links with their ends in 3D (a y left out is the ground there) and the catch radius: the mesh stops the agent radius, rounded up to cells, plus up to a cell short of an edge, and a ladder stands a little off that edge */
+  function placeLinks() {
+    const at = p => { const [x, z] = xzOf(p); return { x, y: yOf(p) ?? e.surface(x, z), z }; };
+    return links.map((l, i) => ({ id: l.id ?? i, from: at(l.from), to: at(l.to), oneWay: !!l.oneWay, radius: l.radius ?? agentRadius + cellSize * 3 }));
+  }
+  /**
+   * The mesh process with the links that start in the tile being built. Detour keeps a connection only in its start's tile, and the wrapper's copy of the list
+   * is never freed (nothing runs after this callback), so passing only those keeps that to a few bytes per link instead of the whole list for every tile.
+   */
+  function linkProcess() {
+    return meshProcess ??= new lib.TileCacheMeshProcess((params, areas, flags) => {
+      for (let i = 0; i < params.polyCount(); i++) { areas.set(i, 0); flags.set(i, 1); }
+      const raw = params.raw, inside = (v, a) => v >= raw.get_bmin(a) && v < raw.get_bmax(a), mine = [];
+      api.links.forEach((l, i) => { if (inside(l.from.x, 0) && inside(l.from.z, 2)) mine.push({ startPosition: l.from, endPosition: l.to, radius: l.radius, bidirectional: !l.oneWay, userId: i }); });
+      params.setOffMeshConnections(mine);
+    });
+  }
+  /** The indexes of the links attached at both ends */
+  function joinedLinks() {
+    const m = api.navMesh, joined = new Set();
+    for (let t = 0; t < m.getMaxTiles(); t++) {
+      const tile = m.getTile(t), h = tile.header();
+      for (let i = 0; h && i < h.offMeshConCount(); i++) {
+        let ends = 0;
+        for (let k = tile.polys(h.offMeshBase() + i).firstLink(); (k | 0) !== NO_LINK; k = tile.links(k).next()) ends++;
+        if (ends >= 2) joined.add(tile.offMeshCons(i).userId());
+      }
+    }
+    return joined;
+  }
+  /** Where an end meets the ground it reaches: on that ground and inside its tile (a tile's far edge belongs to the next one), or the end as given when it reaches none */
+  function seat(p, radius) {
+    const near = api.query.findNearestPoly(p, { halfExtents: { x: radius, y: maxClimb, z: radius } });
+    if (!near.success || !near.nearestRef) return p;
+    const h = api.navMesh.getTileAndPolyByRef(near.nearestRef).tile.header(), { x, y, z } = near.nearestPoint, m = cellSize / 4;
+    const within = (v, axis) => Math.min(Math.max(v, h.bmin(axis) + m), h.bmax(axis) - m);
+    return { x: within(x, 0), y, z: within(z, 2) };
+  }
+  /**
+   * Links on the finished mesh. Detour files an end under the tile its x, z fall in and looks for ground in that tile alone, so an end beside a tile's edge with its
+   * ground across the edge stays loose (a ladder under a deck that starts in the next tile), and a start in a tile with no ground is dropped. Each end moves onto its
+   * ground, and the tiles its start left and joined are rebuilt with it. api.links is then where walkers really step on and land, which a crowd NPC reads. On the ground
+   * an end needs no reach beyond a cell or two, so an obstacle standing on it cuts the link and does not leave it hooked to ground past the obstacle.
+   * A link Detour still could not attach at both ends does nothing, silently: say so once, at the build.
+   */
+  function seatLinks() {
+    if (!api.links.length) return;
+    const tiles = new Map(), note = p => { const t = api.navMesh.calcTileLoc(p), x = t.tileX(), y = t.tileY(); tiles.set(`${x},${y}`, [x, y]); };
+    for (const l of api.links) { note(l.from); l.from = seat(l.from, l.radius); l.to = seat(l.to, l.radius); l.radius = cellSize * 2; note(l.from); }
+    for (const [x, y] of tiles.values()) api.tileCache.buildNavMeshTilesAt(x, y, api.navMesh);
+    const joined = joinedLinks();
+    api.links.forEach((l, i) => { if (!joined.has(i)) warnOnce(coded('nav-link', `nav: link "${l.id}" does not join the mesh at both ends, so no path uses it`)); });
+  }
+
   async function build() {
     pending = false;
     if (api.ready) api.dispose();
     const { positions, indices } = geometry();
     if (!indices.length) return;
     const ch = cellSize / 2;
+    api.links = placeLinks();
     const r = gen.generateTileCache(positions, indices, {
-      cs: cellSize, ch, tileSize, expectedLayersPerTile: 4, maxObstacles,
+      cs: cellSize, ch, tileSize, expectedLayersPerTile: 4, maxObstacles, tileCacheMeshProcess: links.length ? linkProcess() : undefined,
       walkableSlopeAngle: maxSlope, walkableHeight: Math.ceil(agentHeight / ch), walkableClimb: Math.ceil(maxClimb / ch), walkableRadius: Math.ceil(agentRadius / cellSize),
     });
     if (!r.success) { warnOnce(coded('nav-build', 'nav: ' + r.error)); return; }
     api.tileCache = r.tileCache; api.navMesh = r.navMesh;
     api.query = new lib.NavMeshQuery(r.navMesh);
+    seatLinks();
     if (crowd) api.crowd = new lib.Crowd(r.navMesh, { maxAgents, maxAgentRadius: agentRadius * 2 });
     api.ready = true; api.version++; api.revision++;
     syncObstacles();
@@ -155,7 +218,7 @@ export function nav(opts = {}) {
       syncObstacles();
       api.crowd?.update(dt);
     },
-    describe() { return { ready: api.ready, version: api.version, obstacles: obstacles?.size ?? 0 }; },
+    describe() { return { ready: api.ready, version: api.version, obstacles: obstacles?.size ?? 0, links: api.links.length }; },
     // engine.dispose(): the Recast navMesh / query / tileCache / crowd live in the WASM heap, not in JS, so the garbage collector never frees
     // them; an editor or test that makes engines over and over would grow that heap every time
     dispose() { api.dispose(); },

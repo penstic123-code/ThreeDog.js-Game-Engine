@@ -5,8 +5,8 @@ export const TIME_FLAT = 0.15;
 export const FOG_MUCH = 0.25;
 /** Shadowed pixels this much darker than lit, with the fill adding under this share of the lit brightness there: 'shadow-black' (hint thresholds, no goals) */
 export const SHADOW_BLACK = { depth: 0.85, fill: 0.05 };
-/** Shares of the picture from which shadow stripes / stepped edges are worth a line, the screen pixels a shadow map pixel must span to show as a step, the share that may change by itself before edges are not read (hint thresholds, no goals) */
-export const SHADOW_EDGE = { stripes: 0.01, jag: 0.005, texelPx: 3, noise: 0.02 };
+/** Shares of the picture from which shadow stripes / stepped edges are worth a line, the share of a moved edge that must be 3 pixels thick to read as steps and not as a wobble, the share that may change by itself before edges are not read (hint thresholds, no goals) */
+export const SHADOW_EDGE = { stripes: 0.01, jag: 0.0005, thick: 0.2, noise: 0.02 };
 // small shares keep two decimals: a glare spot is often under 0.1% of the picture and "0.0%" read as nothing
 export const pc = x => `${(x * 100).toFixed(x > 0 && x < 0.001 ? 3 : x > 0 && x < 0.01 ? 2 : 1)}%`;
 // two decimals, but small values (a bias of -0.00005) keep two significant digits instead of printing 0

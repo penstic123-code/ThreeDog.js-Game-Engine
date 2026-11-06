@@ -36,7 +36,7 @@ export default function threedogBridge() {
       let headlessBusy = 0, closeWhenIdle = false;
       // A headless page must not burn CPU while nobody asks it for anything (a resumed software-WebGL game runs ~10 cores): a few seconds after
       // the last command it is halted again (idleHalted), and after IDLE_CLOSE_MIN minutes the browser is closed (the next command opens a new one)
-      const IDLE_PAUSE_MS = +process.env.THREEDOG_HEADLESS_PAUSE_S * 1000 || 15000, IDLE_CLOSE_MS = (+process.env.THREEDOG_HEADLESS_IDLE_MIN || 10) * 60000;
+      const IDLE_PAUSE_MS = +process.env.THREEDOG_HEADLESS_PAUSE_S * 1000 || 15000, IDLE_CLOSE_MS = (+process.env.THREEDOG_HEADLESS_IDLE_MIN || 2) * 60000;
       let idleTimer = null, idleHalted = false, lastCmd = Date.now();
 
       /** Fail every command waiting on client (it reloaded or closed) */

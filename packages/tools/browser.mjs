@@ -2,6 +2,7 @@
 // a game page that collects errors, and build + preview on a free port.
 //   CHROMIUM_ARGS.software  WebGL through ANGLE's SwiftShader (--use-gl=swiftshader fails on some Windows setups): same pixels on every machine, so tests use it
 //   CHROMIUM_ARGS.gpu       WebGL through ANGLE on the real GPU (backend per platform): shot / gallery / perf / stress prefer it, it is several times faster
+import { execFile } from 'node:child_process';
 import { chromium } from 'playwright';
 import { trackPageErrors, trackRequests } from './wait-engine.mjs';
 import { TOOLS, viteOptions } from './paths.mjs';
@@ -48,13 +49,40 @@ export async function probeRenderer(browser) {
   } finally { await page.close(); }
 }
 
-let gpuFailed = null;   // why the GPU launch fell back, remembered so perf (a fresh browser per page) notes it once and does not retry each time
+const HEADLESS_SHELL = /(?:^|[\\/])(?:chrome-headless-shell|headless_shell)(?:\.exe)?$/i;
+const LIST_PROCESSES = process.platform === 'win32'
+  ? ['powershell', ['-NoProfile', '-NonInteractive', '-Command', `Get-CimInstance Win32_Process -Filter "Name like '%headless%'" | ForEach-Object { '{0} {1} {2}' -f $_.ProcessId, $_.ParentProcessId, $_.CommandLine }`]]
+  : ['ps', ['-eo', 'pid=,ppid=,args=']];
+/** The program a command line runs: its first word, or the first quoted part (Chromium quotes its own path on Windows, for its children, and that path can hold spaces) */
+const programOf = cmd => { const m = cmd.match(/^"([^"]*)"|^\S*/); return m[1] ?? m[0]; };
+/** Child processes whose browser is gone, from the process listing (one "pid ppid command" per line). A headless shell by its program alone: an argument can name anything */
+export function orphanPids(listing) {
+  const list = listing.split(/\r?\n/).map(l => l.match(/^\s*(\d+)\s+(\d+)\s+(.*)$/)).filter(m => m && HEADLESS_SHELL.test(programOf(m[3])))
+    .map(m => ({ pid: +m[1], ppid: +m[2], cmd: m[3] }));
+  const shells = new Set(list.map(p => p.pid));
+  return list.filter(p => /--type=/.test(p.cmd) && !shells.has(p.ppid)).map(p => p.pid);
+}
+/**
+ * Stops what a dead browser left behind. A page stuck in a loop does not notice its browser die when the tool that opened it is killed, and then spins a
+ * core until someone stops it, unreachable by any close: six of them once ran 18 hours. Only headless shells are touched, and a live browser's children have their parent.
+ */
+export function reapOrphanBrowsers() {
+  // timeout: the sweep is not awaited, so a hung WMI would hold the tool open after its work is done
+  return new Promise(done => execFile(LIST_PROCESSES[0], LIST_PROCESSES[1], { windowsHide: true, maxBuffer: 1 << 24, timeout: 10000 }, (err, out) => {
+    const pids = err ? [] : orphanPids(out);
+    for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch { /* already gone */ } }
+    done(pids);
+  }));
+}
+
+let reaped = false, gpuFailed = null;   // why the GPU launch fell back, remembered so perf (a fresh browser per page) notes it once and does not retry each time
 /**
  * Launch headless Chromium. `prefer`: 'software' (default: tests need the same pixels everywhere) or 'gpu' (shot, gallery, perf, stress);
  * --gpu / --software / THREEDOG_RENDER override it. A GPU launch is verified (renderer string): no hardware GPU or a failed launch falls back to
  * SwiftShader with a one-line note. The browser gets `render`: { kind: 'gpu' | 'software', renderer?, timer?, fallback? }.
  */
 export async function launchBrowser({ prefer = 'software', ...opts } = {}) {
+  if (!reaped) { reaped = true; reapOrphanBrowsers(); }   // once per process, not awaited: the launch does not wait for the sweep
   const want = forcedRender() ?? prefer;
   const launch = kind => chromium.launch({ ...opts, args: [...CHROMIUM_ARGS[kind], ...(opts.args || [])] });
   if (want === 'gpu' && !gpuFailed) {

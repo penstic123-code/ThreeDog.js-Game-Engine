@@ -84,7 +84,7 @@ let climbing = false;
 function climb(player, top) {                  // top: { x, y, z }, where it steps off, on ground or a registered platform
   climbing = true; player.mover = 'manual';    // no gravity, the position is yours
   const h = engine.control.take(player, { owner: 'ladder', layer: 'script', step: (dt, ch) => {
-    const up = (engine.input.down('moveForward') ? 1 : 0) - (engine.input.down('moveBackward') ? 1 : 0);
+    const up = (engine.input.down('moveForward') ? 1 : 0) - (engine.input.down('moveBack') ? 1 : 0);
     ch.root.position.y += up * 2 * dt;
     if (ch.root.position.y < top.y) return null;   // null: the mover runs, so states picks climb
     climbing = false; ch.mover = 'simple'; h.remove(); ch.placeAt(top);

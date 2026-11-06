@@ -6,8 +6,9 @@
 // Control: a walk holds the character on layer 'script' (core/ops/control.js). So the player's keys pause while it walks and come back when it ends; a
 // cutscene above pauses the walk (no progress, no stuck clock) and the walk carries on after; another script owner on the same character is a
 // control-conflict error instead of two hooks pushing one body.
+// Links on the path are crossed as NPCs cross them (moveHelpers.js). A walk cancelled halfway, or paused by a holder above, lands the character at the far end; a save load only drops the crossing.
 import { xzOf, wrapAngle } from '../../core/base/math.js';
-import { nextPoint } from './moveHelpers.js';
+import { nextPoint, startLink, stepLink, landLink, linkAhead, LINK_REACH } from './moveHelpers.js';
 
 const STUCK_PROGRESS = 0.15;   // metres the character must gain on the next point within the stuck window, else it counts as stuck
 
@@ -17,7 +18,7 @@ const STUCK_PROGRESS = 0.15;   // metres the character must gain on the next poi
  */
 export function walkTo(ch, target, { speed, arrive = 0.5, turnRate = 8, stuckSeconds = 1.5, maxRepaths = 3, run = false } = {}) {
   const e = ch.engine;
-  let done, hook, path = null, i = 0, heading = null, repaths = 0, bestD = Infinity, stuckT = 0;
+  let done, hook, path = null, i = 0, heading = null, repaths = 0, bestD = Infinity, stuckT = 0, crossing = null;
   const promise = new Promise(res => { done = res; });
   ch._walk?.remove();   // one walk per character: the newer order wins
   let onLoad = null, handle = null, ctl = null;
@@ -26,6 +27,7 @@ export function walkTo(ch, target, { speed, arrive = 0.5, turnRate = 8, stuckSec
   const runMod = sped && run ? e.mod('move.runSpeed', { owner: 'walkTo', id: ch.id, set: speed }) : null;
   const finish = status => {
     if (!hook) return; hook.remove(); hook = null; onLoad?.remove(); ctl.remove(); if (ch._walk === handle) ch._walk = null;
+    if (crossing) landLink(ch, crossing);
     finishMods();
     done({ status });
   };
@@ -37,15 +39,17 @@ export function walkTo(ch, target, { speed, arrive = 0.5, turnRate = 8, stuckSec
   };
   if (!solve()) { finishMods(); queueMicrotask(() => done({ status: 'noPath' })); return Object.assign(promise, { remove() {} }); }
   try { ctl = e.control.take(ch, { owner: 'walkTo', layer: 'script' }); } catch (err) { finishMods(); throw err; }
-  onLoad = e.events.on('save:loaded', () => finish('cancelled'));
+  onLoad = e.events.on('save:loaded', () => { crossing = null; finish('cancelled'); });
   hook = e.onFixed(() => {
-    if (!ctl.active) return;   // paused under a cutscene (or another higher holder): keep the path and the stuck clock as they are
+    if (!ctl.active && !crossing) return;   // paused under a cutscene (or another higher holder): keep the path and the stuck clock as they are
     const dt = e.time.dt(ch.channel, ch.id);   // the character's time channel: bullet time slows a walk too
+    if (crossing) { if (ctl.active ? stepLink(ch, crossing, dt) : landLink(ch, crossing)) { crossing = null; i++; bestD = Infinity; stuckT = 0; } return; }
     const [gx, gz] = xzOf(target), [x, z] = xzOf(ch.root.position);
-    if (Math.hypot(gx - x, gz - z) <= arrive) { ctl.move(0, 0, false, dt); return finish('arrived'); }
+    if (Math.hypot(gx - x, gz - z) <= arrive && !linkAhead(path, i)) { ctl.move(0, 0, false, dt); return finish('arrived'); }
     const next = nextPoint(path, i, x, z, arrive * 0.6);
     if (next !== i) { i = next; bestD = Infinity; stuckT = 0; }   // a point passed is progress, and the next one starts farther away than the best distance to the last
     const p = path[i], d = Math.hypot(p.x - x, p.z - z);
+    if (p.link && d < LINK_REACH) { crossing = startLink(ch, p.link); return; }
     // stuck: no gain on the next point for stuckSeconds, so replan; give up after maxRepaths
     if (d < bestD - STUCK_PROGRESS) { bestD = d; stuckT = 0; }
     else if ((stuckT += dt) > stuckSeconds) {

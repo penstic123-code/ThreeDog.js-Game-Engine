@@ -52,25 +52,64 @@ export function shadowFill({ scene, base, grab }, s, unshadowed) {
 }
 
 // the shadow alone at canvas pixels (centered, 1:1): the probe's small copy averages stripes away. The mask goes to node (shadowEdges), as the pixels do
-export function shadowEdgeMask({ e, R, lumaOf, grab }, s, casters, was) {
-  const cv = R.domElement, mw = Math.min(cv.width, 960), mh = Math.min(cv.height, 540), c3 = document.createElement('canvas'); c3.width = mw; c3.height = mh;
+export function shadowEdgeMask(c, s, casters, was) {
+  const { e, R, lumaOf, grab } = c, cv = R.domElement, mw = Math.min(cv.width, 960), mh = Math.min(cv.height, 540), c3 = document.createElement('canvas'); c3.width = mw; c3.height = mh;
   const g3 = c3.getContext('2d', { willReadFrequently: true }), sx = (cv.width - mw) >> 1, sy = (cv.height - mh) >> 1;
   const full = () => { e._render(0, false); g3.drawImage(cv, sx, sy, mw, mh, 0, 0, mw, mh); return lumaOf(g3.getImageData(0, 0, mw, mh).data); };
-  const on = full(), again = full();
+  // two reads far enough apart to see what moves by itself: film grain changes 24 times a second, and two renders back to back read as still
+  const on = full(), wait = performance.now() + 50;
+  while (performance.now() < wait);
+  const again = full();
   casters.forEach(l => { l.shadow.intensity = 0; });
   let off; try { off = full(); } finally { casters.forEach((l, i) => { l.shadow.intensity = was[i]; }); }
+  const power = casters.map(l => l.intensity);
+  casters.forEach(l => { l.intensity = 0; });
+  let unlit; try { unlit = full(); } finally { casters.forEach((l, i) => { l.intensity = power[i]; }); }
   // two identical renders that differ: moving film grain or any animated post. On / off then differs by itself in a speckle the stripe test
-  // reads as bands (82-97% on a picture with none), so what changes by itself is taken out of the mask, and a picture mostly that gets no verdict
-  const bits = new Uint8Array(Math.ceil(mw * mh / 8));
+  // reads as bands (82-97% on a picture with none), so what changes by itself is unread, and a picture mostly that gets no verdict. Unread too: a pixel the casting
+  // lights add nothing to cannot show a shadow, so it says nothing about one. Glowing cracks through a shadowed rock read as lit gaps, and so as stripes
+  const bits = new Uint8Array(Math.ceil(mw * mh / 8)), unread = new Uint8Array(bits.length);
   let moving = 0;
   for (let i = 0; i < on.length; i++) {
-    if (Math.abs(on[i] - again[i]) > 0.015) moving++;
+    const still = Math.abs(on[i] - again[i]) <= 0.015;
+    if (!still) moving++;
+    if (!still || off[i] - unlit[i] <= 0.015) unread[i >> 3] |= 1 << (i & 7);
     else if (isShadowed(on[i], off[i])) bits[i >> 3] |= 1 << (i & 7);
   }
   s.edgeNoise = moving / on.length;
-  let b64 = ''; for (let i = 0; i < bits.length; i += 8192) b64 += String.fromCharCode.apply(null, bits.subarray(i, i + 8192));
-  s.edgeMask = { w: mw, h: mh, b64: btoa(b64) };
+  const text = b => { let t = ''; for (let i = 0; i < b.length; i += 8192) t += String.fromCharCode.apply(null, b.subarray(i, i + 8192)); return btoa(t); };
+  s.edgeMask = { w: mw, h: mh, b64: text(bits), unread: text(unread) };
+  if (s.edgeNoise < 0.02) shadowGrid(c, s, casters, full, { on, again, mw, mh });
   grab();   // raw back to the shot's own frame for the probes below
+}
+
+/** The next render redraws the shadow maps, cascades too */
+export function askShadows({ R }, casters) {
+  if (R.shadowMap) R.shadowMap.needsUpdate = true;
+  for (const l of casters) { l.shadow.needsUpdate = true; for (const x of l.shadow.shadowNode?.lights ?? []) x.shadow.needsUpdate = true; }
+}
+
+/**
+ * The shadow map's pixel grid moved by half a pixel, the picture read again. s.grid: share, of the picture, where that moves a shadow by 3 or more screen pixels; thick, of what moved at all.
+ * Light, casters and receivers stay where they are, so only what the grid decides can change. Why not corners on the mask: trees, crates and a soft rim over a mottled
+ * ground have corners too, and that count stayed the same with a map four times finer. Thin lines of change are every edge's own rounding, hence the 3 x 3 test.
+ * setViewOffset lives on the shadow camera, so it reaches a light that places itself too; a point light's six faces do not take it.
+ */
+export function shadowGrid(c, s, casters, full, { on, again, mw, mh }) {
+  const cams = casters.filter(l => !l.isPointLight).flatMap(l => [l, ...l.shadow.shadowNode?.lights ?? []]).map(l => [l.shadow.camera, l.shadow.mapSize.x]);
+  if (!cams.length) return;
+  cams.forEach(([sc, n]) => sc.setViewOffset(n, n, 0.5, 0.5, n, n));
+  let now;
+  try { askShadows(c, casters); now = full(); } finally { cams.forEach(([sc]) => sc.clearViewOffset()); askShadows(c, casters); }
+  const moved = new Uint8Array(on.length);
+  let band = 0, thick = 0;
+  for (let i = 0; i < on.length; i++) band += moved[i] = Math.abs(on[i] - again[i]) <= 0.015 && Math.abs(now[i] - on[i]) > 0.015 ? 1 : 0;
+  for (let y = 1; y < mh - 1; y++) for (let x = 1; x < mw - 1; x++) {
+    let n = 0;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) n += moved[(y + j) * mw + x + i];
+    if (n === 9) thick++;
+  }
+  s.grid = { share: thick / on.length, thick: thick / Math.max(band, 1) };
 }
 
 export function probeShadows(c) {

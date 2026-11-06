@@ -10,6 +10,9 @@
 //     ctx.track (modules.js), so they also leave when its install rolls back or its init fails, and go before its dispose hook runs.
 //   - Things core does not know about (Worker, physics world, Audio nodes, real-time timers): clean up in the module's dispose(e) hook, called in reverse install order.
 //   - GPU memory: every geometry, material and texture in the scene, the assets cache, the post composer, then renderer.dispose().
+// Waits across dispose, one rule: a wait in game code (model(), jobs.add, nextFixed, a cutscene, an await of what those feed) stays pending for good, because the code after it
+// belongs to a dead engine (assetEntry.js says why not reject). Two waits have to answer instead: start(), for whoever booted the engine (startup.js), and a stream source's whenReady,
+// which rejects stream-removed: dispose removes every source, and a source made afterwards is born removed.
 // Level changes do not come through here: things inside a level register with level.track(handle), and the level removes them itself on change.
 
 import { coded, codedError } from '../base/errorHints.js';
@@ -44,7 +47,7 @@ function disposeObject(o) {
 export const lifecycleMethods = {
   /**
    * Destroy the engine: stop the main loop, call each module's dispose(e) in reverse install order, then clean up core (listeners, timers, sound, UI, GPU memory).
-   * No callbacks fire afterwards and engine.disposed becomes true. Safe to call repeatedly.
+   * No callbacks fire afterwards and engine.disposed becomes true. Safe to call repeatedly. start() rejects with engine-disposed; awaits in game code (a model, a job, nextFixed) stay pending for good.
    * The engine's own renderer also gives its WebGL context back (renderer.forceContextLoss): browsers keep only about 16 live contexts, so a page that
    * creates and disposes engines (level editor, tests, restart) would otherwise lose the oldest one. That canvas cannot host a new engine afterwards;
    * keepContext: true keeps the context for a new engine on the same canvas. A renderer the game passed in (createEngine({ renderer })) is never released.
@@ -53,7 +56,7 @@ export const lifecycleMethods = {
   dispose(opts = {}) {
     if (opts === null || typeof opts !== 'object' || Object.keys(opts).some(k => k !== 'keepContext')) throw codedError('dispose-options', fmt(STRINGS.opts, { v: String(JSON.stringify(opts)) }));
     if (this.disposed) return;
-    this.phase = 'disposed'; this.halted = true;
+    this.phase = 'disposed'; this.halted = true; this._starting = null;   // a finished start() must not answer a later call as if the engine were alive
     cancelAnimationFrame(this._raf);
     dropOwned(this, [...(this._owned?.values() ?? [])]);   // owned.js keeps a page-wide list for allowOwned
     for (const m of [...this.modules.values()].reverse()) {

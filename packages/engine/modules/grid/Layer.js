@@ -8,6 +8,8 @@
 // _ver counts changes so views (tiles) rebuild only when something changed, without events.
 import { DEV, needMaterial } from '../../core/base/validate.js';
 import { codedError } from '../../core/base/errorHints.js';
+import { isPlainObject } from '../../core/base/util.js';
+import { refuseSave, saveNumberOk } from '../../core/saves/saveValues.js';
 
 const key = (i, j) => i + ',' + j;
 const plainErr = (where, v) => `${where}: layer data must be plain values (numbers, strings, booleans, arrays, plain objects); got ${v?.constructor?.name ?? typeof v}. Keep models in tiles / world.present`;
@@ -136,6 +138,8 @@ export class Layer {
   get _same() { const d = this.toJSON(); return !d.set.length && !d.clear; }
   /** @internal a save diff (or null = none): baseline first, then the diff */
   fromJSON(d) {
+    const rows = l => l == null || (Array.isArray(l) && l.every(c => Array.isArray(c) && saveNumberOk(c[0]) && saveNumberOk(c[1])));
+    if (d != null && !(isPlainObject(d) && rows(d.set) && rows(d.clear))) refuseSave('grids', `layer '${this.name}'`, 'must be { set: [[i, j, data], ...], clear: [[i, j], ...] }', d);
     this._diff = d ?? null;
     this._cells = new Map(d?.whole ? [] : this._base);
     for (const [i, j, v] of d?.set ?? []) this._cells.set(key(i, j), seal(v));

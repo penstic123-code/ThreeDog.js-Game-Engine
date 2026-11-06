@@ -893,6 +893,7 @@ error codes | module-unuse |
 error codes | movement |
 error codes | music-track |
 error codes | nav-build |
+error codes | nav-link |
 error codes | net-option |
 error codes | npc-behavior |
 error codes | op-misuse |
@@ -1123,9 +1124,10 @@ module APIs | calendar.timeOfDay | number
 module APIs | calendar.totalDays | number @experimental
 module APIs | calendar.untilMark | () => number @experimental
 module APIs | characters.createPlayer | (opts: PlayerOptions) => Character
-module APIs | characters.findPath | { (from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false; }): XZ[] | null; (from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true; }): PathResult; }
-module APIs | characters.findPathAsync | (from: PositionLike, to: PositionLike, done: (path: XZ[] | null, status: "ok" | "noPath" | "notReady") => void, opts?: { radius?: number; step?: number; maxNodes?: number; }) => { remove(): void; }
+module APIs | characters.findPath | { (from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false; }): NavPathPoint[] | null; (from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true; }): PathResult; }
+module APIs | characters.findPathAsync | (from: PositionLike, to: PositionLike, done: (path: NavPathPoint[] | null, status: "ok" | "noPath" | "notReady") => void, opts?: { radius?: number; step?: number; maxNodes?: number; }) => { remove(): void; }
 module APIs | characters.findSpawn | (position?: PositionLike, opts?: FindSpawnOptions) => Vector3
+module APIs | characters.linkPose | (t: number, position: Vector3, crossing: LinkCrossing, character: Character) => void @experimental
 module APIs | characters.material | Material<MaterialEventMap>
 module APIs | characters.moveInput | () => { x: number; z: number; run: boolean; }
 module APIs | characters.pathsPerStep | number
@@ -1255,8 +1257,9 @@ module APIs | music.tracks | Map<string, { url?: string; volume?: number; loop?:
 module APIs | nav.agent | { radius: number; height: number; maxClimb: number; maxSlope: number; } @experimental
 module APIs | nav.crowd | any @experimental
 module APIs | nav.dispose | () => void
-module APIs | nav.findPath | { (from: PositionLike, to: PositionLike, opts?: { radius?: number; detailed?: false; }): XZ[] | null; (from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true; }): { status: "ok" | "noPath" | "notReady"; path: XZ[] | null; }; }
+module APIs | nav.findPath | { (from: PositionLike, to: PositionLike, opts?: { radius?: number; detailed?: false; }): NavPathPoint[] | null; (from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true; }): { status: "ok" | "noPath" | "notReady"; path: NavPathPoint[] | null; }; }
 module APIs | nav.helper | any @experimental
+module APIs | nav.links | readonly { id: string | number; from: { x: number; y: number; z: number; }; to: { x: number; y: number; z: number; }; oneWay: boolean; radius: number; }[] @experimental
 module APIs | nav.navMesh | any @experimental
 module APIs | nav.query | any @experimental
 module APIs | nav.ready | boolean
@@ -1269,7 +1272,7 @@ module APIs | net.pending | Map<number, string> @experimental
 module APIs | net.reconnect | (transport: any) => void @experimental
 module APIs | net.role | "host" | "client" @experimental
 module APIs | net.stats | Record<string, number> @experimental
-module APIs | particles.attach | (name: string, object3d: THREE.Object3D, opts?: { rate?: number; offset?: number[]; overrides?: ParticleOptions | null; }) => ParticleEmitter
+module APIs | particles.attach | (name: string, object3d: THREE.Object3D, opts?: { rate?: number; ratePerMeter?: number; offset?: number[]; overrides?: ParticleOptions | null; }) => ParticleEmitter
 module APIs | particles.clear | (name?: string) => void
 module APIs | particles.count | (name?: string) => number
 module APIs | particles.define | (name: string, opts?: ParticleOptions) => ParticleEffect
@@ -1569,6 +1572,7 @@ module options | nav.arrive | ?number
 module options | nav.cellSize | ?number
 module options | nav.crowd | ?boolean
 module options | nav.debug | ?boolean
+module options | nav.links | ?NavLink[] @experimental
 module options | nav.maxAgents | ?number @experimental
 module options | nav.maxClimb | ?number
 module options | nav.maxObstacles | ?number @experimental

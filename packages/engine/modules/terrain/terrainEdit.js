@@ -7,6 +7,8 @@ import { DEV, fmt } from '../../core/base/validate.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { xzOf } from '../../core/base/math.js';
 import { codedError } from '../../core/base/errorHints.js';
+import { isPlainObject } from '../../core/base/util.js';
+import { refuseSave, saveNumberOk } from '../../core/saves/saveValues.js';
 import { unkey } from './terrainGen.js';
 
 // grid points past its edge that a chunk reads: a shared point, then the neighbor smooth normals and the color map's border read
@@ -127,6 +129,10 @@ export class TerrainEdits {
     return { h, t };
   }
   load(d) {
+    const cell = (i, j) => Number.isInteger(i) && Number.isInteger(j) && saveNumberOk(i) && saveNumberOk(j);
+    const heights = h => h == null || (Array.isArray(h) && h.length % 3 === 0 && h.every(saveNumberOk) && h.every((v, n) => n % 3 || cell(v, h[n + 1])));
+    const types = t => t == null || (Array.isArray(t) && t.every(c => Array.isArray(c) && c.length === 3 && cell(c[0], c[1])));
+    if (d != null && !(isPlainObject(d) && heights(d.h) && types(d.t))) refuseSave('terrain', 'the part', 'must be { h: [i, j, height, ...], t: [[i, j, type], ...] }', d);
     const T = this.mgr.generator, before = [...this.h.keys(), ...this.t.keys()];
     this.h.clear(); this.t.clear();
     for (let n = 0; n < (d?.h?.length ?? 0); n += 3) this.h.set(T.key(d.h[n], d.h[n + 1]), d.h[n + 2]);

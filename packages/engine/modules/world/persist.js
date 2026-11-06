@@ -134,7 +134,7 @@ export function saveWorld(w) {
 // with the game half-loaded. Refusing throws: saves.apply rolls the whole load back and reports this message (save-bad-record).
 const SHAPE_STRINGS = {
   obj: 'must be a plain object', kind: 'must have kind (a string)', pos: `must be { x, y, z } with finite numbers within ±${SAVE_MAX}`,
-  arr: 'must be an array of record ids', motion: 'must be a plain object (the character motion state) or null', nav: 'must be a plain object (the NPC path state)', path: 'must be null or a list of { x, z } with finite numbers', num: 'must be a finite number within ±{max}', count: 'must be a finite number >= 0',
+  arr: 'must be an array of record ids', motion: 'must be a plain object (the character motion state) or null', nav: 'must be a plain object (the NPC path state)', path: 'must be null or a list of { x, z } with finite numbers', link: 'must be null or a link leg with an id and both ends', num: 'must be a finite number within ±{max}', count: 'must be a finite number >= 0',
 };
 /** Throw save-bad-record for the first malformed core field of a world save (fields of the game's own are not checked); kindOf(id) is the kind of an authored record @internal */
 function checkWorldSave(d, kindOf) {
@@ -145,13 +145,20 @@ function checkWorldSave(d, kindOf) {
   // and its numbers feed the mover: a wrong one comes back a step later as a NaN position. The player holds them on the record itself
   const speeds = (path, o) => { for (const k of ['vx', 'vy', 'vz', 'facing', 'amount']) if (o[k] != null && !saveNumberOk(o[k])) bad(`${path}.${k}`, SHAPE_STRINGS.num, o[k]); };
   const motion = (path, m) => { if (m == null) return; if (!isPlainObject(m)) bad(path, SHAPE_STRINGS.motion, m); speeds(path, m); };
+  // a link leg on a path point ({ id, from, to }) or the crossing under way ({ link, from, to, seconds, time }): the mover reads them on every step of a crossing
+  const leg = (path, l, id) => { if (!isPlainObject(l) || !['string', 'number'].includes(typeof l[id])) bad(path, SHAPE_STRINGS.link, l); pos(`${path}.from`, l.from); pos(`${path}.to`, l.to); };
   // rec.nav of an NPC is written in place the same way, and every NPC has one. Another kind's `nav` is the game's own field
   const nav = (path, v) => {
     if (!isPlainObject(v)) bad(path, SHAPE_STRINGS.nav, v);
     if (v.path != null && !(Array.isArray(v.path) && v.path.every(p => isPlainObject(p) && saveNumberOk(p.x) && saveNumberOk(p.z)))) bad(`${path}.path`, SHAPE_STRINGS.path, v.path);
+    v.path?.forEach((p, i) => { if (p.link != null) leg(`${path}.path.${i}.link`, p.link, 'id'); });
+    if (v.link == null) return;
+    leg(`${path}.link`, v.link, 'link');
+    for (const k of ['seconds', 'time']) if (!(saveNumberOk(v.link[k]) && v.link[k] >= 0)) bad(`${path}.link.${k}`, SHAPE_STRINGS.count, v.link[k]);
   };
   if (!isPlainObject(d)) bad('the world part', SHAPE_STRINGS.obj, d);
   num('seq', d.seq); num('step', d.step); num('time', d.time);
+  if (d.step !== undefined && !Number.isSafeInteger(d.step)) bad('step', SHAPE_STRINGS.count, d.step);   // far records take turns in buckets[step % period]: only a whole number lands in one
   for (const f of ['records', 'changed', 'owed']) if (d[f] !== undefined && !isPlainObject(d[f])) bad(f, SHAPE_STRINGS.obj, d[f]);
   if (d.removed !== undefined && !(Array.isArray(d.removed) && d.removed.every(id => typeof id === 'string'))) bad('removed', SHAPE_STRINGS.arr, d.removed);
   for (const [id, r] of Object.entries(d.records ?? {})) {

@@ -4,7 +4,7 @@ English · [中文](evolution.zh-CN.md) · [How ThreeDog thinks](philosophy.md) 
 
 ThreeDog is a web 3D engine on three.js, made for AI coding agents, and today it declines to draw the picture. A game writes its own lights, fog and materials as plain three.js, and the engine hands it signals such as the time of day. [The philosophy page](philosophy.md) explains that design. It does not explain how an engine that began in a folder called `lowpoly-engine` arrived there, by way of a picture API that took three versions to build and one day to take apart.
 
-The whole history fits into seven days, from 30 October to 5 November 2026, and about 2,000 commits on the main branch. Dates here are commit dates, which can sit a day away from the changelog's. At this speed few decisions could be tried on a real game before the next one was made, so this account says where the evidence runs out.
+The whole history fits into eight days, from 30 October to 6 November 2026, and about 2,600 commits on the main branch. Dates here are commit dates, which can sit a day away from the changelog's. At this speed few decisions could be tried on a real game before the next one was made, so this account says where the evidence runs out.
 
 ## 0.1 keeps world data apart from the picture
 

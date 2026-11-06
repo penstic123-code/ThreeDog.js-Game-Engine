@@ -22,6 +22,8 @@ import { warnMissing, warnOnce, DEV } from '../../core/base/validate.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { reportError } from '../../core/base/errors.js';
+import { isPlainObject } from '../../core/base/util.js';
+import { refuseSave } from '../../core/saves/saveValues.js';
 import { toSaved, fromSaved, migrateV1, stepId } from './questSave.js';
 
 const STRINGS = {
@@ -88,6 +90,8 @@ export class Quests {
   get _period() { return Math.max(1, Math.round(this.checkInterval * 60)); }   // 60 = the engine's fixed steps per second
   /** @internal */
   _load(d) {
+    const quest = q => isPlainObject(q) && (q.parts == null || Array.isArray(q.parts)) && (q.got == null || (isPlainObject(q.got) && Object.values(q.got).every(Array.isArray)));
+    if (d != null && !(isPlainObject(d) && (d.state == null || (isPlainObject(d.state) && Object.values(d.state).every(quest))))) refuseSave('quests', 'the part', 'must be { state: { quest id: { step, done, parts, got } } }', d);
     this._progress = {}; this._saved = {}; this._t = Number.isInteger(d?.checkIn) ? d.checkIn : 0;
     for (const [id, q] of Object.entries(d?.state || {})) { const def = this.defs.get(id); if (def) this._progress[id] = fromSaved(id, def, q); else this._saved[id] = q; }
     this.win.refresh();

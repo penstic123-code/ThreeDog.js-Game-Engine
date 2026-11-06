@@ -6,9 +6,9 @@ import { pc, r2, said, list, SHADOW_BLACK, SHADOW_EDGE } from './hint-text.mjs';
 /** The shadow mask travels from the page once and is read here (one path for pagePicture and for a test page); the bytes do not stay in --json */
 export function readEdgeMask(sh) {
   if (!sh?.edgeMask) return;
-  const { w, h, b64 } = sh.edgeMask, bits = Buffer.from(b64, 'base64'), m = new Uint8Array(w * h);
-  for (let i = 0; i < m.length; i++) m[i] = (bits[i >> 3] >> (i & 7)) & 1;
-  sh.edges = shadowEdges(m, w, h); delete sh.edgeMask;
+  const { w, h, b64, unread } = sh.edgeMask, bits = Buffer.from(b64, 'base64'), none = Buffer.from(unread, 'base64'), m = new Uint8Array(w * h);
+  for (let i = 0; i < m.length; i++) m[i] = (none[i >> 3] >> (i & 7)) & 1 ? 2 : (bits[i >> 3] >> (i & 7)) & 1;
+  sh.edges = { ...shadowEdges(m, w, h), jag: sh.grid?.thick >= SHADOW_EDGE.thick ? sh.grid.share : 0 }; delete sh.edgeMask;
 }
 
 /** Cascades as the game can reach them, by the light they go on (recipe 45) */
@@ -58,7 +58,7 @@ export function shadowBlack({ sh, P, add }) {
   }
 }
 
-/** Stripes and stepped edges of the shadow map (shadowEdges), measured on the shadow alone. Facts: a pixel-art or hard-edged look may want the blocks */
+/** Stripes (shadowEdges) and edges the shadow map's pixels decide (shadowGrid), measured on the shadow alone. Facts: a pixel-art or hard-edged look may want the blocks */
 export function shadowEdgeHints({ sh, cascadeWay, add }) {
   const ed = sh?.edges;
   if (sh?.edgeNoise >= SHADOW_EDGE.noise) add('fact', 'shadow-edges-unread', `shadow stripes and stepped edges not measured: ${pc(sh.edgeNoise)} of the picture changes between two identical renders (film grain or animated post), which reads as stripes that are not there.`, 0,
@@ -66,11 +66,10 @@ export function shadowEdgeHints({ sh, cascadeWay, add }) {
   else if (ed) {
     const values = `${list(sh.settings ?? [])}, shadow depth range ${r2(sh.depthRange)} m`;
     if (ed.stripes >= SHADOW_EDGE.stripes)
-      add('fact', 'shadow-stripes', `shadow stripes on ${pc(ed.stripes)} of the picture (thin lit / shadowed bands on surfaces, read at canvas pixels): a surface shadowing itself, or many thin casters such as leaves or a fence. In play: ${values}.`, ed.stripes,
+      add('fact', 'shadow-stripes', `shadow stripes on ${pc(ed.stripes)} of the picture (several thin lit / shadowed bands side by side, read at canvas pixels): a surface shadowing itself, or many thin casters such as leaves or a fence. In play: ${values}.`, ed.stripes,
         `shadow stripes on ${pc(ed.stripes)} of the picture (self-shadowing or thin casters); in play: ${values}.`);
-    // Why the texel gate: leaf and fence shadows have corners too, and a map whose pixels are smaller than a step cannot be what made it
-    if (ed.jag >= SHADOW_EDGE.jag && !(sh.texelPx < SHADOW_EDGE.texelPx))
-      add('fact', 'shadow-jag', `stepped shadow edges on ${pc(ed.jag)} of the picture (read at canvas pixels): shadow map pixels seen as blocks, or many small casters. In play: ${values}${sh.texelPx ? `, one shadow texel is about ${r2(sh.texelPx)} screen pixels at the view's focus` : ''}${cascadeWay ? `; ${cascadeWay}` : ''}.`, ed.jag,
-        `stepped shadow edges on ${pc(ed.jag)} of the picture; in play: ${values}${cascadeWay ? `; ${cascadeWay}` : ''}.`);
+    if (ed.jag >= SHADOW_EDGE.jag)
+      add('fact', 'shadow-jag', `stepped shadow edges on ${pc(ed.jag)} of the picture: moving the shadow map's pixel grid by half a pixel, with nothing else moved, moves those edges by 3 or more screen pixels, so the map's pixels decide their shape. In play: ${values}${sh.texelPx ? `, one shadow texel is about ${r2(sh.texelPx)} screen pixels at the view's focus` : ''}${cascadeWay ? `; ${cascadeWay}` : ''}.`, ed.jag,
+        `stepped shadow edges on ${pc(ed.jag)} of the picture (the map's pixels decide them); in play: ${values}${cascadeWay ? `; ${cascadeWay}` : ''}.`);
   }
 }

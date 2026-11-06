@@ -75,6 +75,7 @@ async function saveCase(mut) {
   if (ok === true && reason != null) return `load succeeded where check() said '${reason}' ${note}`;
   const p = P(); if (p && !p.every(Number.isFinite)) return `the loaded player position is not finite: ${p} ${note}`;
   try { engine.step(0.2, { describe: false }); } catch (e) { return `stepping after a ${ok ? 'good' : 'refused'} load threw: ${e.message} ${note}`; }
+  if (engine.error) return `stepping after a ${ok ? 'good' : 'refused'} load froze the game: ${engine.error.message} ${note}`;   // a hook's throw is reported, not thrown
   if (performance.now() - t0 > 20000) return 'too slow';
   return null;
 }
@@ -211,8 +212,27 @@ export const specs = [
         out.body = { ok: await S.load('fzr-body'), err: engine.error?.message };
         try { engine.step(0.2, { describe: false }); } catch (e) { out.body.step = e.message; }
         clear();
+        // 11. a part that is not the shape its load reads: a raw code error ('in' on a number, a null quest, a number as a list) and frozen gameplay, or a whole bag gone without a word. Refused, rolled back
+        const parts = {
+          containers: [1e308, 'abc', { '': [] }, { chest: 5 }], inventory: [5, { items: 'abc' }], quests: [5, { state: { 'first-light': null } }, { state: { 'first-light': { step: 0, parts: 5 } } }],
+          terrain: [1e308, { t: {} }, { h: [1, 2] }, { h: ['a', 0, 1] }, { t: [[0.5, 0, 1]] }],
+        };
+        out.parts = {};
+        for (const [part, values] of Object.entries(parts)) for (const [n, v] of values.entries()) {
+          await edit('fzr-part', s => { s.parts[part] = v; });
+          const was = JSON.stringify(engine.vars.flags), ok = await S.load('fzr-part');
+          out.parts[part + n] = { ok, err: engine.error?.message }; clear();
+          if (ok !== false || JSON.stringify(engine.vars.flags) !== was) out.partsBad = part + n;
+        }
+        // 12. a world step that is not a whole number: the load passed and the far-record turn buckets[step % period] threw in the next fixed step
+        await edit('fzr-step', s => { s.parts.world.step = 3.5; });
+        out.step = { ok: await S.load('fzr-step'), err: engine.error?.message };
+        try { engine.step(0.2, { describe: false }); } catch (e) { out.step.step = e.message; }
+        out.step.err ??= engine.error?.message; clear();
         return out;
       });
+      check('[guard] a containers, inventory, quests or terrain part of the wrong shape is refused: load false, no gameplay error', !r.partsBad && Object.values(r.parts).every(p => p.ok === false && !p.err), JSON.stringify(r.parts));
+      check('[guard] a world step that is not a whole number is refused at load, and the game steps on', r.step.ok === false && !r.step.err && !r.step.step, JSON.stringify(r.step));
       check('[guard] a physics body far past float precision is refused at load, and the game steps on', r.body.ok === false && !r.body.err && !r.body.step, JSON.stringify(r.body));
       check('[guard] a damaged interactions part is refused: load false, no gameplay error', r.int.ok === false && !r.int.err, JSON.stringify(r.int));
       check('[guard] a world record with a number as its motion is refused at load (load false), and the fixed step raises no gameplay error', r.motion.ok === false && !r.motion.err && !r.motion.step, JSON.stringify(r.motion));

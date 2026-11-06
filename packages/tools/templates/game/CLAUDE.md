@@ -26,7 +26,7 @@ with its real picture), then widen it. Stop at DESIGN.md "Done for this version"
 4. No abstraction, option or "for later" code nobody asked for. A new way replaces the old one: delete the old in the same change.
 5. Debugging: root cause first (grep the callers, `engine.describe()`, recipe 16 §11), fix it once where it lives. Cannot reproduce: say what is missing.
 6. Check the license, and tell the user, before using someone else's code or assets.
-7. End of a piece: logic with weight leaves one small test or assert; a picture round ends with one shot.
+7. End of a piece: logic with weight leaves a small test or assert; a picture round ends with one shot. Every end state (lose, respawn, retry, reload) gets a scenario; read `verify`'s "ops never run".
 8. A known-limit shortcut gets `// shortcut: <limit>, <when to upgrade>`. Other comments: only the why.
 9. Never cut: save-data safety, input checks at data entry, what the user asked for.
 10. Report what is true: verified, not verified, still a placeholder. Never call a picture "close to the reference".
@@ -36,10 +36,10 @@ __PICTURE_ROUTE__ Optional looks: recipes 34, 52, 56. Costly things read `engine
 `threedog shot --play` or `threedog snap` run the picture check; other screenshots skip it.
 
 ## Content vs code
-By default shape is code, placement is content (saves read it); plain three.js works too. A model built in code is registered by name in `assets.js`, and where it stands goes in
+By default shape is code, placement is content (saves read it); plain three.js too. A model built in code is registered by name in `assets.js`, and where it stands goes in
 `content/props.js` (`{ model: 'marker', place, x, z }`), plus a template (`content/templates.js`) when it has state. What a save
 stores whole (`world.add`, `engine.content.spawn`, pickups, NPCs) must not be made again at startup; `npm run check` warns; `// runtime: <reason>` ends that. Code holds rules: ops, `onFixed` for game time (damage, cooldowns, AI, timers),
-`onFrame` for what shows (animation, camera, HUD). By default gameplay code lives in `game/`, one file per system (weapons, enemies, waves), each a small createX(engine, ...), and `main.js` only wires them; one small system may stay in one file. Several systems: one `engine.onFixed(dt => { weapons.step(dt); enemies.step(dt); })` in `main.js` fixes their order (separate registrations run as written); `{ phase: 'late' }` reads this step's results; modules with before / after: recipe 14. Made in play: `engine.content.spawn` in an op. Items, NPCs, dialogues and quests go in `content/`; files in `public/`; one-file three.js pieces in `plugins/`. Hundreds of same-kind moving things (shots, crowds, flocks, debris) are `engine.swarm` (recipe 65), not one mesh each.
+`onFrame` for what shows (animation, camera, HUD). By default gameplay lives in `game/`, one file per system, each a createX(engine, ...); `main.js` wires them. Several systems: one `engine.onFixed(dt => { weapons.step(dt); enemies.step(dt); })` in `main.js` fixes their order (separate registrations run as written); `{ phase: 'late' }` reads this step's results; modules with before / after: recipe 14. Made in play: `engine.content.spawn` in an op. Items, NPCs, dialogues and quests go in `content/`; files in `public/`; one-file three.js pieces in `plugins/`. Hundreds of same-kind moving things (shots, crowds, flocks, debris) are `engine.swarm` (recipe 65), not one mesh each.
 
 ## Commands and docs
 `threedog play` runs the game for you (`--stop` ends it), `npm run dev` for a person. After a change: `npm run map` (if code, JSDoc or content changed), `npm run check`, related tests (`threedog test name`). MCP (`.mcp.json`): the dev bridge as tools while the game runs (recipe 16 §10).

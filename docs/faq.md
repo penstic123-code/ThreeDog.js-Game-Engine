@@ -2,7 +2,7 @@
 
 English · [中文](faq.zh-CN.md) · [How ThreeDog thinks](philosophy.md)
 
-These answers describe version 0.8. Versions up to 0.5 had the look layer. Items marked *planned* are not built yet.
+These answers describe version 0.9. Versions up to 0.5 had the look layer. Items marked *planned* are not built yet.
 
 ## The idea
 
@@ -32,7 +32,7 @@ That is the risk the design works hardest against. The engine has no default sty
 
 ### The number of public names went up from 1682 to 1731. Did the engine get bigger?
 
-Version 0.8 stands at 1770 after adding optional features. The rise in 0.6 was mostly how the counting works. The old `look.fog.set({ ... })` wrote dozens of values but counted its verb once, and those values now have names of their own. So the count says little in either direction. Whether the engine is simpler has to show in how often agents go wrong.
+Version 0.9 stands at 1773 after adding optional features. The rise in 0.6 was mostly how the counting works. The old `look.fog.set({ ... })` wrote dozens of values but counted its verb once, and those values now have names of their own. So the count says little in either direction. Whether the engine is simpler has to show in how often agents go wrong.
 
 ## Coordination
 

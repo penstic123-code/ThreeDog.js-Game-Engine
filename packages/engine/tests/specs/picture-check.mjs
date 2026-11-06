@@ -5,7 +5,98 @@ import { probeSource, pictureHints, pictureNumbers } from '@threedog/tools/pictu
 
 const PAGE = '/tests/threads/';
 
+const hintsOf = p => pictureHints({ numbers: pictureNumbers(new Uint8Array(64), 4), probe: p });
+const ids = p => hintsOf(p).map(h => h.id);
+const hintIn = (p, id) => hintsOf(p).find(h => h.id === id);
+
+/** Each case on a fresh engine: build(T, E) places the objects (text, it runs in the page), the answer comes from the probe. kept: lights and layers are back after it */
+async function shootCases(ev, cases) {
+  return ev(async ([src, cases]) => {
+    const probe = (0, eval)('(' + src + ')'), { mk } = threedogThreads, A = threedogThreads.all, T = __threedogThree, out = {};
+    for (const [k, build] of Object.entries(cases)) {
+      const E = mk(A.createEngine, `picture-edges-${k}`);
+      E.scene.background = new T.Color(0x203040);
+      E.camera.position.set(-6, 9, 13); E.camera.lookAt(0, 0, 0); E.camera.updateMatrixWorld();
+      await E.start(); E.haltLoop();
+      const after = (0, eval)('(' + build + ')')(T, E);   // a build may return what to undo once the probe is done
+      E.step(1 / 30);
+      const state = () => { const s = []; E.scene.traverse(o => s.push(o.layers.mask, o.visible, ...(o.isLight ? o.position.toArray() : []))); return JSON.stringify(s); }, before = state();
+      out[k] = await probe(E, { time: false });
+      delete out[k].pixels;
+      out[k].kept = state() === before;
+      after?.();
+      E.dispose();
+    }
+    return out;
+  }, [probeSource, cases]);
+}
+
+const LIT = `const sun = new T.DirectionalLight(0xffffff, 3); sun.name = 'my-sun'; sun.position.set(6, 10, 4); sun.castShadow = true; Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 40 }); sun.shadow.mapSize.set(512, 512); E.scene.add(sun, sun.target);
+  const floor = new T.Mesh(new T.PlaneGeometry(24, 24), new T.MeshLambertMaterial({ color: 0x889988 })); floor.name = 'floor'; floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; E.scene.add(floor);
+  const box = new T.Mesh(new T.BoxGeometry(3, 3, 3), new T.MeshLambertMaterial({ color: 0xaa6644 })); box.name = 'crate'; box.position.y = 1.5; box.castShadow = box.receiveShadow = true; E.scene.add(box);`;
+
 export const specs = [
+  {
+    name: '[guard] picture check: moving film grain reads as no shadow stripes',
+    url: PAGE, software: true,
+    async run({ check, ev }) {
+      // On / off differ by the grain alone in a speckle, and two renders back to back read as still, so the probe has to wait out a frame of it (shadowEdgeMask in probe-shadows.mjs).
+      // The clock here is a fast GPU's, whatever this page's software renderer takes: a render costs 20 ms of it, and a grain frame lasts 1 / 24 s (WebGPU's post runs on the
+      // wall clock; WebGL's on the dt it is handed, and the probe hands it 0). Three phases, because a grain frame may or may not end between the probe's first two reads
+      const clock = phase => `let t = ${phase}, frame = 0; const now = performance.now, real = E._render; performance.now = () => ++t; E._render = (dt, hooks) => { t += 20; const f = Math.floor(t / 1000 * 24), d = (f - frame) * 1.01 / 24; frame = f; return real.call(E, d, hooks); }; return () => { performance.now = now; };`;
+      const lit = phase => `(T, E) => { ${LIT} sun.shadow.mapSize.set(2048, 2048); sun.shadow.bias = -0.0005; sun.shadow.normalBias = 0.03; E.post.add(threedogThreads.grain({ enabled: true, amount: 0.3, size: 1, animated: true })); ${clock(phase)} }`;
+      const r = await shootCases(ev, { a: lit(0), b: lit(14), c: lit(28) });
+      for (const k of ['a', 'b', 'c']) {
+        const j = JSON.stringify({ e: r[k].error, noise: r[k].shadows?.edgeNoise, edges: hintsOf(r[k]) && r[k].shadows?.edges, ids: ids(r[k]) });
+        check(`[guard] phase ${k}: an animated post that changes 24 times a second: no stripes`, !r[k].error && !hintIn(r[k], 'shadow-stripes'), j);
+        check(`[guard] phase ${k}: the grain was there and is said`, r[k].shadows?.edgeNoise >= 0.02 && !!hintIn(r[k], 'shadow-edges-unread'), j);
+      }
+    },
+  },
+  {
+    name: '[guard] picture check: what the shadow map does not shape is no stepped edge',
+    url: PAGE, software: true,
+    async run({ check, ev }) {
+      const pile = `for (let i = 0; i < 40; i++) { const p = new T.Mesh(new T.BoxGeometry(0.5, 1 + i % 3, 0.5), box.material); p.position.set((i % 8) * 1.1 - 4, 1, Math.floor(i / 8) * 1.1 - 2); p.castShadow = true; E.scene.add(p); }`;
+      const r = await shootCases(ev, {
+        corners: `(T, E) => { ${LIT} sun.shadow.mapSize.set(4096, 4096); sun.shadow.bias = -0.0005; ${pile} }`,
+        blocks: `(T, E) => { ${LIT} E.renderer.shadowMap.type = T.BasicShadowMap; sun.shadow.mapSize.set(64, 64); sun.shadow.bias = -0.002; ${pile} }`,
+      });
+      const j = k => JSON.stringify({ e: r[k].error, grid: r[k].shadows?.grid, ids: ids(r[k]), kept: r[k].kept });
+      check('[guard] many real corners on a fine map: silent', !hintIn(r.corners, 'shadow-jag'), j('corners'));
+      check('[guard] the same corners on a coarse hard map: moving the grid moves the edges, and the fact says so', /half a pixel/.test(hintIn(r.blocks, 'shadow-jag')?.text), j('blocks'));
+    },
+  },
+  {
+    name: '[guard] picture check: the shadow grid is read on lights that place themselves, and they come back as the game left them',
+    url: PAGE, software: true,
+    async run({ check, ev }) {
+      const placed = `${LIT} sun.shadow.bias = -0.0005; E.lights.sun.castShadow = false;`;
+      const r = await shootCases(ev, {
+        box: `(T, E) => { ${placed} const player = new T.Object3D(); player.position.set(3, 0, 3); E.scene.add(player); E.shadows.box(sun, { follow: player, extent: 12 }); }`,
+        cascades: `(T, E) => { ${placed} E.shadows.cascades(sun, { count: 3, low: { count: 3 }, maxFar: 400 }); E.step(1 / 30); }`,
+      });
+      for (const k of ['box', 'cascades']) check(`[guard] ${k}: the grid moved and every light and layer is back`, !r[k].error && typeof r[k].shadows?.grid?.share === 'number' && r[k].kept, JSON.stringify([r[k].error, r[k].shadows?.grid, r[k].kept]));
+    },
+  },
+  {
+    name: '[guard] picture check on WebGPU: the shadow grid is read, cascades too',
+    url: '/tests/parity/index.html?backend=webgpu', software: true,
+    async run({ check, ev }) {
+      await ev(src => { window.__probePicture = (0, eval)('(' + src + ')'); }, probeSource);
+      const r = await ev(async () => {
+        const E = window.engine, T = __threedogThree, S = E.scene;
+        const crate = new T.Mesh(new T.BoxGeometry(2, 2, 2), new T.MeshStandardMaterial()); crate.position.y = 1; crate.castShadow = crate.receiveShadow = true;
+        const sun = new T.DirectionalLight(0xffffff, 3); sun.position.set(5, 9, 4); sun.castShadow = true;
+        S.add(crate, sun, sun.target); E.renderer.shadowMap.enabled = true;
+        const read = async () => { E.step(1 / 30); E.step(1 / 30); const { error, shadows } = await window.__probePicture(E, { time: false }); return { error, grid: shadows?.grid }; };
+        const plain = await read(), h = E.shadows.cascades(sun, { count: 3, low: { count: 3 } }), at = sun.position.toArray().join(), cascades = await read(), back = sun.position.toArray().join() === at;
+        h.remove(); S.remove(crate, sun, sun.target);
+        return { plain, cascades, back };
+      });
+      check('[guard] no error, the grid moved, the light is back', !r.plain.error && !r.cascades.error && typeof r.plain.grid?.share === 'number' && typeof r.cascades.grid?.share === 'number' && r.back, JSON.stringify(r));
+    },
+  },
   {
     // [guard] weather as signals: picture code reads rain / snow / cloud from engine.uniforms (a shader can share the same object); they come from
     // the weather state every frame, so a game that draws its own rain still gets them

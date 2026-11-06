@@ -23,8 +23,10 @@ const DEV_STRINGS = {
   initFailed: 'init of module {name}',
   blocked: 'Startup blocked: {n} critical item(s) failed to load, the game cannot start:\n  {list}',
   stalled: 'Startup stalled: still waiting after {s} s for: {list}. A module\'s isReady(e) keeps returning false (or the world never finished its nearby builds); fix that module, or raise engine.loading.timeoutMs if the load is just slow',
-  disposed: 'engine.start() stopped: engine.dispose() was called while it was loading ({at}); a disposed engine cannot start, create a new one',
+  disposed: 'engine.start(): engine.dispose() ran, so this engine will not start; a disposed engine cannot start, create a new one',
 };
+
+const disposedError = () => codedError('engine-disposed', DEV_STRINGS.disposed);
 
 export const startupMethods = {
   /**
@@ -34,23 +36,30 @@ export const startupMethods = {
   */
   get loading() { return this._loading ||= new Loading(this); },
 
-  /** Start the game: init modules, preload, apply scenario parameters, wait until the world is ready. A second call returns the first call's Promise. */
-  start() { this._born.start ||= performance.now(); return (this._starting ??= this._start()); },   // measure
+  /**
+   * Start the game: init modules, preload, apply scenario parameters, wait until the world is ready. A second call returns the first call's Promise.
+   * dispose() rejects it at once with engine-disposed, and a start() after dispose() rejects the same way, also on an engine that had finished starting.
+   */
+  start() {
+    this._born.start ||= performance.now();   // measure
+    // raced, not only checked after each await: what _start awaits can stay pending for good after dispose (a model, a game's init), and whoever booted the engine must still hear
+    return (this._starting ??= Promise.race([this._start(), new Promise((_, stop) => this.signal.addEventListener('abort', () => stop(disposedError()), { once: true }))]));
+  },
 
-  /** @internal stop when dispose() ran during an await of start() */
-  _alive(at) { if (this.disposed) throw codedError('engine-disposed', fmt(DEV_STRINGS.disposed, { at })); },
+  /** @internal stop the rest of _start when dispose() ran during one of its awaits */
+  _alive() { if (this.disposed) throw disposedError(); },
 
   /** @internal */
   async _start() {
+    this._alive();
     // Dev server only (npm run dev): if main.js forgot window.engine = engine, set it so the dev bridge and console can find the engine; leave an existing one alone (including tests with several engines)
     if (DEV_SERVER && typeof window !== 'undefined' && !window.engine) window.engine = this;
-    this._alive('starting');
     this.phase = 'starting';                   // from here until the world is built: frame hooks only, no fixed step (loop.js)
     await this.saves.whenReady;                    // read the save index into memory (IndexedDB is async) so saves.list / check are synchronous afterwards
-    this._alive('reading saves');
+    this._alive();
     await this._startRenderer();               // WebGPURenderer: init (or fall back) before anything draws or compiles; WebGL: nothing to do
     plugAtStart(this);                         // the plugins folder: before module init, so a module from a plugin inits with the others (plugins.js)
-    this._alive('plugging plugins');
+    this._alive();
     this._checkOptional();                    // optional dependencies that affect gameplay are missing: warn once in dev (modules.js)
     if (!this.headless) this._loop();
     this.ui._check();                          // a UI part name the game set but no module declared is a typo: fail now, not silently
@@ -75,7 +84,7 @@ export const startupMethods = {
       }
       if (this._fatal().length) return this._blocked(this._fatal());
       timing[m.name] = { init: ms(t) };
-      this._alive('init of ' + m.name);
+      this._alive();
     }
     this.phase = 'loading';                    // a module installed from now on runs its init at once (modules.js)
     const tp = performance.now();   // measure
@@ -84,11 +93,11 @@ export const startupMethods = {
     // an unknown name rejects here with the manifest line to add
     await Promise.all([this.assets.preload(progress), ...this.ui.fonts.map(n => this.assets.font(n))]);
     const preloadMs = ms(tp), tr = performance.now();   // measure
-    this._alive('preloading assets');
+    this._alive();
     if (this._fatal().length) return this._blocked(this._fatal());
     let streamMs = null;                       // time until the "required nearby" builds in the stream registry finished
     await this._urlState.early();             // scenario parameters: save, position, time, weather
-    this._alive('applying scenario parameters');
+    this._alive();
     ls?.update({ progress: 0.5, text: this.t('common.generating', { name: this.t('common.world') }) });
     await this._waitReady(timing, tr, ms, v => { streamMs = v; }, () => streamMs).catch(why => Array.isArray(why) ? this._blocked(why) : Promise.reject(why));
     // Compile every visible material for the current lights now, behind the loading screen, instead of stalling the first frame that shows it
@@ -109,7 +118,7 @@ export const startupMethods = {
     // the page's thread is idle until the GPU is done: the one-time warm-ups modules queued run now instead of in the first frame (rigid)
     for (const f of this._whileCompiling.splice(0)) { try { f(); } catch (err) { reportError(this, err, 'warm-up while compiling', { soft: true }); } }
     await Promise.all([compiling, post]);
-    this._alive('compiling shaders');
+    this._alive();
     // One hidden frame behind the loading screen: shadow depth materials, the post passes and the background quad are programs compileAsync
     // never sees, and without this frame they compiled in the first frame the player saw (a 300 ms hitch measured)
     if (!this.headless) { try { this._render(0); } catch (err) { reportError(this, err, 'render (warm-up frame)', { soft: true }); } }
@@ -132,7 +141,7 @@ export const startupMethods = {
     this.ui.open('title');                     // the title screen, only when the game turned it on (createEngine({ ui: { title: {...} } }))
     await this._urlState.late();              // scenario parameters: skip the cutscene, wait, align the time, then emit state:applied
     startHeadlessLoad(this);                  // headless: what the game sets up after start (a species, a teleport) still loads with no step() (headlessLoad.js)
-    this._alive('applying scenario parameters');
+    this._alive();
     this.phase = 'running';
     return this;
   },
@@ -148,13 +157,13 @@ export const startupMethods = {
     if (!isWebGPU(r)) { this._backend = { requested: 'webgl', backend: 'webgl', reason: null }; return; }
     const forced = !!r.backend?.parameters?.forceWebGL;   // the game asked for the WebGL2 backend itself: not a fallback
     let reason = forced || (r.initialized && r.backend.isWebGPUBackend) ? null : await whyNoWebGPU();
-    this._alive('looking for WebGPU');
+    this._alive();
     if (reason && want.fallback === 'error') {
       throw codedError('renderer-backend', `[threedog] WebGPU unavailable (${reason}) and createEngine({ fallback: 'error' }) asked not to fall back; `
         + "fallback: 'webgl2' runs the same renderer on WebGL2 (your TSL keeps working), 'webgl' runs WebGLRenderer (GLSL only)");
     }
     if (reason && want.fallback === 'webgl') this._swapToWebGL(r);
-    else if (!r.initialized) { await r.init(); this._alive('initializing WebGPU'); }
+    else if (!r.initialized) { await r.init(); this._alive(); }
     const backend = backendName(this.renderer);
     // the probe said yes but three still fell back (a device lost in between): say so all the same
     if (!forced && backend === 'webgl2') reason ??= 'three fell back to its WebGL2 backend during init()';
@@ -251,7 +260,7 @@ export const startupMethods = {
       const t0 = performance.now();   // measure: wall clock, so a module that never turns ready ends the wait instead of hanging
       const check = () => {
         if (done) return;
-        if (this.disposed) { done = true; rej(codedError('engine-disposed', fmt(DEV_STRINGS.disposed, { at: 'waiting for the world' }))); return; }
+        this._alive();
         // Headless mode has no real-time loop: run one frame by hand (time does not advance, jobs ignore real time) so terrain and other modules keep loading
         if (this.headless) this._frameHooks(0, true);
         const waiting = [...this.modules.values()].filter(m => m.isReady && !m.isReady(this));

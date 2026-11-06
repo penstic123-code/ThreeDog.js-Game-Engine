@@ -19,6 +19,8 @@ import { codedError } from '../../core/base/errorHints.js';
 import { Container } from './Container.js';
 import { Containers } from './Containers.js';
 import { followRuntimeIds } from '../../core/saves/saveIds.js';
+import { refuseSave } from '../../core/saves/saveValues.js';
+import { isPlainObject } from '../../core/base/util.js';
 import { inventoryWindow, windowData, defineInventoryOps, INVENTORY_STRINGS } from './inventoryOps.js';
 
 export class Inventory {
@@ -42,6 +44,7 @@ export class Inventory {
     // version 1 is the current shape; raise it with a migrate step when it changes. seq: the numbering of entry keys (sword#3); a save without it continues
     // after the highest key it holds
     engine.saves.register('inventory', { atomic: true, version: 1, save: () => ({ seq: this._seq, items: this.home._save() }), load: d => {
+      if (d != null && !(isPlainObject(d) && (d.items == null || Array.isArray(d.items)))) refuseSave('inventory', 'the part', 'must be { seq, items: [{ id, count }] }', d);
       this.home._load(d?.items);
       const top = Math.max(0, ...this.home._entries.map(x => Number(x.key.split('#')[1]) || 0));
       this._seq = Number.isInteger(d?.seq) && d.seq >= top ? d.seq : top;

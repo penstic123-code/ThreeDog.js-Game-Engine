@@ -136,7 +136,7 @@ engine.npcs.avoid.set(false);                           // turn off (ghosts, cro
 ```
 - Far away (no model) NPCs are simulated from data without per-NPC avoidance; a few steps after a model is built on approach they get pushed apart.
 - `nav({ crowd: true })` replaces this push with Recast crowd agents: they route around obstacles along the navmesh but do not guarantee identical
-  results after a load. The push routes around nothing and only keeps NPCs from overlapping. For replays and saves use the push; for crowds going
+  results after a load, and the player is no agent, so crowd NPCs walk through the player. The push routes around nothing and only keeps NPCs from overlapping. For replays and saves use the push; for crowds going
   around big obstacles use crowd.
 - Behaviors you write are not avoided automatically: after your own `character.move`, call `engine.npcs.avoid.push(rec, npc.character, dt)` once
   (inside `near`, before writing back to the data).

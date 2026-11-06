@@ -2,6 +2,7 @@
 // quests, photo mode, ambience, debug.
 import type { Object3D, Vector3, Vector2, Quaternion, Texture, ColorLike, Vec3Like, Ease, Handle, Range, XZ, Loose, PositionLike, Material } from './common';
 import type { Engine } from './core';
+import type { LinkCrossing, NavPathPoint } from './nav';
 import type { Input } from './generated/core/input/Input';
 import type { Animator, AnimatorOptions, Rideable } from './physics';
 import type { WorldRecord } from './generated/modules/world/World';
@@ -259,12 +260,12 @@ export interface ParticleOptions {
   wind?: number;
   /** Wind direction [x, y, z] */
   windDir?: number[];
-  /** Size at birth / at death (meters) */
-  size?: Range;
-  /** Color at birth / at death (one color, or [birth, death]; an array, not a tuple, so a plain JS literal [0xffffff, 0xdddddd] type-checks) */
-  color?: ColorLike | ColorLike[];
-  /** Opacity at birth / at death, 0–1 */
-  opacity?: Range;
+  /** Size at birth / at death (meters), or stops over life: evenly spaced [a, b, c] or timed [[0, a], [0.2, b], [1, c]] (0 birth, 1 death) */
+  size?: Range | number[][];
+  /** Color at birth / at death (one color, or [birth, death]; an array, not a tuple, so a plain JS literal [0xffffff, 0xdddddd] type-checks), or stops over life as for size */
+  color?: ColorLike | ColorLike[] | ColorLike[][];
+  /** Opacity at birth / at death, 0–1, or stops over life as for size: [[0, 0], [0.1, 0.8], [1, 0]] fades in, then out */
+  opacity?: Range | number[][];
   /** Texture (asset name, path or THREE.Texture); a soft round dot if omitted */
   texture?: string | Texture | null;
   /** 'normal' | 'additive' (glowing blend, for sparks) */
@@ -277,11 +278,17 @@ export interface ParticleOptions {
   fog?: boolean;
   /** Largest on-screen size of one particle in pixels (smoke drifting past the camera stays bounded), default 512 */
   maxPixels?: number;
+  /** Default particles per meter the emitter moves for attach, on top of rate, spread along the path it moved; default 0 @experimental */
+  ratePerMeter?: number;
+  /** Meters over which a particle fades where it meets what writes depth; default 0, off. Set at define, not in overrides. On WebGLRenderer it costs one depth-only draw of the scene per render while such an effect is on screen @experimental */
+  soft?: number;
 }
 /** Continuous emitter returned by attach() (a handle) */
 export interface ParticleEmitter extends Handle {
   /** Particles per second (can be changed at any time) */
   rate: number;
+  /** Particles per meter the object moves, on top of rate (can be changed at any time) @experimental */
+  ratePerMeter: number;
   /** false pauses */
   active: boolean;
   /** Stop and remove (also removed automatically when the object leaves the scene) */
@@ -934,7 +941,7 @@ export interface CharactersApi {
    * Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or
    * null if unreachable
    */
-  findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }): XZ[] | null;
+  findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }): NavPathPoint[] | null;
   /**
    * Pass detailed: true: returns { status, path }, distinguishing 'ok' found | 'noPath' unreachable | 'notReady' nav is installed but the mesh is not
    * built yet (path is the A* fallback result and may be inaccurate)
@@ -945,14 +952,19 @@ export interface CharactersApi {
    * paths with threads on or off). Recipe 12 section 4
    */
   findPathAsync(
-    from: PositionLike, to: PositionLike, done: (path: XZ[] | null, status: 'ok' | 'noPath' | 'notReady') => void,
+    from: PositionLike, to: PositionLike, done: (path: NavPathPoint[] | null, status: 'ok' | 'noPath' | 'notReady') => void,
     opts?: { radius?: number; step?: number; maxNodes?: number }
   ): { remove(): void };
   /** How many findPathAsync requests leave per fixed step (default 32); the rest wait for the next steps */
   pathsPerStep: number;
+  /**
+   * Bends a link crossing away from its straight line: t 0-1, called each step after position is set on the line, write to position. Depends only on its arguments, so a
+   * crossing saved halfway resumes on the same curve. null = the straight line @experimental
+   */
+  linkPose: ((t: number, position: Vector3, crossing: LinkCrossing, character: Character) => void) | null;
 }
 /** Return value of findPath(..., { detailed: true }) */
-export interface PathResult { status: 'ok' | 'noPath' | 'notReady'; path: XZ[] | null }
+export interface PathResult { status: 'ok' | 'noPath' | 'notReady'; path: NavPathPoint[] | null }
 /**
  * Parameters of findSpawn(): minH/maxH height range (meters, default unlimited), maxSlope maximum slope (default 0.3), waterMargin minimum meters above
  * the water (default 0.5)

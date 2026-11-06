@@ -76,6 +76,8 @@ The same steps as a file: `tests/scenarios/<name>.json` with `{ "press": … }`,
 - **Simulated-input checks** (`press`, `hold`, `engine.input.simulate`): bridge key events through the game's input path, never a physical keyboard/mouse. `verify` prints which layer each check ran on, what it did **not** prove (pointer lock and mouse look, real GPU/visuals, real FPS) and coverage (ops run vs defined; modules tested, indirect or untested; uses `engine.catalog()`); `scenario` prints the same coverage, and `--json` has the full lists.
 - **Visual checks** (`snap`, `shot`): the only ones that see the picture (exposure, color, UI overlap). Slowest; take them last.
 
+**Script the failures, not only the win.** A run that only wins says nothing about the routes a player takes after a mistake. Every end state gets a scenario: lose, die and respawn, retry, reload mid-run (`threedog reload` between bridge commands; a scenario file has no reload step). After each run, read `ops never run` in the `verify` report: each op there is a rule no script reached. Then check what the player stands in after the failure: a respawn point the level has since closed off, a hit that lands the step after a blow that should have ended the contact, a timer or lock left over from the last attempt.
+
 Playing a game through from a script, the five things that cost the most time:
 - **Start clean.** Enter on a title picks Continue when a save exists, so a rerun by keys plays the last autosave. `state fresh=1` deletes the saves and
   goes back to the title, `play=1` starts the run; `?fresh&play` does the same in a URL. `session.newGame()` alone leaves the title open.

@@ -5,8 +5,9 @@
 // the data (count, positions) must match exactly and the pictures must agree in brightness and in where the particles are (lit-pixel centroid).
 import * as THREE from 'three';
 import * as TG from 'three/webgpu';
+import * as TSL from 'three/tsl';
 import 'threedog/tsl';
-import { createEngine } from '../../index.js';
+import { createEngine, particles } from '../../index.js';
 import { bindUniforms } from '../../render/engineUniforms.js';
 import { swapWebGPUPart } from '../../render/backend.js';
 import { Particles } from '../../modules/particles/Particles.js';
@@ -138,4 +139,230 @@ window.fxParticles = async () => {
     out.errors.noTslWeather = tryIt(() => makeSystem(HGPU, 'snow', {}, { area: 14, count: 10, base: SNOW }));
   } finally { swapWebGPUPart('particles', keep); }
   return out;
+};
+
+// ---- the soft option: pictures of one particle in front of a wall, on every route and target
+const PIX = b => b[(H / 2 * W + W / 2) * 4];
+/** The red of the middle pixel of one draw of scene, on target or the canvas (a white additive particle over black: its alpha, 0..255) */
+async function middle(r, scene, camera, target) {
+  r.setClearColor(0, 1); r.setRenderTarget(target ?? null); r.render(scene, camera);
+  if (target) {
+    const b = new Uint8Array(W * H * 4);
+    const px = r.isWebGPURenderer ? new Uint8Array(await r.readRenderTargetPixelsAsync(target, 0, 0, W, H)) : (r.readRenderTargetPixels(target, 0, 0, W, H, b), b);
+    r.setRenderTarget(null);
+    return PIX(px);
+  }
+  const x = Object.assign(document.createElement('canvas'), { width: W, height: H }).getContext('2d', { willReadFrequently: true });
+  x.drawImage(r.domElement, 0, 0);
+  return PIX(x.getImageData(0, 0, W, H).data);
+}
+const SOFT_CAM = new THREE.PerspectiveCamera(50, W / H, 0.1, 200); SOFT_CAM.position.set(0, 0, 7); SOFT_CAM.lookAt(0, 0, 0); SOFT_CAM.updateMatrixWorld();
+const SOFT_ORTHO = Object.assign(new THREE.OrthographicCamera(-8, 8, 6, -6, 0.1, 200), { orthoSize: 12 }); SOFT_ORTHO.position.set(0, 0, 7); SOFT_ORTHO.lookAt(0, 0, 0); SOFT_ORTHO.updateMatrixWorld();
+const STILL = { max: 4, lifetime: [100, 100], speed: 0, spread: 0, gravity: 0, drag: 0, size: 3, color: 0xffffff, opacity: 1, blending: 'additive', fog: false };
+
+/** Values of the slots written so far: [[got, want]...] compared by the spec */
+const LIFE = { max: 8, lifetime: [4, 4], speed: 0, spread: 0, gravity: 0, drag: 0, fog: false };
+const srgb = c => new THREE.Color(c).r;   // a color's red in the linear space the attribute holds
+const refuse = fn => { try { fn(); return 'no error'; } catch (e) { return String(e.message); } };
+
+/** A game's own material reading aLife, per route: color = aLife, at the particle's place */
+function ownMaterial(fx, gpuRoute) {
+  if (!gpuRoute) return new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.NoBlending,
+    vertexShader: 'attribute float aLife; attribute float aAlpha; varying float vLife; void main() { vLife = aLife; gl_PointSize = aAlpha > 0.0 ? 40.0 : 0.0; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
+    fragmentShader: 'varying float vLife; void main() { gl_FragColor = vec4(vec3(vLife), 1.0); }' });
+  const m = new TG.PointsNodeMaterial({ transparent: true, depthWrite: false, blending: THREE.NoBlending, sizeAttenuation: false });
+  m.sizeNode = TSL.float(40);   // no positionNode: the engine's places it
+  m.colorNode = TSL.vec4(TSL.vec3(TSL.attribute('aLife', 'float')), 1);
+  return m;
+}
+
+window.fxOverLife = async () => {
+  const routes = {};
+  for (const [name, h, target] of [['webgl', HGL, glRT], ['webgl2-backend', HGPU, gpuRT]]) {
+    const P = new Particles(h), gpuRoute = h === HGPU, c = routes[name] = {};
+    const one = (id, opts, age = 1, emit = {}) => { const fx = P.define(id, { ...LIFE, ...opts }); P.emit(id, [0, 0, 0], { count: 1, ...emit }); P.update(age); return fx; };
+    // aLife: six particles of different lives
+    const fx = P.define('life', { ...LIFE, max: 6, lifetime: [2, 8] }); P.emit('life', [0, 0, 0], { count: 6 }); P.update(1);
+    c.life = [...Array(6).keys()].map(i => [fx.aLife.array[i], fx.age[i] / fx.life[i]]);
+    c.lifeUploads = fx.aLife.version > 0 && fx.aLife.updateRanges.length > 0;
+    P.clear('life');
+    // a game's material
+    const own = one('own', { lifetime: [4, 4] }, 1);
+    own.material = ownMaterial(own, gpuRoute);
+    if (gpuRoute) c.ownNodes = { placed: !!own.material.positionNode, sized: own.material.sizeNode !== own._own.sizeNode, plain: refuse(() => { own.material = new THREE.PointsMaterial(); }) };
+    h.camera = SOFT_CAM;
+    c.ownMaterial = await middle(h.renderer, h.scene, SOFT_CAM, target);
+    h.camera = cam; own.material = null; P.clear('own');
+    // the two-point form, against the old sum
+    const two = one('two', { size: [1, 3], opacity: [0.8, 0], color: [0xff0000, 0x0000ff] }, 1), k = 0.25;
+    c.twoPoint = [[two.aSize.array[0], 1 + 2 * k], [two.aAlpha.array[0], 0.8 * (1 - k)], [two.aColor.array[0], 1 - k], [two.aColor.array[1], 0], [two.aColor.array[2], k]];
+    P.clear('two');
+    const single = one('single', { size: 2, opacity: 0.5, color: 0xff0000 }, 1);
+    c.single = [[single.aSize.array[0], 2], [single.aAlpha.array[0], 0.5], [single.aColor.array[0], 1]];
+    P.clear('single');
+    // timed: 0 -> 1 by 0.25, back to 0 at 1; lives 4 s
+    const fade = one('fade', { opacity: [[0, 0], [0.25, 1], [1, 0]] }, 0.5), got = [[fade.aAlpha.array[0], 0.5]];
+    P.update(0.5); got.push([fade.aAlpha.array[0], 1]); P.update(1.5); got.push([fade.aAlpha.array[0], 0.5]); c.fade = got; P.clear('fade');
+    // even: three stops
+    const even = one('even', { size: [1, 5, 2], color: [0x000000, 0xffffff, 0x000000] }, 2);
+    c.even = [[even.aSize.array[0], 5], [even.aColor.array[0], 1]];
+    P.update(1); c.even.push([even.aSize.array[0], 3.5], [even.aColor.array[0], 0.5]); P.clear('even');
+    const ends = one('ends', { size: [[0.25, 2], [0.5, 4]] }, 0.5);
+    c.ends = [[ends.aSize.array[0], 2]]; P.update(2.5); c.ends.push([ends.aSize.array[0], 4]); P.clear('ends');
+    // overrides: two batches, two curves, one effect
+    const bat = P.define('bat', { ...LIFE, opacity: [1, 1] });
+    P.emit('bat', [0, 0, 0], { count: 1 }); P.emit('bat', [0, 0, 0], { count: 1, overrides: { opacity: [[0, 0], [0.5, 1], [1, 0]] } }); P.update(1);
+    c.batches = [[bat.aAlpha.array[0], 1], [bat.aAlpha.array[1], 0.5]]; P.clear('bat');
+    // a fade-in on screen
+    const fi = one('fi', { ...STILL, lifetime: [4, 4], opacity: [[0, 0], [0.25, 1], [1, 1]] }, 0);
+    c.fadeIn = [await middle(h.renderer, h.scene, SOFT_CAM, target)]; P.update(1); c.fadeIn.push(await middle(h.renderer, h.scene, SOFT_CAM, target)); P.clear('fi');
+    for (const n of ['life', 'own', 'two', 'single', 'fade', 'even', 'ends', 'bat', 'fi']) P.effects.get(n).dispose();
+  }
+  const P = new Particles(HGL); P.define('ok', {});
+  const refused = {
+    'one stop': refuse(() => P.define('x', { size: [1] })),
+    'times out of order': refuse(() => P.define('x', { opacity: [[0.5, 1], [0.2, 0]] })),
+    'a time past death': refuse(() => P.define('x', { opacity: [[0, 1], [1.5, 0]] })),
+    'forms mixed': refuse(() => P.define('x', { size: [[0, 1], 2] })),
+    'a word for a size': refuse(() => P.define('x', { size: ['big', 'small'] })),
+    'in emit overrides': refuse(() => P.emit('ok', [0, 0, 0], { overrides: { size: [1] } })),
+    'in attach overrides': refuse(() => P.attach('ok', h0(), { overrides: { opacity: [[0, 1], [0, NaN]] } })),
+    'in particles({ effects })': refuse(() => particles({ effects: { a: { size: [1] } } })),
+    'in particles({ default })': refuse(() => particles({ default: { opacity: [] } })),
+  };
+  P.effects.get('ok').dispose();
+  return { routes, refused };
+};
+
+const h0 = () => HGL.add(new THREE.Object3D());
+/** x of each live particle, oldest slot first */
+const xs = fx => [...fx.life].flatMap((l, i) => l ? [fx.pos[i * 3]] : []).sort((a, b) => a - b);
+const gaps = x => { const g = x.slice(1).map((v, i) => v - x[i]); return [Math.min(...g), Math.max(...g)]; };
+
+window.fxPerMeter = async () => {
+  const P = new Particles(HGL), TRAIL = { ...LIFE, max: 64, lifetime: [100, 100], rate: 0 }, out = {};
+  const run = (opts, attach, steps) => {
+    const fx = P.define('t', { ...TRAIL, ...opts }), o = h0(), h = P.attach('t', o, attach);
+    P.update(0.01);   // the first step only notes where it is
+    for (const [x, dt = 0.01] of steps) { o.position.x = x; P.update(dt); }
+    const r = { fx, x: xs(fx), h, o };
+    return r;
+  };
+  const done = ({ fx, h, o }) => { h.remove(); HGL.remove(o); P.clear('t'); fx.dispose(); P.effects.delete('t'); };
+  let t = run({ ratePerMeter: 2 }, {}, [[20]]);
+  out.fast = { n: t.x.length, gap: gaps(t.x), last: t.x.at(-1) }; done(t);
+  t = run({ ratePerMeter: 2 }, {}, [[0.3], [0.31], [2.9], [6]]);
+  out.uneven = { n: t.x.length, gap: gaps(t.x) }; done(t);
+  t = run({ rate: 100 }, {}, [[20, 0.2]]);
+  out.rateOnly = t.x; done(t);
+  t = run({ rate: 100, ratePerMeter: 2 }, {}, [[10, 0.05]]);
+  out.both = t.x.length; done(t);
+  t = run({ ratePerMeter: 2 }, {}, [[0], [0]]);
+  out.still = t.x.length; done(t);
+  t = run({ ratePerMeter: 2 }, {}, []); t.h.ratePerMeter = 1; t.o.position.x = 3; P.update(0.01);
+  out.live = xs(t.fx).length; done(t);
+  t = run({ ratePerMeter: 2 }, { ratePerMeter: 1 }, [[3]]);
+  out.attachWins = t.x.length; done(t);
+  t = run({ ratePerMeter: 2 }, {}, []); t.h.active = false; P.update(0.01); t.o.position.x = 50; P.update(0.01); t.h.active = true; P.update(0.01);
+  out.paused = xs(t.fx).length; done(t);
+  t = run({ ratePerMeter: 2 }, {}, []); HGL.still = true; t.o.position.x = 10; P.update(0.01);
+  const during = xs(t.fx).length; HGL.still = false; P.update(0.01);
+  out.frozen = { during, after: xs(t.fx).length }; done(t);
+  const uw = engine.uniforms.uWind.value; engine.uniforms.uWind.value = 2;
+  t = run({ ratePerMeter: 2, wind: 1, windDir: [0, 0, 1] }, {}, [[1]]); P.update(0.1); out.wind = Math.abs(t.fx.pos[2]); done(t);
+  engine.uniforms.uWind.value = uw;
+  t = run({ ratePerMeter: 2, max: 8 }, {}, [[100]]);
+  out.cap = { n: t.x.length, first: t.x[0], last: t.x.at(-1) }; done(t);
+  out.refused = { define: refuse(() => P.define('x', { ratePerMeter: -1 })), attach: (P.define('y', {}), refuse(() => P.attach('y', h0(), { ratePerMeter: -1 }))) };
+  P.effects.get('y').dispose();
+  return out;
+};
+
+/** One renderer, a black wall at z = 0 behind an unseen sheet that writes no depth: the middle pixel of a particle in front of it, hard and with soft 2 */
+async function softCase(r, target, camera = SOFT_CAM) {
+  const h = host(r); h.camera = camera;
+  const P = new Particles(h);
+  const wall = h.add(new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshBasicMaterial({ color: 0 })));
+  const glass = h.add(new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshBasicMaterial({ color: 0, transparent: true, opacity: 0, depthWrite: false })));
+  glass.position.z = 0.3;   // no surface to fade against
+  const at = async (name, gap) => { P.emit(name, [0, 0, gap], { count: 1 }); P.update(0.01); const v = await middle(r, h.scene, camera, target); P.clear(name); P.update(0.01); return v; };
+  P.define('hard', STILL); P.define('soft', { ...STILL, soft: 2 });
+  const out = { hard: await at('hard', 1), near: await at('soft', 0.02), mid: await at('soft', 1), far: await at('soft', 3), behind: await at('soft', -1) };
+  P.effects.get('soft').uniforms.uSoft.value = 4; out.live = await at('soft', 1);   // a gap of 1 m with soft 4 reads a quarter
+  for (const n of ['hard', 'soft']) P.effects.get(n).dispose();
+  h.remove(wall); h.remove(glass);
+  return out;
+}
+
+/** What soft costs a game: render calls per frame on WebGL with it off, on, idle and under a game's material; the material on both routes */
+async function softCost() {
+  const c = {}, P = new Particles(HGL), scene = HGL.scene;
+  const wall = HGL.add(new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshBasicMaterial({ color: 0 })));
+  const glass = HGL.add(new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshBasicMaterial({ color: 0, depthWrite: false })));
+  const renders = async () => { const was = gl.render; let n = 0; gl.render = function (...a) { n++; return was.apply(this, a); }; await middle(gl, scene, SOFT_CAM, glRT); gl.render = was; return n; };
+  const hard = P.define('hard', STILL), soft = P.define('soft', { ...STILL, soft: 2 }), soft2 = P.define('soft2', { ...STILL, soft: 1 });
+  P.update(0.01);
+  P.emit('hard', [0, 0, 1], { count: 1 }); P.update(0.01);
+  c.off = { renders: await renders(), defines: Object.keys(hard.material.defines).length, depth: P._depth !== null, uSoft: 'uSoft' in hard.uniforms };
+  c.idle = { renders: await renders() };
+  P.emit('soft', [0, 0, 1], { count: 1 }); P.emit('soft2', [0, 0, 1], { count: 1 }); P.update(0.01);
+  const mask = glass.layers.mask;
+  c.two = { renders: await renders() };
+  c.restored = glass.layers.mask === mask && scene.overrideMaterial === null && P._depth !== null;
+  P.clear('soft2'); P.update(0.01);
+  const mine = soft.material = new THREE.PointsMaterial({ size: 4 });
+  c.given = { renders: await renders() };
+  soft.material = null; mine.dispose();
+  for (const n of ['hard', 'soft', 'soft2']) P.effects.get(n).dispose();
+  HGL.remove(wall); HGL.remove(glass);
+  // WebGPU: the depth read is in the graph only with soft on, and uSoft with it
+  const G = new Particles(HGPU), hasDepth = fx => 'uSoft' in fx.uniforms;
+  c.nodes = [hasDepth(G.define('a', STILL)), hasDepth(G.define('b', { ...STILL, soft: 2 }))];
+  G.effects.get('a').dispose(); G.effects.get('b').dispose();
+  return c;
+}
+
+/** A real engine with a wall and a soft effect: the picture at the wall and away from it, as the engine draws it */
+async function softEngine(extra, post) {
+  const can = canvas(), e = createEngine({ canvas: can, lights: false, pixelRatio: 1, adaptiveResolution: false, ui: { loading: false }, urlState: false, saveKey: 'test-fx-soft', ...extra });
+  e.use(particles());
+  e.particles.define('s', { ...STILL, soft: 2 });
+  await e.start(); e.haltLoop();
+  e.renderer.toneMapping = THREE.NoToneMapping;
+  e.camera.position.set(0, 0, 7); e.camera.lookAt(0, 0, 0); e.camera.updateMatrixWorld();
+  e.add(new THREE.Mesh(new THREE.PlaneGeometry(60, 60), new THREE.MeshBasicMaterial({ color: 0 })));
+  if (post) e.post.add({ name: 'through', slot: 'ldr', fuse: { glsl: '', tsl: c => c } });
+  const look = z => {
+    e.particles.emit('s', [0, 0, z], { count: 1 }); e.step(1 / 60);
+    const x = Object.assign(document.createElement('canvas'), { width: can.width, height: can.height }).getContext('2d', { willReadFrequently: true });
+    x.drawImage(e.renderer.domElement, 0, 0);
+    const v = x.getImageData(can.width >> 1, can.height >> 1, 1, 1).data[0];
+    e.particles.clear('s'); return v;
+  };
+  const r = { near: look(0.01), mid: look(1), away: look(4), backend: e.describe().renderer?.backend };
+  e.destroy?.();
+  return r;
+}
+
+window.fxSoft = async ({ real = false } = {}) => {
+  const out = {}, errors = [], warned = [], keep = console.error, keepWarn = console.warn;
+  console.error = (...a) => { errors.push(a.join(' ').slice(0, 200)); keep(...a); };
+  console.warn = (...a) => { warned.push(a.join(' ').slice(0, 300)); keepWarn(...a); };
+  const plain = r => { r.setPixelRatio(1); r.setSize(W, H, false); r.toneMapping = THREE.NoToneMapping; r.outputColorSpace = THREE.LinearSRGBColorSpace; return r; };
+  const gpuOf = async (antialias, forceWebGL) => { const r = plain(new TG.WebGPURenderer({ canvas: canvas(), antialias, forceWebGL })); await r.init(); bindUniforms(r, engine.uniforms); return r; };
+  const routes = [['webgl', antialias => plain(new THREE.WebGLRenderer({ canvas: canvas(), antialias })), o => new THREE.WebGLRenderTarget(W, H, o)], ['webgl2-backend', aa => gpuOf(aa, true), o => new TG.RenderTarget(W, H, o)]];
+  if (real) routes.push(['webgpu', aa => gpuOf(aa, false), o => new TG.RenderTarget(W, H, o)]);
+  try {
+    for (const [name, make, rt] of routes) for (const aa of [false, true]) {
+      const r = await make(aa), key = `${name}${aa ? ' msaa' : ''}`;
+      if (name === 'webgpu' && !r.backend.isWebGPUBackend) { out[key] = 'no webgpu here'; r.dispose(); continue; }
+      out[key] = { canvas: await softCase(r), target: await softCase(r, rt({})), msaaTarget: await softCase(r, rt({ samples: 4 })), ortho: await softCase(r, rt({}), SOFT_ORTHO) };
+      r.dispose();
+    }
+    const cost = await softCost();
+    const eng = { 'WebGL, post off': await softEngine({}), 'WebGL, post on, MSAA': await softEngine({ antialias: true }, true) };
+    if (real) { eng['WebGPU, post off'] = await softEngine({ renderer: 'webgpu', fallback: 'error' }); eng['WebGPU, post on, MSAA'] = await softEngine({ renderer: 'webgpu', fallback: 'error', antialias: true }, true); }
+    const P = new Particles(HGL);
+    return { routes: out, cost, engine: eng, refused: refuse(() => P.define('x', { soft: -1 })), errors: [...new Set(errors)].slice(0, 8), warned: [...new Set(warned)] };
+  } finally { console.error = keep; console.warn = keepWarn; }
 };

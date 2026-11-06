@@ -56,7 +56,7 @@ hard-edged or pitch-dark look may want exactly what was measured. All of them re
 | one shadow texel covers X m | the size on the ground of one shadow map pixel, when shadows do not show | cascades: `engine.shadows.cascades(engine.lights.sun, { count })` for the engine sun, `engine.shadows.cascades(light, { count: 3 })` on your own light ([recipe 45](45-cascaded-shadows.md)) |
 | over budget | lit point and spot lights, shadow maps, the largest map size, against `engine.budget` | many lights: `engine.lightPool` ([recipe 09](09-materials-lights-models.md)); shadows: `castShadow`, `light.shadow.mapSize` picked from `engine.tier` |
 | shadows nearly black | how much the fill adds on the shadowed pixels themselves | `engine.bakeProbes` ([recipe 34](34-environment-lighting.md)) or a fill light |
-| shadow stripes, stepped edges | the shadow alone, at canvas pixels: thin bands, or stairs along an edge | the bias, map size and shadow range it lists; stairs also the cascades above |
+| shadow stripes, stepped edges | the shadow alone, at canvas pixels: several thin bands side by side, or edges that move when only the shadow map's pixel grid moves | the bias, map size and shadow range it lists; stairs also the cascades above |
 | fog covers X% | how much of the picture is fog color; printed before a line about the night, since the fog comes first | `scene.fog` |
 
 Limits a game sets per device go through the same check: `engine.budget.enable(engine.tier === 'low' ? { lights: 4 } : { lights: 12 })`. A limit you wrote is

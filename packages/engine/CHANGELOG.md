@@ -2,7 +2,27 @@
 
 What changed in each version and how a game upgrades.
 
-## Unreleased
+## 0.9.0 (2026-11-06)
+
+A game on 0.8.0 upgrades with no code changes, apart from the three points below: a particle list of three or more stops now uses every stop, `engine.start()` after `dispose()` rejects, and a save damaged in the listed ways is refused. Change the `threedog` and `@threedog/*` pins in `package.json` to `^0.9.0`: a `^0.8.0` range does not reach 0.9, so a game in `games/` of a clone would get a second engine from npm.
+
+- Picture check, checked against what seven games really show. `shadow-jag` now moves the shadow map's pixel grid by half a pixel and reads what follows it, in place of counting corners, which stayed the same with a map four times finer. `shadow-stripes` needs at least two bands, and glowing lines through a shadow no longer split it. Moving film grain is no longer read as shadow.
+- `nav({ crowd: true })` NPCs walk to a link's end before crossing, as other walkers do: they started about 1 m short, so a climb cut through the deck. One whose goal lay just past the landing no longer stops short of it.
+- Docs from a real trial: recipe 12 gives where a hatch's ends really sit, in place of the unchecked 0.4 m, a `linkPose` for a hatch, and says a link has no queue; recipe 02 says crowd NPCs walk through the player; recipe 57's ladder read an action that does not exist (`moveBack`), so it could not go down; recipe 64 shows a flipbook on both routes.
+- Tools: a headless browser is closed after 2 idle minutes (was 10), and every tool that opens one first stops what a dead browser left behind, such as a stuck page whose tool was killed.
+- `engine.start()` always answers after `dispose()`: it rejects at once with `engine-disposed`. It used to stay pending for good when `dispose()` ran while it waited on a model, the preload or a module's `init`, and a `start()` after the `dispose()` of a running engine answered as if the engine were alive.
+- `whenReady` of the built-in stream sources, and any `stream.source` or `stream.teleport` asked for after `dispose()`, reject with `stream-removed` instead of waiting for a frame. Waits in game code (`assets.model`, `jobs.add`, `nextFixed`) stay pending after `dispose()`, as before.
+- A damaged save is refused in more cases: a `containers`, `inventory`, `quests`, `terrain` or `grids` part of the wrong shape, and a world `step` that is not a whole number. Each is `save-bad-record` at load (load false, game rolled back) instead of a code error, a game frozen one step later, or a bag emptied without a word. Found by the long fuzz runs.
+- New games' `CLAUDE.md` and recipes 16 and 32 ask for a scenario for every end state (lose, die and respawn, retry, reload mid-run) and a read of `threedog verify`'s "ops never run" list.
+- Recipe 56 lists what draws wrong on WebGPU without a thrown error (`Points` size, `LineLoop`, `linewidth`, `customDepthMaterial`, `MeshDepthMaterial`, `toneMapped`, `dithering`, `texture(map, uv)` and `map.repeat`).
+- The docs no longer say the navigation library can be swapped: a module in the `nav` slot is Recast underneath (CONVENTIONS.md "What can be replaced"). Recipe 12 gives Recast's real download size.
+- `nav({ links: [{ id, from, to, oneWay, radius }] })` (experimental): NPCs path across jumps and ladders. These are Recast off-mesh connections: a path point that starts one has `link: { id, from, to }`, tiles rebuilt by obstacles keep them, and `findPathAsync` sees the same ones. A link that attaches nowhere warns `nav-link` at the build.
+- NPCs, `character.walkTo` and `nav({ crowd: true })` NPCs cross links in a straight line at walking speed unless the game says otherwise: `link:enter` and `link:exit` tell it when (`crossing.seconds` sets how long), `engine.characters.linkPose` bends the line. No default animation. An NPC saved mid-link goes on from the same spot after a load. Recipe 12, section 6.
+- `characters.findPath`, `characters.findPathAsync` and `nav.findPath` now type their points as `NavPathPoint`: `{ x, z }` plus `link` on a point that starts a link. A game without links gets the same points as before and changes nothing; code that walks a path by hand past a link should stop at that point, or use `character.walkTo`.
+- Particles: `size`, `color` and `opacity` take more than two stops, evenly spaced `[a, b, c]` or timed `[[0, a], [0.2, b], [1, c]]`, so a fade-in is possible. The two-point form reads as before; a list of three or more used to drop the rest and now uses them. A bad list throws `[module-params]` at `define`, `emit`, `attach` or `particles()`.
+- Particles: the geometry attribute `aLife` holds each particle's life fraction (0 birth, 1 death) for a game's own material.
+- Particles: `ratePerMeter` (effect option, option of `particles.attach`, live on the handle) emits per meter the emitter moves, spread along the path of the step, on top of `rate`. Default 0.
+- Particles: `soft` fades a particle where it meets what writes depth, default 0, off. On WebGLRenderer it costs a depth-only draw of the scene per render while a soft effect is on screen; on WebGPURenderer's WebGL2 backend it works only with post and antialias on, and warns otherwise.
 
 ## 0.8.0 (2026-11-06)
 

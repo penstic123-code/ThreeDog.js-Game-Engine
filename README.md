@@ -102,17 +102,17 @@ A new game starts on WebGPU with TSL, the node shader language of three.js. In a
 
 **A large city.** On one RTX 5060 laptop with WebGPU at 1280×720, a city 1.9 km across (about 6,400 buildings and 72,000 meshes) runs at about 60 fps with 14,000 moving cars and people, 200 NPCs and 8 real lights, measured with the machine under full load from other tests. Moving objects set the limit: 28,000 of them run at 26 to 35 fps, while a map four times the size holds the same frame time. A 10-minute walk showed no leak, and 12 rounds of save and load came back correct. [Full report](docs/testing/field/2026-11-05-city/acceptance.md) (in Chinese).
 
-**Test suite.** 6,651 checks in 894 items, all passing. CI runs the static checks, a browser group and a build on every push.
+**Test suite.** 6,830 checks in 906 items, all passing. CI runs the static checks, a browser group and a build on every push.
 
 ## Status
 
-1.0 is close. npm holds 0.8.0 and this page describes it, including the editor and `engine.swarm`. Names can still change until 1.0.
+1.0 is close. npm holds 0.9.0 and this page describes it, including the editor and `engine.swarm`. Names can still change until 1.0.
 
 Threedog runs in desktop browsers on Windows and Linux. Mac support comes after 1.0. Multiplayer is not a goal.
 
 ## Quick start
 
-You need [Node.js](https://nodejs.org) 20.19+ or 22.12+. These steps install 0.8.0 from npm:
+You need [Node.js](https://nodejs.org) 20.19+ or 22.12+. These steps install 0.9.0 from npm:
 
 ```sh
 mkdir my-game && cd my-game

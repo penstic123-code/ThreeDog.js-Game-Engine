@@ -64,8 +64,7 @@ export const ERROR_CODES = {
       'is both a condition and a measure. Keep each name in one place.' },
   'engine-disposed': {
     docs: ['api/engine.md'],
-    fix: 'engine.dispose() ran while start() was still loading, so start() stopped. Create a new engine instead of starting a ' +
-      'disposed one.' },
+    fix: 'engine.dispose() ran, so start() stopped or refused to run. Create a new engine instead of starting a disposed one.' },
   'skip-amount': {
     docs: ['recipes/06-clock-events.md', 'api/engine.md'],
     fix: 'engine.skip takes { to: \'06:00\' } (needs the calendar module) or { seconds: 600 } (calendar seconds, > 0).' },
@@ -452,6 +451,10 @@ export const ERROR_CODES = {
     docs: ['recipes/12-navmesh.md', 'api/nav.md'],
     fix: 'The navmesh could not be built from this geometry; paths fall back. The message has the builder\'s reason (usually too few ' +
       'walkable triangles or wrong cell sizes).' },
+  'nav-link': {
+    docs: ['recipes/12-navmesh.md', 'api/nav.md'],
+    fix: 'A nav link needs both ends within its radius of the mesh (which stops about the agent radius short of every edge) and within maxClimb of its height, and the places ' +
+      'where they meet the mesh in the same tile or neighbouring tiles (a tile is tileSize x cellSize meters). Move the end onto walkable ground, raise radius, split a long link in two, or raise tileSize.' },
   'grid-overlap': {
     docs: ['recipes/29-grid.md', 'api/grids.md'],
     fix: 'Two grid items claim the same cell; the second is skipped. Move one, or remove the other first.' },

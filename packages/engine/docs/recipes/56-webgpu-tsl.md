@@ -1,7 +1,7 @@
 # WebGPU and your own TSL materials
 
 **In this recipe**: WebGPU or WebGL · Turning it on, fallbacks · A minimal TSL material · The engine's values as nodes · The engine's shader
-functions · Patches with a `tsl` field (lighting hooks) · Sky and fog hooks · Post effects as nodes · A consistent style · Mistakes, each with the fix · GLSL to TSL
+functions · Patches with a `tsl` field (lighting hooks) · Sky and fog hooks · Post effects as nodes · A consistent style · Mistakes, each with the fix · Drawn wrong without a thrown error · GLSL to TSL
 
 On the WebGPU route a game draws with three.js node materials (`MeshStandardNodeMaterial` ...) and writes shaders in TSL, three's shading
 language in JavaScript. Learn TSL from three itself: the [TSL guide](https://github.com/mrdoob/three.js/wiki/Three.js-Shading-Language) and
@@ -285,6 +285,17 @@ A type mismatch never errors: look at the result (`engine.debug.view('lighting')
 Many materials, many programs: WebGPURenderer builds one program per distinct set of patch uniform objects. Materials given the same
 `detail` / `lighting` options through `applyEffects` share theirs, so a hundred stones build one; a patch you write once and pass
 to every material shares too, a fresh patch object per material builds one program each.
+
+## Drawn wrong without a thrown error
+These come from WebGPURenderer in three.js r187. Nothing throws and the engine's start check does not name them, so the picture is what shows them.
+- `new THREE.Points(geo, new THREE.PointsMaterial({ size: 8 }))` → `const s = new THREE.Sprite(new PointsNodeMaterial({ positionNode: instancedBufferAttribute(attr), size: 8 })); s.count = n; s.frustumCulled = false`: a `Points` object is always 1 px here, and `size` and `sizeNode` work only on the instanced sprite. `engine.particles` already draws this way.
+- `new THREE.LineLoop(geo, mat)` → `new THREE.Line(geo, mat)` with the first point repeated at the end: the renderer skips a `LineLoop` and logs a console error each frame.
+- `new THREE.LineBasicMaterial({ linewidth: 4 })` → `Line2` from `three/addons/lines/webgpu/Line2.js` with `LineGeometry` and `new Line2NodeMaterial({ linewidth: 4 })`: line primitives have no width on WebGPU. The addon's plain `LineMaterial` is a `ShaderMaterial`, so it fails by name.
+- `mesh.customDepthMaterial = m` (or `customDistanceMaterial`) → `material.castShadowPositionNode`, `material.maskShadowNode`, `material.castShadowNode`: only WebGLRenderer reads the old two. The shadow pass already follows a material's `positionNode`.
+- `new THREE.MeshDepthMaterial()` (or `MeshDistanceMaterial`) → a `MeshBasicNodeMaterial` whose `colorNode` reads `depth` from `three/tsl`: neither has a node version, so the mesh draws with an empty `NodeMaterial` after a console error.
+- `map.repeat.set(4, 4)` with `texture(map, myUv)` → `texture(map, myUv).setUpdateMatrix(true)`: a texture node given its own UVs ignores `repeat`, `offset` and `rotation`. `texture(map)` alone follows them.
+- `new THREE.MeshBasicMaterial({ toneMapped: false })` → draw it outside the frame (`engine.ui`): the flag is never read here, so every material gets the frame's tone mapping.
+- `new THREE.MeshStandardMaterial({ dithering: true })` → your own noise in `colorNode`, or a post effect: the flag is never read here, so banding stays.
 
 ## GLSL to TSL
 The language itself is in three's TSL guide. The lines that catch a port:

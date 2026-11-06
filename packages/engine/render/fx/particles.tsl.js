@@ -18,11 +18,11 @@ import { Sprite, PointsNodeMaterial, LineBasicNodeMaterial, InstancedBufferAttri
 import { valueNode } from './uniforms.tsl.js';
 import { registerWebGPUPart } from '../backend.js';
 
-const { Fn, texture, instancedDynamicBufferAttribute, attribute, varying, positionGeometry, modelViewMatrix, screenDPR, uv,
+const { Fn, texture, instancedDynamicBufferAttribute, attribute, varying, positionGeometry, modelViewMatrix, screenDPR, uv, viewportLinearDepth, cameraNear, cameraFar,
   float, vec2, vec3, vec4, select, min, max, cos, sin, mod, smoothstep, step, dot, length, If, Discard } = TSL;
 
 /** @template {string} T @typedef {import('three/webgpu').Node<T>} N */
-/** The particle uniforms as nodes @typedef {{ uScale: N<'float'>, uMaxPx: N<'float'>, uHasMap: N<'float'> }} ParticleNodes */
+/** The particle uniforms as nodes @typedef {{ uScale: N<'float'>, uMaxPx: N<'float'>, uHasMap: N<'float'>, uSoft?: N<'float'> }} ParticleNodes */
 /**
  * The weather uniforms as nodes (modules/weather/particles.js; streaks have uWindDir / uLen, sprites uPx / uMaxPx / uSway / uSwayAmp / uUseMap).
  * Colors are typed vec3 (what they are in the shader): @types/three's 'color' node type lacks the vec3 operators.
@@ -69,23 +69,25 @@ function sprite(mat, count, attrs) {
 const pointCoord = () => vec2(uv().x, uv().y.oneMinus());
 
 /** Same as modules/particles/shaders.js, per particle from instanced attributes. Returns { material, object }; material.uniforms holds the { value } objects. */
-function particles({ attrs, count, fog, additive, maxPixels }) {
-  const u = { uScale: { value: 400 }, uMaxPx: { value: maxPixels }, uHasMap: { value: 0 }, uMap: { value: null } };
+function particles({ attrs, count, fog, additive, maxPixels, soft }) {
+  const u = { uScale: { value: 400 }, uMaxPx: { value: maxPixels }, uHasMap: { value: 0 }, uMap: { value: null }, ...(soft ? { uSoft: { value: soft } } : {}) };
   const m = new PointsNodeMaterial({ transparent: true, depthWrite: false, fog, sizeAttenuation: false, blending: additive ? AdditiveBlending : NormalBlending });
   /** @type {ParticleNodes} */ const U = nodesOf(u);
   const map = mapSlot(u, m);
   const pos = at(attrs.aPos, 'vec3'), size = at(attrs.aSize, 'float'), alpha = at(attrs.aAlpha, 'float');
   m.positionNode = pos;
+  const z = modelViewMatrix.mul(vec4(pos, 1)).z;
   m.sizeNode = Fn(() => {
-    const z = modelViewMatrix.mul(vec4(pos, 1)).z;
     return select(alpha.lessThanEqual(0), float(0), min(size.mul(U.uScale).div(max(0.1, z.negate())), U.uMaxPx)).div(screenDPR);
   })();
+  // meters between the particle and what is drawn behind it; viewportLinearDepth is three's one copy of the depth buffer per render, shared by every effect that reads it
+  const gap = soft ? viewportLinearDepth.mul(cameraFar.sub(cameraNear)).add(cameraNear).add(varying(z)) : null;
   const vAlpha = varying(alpha), vAngle = varying(at(attrs.aAngle, 'float')), vColor = varying(at(attrs.aColor, 'vec3'));
   m.colorNode = Fn(() => {
     const p0 = pointCoord().sub(0.5), c = cos(vAngle), s = sin(vAngle);
     const p = vec2(c.mul(p0.x).sub(s.mul(p0.y)), s.mul(p0.x).add(c.mul(p0.y)));
     const tex = select(U.uHasMap.greaterThan(0.5), map.sample(p.add(0.5)), vec4(1, 1, 1, smoothstep(0.2, 0.5, length(p)).oneMinus()));   // = GLSL smoothstep(0.5, 0.2, x): reversed edges are undefined in WGSL
-    const a = tex.a.mul(vAlpha);
+    const a = soft ? tex.a.mul(vAlpha).mul(gap.div(U.uSoft).clamp()) : tex.a.mul(vAlpha);
     If(a.lessThan(0.01), () => { Discard(); });
     return vec4(vColor.mul(tex.rgb), a);
   })();

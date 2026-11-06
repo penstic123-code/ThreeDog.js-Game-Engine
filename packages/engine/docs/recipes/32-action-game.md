@@ -23,6 +23,8 @@ working example is `examples/action/` (page `/action.html`, the rules in `main.j
   or test shapes instead (recipe 19).
 - `player.die` decides what death does. The example offers `respawn` (`player.placeAt(spawn)`, full hp), `restart` and `gameover` (both end in
   `engine.session.newGame()`, which is async flow and so runs from the frame hook, not inside the op).
+- What a fight sets up, falling undoes. `respawn` leaves the world as it was, so a closed arena gate, a blocked area, a locked camera or a boss phase is still there when the player returns, and a spawn point can end up inside ground that is no longer walkable. Keep one function that undoes the fight and call it from `player.die`; a win calls it too.
+- A blow that ends a contact ends it for both sides: a stomp, a dash through or a parry needs a short window in which that enemy cannot hurt the player, or its touch damage lands the step after. Each of these gets a scenario that loses as well as one that wins (recipe 16 section 2b).
 - Win and lose are the game's rule too: one state field, judged last in the fixed step so it sees this step's hits. The end screen is a `makeWindow`
   with `closable: false` (recipe 26).
 

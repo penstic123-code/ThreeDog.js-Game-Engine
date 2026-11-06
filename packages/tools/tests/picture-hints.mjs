@@ -163,12 +163,13 @@ export async function run({ check }) {
   check('[guard] near-black shadows with almost no fill: a fact pointing to engine.bakeProbes or a fill light, also in the printed line; not with fill there, not with shallow shadows',
     sb(deep(0.95, 0.01))?.kind === 'fact' && /no hemisphere, ambient or environment light/.test(sb(deep(0.95, 0.01)).text)
     && /engine\.bakeProbes\(\{ bounds, spacing: 4 \}\).*HemisphereLight/.test(printed(deep(0.95, 0.01), [sb(deep(0.95, 0.01))])) && !sb(deep(0.95, 0.3)) && !sb(deep(0.5, 0.01)));
-  // shadowEdges reads the mask only: bands one pixel wide are stripes, a clean diagonal is not, a stair of blocks is a jagged edge, a solid shadow is neither
+  // shadowEdges reads the mask only: bands are stripes; one band, a clean diagonal and a solid shadow are not, and pixels that can show no shadow split nothing
   const mask = (w, h, f) => { const m = new Uint8Array(w * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) m[y * w + x] = f(x, y) ? 1 : 0; return m; };
   const E = f => shadowEdges(mask(256, 128, f), 256, 128);
-  const acne = E((x, y) => y % 4 < 2), solid = E(x => x < 100), smooth = E((x, y) => x < y * 1.3 + 20), stairs = E((x, y) => x < Math.floor(y / 8) * 8 * 1.3 + 20);
-  check('[guard] shadowEdges: bands read as stripes; a solid shadow and a smooth slanted edge read as nothing; a stair of blocks reads as jagged',
-    acne.stripes === 1 && solid.stripes === 0 && solid.jag === 0 && smooth.stripes === 0 && smooth.jag === 0 && stairs.stripes === 0 && stairs.jag > 0, JSON.stringify({ acne, solid, smooth, stairs }));
+  const acne = E((x, y) => y % 4 < 2), solid = E(x => x < 100), smooth = E((x, y) => x < y * 1.3 + 20), beam = E((x, y) => y % 16 >= 6 && y % 16 < 10);
+  const cracks = shadowEdges(Uint8Array.from({ length: 256 * 128 }, (_, i) => (i % 256) % 4 < 2 ? 2 : 1), 256, 128);
+  check('[guard] shadowEdges: bands read as stripes; a solid shadow, a smooth slanted edge and one thin shadow read as nothing; so do unread lines through a shadow',
+    acne.stripes === 1 && solid.stripes === 0 && smooth.stripes === 0 && beam.stripes === 0 && cracks.stripes === 0, JSON.stringify({ acne, solid, smooth, beam, cracks }));
   const edgeProbe = edges => ({ params: {}, shadows: { casters: 4, receivers: 4, sunLit: true, area: 0.2, depth: 0.4, intensity: 1, texel: 0.5, depthRange: 200, split: 'own', edges,
     settings: [{ name: 'DirectionalLight shadow.bias', value: -0.00005 }, { name: 'DirectionalLight shadow.mapSize', value: 512 }, { name: 'DirectionalLight shadow camera half width', value: 60 }] } });
   const edgeH = edges => pictureHints({ numbers: soft, probe: edgeProbe(edges) });
@@ -178,8 +179,6 @@ export async function run({ check }) {
   const noisy = pictureHints({ numbers: soft, probe: { ...edgeProbe({ stripes: 0.9, jag: 0.5 }), shadows: { ...edgeProbe({ stripes: 0.9, jag: 0.5 }).shadows, edgeNoise: 0.5 } } });
   check('[guard] edges of a picture that moves by itself are not read: no stripes line, one line saying why', !noisy.some(h => /shadow-(stripes|jag)/.test(h.id)) && noisy.some(h => h.id === 'shadow-edges-unread' && /50\.0%/.test(h.text)), JSON.stringify(noisy.map(h => h.id)));
   const st = edgeH({ stripes: 0.2, jag: 0 }).find(h => h.id === 'shadow-stripes'), jg = edgeH({ stripes: 0, jag: 0.2 }).find(h => h.id === 'shadow-jag');
-  const small = pictureHints({ numbers: soft, probe: { ...edgeProbe({ stripes: 0, jag: 0.2 }), shadows: { ...edgeProbe({ stripes: 0, jag: 0.2 }).shadows, texelPx: 1 } } });
-  check('[guard] stepped edges where a shadow map pixel is under a step on screen: no line, the map cannot be what made them', !small.some(h => h.id === 'shadow-jag'));
   check('[guard] stripes and stepped edges: facts with the share of the picture, bias, map size and shadow range; a clean shadow has neither line',
     st?.kind === 'fact' && jg?.kind === 'fact' && /20\.0% of the picture/.test(st.text) && /shadow\.bias -0\.00005/.test(st.text) && /shadow\.mapSize 512/.test(jg.text) && /half width 60/.test(jg.text) && /depth range 200 m/.test(st.text)
     && !edgeH({ stripes: 0, jag: 0 }).some(h => /shadow-(stripes|jag)/.test(h.id)), JSON.stringify([st, jg]));

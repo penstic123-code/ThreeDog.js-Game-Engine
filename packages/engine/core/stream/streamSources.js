@@ -15,7 +15,7 @@ const removedError = s => codedError('stream-removed', fmt(SOURCE_STRINGS.remove
 export const SOURCE_KEYS = ['radius', 'detail', 'physics', 'until', 'name'];
 export const SOURCE_STRINGS = {
   detail: 'stream.source(): detail must be \'full\' (models, stream entries, physics) or \'simple\' (terrain and hlod proxies only), got {got}',
-  removed: 'stream source "{name}" was removed before it was ready (remove() or its until); nothing waits for it any more',
+  removed: 'stream source "{name}" was removed before it was ready (remove(), its until, or engine.dispose()); nothing waits for it any more',
   timeout: 'stream.teleport(): the destination ({x}, {z}) was not ready after {t} s; still waiting on: {checks}. The player was not moved',
 };
 

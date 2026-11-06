@@ -427,6 +427,18 @@ export const specs = [
         const out = {};
         const D = make('cr-dispose'), started = D.start(); D.dispose();
         out.disposed = await started.then(() => 'resolved', e => e.code);
+        // what start() awaits can stay pending for good after dispose (a model by rule, a game's init): start() must answer all the same, and at once
+        const answer = p => Promise.race([p.then(() => 'resolved', e => e.code), new Promise(res => setTimeout(() => res('pending'), 500))]);
+        const late = await (async () => {
+          const during = fn => { const G = make('cr-gone'); fn(G); const p = G.start(); return new Promise(res => setTimeout(() => { G.dispose(); res(answer(p)); }, 50)); };
+          const init = await during(G => G.use({ name: 'crStuck', type: 'rules', label: 'stuck', init: () => new Promise(() => {}) }));
+          const model = await during(G => { G.assets.manifest({ models: { crHeld: { build: () => new Promise(() => {}), cache: false } } }); G.use({ name: 'crHeld', type: 'rules', label: 'held', init: e => e.assets.model('crHeld') }); });
+          const preload = await during(G => G.assets.manifest({ models: { crPre: { build: () => new Promise(() => {}), preload: true, cache: false } } }));
+          const N = make('cr-never'); N.dispose();
+          const R = make('cr-ran'); await R.start(); const src = R.stream.player.whenReady; R.dispose();
+          return { init, model, preload, never: await answer(N.start()), ran: await answer(R.start()), builtIn: await answer(src), source: await answer(R.stream.source([0, 0, 0]).whenReady), teleport: await answer(R.stream.teleport([0, 0, 0])), nextFixed: await answer(R.nextFixed(() => 1)), job: await answer(R.jobs.add(() => 1)) };
+        })();
+        out.late = late;
         const E = make('cr-core');
         out.sameStart = E.start() === E.start();
         await E.start();
@@ -473,6 +485,9 @@ export const specs = [
         return out;
       });
       check('dispose during start: start() rejects with engine-disposed; a second start() returns the first Promise', r.disposed === 'engine-disposed' && r.sameStart === true, JSON.stringify(r));
+      check('[guard] dispose answers start() at once with engine-disposed, whatever it awaits; a start() after dispose rejects the same way, also on an engine that had finished starting', ['init', 'model', 'preload', 'never', 'ran'].every(k => r.late[k] === 'engine-disposed'), JSON.stringify(r.late));
+      check('[guard] after dispose a stream source answers stream-removed instead of waiting for a frame, built-in ones and teleport too', ['builtIn', 'source', 'teleport'].every(k => r.late[k] === 'stream-removed'), JSON.stringify(r.late));
+      check('after dispose a wait in game code stays pending by rule (nextFixed, jobs.add): the code after it belongs to a dead engine', r.late.nextFixed === 'pending' && r.late.job === 'pending', JSON.stringify(r.late));
       check('clock.every(0 / NaN) and after(NaN) throw clock-interval', r.every0 === 'clock-interval' && r.everyNaN === 'clock-interval' && r.afterNaN === 'clock-interval', JSON.stringify(r));
       check('one name as a model and a texture throws asset-name-clash', r.clash === 'asset-name-clash', JSON.stringify(r));
       check('a module installed after start() has its init run', r.lateInit === 1, JSON.stringify(r));

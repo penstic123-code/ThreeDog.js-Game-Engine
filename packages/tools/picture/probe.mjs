@@ -1,7 +1,7 @@
 // The picture check's page side. Everything in probe*.mjs runs inside the game page, serialized as text: probeSource joins every exported function of
 // those files into one function, so they may call each other and read what they are given (c, from probeTools), and nothing else at module level.
 // Renders the current view a few extra times at the canvas size, reads a small copy of each, and restores every value it touched.
-// Uses only intensity / time writes (uniforms) and the debug 'shadow' view, so nothing but the view's one override material recompiles.
+// Uses only intensity / time writes (uniforms), a shadow camera's view offset and the debug 'shadow' view, so nothing but the view's one override material recompiles.
 import * as setup from './probe-setup.mjs';
 import * as scenes from './probe-scene.mjs';
 import * as draws from './probe-draws.mjs';

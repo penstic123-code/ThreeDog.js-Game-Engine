@@ -110,6 +110,7 @@ crops.onStep((d, i, dt) => {
 - Fields named `yaw`, `pitch`, `roll` (radians, three's order `'YXZ'`) and `scale` are drawn when you list them. Without them only the position is written, which is cheapest.
 - `color: true` adds columns `r`, `g`, `b` (linear) and the spawn key `color: 0xff8800`. Your material's colour multiplies it.
 - `swarm.mesh` is plain three.js: set `castShadow`, `layers`, `renderOrder` on it. The instance index is the row, and `mesh.count` follows the live count.
+- A transparent swarm draws in row order: three sorts objects, not the instances inside one, so overlapping see-through objects can blend in the wrong order.
 - Bounds are kept up to date while matrices are written, so culling is right for the whole swarm; it is one object to the camera, so it is drawn whole or not at all.
 - Leave out `geometry` and `material` for a swarm that only holds data, and draw it your own way from `swarm.data`.
 

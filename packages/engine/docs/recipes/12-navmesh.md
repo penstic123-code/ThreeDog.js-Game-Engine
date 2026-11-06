@@ -7,6 +7,7 @@ There is a single pathfinding entry point: `engine.characters.findPath(from, to)
   update it, so a game that reshapes walkable ground at runtime leaves `nav()` out.
 
 ## 1. Install (main.js)
+A level is a file or a `THREE.Object3D` built in code: `level({ scene: group })`, its meshes named as in `10-blender-level.md`.
 ```js
 import { level, collision, followCamera, characters, nav } from 'threedog';
 engine.use(level({ url: '/models/town.glb' }), collision(), followCamera(), characters(),
@@ -15,7 +16,7 @@ engine.use(level({ url: '/models/town.glb' }), collision(), followCamera(), char
 - Mesh source: the walkable meshes in the level (naming convention in `10-blender-level.md`). Walls = the level's `col_` boxes + every
   `addBox / addCircle` in the collision module;
   they sync automatically as dynamic obstacles: add an obstacle in game and the affected tiles rebuild themselves, no manual refresh.
-- Recast (about 1 MB) is downloaded only in start(); until it is ready findPath falls back to A*.
+- Recast (728 KB, 218 KB gzipped) starts loading when `nav()` is installed, and a game without `nav()` never downloads it; the path worker's bundle holds a second copy. Until it is ready findPath falls back to A*.
 
 ## 2. Use
 ```js
@@ -56,6 +57,40 @@ engine.characters.pathsPerStep = 64;           // requests sent per fixed step (
 `createEngine({ movement: { radius, height, maxSlope, stepHeight } })` sets it once; read it as `engine.movement`. Collision, the Rapier capsule, the
 navmesh, A* and level steps all read it, so a module never writes its own 0.4 or 0.45. A character's position belongs to its mover: other systems
 request movement (`placeAt`, `move`, vehicle `enter`) and never set `player.position`.
+
+## 6. NPC links across gaps
+A link joins two places no one can walk between (Recast calls it an off-mesh connection): a gap, a ledge, a teleporter. Paths use it like any other way, and a walker with no help from the game crosses in a straight line at walking speed.
+```js
+nav({ links: [
+  { id: 'gap', from: [-2.2, 0, 0], to: [2.2, 1.5, 0] },                        // both ways
+  { id: 'drop', from: [10, 4, 2], to: [12, 0, 2], oneWay: true },              // down only
+] });
+const path = engine.characters.findPath(a, b);   // [{ x, z }, { x, z, link: { id: 'gap', from, to } }, { x, z }...]: the leg after a point with link is the crossing
+```
+- Put each end on or near walkable ground: within `radius` sideways (default the agent radius + 3 cells, enough for a point at a ledge or a ladder just off it) and within `maxClimb` in height. A `y` left out is the ground there.
+- Each end then moves onto the mesh, and that is where walkers step on and land: the mesh stops about the agent radius short of every edge, so a ladder at a deck's side or through a hatch ends 0.6 to 0.8 m in from the edge (cells round it), on the deck, wherever its top was written: in a 1.4 m hatch a foot at the opening's edge gives ends 0.6 to 0.9 m apart, a foot at its middle 1.3 m or more. `engine.nav.links` and `crossing.to` give those places. The straight line between them cuts through the deck's edge, so a ladder that must look straight uses `linkPose` to climb first and step in last (below).
+- A link reaches at most the neighbouring tile, counted where its ends meet the mesh: two platforms up to `tileSize` x `cellSize` meters (9.6 m by default) minus a little on each side. An end that attaches nowhere gets the `nav-link` warning at the build; no path uses that link.
+- An obstacle on an end cuts the link until the obstacle goes. Elsewhere, rebuilt tiles keep their links, and `findPathAsync` sees the same ones. Links are fixed at `nav()`: none can be added at run time.
+
+The engine moves the walker and says when; how it looks and how long it takes are yours. NPCs, `character.walkTo` and `nav({ crowd: true })` NPCs all cross this way. There is no default animation: the body keeps its last state.
+```js
+engine.events.on('link:enter', ({ character, crossing }) => {   // crossing: { link, from, to, seconds, time }
+  if (crossing.link === 'gap') { crossing.seconds = 0.7; character.playAction('jump'); }
+});
+engine.events.on('link:exit', ({ id, crossing }) => console.log(id, 'crossed', crossing.link));
+engine.characters.linkPose = (t, position) => { position.y += Math.sin(t * Math.PI) * 1.2; };   // t 0-1: bend the straight line into a hop
+engine.characters.linkPose = (t, position, { from: a, to: b }) => {   // or through a hatch: up the opening, then the step onto the deck; coming down, the step first
+  const up = b.y > a.y, side = up ? Math.max(0, t - 0.85) / 0.15 : Math.min(1, t / 0.15), rise = up ? Math.min(1, t / 0.85) : Math.max(0, t - 0.15) / 0.85;
+  position.set(a.x + (b.x - a.x) * side, a.y + (b.y - a.y) * rise, a.z + (b.z - a.z) * side);
+};
+```
+- During a crossing the walker has no gravity or collision and its talk, goal and behavior wait. `npc.placeAt` ends it, and `link:exit` still comes. A control holder above the walker (a cutscene, a ragdoll, a `walkTo` on an NPC) does not wait for it: the walker lands at the far end at once, with its `link:exit`. A walker with no speed (a `move.speed` mod of 0) also lands at once, unless `link:enter` sets `seconds`.
+- An NPC's crossing is saved (`rec.nav.link`). After a load it goes on from the same spot: `link:enter` is not sent again, so a clip started there does not restart; `linkPose` and `link:exit` work as before. An NPC that goes out of range mid-crossing lands at the far end at once, with `character: null` in `link:exit`. A `walkTo` is not saved: its crossing ends with the walk, and `walk.remove()` lands the character at the far end.
+- `linkPose` must depend only on its arguments, or a loaded crossing jumps. The game cannot hold a walker on a link until a clip ends: give `seconds` the clip's length.
+- With `crowd: true` the crowd takes a link about 1 m short of its end, so the NPC walks the rest and crosses from the end like any walker; the agent is pulled back to the NPC after the crossing, and only the character's own crossing counts. Recast does not say which link an agent took, so the nearest link end is used: keep the ends of two links apart. Recast times its traversal by the distance in x, z, so ends closer than the NPC's speed / 30 m on the mesh (one x, z, say, a ladder up through a solid deck) are over before the NPC can see them: such a link is not for crowd NPCs. Any opening is far enough: the deck stops short of it, as above.
+- A link has no queue. Walkers on it share the line and pass through each other, up and down at once, and other agents do not avoid them: six crowd NPCs pacing through one hatch never jammed (44 crossings in 46 s), often two on it 0.2 m apart. Taking turns is the game's.
+- A walker is not done while a link is left on its path, however close the goal is in x, z, so a goal at the top of a ladder is reached at the top. An NPC standing within `arriveDistance` of such a goal with no path yet, or one steered by the crowd, still stops at the foot: give the goal a place away from the ladder.
+- Paths choose a link by its length, like walking: there is no extra cost for a jump. Start and goal heights still come from `engine.surface`, so a path from under a deck starts on top of it.
 
 ## Fences and rivers (collision)
 

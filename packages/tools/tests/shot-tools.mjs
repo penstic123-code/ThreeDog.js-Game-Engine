@@ -6,7 +6,7 @@ import { parseResult } from '../lib/result.mjs';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { launchBrowser, newGamePage } from '../browser.mjs';
+import { launchBrowser, newGamePage, orphanPids } from '../browser.mjs';
 import { waitEngine, waitLoaded } from '../wait-engine.mjs';
 import { shotName, shotFile, viewSize, wrongServer } from '../lib/shot-name.mjs';
 import { pictureArgs, paletteText } from '../picture.mjs';
@@ -28,6 +28,13 @@ const CJK = /[㐀-鿿]/;
 const throwsWith = async (fn, re) => { try { await fn(); return false; } catch (e) { return re.test(e.message); } };
 
 export async function run({ check }) {
+  // ── a dead browser's children are stopped, a live browser's are not ──
+  const win = '"C:\\Program Files\\pw\\chrome-headless-shell.exe"', shells = [
+    '1 9 /pw/chrome-linux/headless_shell --no-sandbox', '2 1 /pw/chrome-linux/headless_shell --type=renderer', '3 77 /pw/chrome-linux/headless_shell --type=renderer', '4 8 /pw/chrome-linux/headless_shell',
+    `5 77 ${win} --type=gpu-process`, '6 7 C:\\pw\\chrome-headless-shell.exe --no-sandbox', `  8 6 ${win} --type=renderer`,
+    '10 77 node watch.mjs /pw/headless_shell --type=renderer', '11 77 "C:\\Program Files\\node.exe" C:\\pw\\chrome-headless-shell.exe --type=renderer', '12 77 /pw/headless_shell_notes/grep --type=x',
+  ].join('\r\n') + '\r\n';
+  check('orphan sweep: only a child without its browser, by the program and not its arguments', orphanPids(shells).join() === '3,5', orphanPids(shells).join());
   // ── D3: shot file names ──
   check('[guard] two pages named in Chinese keep two shot names', shotName('/宝塔.html', {}, 1) !== shotName('/城门.html', {}, 1));
   const names = [shotName('/?grain=0&view=ref', {}, 3), shotName('/', {}, 1), shotName('/styletest.html', { time: '18:30', view: 'room' }, 1), shotName('/-x.html', {}, 1)];

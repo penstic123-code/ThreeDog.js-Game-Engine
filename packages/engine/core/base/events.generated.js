@@ -25,6 +25,8 @@ export const ENGINE_EVENTS = [
   'camera:change',
   'character:jump',
   'character:launch',
+  'link:enter',
+  'link:exit',
   'character:fall',
   'character:model',
   'character:step',

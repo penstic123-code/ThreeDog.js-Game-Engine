@@ -3,6 +3,8 @@ import { DEV, warnOnce } from '../../core/base/validate.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { Container } from './Container.js';
 import { codedError } from '../../core/base/errorHints.js';
+import { isPlainObject } from '../../core/base/util.js';
+import { refuseSave } from '../../core/saves/saveValues.js';
 
 /** Container table: implementation of inventory.container() / transfer(); bag is the home bag 'player' (saved as its own part, never removed). @internal */
 export class Containers {
@@ -101,6 +103,7 @@ export class Containers {
    * save loads the same on a fresh page and after an hour of play (review 0.4 modules-a B6)
    */
   load(d) {
+    if (d != null && !(isPlainObject(d) && Object.entries(d).every(([id, list]) => id && Array.isArray(list)))) refuseSave('containers', 'the part', 'must be { container id: [{ id, count }] }', d);
     if (d && this.renames.size) d = Object.fromEntries(Object.entries(d).flatMap(([id, v]) => {   // content/renames.js first (null = dropped)
       const b = this.renames.has(id) ? this.renames.get(id) : id;
       return b == null || (b !== id && b in d) ? (b == null ? [] : [[id, v]]) : [[b, v]];

@@ -14,12 +14,14 @@ Navmesh (nav() module)
   - `maxObstacles?: number` (experimental) Most TileCache obstacles (collision boxes are cut into several), default 1024
   - `maxAgents?: number` (experimental) Most crowd agents (with crowd: true), default 128
   - `arrive?: number` Meters past the character's radius a path may end short of its goal and still count as arrived, default 0.6
+  - `links?: NavLink[]` (experimental) Places joined by a jump or a climb instead of walking (Recast off-mesh connections); walkers cross them straight unless the game says otherwise
 
 ## Methods and properties
-- `nav.findPath(from: PositionLike, to: PositionLike, opts?: { radius?, detailed? }) → XZ[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true }) → { status, path }` — Path from from to to [{ x, z }…] (meters); null if not ready or unreachable. Usually use engine.characters.findPath
+- `nav.findPath(from: PositionLike, to: PositionLike, opts?: { radius?, detailed? }) → NavPathPoint[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true }) → { status, path }` — Path from from to to [{ x, z }…] (meters); null if not ready or unreachable. Usually use engine.characters.findPath
 - `nav.dispose()` — Unload the navmesh (frees native objects); characters.findPath then falls back to A*
 - Properties:
   - `ready: boolean` The navmesh has been generated
+  - `links: readonly { id: string | number; from: { x: number; y: numbe…` (experimental) The links in effect, ends in 3D, in the order given to nav({ links }); empty until the mesh is built
   - `navMesh: any` (experimental) Native Recast NavMesh (null until ready)
   - `query: any` (experimental) Native Recast NavMeshQuery
   - `tileCache: any` (experimental) Native Recast TileCache (for dynamic obstacles)

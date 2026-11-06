@@ -36,6 +36,8 @@
 - `camera:change` [{ kind: string; previous: string }] engine.setCamera switched the camera kind; settings that belong to the camera (sensitivity, invert Y, field of view) are re-applied on it
 - `character:jump` [{ character: Character; air: boolean; index: number }] A character jumped
 - `character:launch` [{ character: Character; speed: number; owner: string }] 
+- `link:enter` [{ id: string; character: Character; crossing: LinkCrossing }] (experimental) A walker reached a nav link. Set crossing.seconds here to say how long it takes
+- `link:exit` [{ id: string; character: Character | null; crossing: LinkCrossing }] (experimental) A crossing ended: landed, or cut short (npc.placeAt, walk.remove()). character is null for an NPC that went out of range mid-crossing
 - `character:fall` [{ character: Character; safe: Vector3 | null; preventDefault(): void… 
 - `character:model` [{ character: Character; model: Object3D }] A character's model named by asset finished loading and replaced the placeholder body (same root; anim is now set)
 - `character:step` [{ character: Character }] A foot of a walking character came down; character.groundType() is what it stepped on

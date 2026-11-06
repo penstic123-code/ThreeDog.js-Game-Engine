@@ -49,7 +49,7 @@ The row -> its recipe (`recipes/NN-*.md`) -> `api/<module>.md`. Several entries 
 | 2D, side-scroller, orthographic; 2D lights | `presets.player.sideScroller`; 2D lights: example `rc2d` | 21-camera.md §6, 09-materials-lights-models.md §1b |
 | Pixel art | plain three.js | 62-picture-code.md §4b |
 | Skeletal animation | `engine.assets.animate`, `engine.hlod` | 13-animation.md, 15-perf.md |
-| Pathfinding, navmesh, "can walk there" | `engine.characters.findPath`, `engine.nav` | 12-navmesh.md |
+| Pathfinding, navmesh, NPC jumps and gaps | `engine.characters.findPath`, `engine.nav` | 12-navmesh.md |
 | Physics (crates, joints, ragdoll), collision, vehicles | `engine.collision`, `engine.rigid` | 11-vehicles.md |
 | Ray / mouse picking, shooting, lock-on | `engine.rays` | 19-shooting-picking.md |
 | Prompts, trigger zones | `engine.interactions`, `engine.triggers` | 20-content-actions-save.md |

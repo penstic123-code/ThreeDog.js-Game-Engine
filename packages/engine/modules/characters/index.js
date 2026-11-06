@@ -121,6 +121,13 @@ function charactersApi(e, st, animation) {
      */
     findPathAsync(from, to, done, opts) { return st.paths.request(from, to, done, opts); },
     /** How many findPathAsync requests leave per fixed step (default 32); the rest wait for the next steps */
+    /**
+     * Bends a link crossing away from its straight line: (t, position, crossing, character) with t 0-1, called each step after position is set on the line, write to position.
+     * Depends only on its arguments, so a crossing saved halfway resumes on the same curve. null = the straight line
+     * @example engine.characters.linkPose = (t, p) => { p.y += Math.sin(t * Math.PI) * 1.2; };   // every crossing is a hop
+     * @experimental
+     */
+    linkPose: null,
     get pathsPerStep() { return st.paths.perStep; },
     set pathsPerStep(n) { st.paths.perStep = Math.max(1, n | 0); },
     /**

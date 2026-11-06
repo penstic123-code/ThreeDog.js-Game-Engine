@@ -26,7 +26,7 @@
 // interact ({ label (when text), op, args, radius } or null), pathStep, repath, arriveDistance, speed,
 // look (look and feel params: colors, runSpeed, channel...), zone (which level it belongs to; null = everywhere),
 // npcs.add({ channel: 'enemies' }): its time channel (default 'world'); near and far both follow it, so bullet time slows it anywhere.
-// state (animation state), busy (in dialogue), nav { stop (current stop index), path (remaining waypoints), repath (re-path countdown) },
+// state (animation state), busy (in dialogue), nav { stop (current stop index), path (remaining waypoints), repath (re-path countdown), link (the crossing under way, or none) },
 // motion (motion state from Character.saveMotion)
 // model given as an asset name ('villager', or ['villager', ...args]) is plain and goes into look (saved); a model object, animation, clips, a function-form interact label and
 // any other option that is not a plain value (states: fn, water: fn, fall: { belowY: fn }, a Vector3 faceTarget) stay in memory only (by id);
@@ -40,7 +40,8 @@ import { NpcAvoid } from './npcAvoid.js';
 import { parseClock } from '../../core/time/dayTime.js';
 import { xzOf, yOf } from '../../core/base/math.js';
 import { placeAtHeight } from './movers/support.js';
-import { stopIndex, timeOfDay, npcChannel } from './npcSim.js';
+import { stopIndex, timeOfDay, npcChannel, crossLink } from './npcSim.js';
+import { leaveLink } from './moveHelpers.js';
 import { Behaviors } from './behaviors.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { isModelName } from '../../core/base/util.js';
@@ -114,6 +115,7 @@ export class NPC {
     if (ch) { ch.placeAt(position); ch._pathReq?.remove(); ch._pathReq = null; }   // an answer still on its way starts from where it stood
     W.move(this.id, { x, y: ch ? ch.root.position.y : placeAtHeight(e, `npc.placeAt() (${this.id})`, x, z, yOf(position), rec.look?.stepHeight ?? e.movement.stepHeight, rec.position.y).y, z });
     rec.nav.path = null; rec.nav.repath = 0;
+    if (rec.nav.link) { leaveLink(e, rec.id, ch, rec.nav.link); rec.nav.link = null; }   // a teleport ends a crossing
     return this;
   }
   /** Face a position (only turns with a model) */
@@ -167,7 +169,9 @@ export class NPCManager {
         // A bubble talk (npc.talk channel 'bubble') runs with no main dialogue, so bubbles still showing keep it busy too
         if (rec.busy && !e.dialogue?.active && !e.dialogue?.bubbles?.().length) rec.busy = false;
         this.avoid.stamp(rec);
-        this._drive(rec, () => this._b.of(rec)?.near?.(rec, dt, this._handle(rec.id)));
+        const ch = rec.nav.link && this.character(rec.id);
+        const ran = this._drive(rec, () => ch ? crossLink(W, rec, ch, dt) : this._b.of(rec)?.near?.(rec, dt, this._handle(rec.id)));
+        if (ch && !ran) crossLink(W, rec, ch, dt, true);
       },
       far: (rec, dt) => {
         this._drive(rec, () => this._b.of(rec)?.far?.(rec, dt, this._handle(rec.id)));
@@ -181,12 +185,12 @@ export class NPCManager {
    * @internal Run an NPC's behavior as the base holder of its control slot (core/ops/control.js, owner 'npcs'): only while nothing above holds it.
    * A walkTo, a quest script or a cutscene on the NPC pauses its schedule / wander (near and far) and the behavior carries on when they end;
    * the behavior's own character.move() calls pass the bypass check because they run inside this. A character another machine drives (net)
-   * is never taken: its behavior does not run here.
+   * is never taken: its behavior does not run here. Returns whether fn ran.
    */
   _drive(rec, fn) {
     const C = this.engine.control;
-    if (!C.has(rec.id, 'npcs')) { const top = C.of(rec.id)?.layer; if (top === 'net' || top === 'base') return; C.take(rec.id, { owner: 'npcs', layer: 'base' }); }
-    C.runAs(rec.id, 'npcs', fn);
+    if (!C.has(rec.id, 'npcs')) { const top = C.of(rec.id)?.layer; if (top === 'net' || top === 'base') return false; C.take(rec.id, { owner: 'npcs', layer: 'base' }); }
+    return C.runAs(rec.id, 'npcs', fn);
   }
   /** @internal (re)register NPC simulation with world: world.simulate replaces the earlier registration of the same kind */
   _register() { this.world.simulate(KIND, this._tiers ? { ...this._sim, ...this._tiers } : this._sim); }

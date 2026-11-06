@@ -32,7 +32,7 @@ export class Particles {
      */
     has(name: string): boolean;
     /**
-     * Burst: emit count particles at once (default 10) at position (Vector3 / Object3D / [x, y, z] / {x, y, z}). overrides affect this batch only (color, speed, direction...; max/texture/blending cannot be changed temporarily)
+     * Burst: emit count particles at once (default 10) at position (Vector3 / Object3D / [x, y, z] / {x, y, z}). overrides affect this batch only (color, speed, direction...; max/texture/blending/soft cannot be changed temporarily)
      * @param {string} name
      * @param {PositionLike} position
      * @param {{ count?: number, overrides?: ParticleOptions | null }} [opts]
@@ -43,14 +43,15 @@ export class Particles {
         overrides?: ParticleOptions | null;
     }): void;
     /**
-     * Keep emitting while following an object: rate per second, offset in the object's local coordinates [x, y, z] (meters). Returns a handle { remove(), rate, active } (active = false pauses)
+     * Keep emitting while following an object: rate per second, ratePerMeter per meter it moves (spread along the path, on top of rate), offset in the object's local coordinates [x, y, z] (meters). Returns a handle { remove(), rate, ratePerMeter, active } (active = false pauses)
      * @param {string} name
      * @param {Object3D} object3d
-     * @param {{ rate?: number, offset?: number[], overrides?: ParticleOptions | null }} [opts]
+     * @param {{ rate?: number, ratePerMeter?: number, offset?: number[], overrides?: ParticleOptions | null }} [opts]
      * @returns {ParticleEmitter}
      */
     attach(name: string, object3d: THREE.Object3D, opts?: {
         rate?: number;
+        ratePerMeter?: number;
         offset?: number[];
         overrides?: ParticleOptions | null;
     }): ParticleEmitter;

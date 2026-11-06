@@ -8,7 +8,7 @@ import type { Net } from './generated/modules/net/Net';
 import type { PostEffect } from './generated/render/PostFX';
 import type { Grids } from './generated/modules/grid/index';
 import type { Collision, RigidBodies, CameraRig, CameraKind, CameraShotEvent, Animator, AnimatorOptions, Vehicle, Rideable } from './physics';
-import type { Nav } from './nav';
+import type { Nav, LinkCrossing } from './nav';
 import type { Stream } from './generated/core/stream/Stream';
 import type { Batching } from './generated/core/stream/Batching';
 import type { Rays } from './generated/core/scene/Rays';
@@ -109,6 +109,10 @@ export interface EventMap extends GameEvents {
   /** A character jumped */
   'character:jump': [{ character: Character; air: boolean; index: number }];
   'character:launch': [{ character: Character; speed: number; owner: string }];
+  /** A walker reached a nav link. Set crossing.seconds here to say how long it takes @experimental */
+  'link:enter': [{ id: string; character: Character; crossing: LinkCrossing }];
+  /** A crossing ended: landed, or cut short (npc.placeAt, walk.remove()). character is null for an NPC that went out of range mid-crossing @experimental */
+  'link:exit': [{ id: string; character: Character | null; crossing: LinkCrossing }];
   'character:fall': [{ character: Character; safe: Vector3 | null; preventDefault(): void }];
   /** A character's model named by asset finished loading and replaced the placeholder body (same root; anim is now set) */
   'character:model': [{ character: Character; model: Object3D }];
