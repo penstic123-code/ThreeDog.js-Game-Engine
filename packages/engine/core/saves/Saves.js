@@ -10,27 +10,42 @@
 // Several tabs of one game share the storage. Each write carries a rev; a tab overwrites a slot only while the stored rev is the one it last read,
 // wrote or loaded (compare-and-write in one IndexedDB transaction), so a forgotten tab's autosave can never replace newer progress made in another
 // tab: that save is refused (false, toast, save-stale). A BroadcastChannel tells the other tabs a slot changed, so their list / load see it at once.
+// remove deletes the save this tab lists and no newer one. Attachments carry a rev too: a tab changes one only if it wrote it or saw it (at boot, or by reading attachments).
 /** @import { SaveProvider } from '../../types/core' */
 import { SaveStore } from './SaveStore.js';
 import { checkTypeRule } from '../engine/moduleTypes.js';
 import { toast } from '../../ui/UI.js';
-import { warnOnce, fmt } from '../base/validate.js';
-import { readParams, keysSchema } from '../base/params.js';
+import { DEV, warnOnce, fmt } from '../base/validate.js';
+import { readParams } from '../base/params.js';
 import { reportError } from '../base/errors.js';
 import { codedError, coded } from '../base/errorHints.js';
 import { checkPartVersion, readSave } from './saveVersions.js';
 import { exportSaveFile, importSaveFile, importText, SAVE_STRINGS } from './saveFiles.js';
-import { applySave, loadSlot, adoptPart, collectParts } from './saveApply.js';
+import { applyAnnounced, loadSlot, adoptPart, collectParts, partData } from './saveApply.js';
 import { autosaveHook } from './session.js';
+import { StateReplace } from './stateReplace.js';
 
 
 // Developer messages (console text for developers, never shown in the game UI)
 const DEV_STRINGS = {
+  keyTaken: "saves.register('{key}'): the key already has an owner, whose part would stop being saved",
   saveThrew: "save() of save part '{k}' threw ({msg}); slot '{slot}' was not written and keeps its previous save",
   stale: "[saves] slot '{slot}' was not written: another tab or window of this game saved it after this one last loaded or saved it, and overwriting would lose that newer progress. This tab now lists the newer save; load it to continue from it, or save into another slot",
   noIdb: '[saves] IndexedDB is unavailable (possibly private mode); saves fall back to localStorage (about 5MB cap) and attachments (such as photos) will not be saved.',
+  staleRemove: "[saves] slot '{slot}' was not deleted: another tab or window of this game saved it after this one last saw it. This tab lists that save again",
+  staleBlob: "[saves] attachment '{group}/{id}' was not changed: another tab or window of this game wrote it after this one last saw it. Read saves.attachments('{group}') first, or use another id",
+  busy: 'saves.collect() was called during a load, so it would hold half of each state. Wait for the load, or use saves.save, which waits by itself',
+  owner: "saves.register('{key}'): that key already has a part, and this one takes it over: the first owner's data is no longer saved. Remove the first part, or use another key",
   autosave: 'saves.autosave(minutes): minutes must be a positive number of minutes of play, got {got}',
+  protoName: "saves.register('__proto__'): a save cannot hold a part with this name (assigning it swaps the parts object's prototype, and save text drops it on reading), so its data would be lost without a word. Pick another name",
 };
+
+/** What saves.register takes: without a working save and load the failure would wait for the player's first save or load */
+const PROVIDER = { save: 'function', load: 'function', first: 'any?', version: 'any?', migrate: 'any?', atomic: 'any?', notAtomic: 'string?', checkNewGame: 'any?' };
+
+/** Save data as a save file would hold it: no reference into the part's live state stays behind */
+const copyData = d => JSON.parse(JSON.stringify(d));
+const blobKey = (group, id) => `${group}\0${id}`;
 
 /** engine.saves handles saving. Each module registers "how to save and load"; supports multiple slots, autosave and export / import. */
 export class Saves {
@@ -40,12 +55,14 @@ export class Saves {
     /** @internal Start of the key names in the localStorage fallback and of the IndexedDB database name; a module asks storageKey(name) instead */
     this._prefix = prefix + 'save-';
     /** @internal */ this.providers = new Map();
+    /** @internal the one rule every state replacement goes through */ this._replace = new StateReplace(engine);
     /** @internal */ this._auto = null;
     /** @internal Slot -> JSON text (all saves stay in memory: list / check / export are synchronous) */ this._json = new Map();
     /** @internal Slot -> savedAt */ this._meta = new Map();
     /** @internal Disk-write queue: earlier saves are written first */ this._queue = Promise.resolve();
     /** @internal Slot -> rev of the copy in memory (a slot without a record is absent) */ this._rev = new Map();
     /** @internal Slot -> rev this tab may overwrite: the one it read at boot, last wrote or last loaded (absent = expects no record) */ this._mine = new Map();
+    /** @internal Attachment (blobKey) -> rev this tab last wrote or saw: what it may change */ this._blobRevs = new Map();
     /** @internal This tab's writer id (revs are `<tab>:<n>`); not gameplay and never in the save text, so saves stay reproducible */
     this._tab = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${performance.now()}`;   // wall-clock: only a fallback id, unique per tab
     /** @internal */ this._n = 0;
@@ -73,12 +90,16 @@ export class Saves {
    * version (default 1): raise it by 1 whenever what save() returns changes shape, and add migrate[oldVersion] = data => newData; load sees only the current
    * shape.
    * A save whose part is newer than this build's version is refused as a whole (load returns false, the save is kept).
-   * A part registered after a save was loaded (a module installed later) is handed its data from that save at once.
+   * load(data, turn): turn is this replacement's identity. Pass it on, level.load(x, { turn }) or content.load(x, { turn }): those wait for a running load to end, except with its turn.
+   * A part registered after a save was loaded (a module installed later) is handed its data from that save: at once when idle, else right after the replacement under way.
    * atomic: true joins this part to atomic ops: it is copied before an atomic op runs and put back if the op fails (plain data only; afterLoad does not run on rollback).
    * checkNewGame(data): dev only, called once start() finished with this part's data in the new-game state, to warn about what should not be there yet
    * (world: records placed by code instead of content). The part knows its own format; core only hands the data over.
+   * Returns a handle: remove() takes the part out and keeps its data as unattached data (it rides in later saves and goes back to a part registered under
+   * the key later), without holding on to the part's closures. remove({ keep: false }) gives back only what the part took over at register: for a part that never ran.
    * @param {string} key
    * @param {SaveProvider} provider
+   * @returns {{ remove(o?: { keep?: boolean }): void }}
    * @example
    * engine.saves.register('garden', { save: () => garden.toJSON(), load: d => garden.fromJSON(d) });
    * // later the format gains beds: version 2, and a step that upgrades version-1 data
@@ -86,12 +107,26 @@ export class Saves {
    */
   register(key, provider) {
     checkTypeRule(this.engine, 'saves.register', `registered save part '${key}'`);
-    readParams(`saves.register('${key}')`, keysSchema(['save', 'load', 'first', 'version', 'migrate', 'atomic', 'checkNewGame']), provider);
+    // told, not taken: the first owner would stop being saved with nothing said. A module that goes gives the key back first (ctx.saves.register), so a swap never lands here
+    if (this.providers.has(key)) throw codedError('save-key-taken', fmt(DEV_STRINGS.keyTaken, { key }));
+    readParams(`saves.register('${key}')`, PROVIDER, provider);
+    if (key === '__proto__') throw codedError('module-params', DEV_STRINGS.protoName);
     const { save, load, first = false, version = 1, migrate = {}, atomic = false, checkNewGame = null } = provider;
     checkPartVersion(key, version, migrate);
-    this.providers.set(key, { save, load, first, version, migrate, atomic: atomic === true, checkNewGame });
+    const f = this._foreign, held = Object.hasOwn(f.parts, key) ? { data: copyData(f.parts[key]), version: f.versions[key] ?? 1 } : null;
+    const part = { save, load, first, version, migrate, atomic: atomic === true, checkNewGame };
+    if (DEV && this.providers.has(key)) warnOnce(fmt(DEV_STRINGS.owner, { key }), `save-owner-${key}`);   // the newer owner takes it, as a replaced module does; the older one stops being saved
+    this.providers.set(key, part);
     this.engine.session._late(key);   // a part registered after start() (a module installed later) joins the new-game state as it is now
-    if (key in this._foreign.parts) adoptPart(this, key);
+    if (held) adoptPart(this, key);
+    return { remove: ({ keep = true } = {}) => {
+      if (this.providers.get(key) !== part) return;   // a stale handle: the key belongs to someone newer
+      this.providers.delete(key);
+      let left = held;
+      if (keep && !Object.hasOwn(this._foreign.parts, key)) try { const d = partData(key, part); left = d == null ? null : { data: copyData(d), version }; }
+      catch (err) { reportError(this.engine, err, `save() of part '${key}' while it was removed`, { soft: true }); }
+      if (left) { this._foreign.parts[key] = left.data; this._foreign.versions[key] = left.version; }
+    } };
   }
   /**
    * The save versions this build reads, per part: { world: 1, clock: 1, ... }. A save whose part is newer is refused; an older one is migrated.
@@ -109,6 +144,7 @@ export class Saves {
         this._rev.set(r.slot, r.rev ?? ''); this._mine.set(r.slot, r.rev ?? '');   // also for a save made before this ran: its write comes after and expects this record
         if (!this._json.has(r.slot)) { this._json.set(r.slot, r.json); this._meta.set(r.slot, r.savedAt); }
       }
+      this._sawBlobs(await this.store.blobs());
     } catch (e) { this._fail(e); }
   }
   /** @internal Disk writes run in call order once storage is ready, and flush waits for them: the one place that order is kept */
@@ -127,6 +163,7 @@ export class Saves {
   /**
    * Store a binary attachment outside the world save (a photo, a replay). It rides in the queue of save writes, so flush() waits for it, and exportFile() carries it.
    * Pass a function to make the bytes when the write runs: flush() then waits for that too. Without IndexedDB it is not kept.
+   * Rejects with save-stale, changing nothing, when another tab wrote this id since this tab last saw it; attachments(group) is how a tab looks.
    * @example await engine.saves.putAttachment('replay', 'run-1', blob, { score: 12 });
    * @param {string} group what the attachment is for
    * @param {string} id unique inside the group; the same id replaces
@@ -136,17 +173,31 @@ export class Saves {
    * @experimental
    */
   putAttachment(group, id, blob, meta) {
-    return this._enqueue(async () => this.store.putBlob(group, id, typeof blob === 'function' ? await blob() : blob, meta));
+    return this._enqueue(async () => {
+      const key = blobKey(group, id), rev = this._newRev();
+      await this.store.putBlobIf({ group, id, blob: typeof blob === 'function' ? await blob() : blob, meta: meta ?? null, at: Date.now(), rev }, this._blobRevs.get(key) ?? null).catch(e => this._blobStale(e, group, id));   // wall-clock: when the attachment was stored, used for ordering
+      this._blobRevs.set(key, rev);
+    });
   }
-  /** Delete an attachment; no such id is fine @param {string} group @param {string} id @returns {Promise<void>} @experimental */
-  removeAttachment(group, id) { return this._enqueue(() => this.store.deleteBlob(group, id)); }
+  /** Delete an attachment; no such id is fine. Rejects with save-stale as putAttachment does @param {string} group @param {string} id @returns {Promise<void>} @experimental */
+  removeAttachment(group, id) {
+    return this._enqueue(async () => {
+      const key = blobKey(group, id);
+      await this.store.deleteBlobIf(group, id, this._blobRevs.get(key) ?? null).catch(e => this._blobStale(e, group, id));
+      this._blobRevs.delete(key);
+    });
+  }
+  /** @internal */
+  _blobStale(e, group, id) { throw e?.stale !== undefined ? codedError('save-stale', fmt(DEV_STRINGS.staleBlob, { group, id })) : e; }
+  /** @internal This tab has looked at these rows: it may change them */
+  _sawBlobs(rows) { for (const b of rows) if (b.rev != null) this._blobRevs.set(blobKey(b.group, b.id), b.rev); return rows; }
   /**
    * The attachments of a group, once storage is ready. Empty without IndexedDB.
    * @param {string} group
    * @returns {Promise<{ group: string, id: string, at: number, blob: Blob, meta: any }[]>}
    * @experimental
    */
-  async attachments(group) { await this.whenReady; return this.store.blobs(group); }
+  async attachments(group) { await this.whenReady; return this._sawBlobs(await this.store.blobs(group)); }
   /**
    * A localStorage key for what belongs to this game but is not a save (settings, a last-used tab): it shares the game's name, so two games on one site stay apart, and stays out of list().
    * @example localStorage.setItem(engine.saves.storageKey('lastTab'), 'map');
@@ -162,9 +213,11 @@ export class Saves {
   /**
    * Collect the data of every part (does not write to the browser): { format, savedAt, versions, parts }.
    * A part whose save() throws is left out and reported (engine.error in dev); save() instead refuses to write such a save.
+   * Throws while a load is under way: what it would return is half of each state. saves.save waits instead.
    * @returns {{ format: number, savedAt: number, versions: Record<string, number>, parts: Record<string, any> }}
    */
   collect() {
+    if (this.replacing) throw codedError('save-busy', DEV_STRINGS.busy);
     const { data, failed } = this._collect();
     for (const [k, e] of failed) reportError(this.engine, e, `save() of save part '${k}'`);
     return data;
@@ -188,35 +241,62 @@ export class Saves {
    * The pre-load state is a copy (structuredClone) of every part's save(), so save() may return the live object load() writes into; a part whose
    * data cannot be copied makes apply refuse (false) before anything changes.
    * The state changes synchronously unless a part's load is async; only the result is a Promise.
+   * One replacement runs at a time: asked for while a load, newGame or quit is under way, this waits its turn, then reads the data and takes its
+   * rollback point. On the line after a synchronous apply it is not waiting on anything yet, so it applies at once and takes over the afterLoad.
+   * Inside a part's load() or an afterLoad it starts after they return, so do not await it there.
+   * On success 'save:loaded' fires with slot, as for saves.load: what the game does not save (a walk) ends on it, and derived state rebuilds.
    * @param {any} data
-   * @param {string} [slot]  for messages only
+   * What goes around it is the same for every door (core/saves/session.js): 'save:loaded' fires with `slot`, the title closes; a rollback fires 'session:failed' { kind: 'quick', slot }.
+   * @param {string} [slot]  for messages and the event
    * @returns {Promise<boolean>}
    */
-  apply(data, slot = '(data)') { return applySave(this, data, slot); }
+  apply(data, slot = '(data)') { return this._replace.run(null, () => applyAnnounced(this, data, slot)); }
+
+  /**
+   * @internal True while the game state is being replaced: from reading a save through its parts, the modules' afterLoad and any rollback. Ops refuse with
+   * code 'loading' for that whole span; any other freeze (a menu) does not stop them.
+   * @type {boolean}
+   */
+  get replacing() { return this._replace.replacing; }
+  /**
+   * @internal Which saved state the game holds (StateReplace.generation). Code that waits and then writes takes it when asked and writes only if it is unchanged;
+   * read it with replacing off when a load that fails must not count.
+   * @type {number}
+   */
+  get generation() { return this._replace.generation; }
+  /** @internal Resolves once every replacement already in line ended, so generation says how it went: a load under way may still fail and give this state back */
+  settled() { return this._replace.read(async () => {}); }
   /** @internal Put a save in memory and queue the disk write; returns Promise<boolean> (write succeeded) */
   _put(slot, json, savedAt) {
-    const prev = this._json.get(slot), prevAt = this._meta.get(slot), rev = `${this._tab}:${++this._n}`;
+    const rev = this._newRev();
     this._json.set(slot, json); this._meta.set(slot, savedAt);
     // expect is read when the write runs, not now: an earlier queued save of this tab moves _mine first
     return this._enqueue(() => this.store.putSlot(slot, savedAt, json, rev, this._mine.get(slot) ?? null)).then(() => {
       this._rev.set(slot, rev); this._mine.set(slot, rev);
       this._tell(slot);
       return true;
-    }, e => {
+    }, async e => {
       if (e?.stale !== undefined) {   // another tab wrote it: memory shows that newer save (list / load offer it); this playthrough is not written
         if (this._json.get(slot) === json) this._show(slot, e.stale);
         warnOnce(coded('save-stale', fmt(DEV_STRINGS.stale, { slot })));
         toast(this.engine, this.engine.t('saves.otherTab', { slot }), { kind: 'error', ms: 6000 });
         return false;
       }
-      // the disk still holds the previous save, so memory goes back to it (unless a later save already replaced this one):
-      // list / load / continue never offer a save that is not stored
-      if (this._json.get(slot) === json) {
-        if (prev == null) { this._json.delete(slot); this._meta.delete(slot); } else { this._json.set(slot, prev); this._meta.set(slot, prevAt); }
-      }
+      await this._showStored(slot, () => this._json.get(slot) === json);
       this._fail(e, slot); return false;
     });
   }
+  /**
+   * @internal A write the store refused: memory goes back to what the disk holds (unless a later save already replaced what failed, which still() tells), so list / load / continue
+   * never disagree with it. Read, not remembered: the text before may be a queued save that failed too
+   */
+  async _showStored(slot, still) {
+    if (!still()) return;
+    const stored = await this.store.getSlot(slot).catch(() => null);
+    if (still()) this._show(slot, stored);
+  }
+  /** @internal */
+  _newRev() { return `${this._tab}:${++this._n}`; }
   /** @internal Memory shows a stored record (null = none); a stored record leaves the rev this tab may overwrite as it was */
   _show(slot, r) {
     if (!r) { this._json.delete(slot); this._meta.delete(slot); this._rev.delete(slot); this._mine.delete(slot); return; }   // deleted: no newer progress to protect, so the next save may write
@@ -235,13 +315,16 @@ export class Saves {
    * Save into a slot (default 'auto'). Returns Promise<boolean>
    * (resolves after the write to IndexedDB: true on success, false with a toast and console error on failure).
    * The in-memory save updates immediately, so a following load / list / export sees it at once; the 'save:written' event fires only after the write succeeds.
-   * If any part's save() throws, nothing is written and the slot keeps its previous save (false). A failed write keeps the previous save too.
+   * Asked for while a load, newGame or quit is under way, it waits for that to end and saves the result: a save never holds half of each state.
+   * If any part's save() throws, or its data holds NaN or Infinity at any depth (the message names the part and the path), nothing is written and the slot keeps its previous save (false). A failed write keeps the previous save too.
    * Show "saved" only after the result is true.
    * @param {string} [slot]
    * @returns {Promise<boolean>}
    * @example if (await engine.saves.save('slot1')) toast(engine, 'Saved');   // on false the engine already showed why
    */
-  save(slot = 'auto') {
+  save(slot = 'auto') { return this._replace.read(() => this._save(slot)); }
+  /** @internal save, in a moment no replacement is under way */
+  _save(slot) {
     let data, json;
     try {
       const r = this._collect();
@@ -264,20 +347,30 @@ export class Saves {
    * @returns {Promise<boolean>}
    * @example if (!(await engine.saves.load('quick'))) toast(engine, 'No quick save');
    */
-  load(slot = 'auto') { return this._load(slot); }
-  /** @internal Load a slot; with base (a collect() result) the save goes on top of it, so a part missing from the save gets base's state (session.load) */
+  load(slot = 'auto') { return this._replace.run(null, () => this._load(slot)); }
+  /** @internal Load a slot inside a turn already taken; with base (a collect() result) the save goes on top of it, so a part missing from the save gets base's state (session.load) */
   _load(slot, base) { return loadSlot(this, slot, base); }
   /** All slots, newest first (synchronous, reads the in-memory index) @returns {{ slot: string, savedAt: number }[]} */
   list() {
     return [...this._meta].map(([slot, savedAt]) => ({ slot, savedAt })).sort((a, b) => b.savedAt - a.savedAt);
   }
-  /** Delete a slot. Returns a Promise (disk write done); awaiting is optional @param {string} slot @returns {Promise<void>} */
+  /**
+   * Delete a slot. Returns a Promise (disk write done); awaiting is optional. A newer save another tab wrote meanwhile is kept: the slot lists again, with a toast (save-stale).
+   * A delete the store refused lists the slot again too, with a toast.
+   * @param {string} slot @returns {Promise<void>}
+   */
   remove(slot) {
     this._json.delete(slot); this._meta.delete(slot);
     // the revs are cleared when the delete runs, not now: a save queued before this remove sets _mine when its write lands,
     // and a _mine left over for a deleted record would refuse every later save of this slot as "another tab saved"
-    return this._enqueue(async () => { await this.store.deleteSlot(slot); this._rev.delete(slot); this._mine.delete(slot); })
-      .then(() => this._tell(slot), e => this._fail(e, slot));
+    // what it expects is what this tab lists (_rev): a save the note from another tab brought in is the player's to delete
+    return this._enqueue(async () => { await this.store.deleteSlot(slot, this._rev.get(slot) ?? null); this._rev.delete(slot); this._mine.delete(slot); })
+      .then(() => this._tell(slot), async e => {
+        if (e?.stale === undefined) { await this._showStored(slot, () => !this._json.has(slot)); return this._fail(e, slot); }
+        if (!this._json.has(slot)) this._show(slot, e.stale);
+        warnOnce(coded('save-stale', fmt(DEV_STRINGS.staleRemove, { slot })));
+        toast(this.engine, this.engine.t('saves.otherTabKept', { slot }), { kind: 'error', ms: 6000 });
+      });
   }
   /** Export as a piece of text (can be copied as a backup; synchronous, without binary attachments) @param {string} [slot] @returns {string} @experimental */
   export(slot = 'auto') { try { return btoa(unescape(encodeURIComponent(this._json.get(slot) || ''))); } catch { return ''; } }
@@ -330,3 +423,5 @@ export class Saves {
   /** @internal Stop autosave (called by engine.dispose) */
   dispose() { this._auto?.remove(); this._bc?.close(); this._bc = null; this._queue.finally(() => this.store.close()); }   // close the database only after queued writes finish
 }
+
+export const handRolled = [{ kind: 'save', seen: 'a save of its own in localStorage', use: "engine.saves: autosave(minutes), register('game', { version: 1, save, load }), and Continue on the start screen (recipe 63); versions, slots and a corrupt save are handled", quiet: /\bengine\.saves\b/, code: /\blocalStorage\.setItem\s*\(/, notRaw: /setItem\s*\(\s*(?![^,)]*(?:save|progress))[^,)]*(?:volume|mute|lang|locale|theme|music|sfx|quality|sensitiv|brightness|fullscreen|tutorial|dismiss|setting|pref|option|keybind)/i }];

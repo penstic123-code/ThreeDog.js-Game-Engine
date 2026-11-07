@@ -11,7 +11,7 @@ import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync, rmSync
 import { join } from 'node:path';
 import ts from 'typescript';
 import { pathToFileURL } from 'node:url';
-import { API_MD_REL, API_DIR_REL, RECIPES_REL, CONTENT_RULES_REL, ENGINE, abs, cli } from './paths.mjs';
+import { API_MD_REL, API_DIR_REL, RECIPES_REL, CONTENT_RULES_REL, METADATA_REL, ENGINE, abs, cli } from './paths.mjs';
 import { COMMANDS, EXTRA as EXTRA_COMMANDS } from './threedog/command-table.mjs';
 import {
   ROOT, OUT, PAGES, GEN, decls, indexFns, reexported, shown, get, clean, docOf, first, full, brief, raw, typeText, sig,
@@ -23,15 +23,14 @@ const { opt: OPT } = cli(process.argv.slice(2), { workspace: false, flags: ['che
 
 const recipeNames = readdirSync(abs(RECIPES_REL)).filter(f => f.endsWith('.md')).map(f => f.replace(/\.md$/, '')).sort();
 idx.push('# Engine API index (generated, do not edit by hand; produced by npm run map)', '',
-  '> **To do something, first look at the recipe in `recipes/` whose file name matches** (it has a ready-made pattern, faster than browsing the API): '
-    + recipeNames.join(' · '),
+  '> A new feature starts at `AI.md` or `threedog how`; this page is for looking up a name.',
   '> The api pages are generated too, do not edit them by hand; `?` in a signature means optional, what follows `→` is the return value; the full types ' +
     'are in `types/*.d.ts`.',
-  '> With no matching recipe: read this page first: the core everyday API + one line per core object / module (listing method names). ' +
-    'For the one you need, **read only that page** `api/<name>.md` (methods, parameters, properties and data structures are all in it).',
+  '> One line per core object / module; for the one you need, **read only that page** `api/<name>.md`.',
   '> Paths are relative to the package (`node_modules/threedog/`). Entry: `import { createEngine, openWorld, … } from \'threedog\'` (the engine ' +
     'package\'s own examples use relative paths); ' +
-    'a module that is not installed is undefined, so use `engine.xxx?.method()`.', '');
+    'a module the game needs is installed with `engine.use` before `await engine.start()`; `engine.xxx?.method()` is only for a feature the game works without, and a required module left out that way fails in silence.',
+  '> By task: ordinary picture is plain three.js (`THREE.md`); game rules are `onFixed`, `ops`, `world`; modules are `use` and `ctx.track`; drawing of your own is at the end of the module list; to troubleshoot, `describe` gives state and `explain` why.', '');
 
 // ---------- Core: engine ----------
 const eng = get('Engine');
@@ -89,8 +88,10 @@ for (const [p, t] of CORE_OBJS) {
 }
 idx.push('', '## Modules (installed with engine.use; the openWorld preset installs only world and environment, see [api/openWorld.md](api/openWorld.md))');
 const engProps = engApi.props.filter(p => p.optional);
-const factories = indexFns.filter(f => ts.isFunctionDeclaration(f.nodes[0]) && /^ModuleDef</.test(raw(f.nodes[0].type)));
-const apiOf = f => raw(f.nodes[0].type).match(/ModuleDef<(\w+)>/)[1];
+// a factory returns ModuleDef<Api>, or an array or tuple of them: the first is what the options configure, the rest are parts of it (weather: state, then drawing)
+const factories = indexFns.filter(f => ts.isFunctionDeclaration(f.nodes[0]) && /^\[?\s*ModuleDef\b/.test(raw(f.nodes[0].type)));
+const apisOf = f => [...raw(f.nodes[0].type).matchAll(/ModuleDef<(?:import\("[^"]*"\)\.)?(\w+)>/g)].map(m => m[1]);
+const drawIdx = [];                                   // the second half of a tuple: for authors of custom drawing, listed apart from the facades
 const EXTRA = { npcs: 'characters' };                // properties not installed by a module function of their own: written into that module's page
 const EXTRA_TYPES = {                                  // classes that come with a module (engine.player etc.)
   characters: [['Character', 'player.', 'engine.player / NPC are both Character'], ['NPC', 'npc.', 'engine.npcs.add() returns an NPC (extends Character)']],
@@ -98,7 +99,7 @@ const EXTRA_TYPES = {                                  // classes that come with
 const CAMS = [['FollowCamera', 'followCamera'], ['FirstPersonCamera', 'firstPersonCamera'], ['FixedCamera', 'fixedCamera'], ['RtsCamera', 'rtsCamera']];
 for (const p of engProps) {
   const t = typeText(p.type);
-  const fs = factories.filter(f => apiOf(f) === t);
+  const fs = factories.filter(f => apisOf(f).includes(t)), part = fs.length > 0 && fs.every(f => apisOf(f)[0] !== t);
   const mods = fs.map(f => { const o = f.nodes[0].parameters[0]; return `${f.name}(${o ? `${o.name.getText()}?: ${typeText(o.type)}` : ''})`; });
   const need = fs.map(f => docOf(f.nodes[0]).text.match(/requires (?:module )?`?\w+`? to be installed first/i)?.[0]).find(Boolean);
   let L;
@@ -106,7 +107,7 @@ for (const p of engProps) {
   else {
     L = page(p.name, `engine.${p.name} — ${mods.join(' / ') || p.name + '()'}${need ? ` (${need})` : ''}`);
     if (p.doc) L.push(full(p.doc), '');
-    for (const f of fs) { const o = f.nodes[0].parameters[0]; if (o) renderOptions(L, typeText(o.type), fs.length > 1 ? `${f.name} options` : 'Options'); }
+    if (!part) for (const f of fs) { const o = f.nodes[0].parameters[0]; if (o) renderOptions(L, typeText(o.type), fs.length > 1 ? `${f.name} options` : 'Options'); }
     L.push('', '## Methods and properties');
   }
   const short = p.name === 'cameraRig' ? 'cam.' : `${p.name}.`;
@@ -148,12 +149,14 @@ for (const p of engProps) {
   const label = p.doc.split(/[(:]/)[0].trim() || p.name, ns = names(p.name === 'cameraRig' ? 'CameraRigBase' : t, 12);
   const extraTypes = EXTRA_TYPES[p.name] ? '; ' + EXTRA_TYPES[p.name].map(x => x[0]).join(', ') : '';
   const npcNote = p.name === 'characters' ? '; engine.npcs: ' + names('NPCManager') + ' avoid (behavior and avoid: see recipes/02-npc)' : '';
-  idx.push(`- [\`engine.${p.name}\`](${link(p.name)}) ${fs.map(f => f.name + '()').join(' / ')} ${label}${need ? ` (${need})` : ''}${ns ? ': ' + ns : ''}${extraTypes}${npcNote}`);
+  (part ? drawIdx : idx).push(`- [\`engine.${p.name}\`](${link(p.name)}) ${fs.map(f => f.name + '()').join(' / ')} ${label}${need ? ` (${need})` : ''}${ns ? ': ' + ns : ''}${extraTypes}${npcNote}`);
 }
+idx.push('', '## Custom drawing (only to replace how a module draws: the facades above are the entry; `engine.use(mine, { replaces })`, recipe 28 §6)', ...drawIdx);
 
 // ---------- content vocabulary (generated from modules/content/rules.js, not copied by hand) ----------
 {
-  const { CONDITIONS, EFFECTS, CONTENT_FILES, REFS } = await import(pathToFileURL(abs(CONTENT_RULES_REL)).href);
+  const { CONDITIONS, ALL_EFFECTS, REFS } = await import(pathToFileURL(abs(CONTENT_RULES_REL)).href);
+  const { sectionDocs } = await import(pathToFileURL(abs(METADATA_REL)).href);
   const row = ([k, d]) => `  - \`${k}\` ${REFS[d.ref] ?? d.ref}: ${d.desc}`;
   pages.get('content').push('', '## Condition words / effect words in content files (generated from modules/content/rules.js)',
     'Conditions are used in quest step done, dialogue option if and line variant if; effects in dialogue do, quest reward and trigger zone onEnter / onExit. ' +
@@ -161,8 +164,8 @@ for (const p of engProps) {
     'A game\'s own condition words go in content/rules.js (or content.condition); a game\'s own actions are ops, called with { op: [...] } ' +
       '(recipes/23-ops.md). ' +
     'The format of actions.js and how to write loading are in recipes/20-content-actions-save.md.',
-    '- Condition words:', ...Object.entries(CONDITIONS).map(row), '- Effect words:', ...Object.entries(EFFECTS).map(row),
-    '- Files content/ recognizes:', ...Object.entries(CONTENT_FILES).map(([k, d]) => `  - \`${k}.js\` ${d}`),
+    '- Condition words:', ...Object.entries(CONDITIONS).map(row), '- Effect words:', ...Object.entries(ALL_EFFECTS).map(row),
+    '- Files content/ recognizes:', ...Object.entries(sectionDocs).map(([k, d]) => `  - \`${k}.js\` ${d}`),
     '  - any other `<name>.js` the game registers in content/rules.js as '
       + 'kinds: { name: { desc, load?(e, data), check?, map? } } (enemies, recipes, loot tables…)');
 }
@@ -199,7 +202,7 @@ idx.push('');
 const LLMS = join(ENGINE, 'llms.txt');
 const llms = ['# threedog', '', '> A web 3D game engine on three.js 0.187 (plain three.js, no React): core and modules installed with engine.use. ' +
   'It ships no art: each game draws its own picture (plain three.js in its picture/ folder, and assets).', '',
-  "Reading order: docs/AI.md (the index: one line per task) -> the recipe for the task -> docs/api/<module>.md for details -> the game's GAMEMAP.md.", '',
+  "Taking over a game: its status notes first. A new feature: docs/AI.md or threedog how, then the recipe, then docs/api/<module>.md.", '',
   '## Start', '', '- [AI.md](docs/AI.md): entry table, commands, verification rules, conventions',
     '- [API.md](docs/API.md): API index; one page per module in docs/api/', '',
   '## Recipes', '', ...recipeNames.map(r => `- [${r}](docs/recipes/${r}.md): ${readFileSync(join(abs(RECIPES_REL), r + '.md'), 'utf8').split('\n')[0].replace(/^#\s*/, '')}`), ''].join('\n');

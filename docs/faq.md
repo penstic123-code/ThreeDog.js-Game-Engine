@@ -82,7 +82,7 @@ Three.js 0.187 has the parts, a trial measured them, and most are now in the eng
 
 ### Does it have nodes, components and prefabs like Godot and Unity?
 
-Some, in a lighter form. Prefabs are templates placed as data, and changing a template changes its instances. A variant is plain JavaScript: `{ ...chest, model: 'iron-chest' }`. Parent and child objects are the three.js scene tree. Components are template fields plus module calls, since an agent does not drag anything onto an object. Composed templates that place several parts at once are *planned*. Template inheritance and a general component system are left out on purpose.
+Templates plus placements cover prefabs, template fields plus module calls cover components, and the three.js tree covers parent and child. Template inheritance, composed prefabs and a general component system are left out on purpose; the reasons are in [design.md](design.md), section 10.1.
 
 ### Why not use PlayCanvas, Godot or Unity?
 

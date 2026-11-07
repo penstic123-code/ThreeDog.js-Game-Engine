@@ -13,6 +13,7 @@
 //   is a warning light, not a proof. Edit entry.json to add what the scan cannot see.
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
+import { noComments } from './text.mjs';
 
 const CODE = /\.m?js$/, MODEL = /\.(glb|gltf)$/i, TEXTURE = /\.(png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr)$/i;
 /** File names that hold numbers, not colors: decoding them as sRGB shifts every value */
@@ -20,7 +21,6 @@ const DATA_MAP = /(^|[-_. ])(normal|nrm|nor|rough(ness)?|metal(lic|ness)?|ao|occ
 /** Code only WebGLRenderer can run (WebGPURenderer stops at it by name), and code only WebGPURenderer can run: node materials and TSL */
 const GLSL_ONLY = /\b(?:ShaderMaterial|RawShaderMaterial|onBeforeCompile|customProgramCacheKey|gl_FragColor|WebGLRenderTarget|EffectComposer|ShaderPass)\b|\bglsl\b/;
 const NODE_ONLY = /\b\w*NodeMaterial\b|\bwgsl\b|\bStorageBufferAttribute\b|\brenderer\.compute\b|['"](?:three\/tsl|three\/webgpu|threedog\/tsl)['"]/;
-export const noComments = t => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|\s)\/\/.*$/gm, '$1');
 const uniq = l => [...new Set(l)].sort();
 const quoted = s => [...s.matchAll(/['"]([\w.-]+)['"]/g)].map(m => m[1]);
 const hex = (r, g, b) => '#' + [r, g, b].map(v => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0')).join('');

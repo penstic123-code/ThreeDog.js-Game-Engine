@@ -23,7 +23,7 @@ const NO_VEG = { baseNames: () => [], nearNames: () => [], list: () => [], get: 
 const MAX_TRIES = 3;
 
 export class ChunkManager {
-  constructor(engine, terrainCfg) {
+  constructor(engine, terrainCfg, ctx) {
     this.engine = engine;
     this.generator = createTerrain(terrainCfg);          // main-thread copy: height queries for the character and camera
     this.chunks = new Map();
@@ -48,7 +48,7 @@ export class ChunkManager {
     // falls back to it
     this.lane = engine.threads.lane({ create: () => new Worker(new URL('./chunkWorker.js', import.meta.url), { type: 'module' }), local: chunkHandler });
     this.lane.broadcast({ type: 'init', terrain: terrainCfg, species: {} }, 'init');
-    /** @internal edit records (saved with the save) */ this.edits = new TerrainEdits(engine, this);
+    /** @internal edit records (saved with the save) */ this.edits = new TerrainEdits(engine, this, ctx);
   }
 
   get chunkSize() { return this.generator.CHUNK; }
@@ -99,6 +99,7 @@ export class ChunkManager {
    * remove() puts the empty planter back if this one is still set.
    * @param {object} planter
    * @returns {{ remove(): void }}
+   * @internal
    */
   setPlanter(planter) {
     this.plants = planter;
@@ -175,27 +176,20 @@ export class ChunkManager {
     return n;
   }
 
-  /**
-   * View distance (in chunks). Also moves the camera far plane out to it; with terrain({ viewFog: true }) the signal uViewDistance follows too (see viewFogFar;
-   * the game's fog is its own)
-   */
-  setViewChunks(n) {
-    this._viewChunks = n;
-    this.engine.viewFar(this._viewMeters() + 150);   // chunks in view must not be clipped (unless the game owns camera.far)
-  }
   /** @internal the view distance in meters */
   _viewMeters() { return (this._viewChunks - 0.3) * this.generator.CHUNK; }
   /** The view distance the signal uViewDistance gets with terrain({ viewFog: true }) (meters), else null; never scene.fog itself */
   get viewFogFar() { return this.viewFog ? this._viewMeters() : null; }
-  /** Vegetation density multiplier: plants are placed again on the loaded chunks; the ground and its collision stay, old trees block until the new ones are in */
-  setDensity(d) { this._density = d; this.vgen++; this._regrow(this.plants.baseNames()); this._regrowNear(this.plants.nearNames()); }
   // Why setters: a plain write used to change the number and nothing else (no far plane, no new plants), with no error
-  /** View distance (in chunks); writing it takes effect like setViewChunks */
+  /** View distance (in chunks). Writing it moves the camera far plane out too; with terrain({ viewFog: true }) the signal uViewDistance follows (see viewFogFar; the game's fog is its own) */
   get viewChunks() { return this._viewChunks; }
-  set viewChunks(n) { this.setViewChunks(n); }
-  /** Vegetation density multiplier; writing it takes effect like setDensity */
+  set viewChunks(n) {
+    this._viewChunks = n;
+    this.engine.viewFar(this._viewMeters() + 150);   // chunks in view must not be clipped (unless the game owns camera.far)
+  }
+  /** Vegetation density multiplier. Writing it places plants again on the loaded chunks: it thins plants without a collider, blocking plants stand at every density, so collision does not change */
   get density() { return this._density; }
-  set density(d) { this.setDensity(d); }
+  set density(d) { this._density = d; this.vgen++; this._regrow(this.plants.baseNames()); this._regrowNear(this.plants.nearNames()); }
   // plants-only jobs for every loaded chunk (the ground and its collision stay; near-only species: _regrowNear). c.regrow counts the ones not yet
   // mounted: readyAt is false until they are, so a headless page (core/engine/headlessLoad.js) keeps running loading frames and stateApplied
   // waits for the new plants, as it did when a species dropped the whole terrain

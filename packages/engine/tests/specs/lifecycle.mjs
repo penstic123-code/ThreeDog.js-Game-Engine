@@ -95,12 +95,17 @@ export const specs = [
           for (const [n, s] of E.events.map) if (s.size) ev[n] = s.size;
           const a = E.audio;
           return { ...ev, '(fixed)': E._fixed.length + E._fixedLate.length, '(frame)': E._frame.length, '(render)': E._onRender.before.length + E._onRender.after.length,
-            '(timers)': E.clock.size, '(conditions)': a.conditions.size, '(measures)': a.measures.size, '(packWatch)': a._packWatch.size };
+            '(timers)': E.clock.size, '(conditions)': a.conditions.size, '(measures)': a.measures.size, '(packWatch)': a._packWatch.size,
+            '(ops)': E.ops.defs.size, '(saves)': E.saves.providers.size, '(ui)': E.ui.defs.size, '(ready)': E.stream._checks.size, '(sources)': E._things.sources.length,
+            '(explainers)': E._things.explainers.length, '(metrics)': E.budget.metrics.size, '(colliders)': E._groundExtra?.length ?? 0, '(ground)': E._groundBy ? 1 : 0 };
         };
         T.uiFocus(E);   // the engine's one focus stack (its own onFrame), made by whoever asks first: not a module's registration
         const s0 = snap();
-        const mods = [...T.openWorld({ seed: 1, camera: 'follow' }), T.interactions({ ...T.presets.interactions.nearest }), T.dialogue(), T.inventory(), T.pickups(), T.quests(), T.photo(), T.level(),
+        // level and terrain both claim the ground, so level runs in a second list that keeps everything else
+        const list = ground => [...T.openWorld({ seed: 1, camera: 'follow' }).filter(m => ground === 'terrain' || !/^terrain/.test(m.name)), ...(ground === 'level' ? [T.level()] : []),
+          T.interactions({ ...T.presets.interactions.nearest }), T.dialogue(), T.inventory(), T.pickups(), T.quests(), T.photo(),
           T.triggers(), T.particles(), T.swarm(), T.music(), T.timeline(), T.nav(), T.hlod(), T.lightPool(), T.content(), T.flow(), T.hud(), T.grids()];
+        const mods = list('terrain');
         out.names = mods.map(m => m.name);
         // diagnosis only: which module's install made each registration, so a leak names its module
         let cur = null;
@@ -117,6 +122,17 @@ export const specs = [
         out.who = made.filter(([, n, f]) => n === '(frame)' ? E._frame.includes(f) : n === '(fixed)' ? E._fixed.includes(f) || E._fixedLate.includes(f) : E.events.map.get(n)?.has(f))
           .map(([m, n]) => `${m}: ${n}`);
         out.modules = E.modules.size; out.tracked = E._modTracked.size; out.setCamera = Object.hasOwn(E, 'setCamera');
+        // every built-in module, both grounds: install, unload in reverse order, nothing left, and the same list installs again
+        out.sweep = [];
+        for (const ground of ['terrain', 'level', 'terrain']) {
+          try {
+            const next = list(ground);
+            E.use(...next);
+            for (const m of [...next].reverse()) E.unuse(m.name);
+            const s2 = snap();
+            for (const k of Object.keys({ ...s0, ...s2 })) if ((s0[k] ?? 0) !== (s2[k] ?? 0)) out.sweep.push(`${ground} ${k}: ${s0[k] ?? 0} -> ${s2[k] ?? 0}`);
+          } catch (e) { out.sweep.push(`${ground}: ${e.message}`); }
+        }
         // a failed init removes what its install tracked
         const F = mk(createEngine, 'lc-own-init');
         let heard = 0;
@@ -131,6 +147,7 @@ export const specs = [
       });
       check('the batch threw the install error and nothing stayed installed', /lc boom/.test(r.err ?? '') && r.modules === 0 && r.tracked === 0 && !r.setCamera, JSON.stringify(r));
       check('no listener / hook / timer / audio rule of any module is left (each line is one leak: module code registering without ctx.track)', r.left.length === 0, r.left.join('\n') + '\nregistered by: ' + r.who.join(', '));
+      check('every built-in module installs, unloads and installs again with nothing left: ops, save parts, ui, ready checks, sources, ground (each line is one leak)', r.sweep.length === 0, r.sweep.join('\n'));
       check('a module whose init threw keeps no listener its install tracked', r.initFail.heard === 0 && r.initFail.state === 'failed', JSON.stringify(r));
     },
   },

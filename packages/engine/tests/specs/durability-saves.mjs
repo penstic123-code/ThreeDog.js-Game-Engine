@@ -1,11 +1,155 @@
 // Durability guards from the 2026-11-02 durability audit (docs/plans/done/2026-11-02-durability-fixes.md items 1, 2, 6, 7): each reproduces an audit case
 // through the public calls (saves / session) and the stored text, so a fix that only patches one path fails here.
 // Same format as the other files here.
+import { readFileSync } from 'node:fs';
 
 /** In the page: store a hand-edited copy of slot `from` as slot `to` (as a player editing the save text would), returns nothing */
 const EDIT = `async (from, to, src) => { const s = JSON.parse(engine.saves._json.get(from)); (0, eval)('(' + src + ')')(s); await engine.saves._put(to, JSON.stringify(s), Date.now()); }`;
 
 export const specs = [
+  {
+    name: 'state replace: overlapping direct applies end as one whole save; a queued load takes its rollback point when it starts; session waits its turn; a late async adopt cannot write over a newer load (open world) [guard]',
+    url: '/?threedog-headless',
+    expectErrors: /replace boom/,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const S = engine.saves, out = {}, gate = () => { let open; const p = new Promise(res => { open = res; }); return { p, open }; };
+        const state = { x: 0, y: 0 };
+        let wait = null;   // the gate part X stops at, for the save whose x equals wait.at
+        S.register('rpX', { save: () => ({ x: state.x }), load: d => { state.x = d.x; if (wait?.at === d.x) return wait.p; } });
+        S.register('rpY', { save: () => ({ y: state.y }), load: d => { if (d.y < 0) throw new Error('replace boom'); state.y = d.y; } });
+        const save = (x, y) => ({ format: 1, versions: { rpX: 1, rpY: 1 }, parts: { rpX: { x }, rpY: { y } } });
+        const tick = () => new Promise(res => setTimeout(res, 0));
+        // the review's repro: A (1,1) stops after part X, B (2,2) is asked for, A resumes. B waits its turn, so A is released before B is awaited
+        wait = { ...gate(), at: 1 };
+        const a = S.apply(save(1, 1), 'A'), b = S.apply(save(2, 2), 'B');
+        await tick();
+        out.mid = { ...state };
+        wait.open();
+        out.overlap = { a: await a, b: await b, end: { ...state } };
+        // B fails while queued behind A: it rolls back to all of A (1,1), not to the half of A there was when B was asked for
+        state.x = 0; state.y = 0;
+        wait = { ...gate(), at: 1 };
+        const a2 = S.apply(save(1, 1), 'A'), b2 = S.apply(save(5, -1), 'B');
+        await tick();
+        wait.open();
+        out.rollback = { a: await a2, b: await b2, end: { ...state } };
+        engine.error = null; engine.stacks.get('freeze').release('error');
+        // idle: a save with only synchronous parts changes the state before apply returns
+        wait = null;
+        const c = S.apply(save(3, 3), 'C');
+        out.sync = { ...state };
+        await c;
+        // apply, apply on the next line (a replay in one stretch of code), with afterLoad hooks installed: both apply at once and the hooks rebuild for the last
+        let rebuilt = 0;
+        engine.modules.set('rp-count', { name: 'rp-count', afterLoad() { rebuilt++; } });
+        const c1 = S.apply(save(4, 4), 'C1'), first = state.x, c2 = S.apply(save(5, 5), 'C2');
+        out.twice = { first, second: state.x, ok: [await c1, await c2], rebuilt };
+        engine.modules.delete('rp-count');
+        // session.newGame asked during a direct apply starts after it, on the same rule
+        const log = [], h = engine.events.on('session:end', () => log.push('end'));
+        wait = { ...gate(), at: 7 };
+        const d = S.apply(save(7, 7), 'D'), n = engine.session.newGame();
+        await tick();
+        out.sessionWaited = log.length === 0;
+        wait.open();
+        out.session = { d: await d, n: await n, log };
+        h.remove();
+        // a load() that asks for another replacement: it waits for this one
+        let inner = null;
+        S.register('rpNest', { save: () => ({}), load: () => { inner ??= S.apply(save(8, 8), 'inner'); } });
+        out.nestOuter = await S.apply({ format: 1, versions: { rpNest: 1 }, parts: { rpNest: {} } }, 'outer');
+        out.nestInner = await inner;
+        out.nest = { x: state.x };
+        S.providers.delete('rpNest');
+        // a part adopted late with an async load: a newer load waits for it, so the old data cannot land on top
+        let v = 0;
+        const held = gate();
+        await S.apply({ format: 1, versions: { rpLate: 1 }, parts: { rpLate: { v: 1 } } }, 'old');
+        S.register('rpLate', { save: () => ({ v }), load: async dd => { if (dd.v === 1) await held.p; v = dd.v; } });
+        const e2 = S.apply({ format: 1, versions: { rpLate: 1 }, parts: { rpLate: { v: 2 } } }, 'new');
+        await tick();
+        held.open();
+        await e2;
+        await tick();
+        out.late = v;
+        for (const k of ['rpX', 'rpY', 'rpLate']) S.providers.delete(k);
+        return out;
+      });
+      check('A paused, B asked for: nothing of B is applied yet', r.mid.x === 1 && r.mid.y === 0, JSON.stringify(r));
+      check('the end state is one whole save, never (2,1)', r.overlap.a === true && r.overlap.b === true && r.overlap.end.x === 2 && r.overlap.end.y === 2, JSON.stringify(r));
+      check('a queued load that fails rolls back to the whole previous save', r.rollback.a === true && r.rollback.b === false && r.rollback.end.x === 1 && r.rollback.end.y === 1, JSON.stringify(r));
+      check('[guard] idle: a synchronous save applies before apply returns', r.sync.x === 3 && r.sync.y === 3, JSON.stringify(r));
+      check('[guard] apply, apply on the next line: both at once, afterLoad runs once for the last', r.twice.first === 4 && r.twice.second === 5 && r.twice.ok.join() === 'true,true' && r.twice.rebuilt === 1, JSON.stringify(r));
+      check('session.newGame waits for a running apply', r.sessionWaited === true && r.session.d === true && r.session.n === true && r.session.log.join() === 'end', JSON.stringify(r));
+      check('a late adopted async part cannot land on top of a newer load', r.late === 2, JSON.stringify(r));
+      check('a replacement asked from inside a load() runs after it', r.nestOuter === true && r.nestInner === true && r.nest.x === 8, JSON.stringify(r));
+      // the rule cannot be walked around: code that replaces state enters through the one turn, and ops know no load's freeze name
+      const src = f => readFileSync(new URL('../../core/' + f, import.meta.url), 'utf8').replace(/^\s*(\/\/|\/?\*).*$/gm, '');
+      const saves = src('saves/Saves.js'), session = src('saves/session.js'), ops = src('ops/opsFail.js');
+      check('[guard] Saves applies and loads only inside a turn', [...saves.matchAll(/^.*(applyAnnounced\(this|this\._load\().*$/gm)].every(m => m[0].includes('_replace.run(')), 'a line in Saves.js calls applyAnnounced / _load outside _replace.run');
+      check('[guard] Session keeps no queue of its own and does not re-enter the public calls', !/_running|\.then\(run|saves\.(apply|load)\(|\bS\.load\(/.test(session) && session.includes('_replace.run('), 'session.js');
+      check('[guard] ops read the marker, not a load freeze name', ops.includes('saves.replacing') && !/\.has\('(?!error')/.test(ops), 'opsFail.js');
+    },
+  },
+  {
+    name: 'state replace: ops refuse by name through afterLoad and a rollback, work again after, and a plain menu freeze still allows them (open world) [guard]',
+    url: '/?threedog-headless',
+    expectErrors: /replace hook boom/,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const S = engine.saves, E = engine, out = {};
+        let value = 0, release, entered, fail = false, slow = null;
+        E.use({ name: 'rpRebuild', type: 'rules', afterLoad() { entered?.(); return new Promise((res, rej) => { release = () => (fail ? rej(new Error('replace hook boom')) : res()); }); } });
+        E.ops.define('rp.change', { run() { value++; }, undo() {} });
+        S.register('rpSlow', { save: () => ({}), load: () => slow?.() });
+        const started = () => new Promise(res => { entered = res; });
+        // 1. a pending afterLoad
+        let on = started(), loading = S.apply(S.collect(), 'rp');
+        await on;
+        out.hook = { frozen: E.frozen, run: E.ops.run('rp.change').code, can: E.ops.can('rp.change').code, undo: E.ops.undo('rp.change', {}, 1).code, value };
+        release();
+        out.hook.ok = await loading;
+        out.hook.after = E.ops.run('rp.change').ok; out.hook.value2 = value;
+        // 2. afterLoad throws; the rollback waits on an async part: still refused until the rollback ended
+        value = 0; fail = true;
+        const roll = {}; let rollEntered, rollOpen;
+        const inRollback = new Promise(res => { rollEntered = res; }), hold = new Promise(res => { rollOpen = res; });
+        on = started(); loading = S.apply(S.collect(), 'rp');
+        await on;
+        slow = () => { rollEntered(); return hold; };   // the next load of this part is the rollback's
+        release();
+        await inRollback;
+        roll.run = E.ops.run('rp.change').code; roll.value = value;
+        rollOpen();
+        roll.ok = await loading;
+        slow = null; fail = false;
+        E.error = null; E.stacks.get('freeze').release('error');
+        roll.after = E.ops.run('rp.change').ok; roll.value2 = value;
+        out.roll = roll;
+        E.unuse('rpRebuild'); S.providers.delete('rpSlow');
+        // 3. a game's own menu freeze: ops such as inventory keep working
+        const menu = E.freeze('rp-menu'), v0 = value;
+        out.menu = { frozen: E.frozen, ok: E.ops.run('rp.change').ok, changed: value === v0 + 1 };
+        menu.remove();
+        // 4. no afterLoad hook and synchronous parts: the replacement is over on the next line, not a tick later
+        const hooks = [...E.modules].filter(([, m]) => m.afterLoad);
+        for (const [k] of hooks) E.modules.delete(k);
+        const p = S.apply(S.collect(), 'rp');
+        out.idle = { replacing: S.replacing, op: E.ops.run('rp.change').ok };
+        await p;
+        for (const [k, m] of hooks) E.modules.set(k, m);
+        return out;
+      });
+      const h = r.hook, ro = r.roll;
+      check('pending afterLoad: gameplay frozen, ops.run / can / undo refuse with code loading, nothing changed', h.frozen === true && h.run === 'loading' && h.can === 'loading' && h.undo === 'loading' && h.value === 0, JSON.stringify(r));
+      check('after afterLoad ends ops work again', h.ok === true && h.after === true && h.value2 === 1, JSON.stringify(r));
+      check('during the rollback ops refuse the same way', ro.run === 'loading' && ro.value === 0, JSON.stringify(r));
+      check('after the rollback ops work again', ro.ok === false && ro.after === true && ro.value2 === 1, JSON.stringify(r));
+      check('[guard] a plain menu freeze keeps allowing ops', r.menu.frozen === true && r.menu.ok === true && r.menu.changed === true, JSON.stringify(r));
+      check('[guard] idle and fully synchronous: ops work on the line after apply', r.idle.replacing === false && r.idle.op === true, JSON.stringify(r));
+    },
+  },
   {
     name: 'durability: a hand-edited record position, a throwing world:load listener or afterLoad, and a null part all leave the game as it was (open world) [guard]',
     url: '/?threedog-headless',
@@ -25,7 +169,7 @@ export const specs = [
         out.pos.error = !!engine.error;
         // 2. a world:load listener that throws: the load fails and rolls back (the flag set after the save stays set). A throwing listener is a code
         // bug, so it goes through the error tiers (frozen in dev); the load's own freeze is released either way
-        const loadHeld = () => engine.stacks.get('freeze').names().includes('threedog:load');
+        const loadHeld = () => S.replacing || engine.stacks.get('freeze').names().includes('threedog:state-replace');
         const clear = () => { engine.error = null; engine.stacks.get('freeze').release('error'); };
         engine.ops.allow(() => engine.vars.setFlag('dur-after', true));
         const h = engine.events.on('world:load', () => { throw new Error('dur listener boom'); });
@@ -169,7 +313,7 @@ export const specs = [
     expectErrors: /dur rollback boom/,
     async run({ check, ev }) {
       const r = await ev(async () => {
-        const S = engine.saves, out = {}, held = () => engine.stacks.get('freeze').has('threedog:load-parts');
+        const S = engine.saves, out = {}, held = () => S.replacing && engine.stacks.get('freeze').has('threedog:state-replace');
         const clear = () => { engine.error = null; engine.stacks.get('freeze').release('error'); };
         let seen = [];
         S.register('durBoom', { first: true, save: () => ({}), load: d => { if (d.bad) throw new Error('dur rollback boom'); } });

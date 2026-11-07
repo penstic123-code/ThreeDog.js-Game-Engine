@@ -14,7 +14,8 @@ import { terrainPreset } from '@threedog/terrain-noise';
 
 const engine = createEngine({ canvas: document.getElementById('view'), lights: false, saveKey: 'range' });
 engine.use(openWorld({ seed: 7, terrain: terrainPreset(), camera: 'firstPerson' }), hud());   // camera (required): 'follow' | 'firstPerson' | 'rts' | 'fixed', or pass a module like firstPersonCamera({ height: 1.7 })
-const picture = createPicture(engine);
+engine.use(createPicture());
+const { picture } = engine;
 engine.input.action('shoot', { label: 'Shoot', keys: ['Mouse0', 'KeyF'] });      // the left mouse button is a key too (Mouse0 / Mouse1 / Mouse2); either it or KeyF works
 engine.characters.createPlayer({ ...presets.player.aim, spawn: engine.characters.findSpawn([0, 0, 0], { minH: 3, maxH: 14 }) });
 Object.assign(window, { engine, picture });
@@ -69,7 +70,7 @@ engine.onFixed(() => {                                   // firing is gameplay: 
   `hud.counter` again to sync the display.
 
 ## 3. Testing
-```js
+```js fragment
 engine.haltLoop();
 engine.input.simulate('shoot'); engine.step(0.1); engine.input.simulate('shoot', false);   // simulate a click on the action bound to Mouse0 (use your action name)
 // To hit a specific target: first aim the camera at it with engine.cameraRig.lookAt(target), then click

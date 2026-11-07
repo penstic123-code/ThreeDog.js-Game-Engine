@@ -5,6 +5,7 @@
 //   engine.ui.set('inventory', { drop: true })            default window with a Drop button per row
 //   engine.ui.set('inventory', (engine) => ({ show: d => …, update: d => …, hide: () => …, dispose: () => … }))   your own
 import { esc, iconHTML as icon, injectUICSS } from '../../ui/UI.js';
+import { isRunFailure } from '../../core/ops/opsFail.js';
 
 /** Texts of the inventory window, the got / full toasts and the ops (zh-CN and en) @internal */
 export const INVENTORY_STRINGS = {
@@ -65,11 +66,11 @@ export function inventoryWindow(e, o = {}) {
 const posOf = (e, actor) => actor === 'player' && !e.player ? null : e.actorPosition(actor);
 
 /** Define inventory.transfer / inventory.use / inventory.drop @internal */
-export function defineInventoryOps(e, inv) {
+export function defineInventoryOps(e, ctx, inv) {
   const box = id => inv._containers.map.get(id);
   const own = ctx => inv.of(ctx.actor);   // the bag of whoever runs the op (a net peer, an NPC, the local user), never a fixed 'player'
   // moving items between containers by hand (an inventory / chest window, drag and drop) is a player decision
-  e.ops.define('inventory.transfer', {
+  ctx.ops.define('inventory.transfer', {
     desc: 'Move items between containers (a bag of an actor has the actor id, the local one is player); item is an item id or an entry key (sword#3)', args: { from: 'string', to: 'string', item: 'string', n: 'int?' },
     can(e, { from, to, item, n = 1 }) {
       const a = box(from), b = box(to);
@@ -82,7 +83,7 @@ export function defineInventoryOps(e, inv) {
   // Replace-when-full recipe: one op takes A and gives B, all or nothing. Undo with engine.ops.undo('inventory.trade', args, value).
   //   engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' })   // { ok: true, value } or { ok: false, code: 'full' | 'notEnough', facts, nextActions }
   const at = (a, ctx) => a.container != null ? box(a.container) : own(ctx);
-  e.ops.define('inventory.trade', {
+  ctx.ops.define('inventory.trade', {
     desc: "Trade in the actor's container: take an item (or entry key) and give another in one all-or-nothing step; works with a full bag when the taken item frees the room",
     args: { take: 'string', give: 'string', takeN: 'int?', giveN: 'int?', container: 'string?' },
     can(e, a, ctx) {
@@ -97,8 +98,10 @@ export function defineInventoryOps(e, inv) {
     },
     reasons: { noContainer: 'No container with that id (container arg; default the actor)', notEnough: 'The container does not hold the item to give up', full: 'The new item does not fit even after the old one is removed' },
   });
-  e.ops.define('inventory.use', {
-    desc: "Use an item from the actor's container: runs the item's use(e, info); consume: true removes one first", args: { item: 'string' },
+  ctx.ops.define('inventory.use', {
+    desc: "Use an item from the actor's container: runs the item's use(e, info); consume: true removes one first; a use that answers { ok: false, code } or throws was not used, so all of it goes back, the item too", args: { item: 'string' },
+    // consume stays before use, for the room it frees (a potion that leaves a bottle in a full bag), so taking it back is the atomic rollback's job
+    atomic: true,
     can(e, { item }, ctx) {
       const en = own(ctx)._of(item)[0];
       if (!en) return 'notEnough';
@@ -109,13 +112,14 @@ export function defineInventoryOps(e, inv) {
     run(e, { item }, ctx) {
       const c = own(ctx), en = c._of(item)[0], def = inv.item(en.id), info = { actor: ctx.actor, item: en.id, key: en.key, data: en.data };
       if (def.consume) c.remove(en.key, 1);
-      def.use(e, info);
+      const r = def.use(e, info);
+      if (isRunFailure(r)) return r;
       e.events.emit('item:use', info);
       return en.key;
     },
     reasons: { notEnough: 'The actor does not have it', notUsable: 'The item has no use function' },
   });
-  e.ops.define('inventory.drop', {
+  ctx.ops.define('inventory.drop', {
     desc: "Drop items from the actor's container on the ground as a pickup (keeps their data)", args: { item: 'string', n: 'int?' },
     can(e, { item, n = 1 }, ctx) {
       if (!own(ctx).has(item, n)) return 'notEnough';

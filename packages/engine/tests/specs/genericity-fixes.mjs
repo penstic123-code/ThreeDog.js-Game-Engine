@@ -117,7 +117,7 @@ export const specs = [
         engine.haltLoop();
         const p = engine.player; p.placeAt({ x: 20, z: 20 });
         let usedAt = null, allowed = false;
-        const h = engine.interactions.add({ x: 26, y: 0, z: 20 }, { id: 'clerk', label: 'Talk', radius: Infinity, approach: true, onUse: () => { usedAt = Math.hypot(p.position.x - 26, p.position.z - 20); allowed = engine.ops._allowDepth > 0; return 'served'; } });
+        const h = engine.interactions.add({ x: 26, y: 0, z: 20 }, { id: 'clerk', label: 'Talk', radius: Infinity, approach: true, onUse: () => { usedAt = Math.hypot(p.position.x - 26, p.position.z - 20); allowed = engine.ops.running === 'interaction.use'; return 'served'; } });
         const res = engine.ops.run('interaction.use', { id: 'clerk' }, { source: 'test' });
         let settled = null; res.value?.approaching?.then(v => { settled = v; });
         const immediately = usedAt;

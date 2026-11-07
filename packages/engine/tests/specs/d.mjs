@@ -138,7 +138,7 @@ export const specs = [
         engine.modules.get('timeline').applyState(engine, { cutscene: 'skip' });
         const res = await engine.timeline.play([{ wait: 100 }]);
         engine.modules.get('timeline').applyState(engine, { cutscene: 'keep' });
-        return { dark, cleared, skipped: res.skipped, keep: !engine.timeline.skipAll };
+        return { dark, cleared, skipped: res.ending === 'skipped', keep: !engine.timeline.skipAll };
       });
       check('{ fade: 0.2 } fades to black', r.dark);
       check('after skipping, the following { fade, to: 0 } completes at once and the screen clears', r.cleared);

@@ -6,6 +6,36 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 export const specs = [
   {
+    name: '[guard] Audio lifecycle in a real page: music asked before the first click and ended with the playthrough stays silent; away the sound waits with the game; a suspended context comes back on the next press',
+    url: '/tests/audio/index.html',
+    async run({ page, check, ev, frames }) {
+      await page.waitForFunction(() => window.engine?.stateApplied, null, READY);
+      const a = await ev(async () => {
+        engine.music.rules([]); engine.music.play('calm');
+        const pending = engine.music.pending?.name ?? null;
+        await engine.session.quit(); await engine.session.newGame();
+        return { pending, after: engine.music.pending?.name ?? null };
+      });
+      const box = await page.locator('#view').boundingBox(), click = () => page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await click();
+      const state = want => ev(w => __t.until(() => engine.audio.ctx?.state === w, 3000).then(() => true, () => engine.audio.ctx?.state), want);
+      check('the first click unlocks', await state('running') === true);
+      await frames(5);
+      check('music asked for in the ended playthrough does not start on the click', a.pending === 'calm' && !await ev(() => engine.music.playing), JSON.stringify(a));
+      await ev(() => { engine.music.play('calm'); }); await frames(3);
+      await ev(() => { window.dispatchEvent(new Event('blur')); });
+      check('the window goes away: gameplay and sound both wait', await state('suspended') === true && await ev(() => engine.frozen));
+      await ev(() => { window.dispatchEvent(new Event('focus')); });
+      check('it comes back: they go on, the same music', await state('running') === true && await ev(() => !engine.frozen && engine.music.playing?.name === 'calm'));
+      await ev(() => { engine.page.pauseOnBlur = false; window.dispatchEvent(new Event('blur')); });
+      await frames(3);
+      check('pauseOnBlur false: the sound goes on with the game', await ev(() => engine.audio.ctx.state === 'running'));
+      await ev(async () => { window.dispatchEvent(new Event('focus')); engine.page.pauseOnBlur = true; await engine.audio.ctx.suspend(); });   // what a phone does on a call or an app switch
+      await click();
+      check('a context the system suspended resumes on the next press', await state('running') === true);
+    },
+  },
+  {
     name: 'Audio: before the first click a volume change and a removed bus are not reported as a bus mistake',
     url: '/tests/threads/',
     async run({ check, ev }) {

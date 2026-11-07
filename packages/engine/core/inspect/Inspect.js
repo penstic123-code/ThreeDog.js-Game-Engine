@@ -3,10 +3,13 @@
 //   engine.inspect('npc_3')        the same for another actor (world record id): "why did this enemy not attack?"
 //   engine.inspect([x, z])         things around a spot, ops as the player
 //   engine.explain({ op: 'shop.buy', args })   why an op can / cannot run now (text: reason + fix first; detail: its last attempt and the events around it)
-//   engine.explain({ picture: 'fog.far' })    which line last changed a picture value (core/inspect/pictureWriters.js); a value not tracked says so
+//   engine.explain({ value: 'fog.far' })      who wrote a watched value, its short history, a fight if one was seen (core/inspect/pictureWriters.js); a value not tracked says so
+//   engine.explain({ thing: 'chest-home' })   everything about one id: text says where it comes from, detail has the whole ThingExplanation
+//   engine.explain({ module: 'quests' })      whether a module runs, and what blocks it; { capability: 'ground' } who provides that, and whether it can be called
 //   engine.explain({ quest: 'first-light' })  any other key is answered by the module whose definition has explain: { quest(e, id) {...} }
 //   engine.pick(x, y).thing        point -> thing: the world record a ray hit belongs to, else the engine.add object (thingOf; engine.thing is the same lookup)
 // Built on ops because a failed op already carries its reason; explain turns that into a sentence instead of making the AI read can().
+import { explainThing } from '../scene/thingExplain.js';
 import { Vector3 } from 'three';
 import { closest } from '../base/validate.js';
 import { codedError } from '../base/errorHints.js';
@@ -59,14 +62,38 @@ export function thingOf(e, obj, hit) {
  */
 export function explain(e, q) {
   if (q?.op) return explainOp(e, q);
-  if (q?.picture) return e._picture?.why(String(q.picture)) ?? { ok: false, text: `${q.picture}: ${NO_WRITERS}`, detail: null };
+  if (q?.value) return e._picture?.why(String(q.value)) ?? { ok: false, text: `${q.value}: ${NO_WRITERS}`, detail: null };
+  if (q?.thing != null) return thingAnswer(e, q.thing);
+  if (q?.module) return moduleAnswer(e, String(q.module));
+  if (q?.capability) return capabilityAnswer(e, String(q.capability));
   const key = Object.keys(q || {})[0];
   for (const m of e.modules.values()) if (m.explain?.[key]) return m.explain[key](e, q[key], q);
-  const keys = ['op', 'picture', ...[...e.modules.values()].flatMap(m => Object.keys(m.explain || {}))];
-  throw codedError('unknown-name', `engine.explain({ ${key}: ... }): nothing explains '${key}'${closest(key, keys) ? ` (did you mean '${closest(key, keys)}'?)` : ''}. Keys: ${keys.join(', ')} (a module adds one with explain: { ${key}(e, value) { return { ok, text } } })`);
+  const keys = ['op', 'value', 'thing', 'module', 'capability', ...[...e.modules.values()].flatMap(m => Object.keys(m.explain || {}))];
+  const near = key === 'picture' ? 'value' : closest(key, keys);   // the key's old name: closest() cannot see that one
+  throw codedError('unknown-name', `engine.explain({ ${key}: ... }): nothing explains '${key}'${near ? ` (did you mean '${near}'?)` : ''}. Keys: ${keys.join(', ')} (a module adds one with explain: { ${key}(e, value) { return { ok, text } } })`);
 }
 
 /** Can this op run now (text: the reason and the op's note on how to fix it), and in detail what happened around its last attempt */
+/** One id: an unknown id is an answer, not a throw, so a tool that asks gets the sentence */
+function thingAnswer(e, id) {
+  let t;
+  try { t = e.thing(id); } catch (x) { return { ok: false, code: x.code ?? null, text: x.message }; }
+  const detail = explainThing(e, t), at = detail.definition.at;
+  return { ok: true, text: `${detail.id}: ${detail.kind}${at ? `, defined in ${at}` : ''}, saved as ${detail.saved.tier}. ${detail.change.permanent}`, detail };
+}
+
+function moduleAnswer(e, name) {
+  const m = e.modules.get(name), names = [...e.modules.keys()];
+  if (!m) return { ok: false, text: `${name}: not installed${closest(name, names) ? ` (did you mean '${closest(name, names)}'?)` : ''}. engine.catalog() lists what can be installed` };
+  const state = e.moduleStates[name], blocked = e.catalog(name).blockedBy ?? [];
+  return { ok: state === 'running', text: `${name}: ${state}${blocked.map(b => `; requires ${b.requires}, and ${b.module} is ${b.state}`).join('')}`, detail: { state, blockedBy: blocked, provides: m.provides ?? [], requires: m.requires ?? [] } };
+}
+
+function capabilityAnswer(e, name) {
+  const by = [...e.modules.values()].filter(m => m.name === name || m.provides?.includes(name)).map(m => m.name), ok = e.usable(name);
+  return { ok, text: by.length ? `${name}: provided by ${by.join(', ')}, ${ok ? 'usable now' : 'not usable yet'}. engine.explain({ module: '${by[0]}' }) says why` : `${name}: no installed module provides it`, detail: { by, usable: ok } };
+}
+
 function explainOp(e, { op, args = {}, actor }) {
   const now = e.ops.can(op, args, actor ? { actor } : undefined);
   const recent = e.ops.recent(op).slice(-5);

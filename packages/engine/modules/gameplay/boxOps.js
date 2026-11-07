@@ -2,12 +2,19 @@
 // the room check and its dev messages, and reading a saved list.
 import { toast } from '../../ui/UI.js';
 import { warnOnce, fmt } from '../../core/base/validate.js';
+import { codedError } from '../../core/base/errorHints.js';
 
 const STRINGS = {
   full: 'Container {box} has no room for {id} (capacity {cap} slots, maxWeight {mw}): add returns false. Raise capacity / maxWeight, or remove something first',
   partial: 'Only {fit} of {n} {id} fit in container {box} (stack {stack} per slot, capacity {cap} slots, maxWeight {mw}); add still returns the entry key. Raise capacity / maxWeight or the item\'s stack',
   badRow: "container '{box}': dropped a saved entry that is not { id: string, count: whole number 1..2^53-1, data?: plain object } ({got}); the save was edited by hand or is damaged",
 };
+/** The one quantity rule of add / remove / setData / transfer / trade (saves already demand it): a whole number >= 1. Pieces are discrete, so 0, -2, 1.5, NaN
+ *  and values past 2^53 are a bug in the caller; checked in every build and before anything is written, since a negative remove would otherwise ADD stock @internal */
+export function checkCount(where, name, n) {
+  if (!Number.isSafeInteger(n) || n < 1) throw codedError('container', `${where}: ${name} must be a whole number >= 1, got ${n}. Example: bag.remove('arrow', 3)`);
+  return n;
+}
 // order-independent signature: entries with equal data stack together whatever the key order
 export const sig = v => v === undefined ? '' : v && typeof v === 'object'
   ? (Array.isArray(v) ? `[${v.map(sig)}]` : `{${Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + sig(v[k]))}}`) : JSON.stringify(v);

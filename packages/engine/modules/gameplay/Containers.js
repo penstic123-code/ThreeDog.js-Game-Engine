@@ -1,10 +1,12 @@
 // Container table: implementation of inventory.container() / transfer() and the containers save part.
+import { keepTable } from '../../core/base/sections.js';
 import { DEV, warnOnce } from '../../core/base/validate.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { Container } from './Container.js';
+import { checkCount } from './boxOps.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { isPlainObject } from '../../core/base/util.js';
-import { refuseSave } from '../../core/saves/saveValues.js';
+import { refuseSave } from '../../core/base/saveValues.js';
 
 /** Container table: implementation of inventory.container() / transfer(); bag is the home bag 'player' (saved as its own part, never removed). @internal */
 export class Containers {
@@ -14,8 +16,10 @@ export class Containers {
    * content/renames.js: a container saved under an old authored id moves to the new id (null = drop it). Remembered, so a save loaded later
    * is renamed the same way. Skipped when the new id already holds goods of its own (they cannot merge; the old one stays an orphan).
    * @param {Record<string, string | null>} [map]  new entries; without it, applies the remembered ones
+   * @returns {() => void} what puts the containers and the remembered names back
    */
   rename(map) {
+    const back = [this.map, this.renames].map(keepTable), ids = [...this.map.values()].map(c => [c, c.id]);
     for (const [a, b] of Object.entries(map || {})) this.renames.set(a, b);
     for (const [a, b] of this.renames) {
       const c = this.map.get(a);
@@ -23,6 +27,7 @@ export class Containers {
       this.map.delete(a);
       if (b != null) { c.id = b; this.map.set(b, c); }
     }
+    return () => { for (const fn of back) fn(); for (const [c, id] of ids) c.id = id; };
   }
 
   get(id, opts) {
@@ -56,7 +61,7 @@ export class Containers {
   transfer(from, to, x, n = 1) {
     DEV && this.inv.engine.ops.guard('inventory.transfer');
     const a = this.find(from, 'from'), b = this.find(to, 'to');
-    if (!(n > 0)) throw codedError('container', `inventory.transfer: count must be a positive number, got ${n}`);
+    checkCount('inventory.transfer', 'count', n);
     if (a === b) return 0;
     let moved = 0;
     for (const e of a._of(x)) {   // each entry keeps its data; its key only when the whole entry moves (as setData does)

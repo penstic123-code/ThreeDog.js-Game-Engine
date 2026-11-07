@@ -18,11 +18,26 @@ import { EFFECTS, hashText } from '../../render/effects.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { isWebGPU } from '../../render/backend.js';
 import { nearFadePatch } from './nearFade.js';
+import { scatterAttempts } from '../../core/stream/scatter.js';
 
 const COLOR = 'vegetationColor';   // the patch name of vegetation.color() on every species' material
 // The wind patch in engine.vegetation.patches has one amplitude: a shared material cannot carry each species' own (those are define()'s wind option)
 const SHARED_SWAY = 0.05;
 const code = v => (typeof v === 'string' ? { glsl: v } : v);
+
+/**
+ * How many instances of a placement to draw at a density. A plant with a collider is placed in full at every quality, so collision and felled ids stay the same world, and low
+ * quality thins only its drawing. Why a count and not a filter: ids rise in placement order, so the plants a density keeps are the front of the list, the same ones it kept when
+ * it thinned placement, and the instances behind just are not drawn. A blocker that is not drawn still blocks. rule.positions are the game's own and never thin.
+ * @internal
+ */
+export function drawnPlants(rule, r, density) {
+  if (!rule?.collider || rule.positions) return r.n;
+  const keep = scatterAttempts(rule, density);
+  let n = r.n;
+  while (n > 0 && r.ids[n - 1] >= keep) n--;
+  return n;
+}
 
 export class VegetationDraw {
   /** @param {any} e @param {any} v the vegetation data part (engine.vegetation) */
@@ -148,6 +163,7 @@ export class VegetationDraw {
     a.set(r.m);
     if (hid) for (const i of hid) if (i < r.n) a.fill(0, i * 16, i * 16 + 16);
     im.instanceMatrix.needsUpdate = true;
+    im.count = drawnPlants(sp.rule, r, this.v.host.density);
     if (c.ring != null) this._level(im, sp, k, c.ring);
   }
 

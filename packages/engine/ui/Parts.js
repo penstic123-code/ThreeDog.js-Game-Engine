@@ -79,11 +79,18 @@ export class UIParts {
    * @param {string} name
    * @param {UIPartFactory} factory  default implementation (engine, options) => part
    * @param {UIPartDef} [def]  on: shown unless the game asks (default true); multi: one part per item (markers, counters); modal: full-screen, opened with ui.open
-   * @returns {void}
+   * @returns {{ remove(): void }}  remove() closes the part, disposes its live copy and takes the definition out (what a module's ctx.ui.define does when it leaves)
    * @example engine.ui.define('hud.ammo', (e, o) => ({ update: d => {...} }), { multi: true })
    */
   define(name, factory, { on = true, multi = false, modal = null } = {}) {
-    this.defs.set(name, { factory, on, multi, modal });
+    const d = { factory, on, multi, modal };
+    this.defs.set(name, d);
+    return { remove: () => {
+      if (this.defs.get(name) !== d) return;
+      this.close(name);
+      this.live.get(name)?.dispose?.();
+      this.live.delete(name); this.defs.delete(name);
+    } };
   }
 
   /**

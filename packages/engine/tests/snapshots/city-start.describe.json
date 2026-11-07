@@ -32,7 +32,8 @@
   {
    "name": "level",
    "provides": [
-    "level"
+    "level",
+    "ground"
    ],
    "type": "world"
   },
@@ -60,7 +61,8 @@
   {
    "name": "rigid",
    "provides": [
-    "rigid"
+    "rigid",
+    "collider3d"
    ],
    "requires": [
     "collision"

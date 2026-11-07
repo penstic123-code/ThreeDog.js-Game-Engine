@@ -39,10 +39,12 @@ function questLogPart(engine) {
  * @returns {{ readonly open: boolean, toggle(on?: boolean): void, refresh(): void }}
  * @internal
  */
-export function questLogWindow(e, q, track) {
+export function questLogWindow(e, q, ctx) {
+  const { track } = ctx;
   /** @returns {QuestLogView} */
   const view = () => ({ title: e.t('quests.title'), key: e.input.label(q.action), quests: q.list(), close: () => e.ui.close(NAME) });
-  e.ui.define(NAME, questLogPart, { modal: { cancel: eng => eng.ui.close(NAME), data: view } });
+  ctx.ui.define(NAME, questLogPart, { modal: { cancel: eng => eng.ui.close(NAME), data: view } });
+  track(e.events.on('session:end', () => e.ui.close(NAME)));   // it shows the playthrough that ended
   const win = {
     get open() { return e.ui.isOpen(NAME); },
     toggle(on = !win.open) { if (on) e.ui.open(NAME); else e.ui.close(NAME); },

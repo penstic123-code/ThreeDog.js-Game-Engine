@@ -47,7 +47,8 @@ export function packsOf(data) {
   packs.forEach((p, i) => {
     if (!isPlainObject(p)) throw codedError('content-pack', fmt(STRINGS.notPack, { at: i + 1, got: Array.isArray(p) ? 'an array' : typeof p }));
     for (const [key, v] of Object.entries(p)) {
-      if (key === 'rules') { claim('rules.conditions', v?.conditions, i); claim('rules.kinds', v?.kinds, i); }
+      if (key === 'level' && (typeof v === 'string' || v?.isObject3D)) claim('level', { level: 1 }, i);   // a load has one transaction: the second level would drop the first with all that stands on it
+      else if (key === 'rules') { claim('rules.conditions', v?.conditions, i); claim('rules.kinds', v?.kinds, i); }
       // audio: named tables are ids (a sound in two packs is an error), rule lists concatenate
       else if (key === 'audio') { claim('audio.sounds', v?.sounds, i); claim('audio.footsteps', v?.footsteps, i); claim('audio.music.tracks', v?.music?.tracks, i); }
       else if (key !== 'name' && !NOT_KEYED.has(key) && isPlainObject(v)) claim(key, v, i);

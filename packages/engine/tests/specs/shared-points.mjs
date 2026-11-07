@@ -139,7 +139,7 @@ export const specs = [
       check('a rolled-back module takes its ctx.mod entries with it', r.rollback?.msg?.includes('boom') && !r.afterRollback.includes('spStorm'), JSON.stringify(r));
       check('ctx.mod names the module itself (an owner option throws)', r.ownerArg?.code === 'mod-owner', JSON.stringify(r.ownerArg));
       check('provides takes the slot; requires may name the slot', r.holder === 'spBag');
-      check('a second provider throws shared-taken naming both and the replaces fix', r.taken?.code === 'shared-taken' && r.taken.msg.includes("'spBag'") && r.taken.msg.includes("replaces: 'inventory'") && r.stillBag, JSON.stringify(r.taken));
+      check('a second provider throws shared-taken naming both and the replaces fix', r.taken?.code === 'shared-taken' && r.taken.msg.includes('module spBag') && r.taken.msg.includes("replaces: 'inventory'") && r.stillBag, JSON.stringify(r.taken));
       check('replaces needs a module in the call that provides the slot', r.notProvided?.code === 'module-replaces', JSON.stringify(r.notProvided));
       check('replaces unloads the holder and its changes; the dependent stays', r.swapped.holder === 'spMyBag' && r.swapped.bagGone && !r.swapped.worldOwners.includes('spBag') && r.swapped.shop, JSON.stringify(r.swapped));
       check('describe().shared shows the slot holder', r.row?.writer === 'spMyBag' && r.row.value === 'spMyBag', JSON.stringify(r.row));

@@ -4,7 +4,10 @@
 // Why a source scan and not only the runtime control-bypass error: the runtime check fires only in dev and only on the path a test walks.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
+
+const { Control } = await import(pathToFileURL(join(ENGINE, 'core/ops/control.js')).href);
 
 export const name = 'character control: only the control slot and NPC behaviours call a character\'s move() in engine code';
 
@@ -25,6 +28,12 @@ function files(dir, out = []) {
 }
 
 export async function run({ check }) {
+  // this node run is a release build: two owners on one layer stop here too, and the first keeps the character (nothing resolves silently)
+  const C = new Control({ events: { on() {} }, session: { captured: false, _untrack() {} } });
+  C.take('c', { owner: 'a', layer: 'script' });
+  let clash = null;
+  try { C.take('c', { owner: 'b', layer: 'script' }); } catch (x) { clash = x; }
+  check('[guard] release: two owners on one layer throw control-conflict naming both, the first stays', clash?.code === 'control-conflict' && clash.message.includes("'a'") && clash.message.includes("'b'") && C.has('c', 'a') && !C.has('c', 'b'), String(clash));
   const hits = [];
   for (const d of DIRS) for (const f of files(join(ENGINE, d))) {
     const rel = relative(ENGINE, f).split(sep).join('/');

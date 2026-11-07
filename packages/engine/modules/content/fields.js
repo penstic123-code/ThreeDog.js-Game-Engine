@@ -110,9 +110,9 @@ export function fieldsOf(e, api, st, name) {
     return { ...schemaInfo(placementShape('props.template')), ...own };
   }
   if (PLACEMENT_FIELDS[name]) return schemaInfo(placementShape(name));
-  const kind = st.kinds[name];
-  if (kind?.fields) {
-    const { shape, problems } = fieldsShape(`kind '${name}'`, kind.fields);
+  const table = st.kinds[name]?.fields;
+  if (table) {
+    const { shape, problems } = fieldsShape(`kind '${name}'`, table);
     if (problems.length) throw codedError('content-misuse', problems.join('; '));
     return schemaInfo(shape);
   }

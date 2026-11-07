@@ -1,6 +1,6 @@
 # engine.interactions — interactions(opts?: InteractionsOptions)
 
-Interaction prompts (interactions() module)
+Interaction prompts (interactions() module). Press a key near a thing. Install: engine.use(interactions()); undefined until installed. onUse returning { ok: false, code } fails the use and spends nothing
 
 - Options `InteractionsOptions`:
   - `action?: string` Default action name, default 'interact'

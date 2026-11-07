@@ -4,16 +4,18 @@
 // a world coordinate.
 // Optional floor (reference height on multi-layer ground) and y (meters above that ground): see content.where.
 import { toast } from '../../ui/UI.js';
-import { vegetationModel } from '../../core/assets/namedModel.js';
-import { addProps, needWorld } from './props.js';
-import { defineTemplates } from './templates.js';
 import { srcOf, applyRenames, pickupId } from './ids.js';
 import { DEV, warnOnce } from '../../core/base/validate.js';
-import { readParams, keysSchema } from '../../core/base/params.js';
 import { NO_GAME_EFFECTS, contentFiles, kindProblems, unknownContent } from './rules.js';
+import { sectionHomes } from '../../core/inspect/metadata.generated.js';
+import { sectionsOf, runSections, keepTable } from '../../core/base/sections.js';
+import { whenTurnFree, whileRestoring, liveTurn } from '../../core/saves/stateReplace.js';
 import { codedError, coded } from '../../core/base/errorHints.js';
-import { reportError } from '../../core/base/errors.js';
+import { failure } from '../../core/ops/opsFail.js';
 
+// data order, not ownership: a place or template must exist before what stands on it. A section not listed runs after these. Rules, actions, audio, views and renames run before all of them (loadSteps)
+const ORDER = ['level', 'vegetation', 'items', 'startItems', 'containers', 'pickups', 'npcs', 'dialogues', 'quests', 'triggers', 'grids', 'templates', 'props'];
+const isEmpty = d => d == null || (typeof d === 'object' && Object.keys(d).length === 0);
 const each = (o, fn) => Object.entries(o || {}).forEach(([k, v]) => fn(k, v));
 const all = (o, fn) => Object.entries(o || {}).every(([k, n]) => fn(k, n));
 
@@ -24,9 +26,9 @@ const all = (o, fn) => Object.entries(o || {}).every(([k, n]) => fn(k, n));
 const inv = (e, word, ctx) => e.inventory?.of(ctx?.actor ?? e.ops.actor) ?? (() => { throw codedError('content-misuse', `content word { ${word} } needs the inventory module: add inventory() to engine.use(...), `
   + 'or track the thing with a flag / counter ({ setFlag } / { bump }) or a game condition word instead'); })();
 
-/** Execution part of the engine's built-in words (descriptions are in rules.js) */
+/** Execution part of the engine's built-in words (descriptions are in rules.js). A run answers by returning a failure ({ ok: false, code, facts }); runWords hands it up */
 export const BUILTIN_TESTS = {
-  can: (e, v) => e.ops.can(v[0], v[1] ?? {}).ok,
+  can: (e, v, raw, ctx) => e.ops.can(v[0], v[1] ?? {}, { actor: ctx?.actor }).ok,
   flag: (e, v) => !!e.vars.flag(v),
   notFlag: (e, v) => !e.vars.flag(v),
   has: (e, v, raw, ctx) => all(v, (id, n) => inv(e, 'has', ctx).has(id, n)),
@@ -34,11 +36,19 @@ export const BUILTIN_TESTS = {
   counter: (e, v) => all(v, (k, n) => e.vars.counter(k) >= n),
 };
 export const BUILTIN_RUNS = {
-  op: (e, v) => { e.ops.run(v[0], v[1] ?? {}); },  setFlag: (e, v) => e.vars.setFlag(v),
-  give: (e, v, raw, ctx) => each(v, (id, n) => inv(e, 'give', ctx).add(id, n)),
-  take: (e, v, raw, ctx) => each(v, (id, n) => inv(e, 'take', ctx).remove(id, n)),
+  op: (e, v, raw, ctx) => e.ops.run(v[0], v[1] ?? {}, { actor: ctx?.actor }),
+  setFlag: (e, v) => e.vars.setFlag(v),
+  // add keeps what fits and calls that ok, so the rest is this word's to report; facts.left is exactly what { give } could still pay later
+  give(e, v, raw, ctx) {
+    const left = {};
+    each(v, (id, n) => { const r = inv(e, 'give', ctx).add(id, n), got = r.ok ? r.added : 0; if (got < n) left[id] = n - got; });
+    return Object.keys(left).length ? failure({ code: 'full', facts: { left } }) : undefined;
+  },
+  take(e, v, raw, ctx) {
+    const short = Object.entries(v).filter(([id, n]) => !inv(e, 'take', ctx).remove(id, n)).map(([id]) => id);
+    return short.length ? failure({ code: 'notEnough', facts: { short } }) : undefined;
+  },
   bump: (e, v) => e.vars.bump(v),
-  startQuest: (e, v) => e.quests.start(v),
   toast: (e, v) => toast(e, v),
   particles: (e, v) => e.particles.emit(v.name, v.at, { count: v.count }),
   marker: (e, v, raw) => e.content._mark(markerId(raw), v, raw.label),   // the same marker again replaces the old one
@@ -47,148 +57,118 @@ export const BUILTIN_RUNS = {
 const markerId = raw => raw.id ?? (typeof raw === 'string' ? raw : raw.place ?? `${raw.x},${raw.z}`);
 
 /**
- * Load one content pack. c is the merged object of content/index.js (or one pack of a list); api is engine.content; ids is the IdCheck shared by every pack of
- * this load call (ids.js); st is the content module's load state (shared across repeated load calls):
- * { triggers: merged trigger table, subs: listener handles, startOn: quest id -> listener handle, levelPlace(name) }
- * Order: vocabulary -> key actions -> vegetation -> items -> containers -> pickups -> NPCs -> dialogues -> quests -> trigger zones -> templates -> props.
+ * Load content packs as one transaction (core/base/sections.js): every pack is checked and prepared before any commits, and whatever fails after that takes every commit
+ * back, so a refused load changed nothing. packs are the merged objects of content/index.js; api is engine.content; ids is the IdCheck of this load call (ids.js); st is
+ * the content module's load state (shared across repeated load calls): { kinds, ops, sectionIds, refs, levelPlace(name), wait(promise) }; places are this load's new places;
+ * turn says it belongs to the state replacement running now (stateReplace.js). checkOps refuses op names nothing defines; a replay passes none, its pack was checked when it came.
+ * Returns the Promise of the transaction, or nothing when it ended on this tick.
+ * Order per pack: vocabulary -> key actions, audio, views (core services) -> renames -> the modules' sections in ORDER -> any other section -> game kinds. Packs commit in
+ * load order, so a later pack stands on an earlier one; with a level file to wait for the whole load commits after it, on the new level's markers. A load waits for the one
+ * before it (st.queue) and goes down with it: a level that failed leaves nothing to stand on. A load with its turn does neither: the load before it may be waiting for that very
+ * replacement to end, and what a load() brings in is part of the state it builds, not of the line outside. content's isReady waits for all of it.
+ * What a section's data means belongs to the module that owns it: replacing the quests module replaces the quests format.
  * Pickups, props and NPCs are initial world data: the save records only changes and removals, independent of load order (rules at the top of world/persist.js).
  * Positions that use level markers (not in places) belong to the current level: pickup, prop and NPC data carry a zone (= current level name,
  * engine.world.zone),
  * a level change only tears down models and they are rebuilt on return, with taken / moved / removed state intact; trigger zones are not data and are removed
  * on level change (level.track).
  */
-export function loadContent(e, api, c, st, ids) {
+export function loadContent(e, api, packs, st, ids, places = {}, turn, checkOps) {
   const { where } = api;
   const origin = (id, list, key) => { if (DEV) e.world?.setOrigin(id, { definedAt: srcOf(list, key) }); };
   const onLevel = (...ps) => ps.some(p => p && typeof p === 'object' ? st.levelPlace(p.place) : st.levelPlace(p));
   const bind = (h, ...ps) => { if (h && onLevel(...ps)) e.level?.track(h); return h; };
   const zoneOf = (...ps) => onLevel(...ps) ? e.world?.zone ?? null : null;
+  const sections = sectionsOf(e), kinds = { ...st.kinds };
+  const list = [{ s: {
+    undo: () => keepLoad(e, st),
+    // the first commit of the load, so a refusal leaves the rest uncommitted: a game kind's load has no undo. Not in validate: a load waiting for a file may meet an op defined meanwhile
+    commit() { Object.assign(st.places, places); for (const p of packs) collectOps(p, st.ops); checkOps?.(); },
+  } }];
+  for (const pack of packs) list.push(...loadSteps(e, api, pack, st), ...packSections(e, pack, st, sections, kinds));
+  // track: these listeners run content words, so they go with the content module
+  const inTurn = liveTurn(e, turn), after = inTurn ? null : st.queue, c = { engine: e, content: api, where, bind, zone: zoneOf, ids, origin, pickupId, track: st.track, after };
+  // a commit writes state, so it lands between replacements, never inside one: a pack that waited on a file through a load commits on the state that load left
+  const commits = fn => { const r = e.ops.allow(fn); if (r) whileRestoring(e, r); return r; };   // only a failure whose undo has to wait gives a result
+  const run = runSections(list, c, { after, around: fn => whenTurnFree(e, () => commits(fn), turn) });
+  if (!run || inTurn) return run;
+  const tail = st.queue = run.finally(() => { if (st.queue === tail) st.queue = null; });
+  return tail;
+}
 
-  each(c.rules?.conditions, (name, d) => api.condition(name, d));
-  if (c.rules?.effects) throw codedError('content-misuse', NO_GAME_EFFECTS);
+/** The undo of a whole load: the world, which several sections write, and the tables content itself fills */
+function keepLoad(e, st) {
+  const world = e.world?.undoPoint();
+  const tables = [st.conds, st.ops, st.templates, st.templateFields, st.templateSrc].map(keepTable);
+  const { templateViews, templateSims } = st, was = { kinds: { ...st.kinds }, places: { ...st.places }, sectionIds: structuredClone(st.sectionIds), refs: st.refs.length };
+  const views = new Set(templateViews.keys()), sims = new Set(templateSims.keys());
+  return () => {
+    world?.();
+    for (const fn of tables) fn();
+    st.kinds = was.kinds; st.places = was.places; st.sectionIds = was.sectionIds; st.refs.length = was.refs;
+    for (const [map, had] of [[templateViews, views], [templateSims, sims]]) for (const [name, h] of map) if (!had.has(name)) { h.remove(); map.delete(name); }
+  };
+}
+
+/** What a pack registers with the core services and the vocabulary its sections read, as steps of the transaction */
+function loadSteps(e, api, c, st) {
+  const steps = [];
   // game kinds stay registered across loads, so a later content.load({ recipes }) without rules still finds them
-  const bad = kindProblems(c.rules);
-  if (bad.length) throw codedError('content-misuse', 'content/rules.js: ' + bad.join('; '));
-  Object.assign(st.kinds, c.rules?.kinds);
-  const known = contentFiles({ kinds: st.kinds });
-  for (const k of Object.keys(c)) if (k !== 'name' && !known[k]) throw codedError('unknown-option', 'content.load: ' + unknownContent(k, { kinds: st.kinds }));
-  collectOps(c, st.ops);
-
-  if (c.renames) applyRenames(e, c.renames);   // first: saved state under an old id must reach the new id before anything is placed under it
-
+  if (c.rules) steps.push({ commit() { each(c.rules.conditions, (name, d) => api.condition(name, d)); Object.assign(st.kinds, c.rules.kinds); } });
   // a pack's actions are the game's own (owner 'game'): loading the pack again replaces them, it is not a second binder
-  each(c.actions, (name, a) => e.input.action(name, { label: a.label, keys: a.keys, ...(a.context ? { context: a.context } : {}) }));
-
+  if (c.actions) steps.push({ undo: () => e.input.keepActions(Object.keys(c.actions)), commit: () => each(c.actions, (name, a) => e.input.action(name, { label: a.label, keys: a.keys, ...(a.context ? { context: a.context } : {}) })) });
   // audio: sounds / footsteps by name into engine.audio.config, rules to ambience() / music() (core/audio/audioRules.js). A pack loaded again
   // replaces its own rules (hot reload): a named pack by its name, an unnamed one by the data object itself, so loading the same object
   // twice never stacks its rules (a fresh key per load did); two different unnamed objects both keep theirs
-  if (c.audio) e.audio.contentPack(c.name ? 'pack:' + c.name : c, c.name ? `pack "${c.name}"` : 'pack (no name)', c.audio);
-
+  const key = c.name ? 'pack:' + c.name : c;
+  if (c.audio) steps.push({ undo: () => e.audio.keepPack(key), commit: () => e.audio.contentPack(key, c.name ? `pack "${c.name}"` : 'pack (no name)', c.audio) });
   // views: named fixed camera views (core/scene/Views.js); defining a name again replaces it, so a hot reload just works
-  each(c.views, (name, v) => e.views.define(name, v));
+  if (c.views) steps.push({ undo: () => keepTable(e.views.map), commit: () => each(c.views, (name, v) => e.views.define(name, v)) });
+  // saved state under an old id must reach the new id before anything is placed under it. The world goes back with keepLoad
+  let goods = null;
+  if (c.renames) steps.push({ undo: () => () => goods?.(), commit() { goods = applyRenames(e, c.renames); } });
+  return steps.map(s => ({ s }));
+}
 
-  // vegetation: model names resolve through vegetationModel (core/assets/namedModel.js, the same resolver vegetation.define uses for a name); register all
-  // kinds at the same moment once all models are ready
-  // (each registration rebuilds terrain chunks; registering one by one would rebuild several times at start). content's isReady waits for them
-  const veg = [];
-  each(c.vegetation, (name, { model: m, lod, ...rest }) => {
-    veg.push(Promise.all([vegetationModel(e, m), lod && vegetationModel(e, lod)])
-      .then(([main, low]) => [name, { ...rest, ...main, ...(low && { lodGeometry: low.model ?? low.geometry }) }])
-      .catch(err => { reportError(e, err, `content vegetation ${name}: model generation`, { soft: true }); return null; }));   // one failure does not affect the others
-  });
-  if (veg.length) st.wait(Promise.all(veg).then(list => { for (const v of list) if (v) e.vegetation.define(v[0], v[1]); }));
-
-  each(c.items, (id, d) => e.inventory.define(id, d));
-  each(c.startItems, (id, n) => e.inventory.add(id, n, { silent: true }));
-  // containers: starting goods are placed only the first time (if the save already has the container, the save wins; no refill after it was emptied and
-  // reloaded)
-  each(c.containers, (id, d) => { ids.claim(id, `containers.${id}`); e.inventory.container(id, { capacity: d.capacity, items: d.items }); });
-  // pickups: data goes into world (kind 'pickup'). id: the written id if given, else `pickup:<item>:<index in the pickups array>` (stable for the same content;
-  // when inserting in the middle, give existing entries an id)
-  if (c.pickups?.length && !e.pickups) throw codedError('module-needs', 'content pickups lie on the ground as pickups: add pickups() to engine.use(...) after world() (and inventory() for item pickups)');
-  c.pickups?.forEach((p, i) => {
-    const id = pickupId(p, i);
-    if (p.id != null) ids.claim(id, `pickups[${i}] (${p.item})`); else ids.unnamed(id, `pickups[${i}] (${p.item})`);   // taken / respawning is state
-    e.pickups.spawn(where(p), { give: p.item, id, count: p.count, data: p.data, radius: p.radius, auto: p.auto, respawnSeconds: p.respawn, initial: true, zone: zoneOf(p) });
-    origin(id, c.pickups, i);
-  });
-
-  each(c.npcs, (id, n) => {   // the key in content is the NPC's stable id (used by saves and quest targets)
-    const plan = n.schedule ?? [];
-    ids.claim(id, `npcs.${id}`);
-    // every documented npcs.add option can be written in content (arriveDistance, interact, speed...); the same option table checks the spelling.
-    // The content form owns start / schedule (clock strings, places) and the id (the key), so those are translated below and not passed as written
-    readParams(`content npcs.${id}`, keysSchema([...e.npcs.optionKeys.filter(k => !['id', 'position', 'zone', 'initial'].includes(k)), 'start']), n);
-    const { start: _s, schedule: _p, ...rest } = n;
-    e.npcs.add({ ...rest, id, schedule: plan.map(s => ({ at: s.at, position: where(s) })), position: where(n.start || plan[0]), zone: zoneOf(n.start, ...plan), initial: true });
-    origin(id, c.npcs, id);
-  });
-
-  // dialogue: a line can be several variants [{ if: condition, text }, ..., { text }]; the first whose condition holds is used.
-  // When none holds (no unconditional last variant) the line is empty and a warning names it: throwing inside the dialogue's op would leave
-  // the conversation stuck on that node.
-  const variants = (where, list) => () => {
-    const hit = list.find(v => api.test(v.if));
-    if (!hit) warnOnce(coded('content-misuse', `content ${where}: no variant's "if" holds and there is no variant without "if", so the line is empty. ` +
-      'End the list with a plain { text } as the fallback'), where);
-    return hit?.text ?? '';
-  };
-  each(c.dialogues, (id, d) => {
-    const nodes = {};
-    each(d.nodes, (nid, n) => {
-      nodes[nid] = {
-        ...n, speaker: n.speaker ?? d.speaker,
-        text: Array.isArray(n.text) ? variants(`dialogues.${id}.nodes.${nid}.text`, n.text) : n.text,
-        do: n.do && (() => api.run(n.do)),
-        choices: n.choices?.map(ch => ({ ...ch, if: ch.if && (() => api.test(ch.if)), do: ch.do && (() => api.run(ch.do)) })),
-      };
-    });
-    e.dialogue.define(id, nodes);
-  });
-
-  // quests: a step target can be a place, { place, x, z }, { x, z }, { npc: 'id' } (follows the NPC) or { nearest: itemId } (the nearest pickup)
-  // { npc } reads the position by id each frame: follow the model if there is one, else (far away, other level) use the data position
-  const target = t => t == null ? undefined : t.npc ? () => e.npcs?.get(t.npc)?.position : t.nearest ? t : where(typeof t === 'string' ? { place: t } : t);
-  // a step may be parallel goals { text?, all: [{ text, done, target, optional }] }; fail / onFail are a condition and an effect like done / reward
-  const goal = s => ({ ...(s.id != null && { id: s.id }), text: s.text, done: () => api.test(s.done), target: target(s.target), ...(s.optional && { optional: true }) });   // id: stable for saves
-  each(c.quests, (id, q) => {
-    e.quests.define(id, {
-      title: q.title, desc: q.desc,
-      steps: q.steps.map(s => s.all ? { ...(s.id != null && { id: s.id }), text: s.text, all: s.all.map(goal) } : goal(s)),
-      reward: q.reward && (() => api.run(q.reward)),
-      ...(q.fail && { fail: () => api.test(q.fail) }), ...(q.onFail && { onFail: () => api.run(q.onFail) }),
-    });
-    st.startOn.get(id)?.remove();   // loading the same quest again: replace the old listener instead of attaching twice
-    if (q.startOn) st.startOn.set(id, st.track(e.events.on(q.startOn, () => e.quests.start(id))));
-  });
-
-  // trigger zones: fromLevel = the level's trigger_<tag> marker; otherwise placed by position. Enter/exit effects look up the merged table, and the listener is
-  // attached only once
-  if (c.triggers) {
-    Object.assign(st.triggers, c.triggers);
-    if (Object.values(c.triggers).some(t => t.fromLevel)) e.triggers.fromMarkers();
-    each(c.triggers, (tag, t) => {
-      if (!t.fromLevel) bind(e.triggers.add({ ...t, tag, position: where(t.position), onEnter: null, onExit: null }), t.position);
-    });
-    st.subs ??= [
-      // the effects act for whoever crossed the zone (a { give } lands in that actor's bag); a zone emptied by removal has no id: engine.actor
-      st.track(e.events.on('trigger:enter', ({ tag, id }) => api.run(st.triggers[tag]?.onEnter, { actor: id ?? e.actor }))),
-      st.track(e.events.on('trigger:exit', ({ tag, id }) => api.run(st.triggers[tag]?.onExit, { actor: id ?? e.actor }))),
-    ];
+/** The sections of one pack, in ORDER. Every check that needs no commit runs here, before anything of the load commits. Game kinds are sections too, after the modules' */
+function packSections(e, pack, st, modules, kinds) {
+  if (pack.rules?.effects) throw codedError('content-misuse', NO_GAME_EFFECTS);
+  const bad = kindProblems(pack.rules);
+  if (bad.length) throw codedError('content-misuse', 'content/rules.js: ' + bad.join('; '));
+  Object.assign(kinds, pack.rules?.kinds);
+  const known = { ...contentFiles({ kinds }), ...Object.fromEntries(modules) };
+  for (const k of Object.keys(pack)) if (k !== 'name' && !known[k]) throw codedError('unknown-option', 'content.load: ' + unknownContent(k, { kinds }));
+  const sections = new Map(modules);
+  for (const [name, k] of Object.entries(kinds)) {
+    if (sections.has(name)) throw codedError('content-misuse', `content kind "${name}" is also a section of module ${sections.get(name).owner}: keep one`);
+    sections.set(name, { owner: 'game', commit: (data, c) => k.load?.(e, data, c.content) });
   }
+  const rank = n => { const i = ORDER.indexOf(n); return i < 0 ? ORDER.length : i; };
+  for (const name of Object.keys(pack)) {
+    const home = sectionHomes[name];
+    if (home && !sections.has(name) && !isEmpty(pack[name])) throw codedError('module-needs', `content ${name}: no installed module reads this section. Add ${home} to engine.use(...), or a module with content: { ${name}: { commit } }`);
+  }
+  const done = (name, s) => r => {
+    if (typeof r?.then === 'function') st.wait(r);
+    st.gaveWay.get(pack)?.delete(name);
+    note(st, name, s, pack[name]);
+  };
+  const gaveWay = name => () => { if (!st.gaveWay.has(pack)) st.gaveWay.set(pack, new Set()); st.gaveWay.get(pack).add(name); };
+  return [...sections].filter(([name]) => pack[name] != null).sort(([a], [b]) => rank(a) - rank(b)).map(([name, s]) => ({ s, data: pack[name], done: done(name, s), gaveWay: gaveWay(name) }));
+}
 
-  // grids (layout rules, not saved) before props: a props entry with grid places an item on one; a repeated load keeps the grid that exists
-  each(c.grids, (name, g) => {
-    if (!e.grids) throw codedError('content-misuse', `content grids: install grids() to use grid "${name}"`);
-    if (!e.grids.get(name)) e.grids.add(name, g);
-  });
-  // templates before props: a props entry with template places an instance of it
-  if (c.templates) { needWorld(e); defineTemplates(e, api, st, c.templates); }
-  // props: data goes into world (kind 'prop'); models and collision are built nearby and torn down when far by present in props.js
-  if (c.props?.length) addProps(e, api, c.props, st, zoneOf, ids);
+/** What the reference check (checkRefs) needs from a section just loaded */
+function note(st, name, s, data) {
+  const ids = st.sectionIds[name] ??= new Set();
+  for (const k of Array.isArray(data) ? data.map(x => x?.id) : Object.keys(data)) if (k != null) ids.add(k);
+  st.refs.push(...s.references?.(data) ?? []);
+}
 
-  // game kinds last: their data may name the items, NPCs and places loaded above
-  each(st.kinds, (name, k) => { if (c[name] !== undefined) k.load?.(e, c[name], api); });
+/** Ids a section names in a section that was loaded and does not have them. Only when that section was loaded: a game may define its items in code */
+export function checkRefs(st) {
+  for (const { section, id, at } of st.refs.splice(0)) {
+    if (st.sectionIds[section] && !st.sectionIds[section].has(id)) warnOnce(coded('content-misuse', `content ${at}: ${section} has no "${id}"`), `${at}:${id}`);
+  }
 }
 
 /** Op names that content data refers to ({ op: [...] } / { can: [...] } anywhere), checked against engine.ops once the game is ready */

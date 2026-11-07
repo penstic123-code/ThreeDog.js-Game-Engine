@@ -9,7 +9,7 @@
 // Purely presentational randomness (particle jitter, bird-call pitch) does not use it: call Math.random() and tag the line // presentation (see packages/tools/rules/R04).
 
 import { mulberry32 } from './mulberry32.js';   // 32-bit state, plenty for gameplay
-import { saveValues } from '../saves/saveValues.js';
+import { saveValues } from './saveValues.js';
 
 /** engine.random is the seeded random generator. Gameplay randomness (auto weather, lightning, drops, spawning) uses it so step / tests are reproducible and the state is saved with the save. */
 export class Random {
@@ -58,3 +58,5 @@ export class Random {
     v.done();
   }
 }
+
+export const handRolled = [{ kind: 'random', seen: 'Math.random() in game code', use: 'engine.random (seeded: next / range / int / pick / chance; replays, tests and saves get the same numbers)', code: /\bMath\.random\s*\(/, notRaw: /particle|spark|dust|confetti|debris|twinkle|flicker|jitter|smoke|puff|droplet|bubble|petal|glitter|wobble/i, gameplayOnly: true }];

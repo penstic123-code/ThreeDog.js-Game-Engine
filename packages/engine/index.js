@@ -14,6 +14,7 @@
 // Or install the usual open-world set at once with a preset: engine.use(openWorld({ seed: 7, camera: 'follow', terrain: terrainPreset() }))
 import * as THREE from 'three';
 import { Engine } from './core/engine/Engine.js';
+import { CAP_CONTRACTS } from './core/engine/moduleSlots.js';
 import { terrain } from './modules/terrain/index.js';
 import { vegetation } from './modules/vegetation/index.js';
 import { sky } from './modules/sky/skyModule.js';
@@ -48,9 +49,27 @@ import { flow } from './modules/flow/index.js';
 import { hud } from './modules/hud/index.js';
 import { world } from './modules/world/index.js';
 import { grids } from './modules/grid/index.js';
+import calendarContract from './modules/calendar/contract.js';
+import cameraContract from './modules/camera/contract.js';
+import charactersContract from './modules/characters/contract.js';
+import collisionContract from './modules/collision/contract.js';
+import flowContract from './modules/flow/contract.js';
+import dialogueContract from './modules/gameplay/dialogue.contract.js';
+import interactionsContract from './modules/gameplay/interactions.contract.js';
+import inventoryContract from './modules/gameplay/inventory.contract.js';
+import questsContract from './modules/gameplay/quests.contract.js';
+import levelContract from './modules/level/contract.js';
+import navContract from './modules/nav/contract.js';
+import particlesContract from './modules/particles/contract.js';
+import collider3dContract from './modules/rigid/collider3d.contract.js';
 import { checkOptions, DEV, fmt } from './core/base/validate.js';
 import { readParams, keysSchema } from './core/base/params.js';
 import { codedError } from './core/base/errorHints.js';
+
+// The contract of each capability, so a provider is checked where it binds even when the engine's own module of that name was never installed. Here and not in core: core imports
+// no module. Plain data, a few KB; a build cannot drop it behind DEV (only the literal import.meta.env test folds). tools/tests/contracts.mjs fails on a contract left out.
+for (const c of [calendarContract, cameraContract, charactersContract, collisionContract, flowContract, dialogueContract, interactionsContract, inventoryContract, questsContract,
+  levelContract, navContract, particlesContract, collider3dContract]) CAP_CONTRACTS.set(c.name, c);
 
 // Engine and Animator are exported for types and instanceof; make them with createEngine / engine.assets.animate (AI.md entry-point table)
 export { THREE, Engine };
@@ -65,6 +84,7 @@ export { checkOptions };   // only for extensible data (game-defined fields); an
 export { contentParts } from './modules/content/parts.js';   // one content kind split over files: content/props/*.js joined in file-name order (recipes/30)
 export { threePatches } from './core/scene/threePatches.js';   // the engine's page-wide changes to three.js classes: list(), off(id) (THREE.md "Global changes")
 export { readParams } from './core/base/params.js';   // params schema for game-made modules (recipes/14): validated, defaults filled, shown by engine.catalog()
+export { compositeGround } from './core/scene/compositeGround.js';   // several ground providers (terrain({ part: true }), level({ part: true })) answering by region; holds the 'ground' slot
 export { createTerrain } from './modules/terrain/index.js';
 export { Character, NPC } from './modules/characters/index.js';
 export { presets } from './presets.js';   // opt-in gameplay presets (weather tables, calendars, player feel, camera): never applied by the engine itself
@@ -111,7 +131,8 @@ export function openWorld(opts = {}) {
   if (camera === undefined) throw codedError('open-world-camera', OW_ERR.noCamera);   // no default camera feel: the game names one (genericity rule)
   if (typeof camera === 'string' && !CAMERAS[camera]) throw codedError('preset-option', fmt(OW_ERR.camera, { k: camera, list: Object.keys(CAMERAS).join(', ') }));
   const w = opts.weather;
-  const short = { terrain: { seed, viewChunks, density, flatten, viewFog: true }, calendar: { time, dayLength }, weather: { start: typeof w === 'string' ? w : undefined, auto: autoWeather } };   // no start: weather() picks one from the game's table
+  // characters: a walking game's preset chooses to bring what falls back; the engine alone never does. openWorld({ characters: { fall: false } }) leaves it to the game
+  const short = { terrain: { seed, viewChunks, density, flatten, viewFog: true }, calendar: { time, dayLength }, weather: { start: typeof w === 'string' ? w : undefined, auto: autoWeather }, characters: { fall: 'rescue' } };   // no start: weather() picks one from the game's table
   const part = k => {
     const v = opts[k];
     if (v === false || (k === 'debug' && v === undefined && !DEV)) return null;

@@ -1,6 +1,7 @@
 // The model side of an NPC (split out of NPC.js): build the Character when the NPC comes near, tear it down when it goes far, run its interact op.
 // Plain functions that take the NPCManager; the manager keeps the maps (_views, _runtime) and avoid, these read and write them.
 import { Character } from './Character.js';
+import { seatFromRecord, vehicleById } from './seat.js';
 
 /** Build the model: reads position, motion and animation state from data; attaches an interaction when it has interact */
 export function buildNpcView(m, rec) {
@@ -8,8 +9,14 @@ export function buildNpcView(m, rec) {
   // id: engine.mod('move.speed', { id }) and time.local use the NPC's record id, the same id the game knows it by
   const ch = new Character(e, { ...rec.look, ...rt, speed: rec.speed, id: rec.id });
   ch.npcModel = true;   // the model of a world NPC: disposing it (the NPC went far) keeps the NPC's control slot (core/ops/control.js)
-  ch.placeAt(rec.position);
-  ch.loadMotion(rec.motion); ch.state = ch._stateMark = rec.state;
+  ch.placeRecord = p => m.get(rec.id).placeAt(p);
+  ch._turnRecord = yaw => { ch.face(yaw); const motion = e.world.get(rec.id).motion; if (motion) motion.facing = yaw; };   // a far step or a rebuild reads the facing back from there
+  ch._place(rec.position);
+  ch.loadMotion(rec.motion); ch._fromRecord(rec); ch.state = ch.stateMark = rec.state;
+  const car = vehicleById(e, rec.vehicle);
+  if (car) seatFromRecord(ch, car, rec.seat);   // no vehicle with that id yet: the record waits, addVehicle answers it (seat.js)
+  // after the seat above, as a load writes nothing. Its record may be gone already: a model torn down with it gets out too
+  ch._writeSeat = (vehicle, seat) => { if (e.world.get(rec.id)) e.ops.allow(() => e.world.set(rec.id, { vehicle, seat })); };
   let use = null;
   const io = rec.interact;
   if (io && e.interactions) use = e.interactions.add(ch.root, {
@@ -18,7 +25,7 @@ export function buildNpcView(m, rec) {
     // the op's result is the use's result: { ok: false, code } from its can fails interaction.use with that code
     onUse: () => { const r = e.ops.run(io.op, { npc: rec.id, ...io.args }, { source: 'player' }); return r.ok ? r.value : r; },
   });
-  m._views.set(ch.root, { ch, use });
+  m._views.set(ch.root, { ch, use, useFrom: e.interactions });
   m.avoid.built.add(rec.id);
   return ch.root;
 }
@@ -32,7 +39,7 @@ export function unbuildNpcView(m, rec, obj) {
   const { ch, use } = v;
   use?.remove();
   ch._pathReq?.remove();   // an answer for this model would write a path from where it stood into the record, after far moved it on
-  if (ch._agent && ch._navVersion === e.nav?.version) e.nav.crowd?.removeAgent(ch._agent);
+  if (ch._agent && ch._crowd === e.nav?.crowd) ch._crowd.removeAgent(ch._agent);
   const model = rec && m._runtime.get(rec.id)?.model;
   if (model && model.parent === ch.root) ch.root.remove(model);
   ch.dispose();
@@ -43,9 +50,9 @@ export function unbuildNpcView(m, rec, obj) {
  * when the dialogue ends. script defaults to the NPC id. channel 'bubble' plays the script as lines over the NPC's head while the player keeps
  * playing (a shopkeeper's greeting, a guard's warning); default 'main' is the conversation that locks input
  */
-export function defineTalk(e, m) {
+export function defineTalk(e, ctx, m) {
   if (e.ops.defs.has('npc.talk')) return;
-  e.ops.define('npc.talk', {
+  ctx.ops.define('npc.talk', {
     desc: 'Talk to an NPC: it stops and faces the actor while its dialogue (script, default the NPC id; channel main | bubble) runs',
     args: { npc: 'string', script: 'string?', channel: { type: 'string', values: ['main', 'bubble'], default: 'main', desc: 'main locks input; bubble = lines over the NPC' } },
     can(e, { npc, channel = 'main' }) {

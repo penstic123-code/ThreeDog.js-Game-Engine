@@ -1,6 +1,6 @@
 // Facts that AI-built games guessed wrong because a recipe left them out (docs/testing/capability/composite-round-1.md). Each check reads the code and the recipe together,
 // so a change to the value that leaves the recipe behind fails here. Run: npm test -- "doc facts"
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { makeNoise } from '../../core/stream/scatter.js';
@@ -23,6 +23,10 @@ export const specs = [
       check('recipe 09 warns that pool lights pass through walls, and gives a way out', /knows nothing of rooms/.test(recipe('09-materials-lights-models.md')) && /set\(\{ intensity: 0 \}\)/.test(recipe('09-materials-lights-models.md')));
       check('an unknown content kind and recipe 20 both say rules goes in content/index.js', /list `rules` in content\/index\.js/.test(unknownContent('towers', { kinds: {} })) && /Add `recipes` to `content\/index\.js` like any other file, and `rules` too/.test(recipe('20-content-actions-save.md')));
       check('recipe 01 says where the canvas is', recipe('01-new-game.md').includes('engine.renderer.domElement'));
+      // the calendar can stop or run fast (recipe 06), so a delay on the scale of an action names its channel; world timers of half a minute and more may stay on the calendar
+      const dir = join(dirname(fileURLToPath(import.meta.url)), '../..'), sources = [...readdirSync(join(dir, 'docs/recipes')).map(f => `docs/recipes/${f}`), ...['core', 'modules'].flatMap(d => readdirSync(join(dir, d), { recursive: true }).filter(f => f.endsWith('.js')).map(f => `${d}/${f}`))];
+      const short = sources.flatMap(f => readFileSync(join(dir, f), 'utf8').split('\n').filter(l => [...l.matchAll(/clock\.(?:after|every)\((\d+(?:\.\d+)?),/g)].some(m => Number(m[1]) < 30) && !/channel/.test(l)).map(l => `${f}: ${l.trim().slice(0, 90)}`));
+      check('no short clock.after / clock.every in the recipes and source examples runs on calendar seconds', !short.length, short.join(' | '));
       check('recipes 02 and 04 send a game to public pages, not engine source or engine tests', !/modules\/content\/rules\.js|npcSim\.js|npm test/.test(recipe('02-npc.md') + recipe('04-quests.md')));
     },
   },

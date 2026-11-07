@@ -5,7 +5,7 @@
 // Clock-time / season timers (daily 18:00, time-window switches, season change) belong to the calendar module (modules/calendar, a gameplay
 // module, so core never names it): engine.calendar.at / between / daily / onSeason; the sky only draws that time.
 //   engine.clock.after(120, 'bread:ready')          // emit an event after 120 calendar seconds (saveable: still fires after a load)
-//   engine.clock.after(5, () => door.close())        // a function works too, but functions cannot be saved
+//   engine.clock.after(5, () => door.close(), { channel: 'real' }) // a function works too, but functions cannot be saved
 //   engine.clock.every(30, () => spawnBird())        // every 30 calendar seconds
 //   engine.clock.after(1, 'poison:tick', { data: { id }, channel: 'enemies' })   // channel seconds instead: slows down with bullet time
 //   engine.clock.after(3, () => respawn(), { channel: 'real' })  // real seconds: ignores bullet time and the calendar rate
@@ -59,3 +59,5 @@ export class Clock {
   /** Number of registered timers on every channel, used by engine.counts() */
   get size() { return this.engine.time.size; }
 }
+
+export const handRolled = [{ kind: 'timers', seen: 'setInterval / setTimeout used for game timing', use: 'engine.clock.after(seconds, fn) / engine.clock.every(seconds, fn), or accumulate dt in engine.onFixed (they follow pause, step and saves); to await one: new Promise(r => engine.clock.after(s, r))', code: /\b(setInterval|setTimeout)\s*\(/, not: /setTimeout\s*\([^,]*,\s*0\s*\)/ }];   // debug: words for the tools, no timer runs here

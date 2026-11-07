@@ -4,13 +4,14 @@
 //
 // Internal to the level module only:
 //   const hf = buildHeightfield(meshes, { cellSize: 0.5, outside: 0, typeOf });
-//   hf.height(x, z, refY?) / hf.slope(x, z) / hf.type(x, z)
+//   hf.height(x, z, refY?) / hf.slope(x, z, refY?) / hf.type(x, z, refY?)
 //
 // Multi-layer (bridges, caves, interiors): up-facing surfaces more than layerGap apart at one grid point each get a layer (layerGap defaults to character height: a gap too low to stand in, like a crate on the ground, is not a layer). The top layer stays in H/T;
 // other layers are stored only for points that have several (extra: point index -> [{ y, t }]); single-layer levels pay no extra memory or time.
-// height(x, z, refY) with a reference height picks the highest layer not above refY + stepUp.
+// A query with a reference height picks the highest layer not above refY + stepUp.
 import * as THREE from 'three';
 import { MOVEMENT_DEFAULTS } from '../../core/scene/movement.js';
+import { layerUnder } from '../../core/scene/floor.js';
 import { warnOnce } from '../../core/base/validate.js';
 import { coded } from '../../core/base/errorHints.js';
 
@@ -112,14 +113,13 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
     return id;
   }
 
-  // highest layer below limit lim at a point; if none, take the lowest layer (so a cave with only a ceiling overhead still has a floor)
-  function layerAt(k, lim) {
-    const a = extra.get(k);
-    if (!a || H[k] <= lim) return H[k];
-    let best = -Infinity, low = H[k];
-    for (const l of a) { if (l.y <= lim && l.y > best) best = l.y; if (l.y < low) low = l.y; }
-    return best > -Infinity ? best : low;
+  // the layer under limit lim at a point, null for the top one (H / T); if none is under it, the lowest layer (so a cave with only a ceiling overhead still has a floor)
+  function lowerLayer(k, lim) {
+    const a = H[k] > lim && extra.size ? extra.get(k) : null;
+    return a ? layerUnder(a, lim) : null;
   }
+  const layerAt = (k, lim) => lowerLayer(k, lim)?.y ?? H[k];
+  const limit = refY => refY === undefined ? Infinity : refY + stepUp;
 
   const maxI = nx - 1, maxJ = nz - 1;
   return {
@@ -129,31 +129,27 @@ export function buildHeightfield(meshes, { cellSize = 0.5, outside = 0, maxCells
       const fx = (x - minX) / cell, fz = (z - minZ) / cell;
       if (!(fx >= 0 && fz >= 0 && fx <= maxI && fz <= maxJ)) return outside;
       const i = Math.min(maxI - 1, fx | 0), j = Math.min(maxJ - 1, fz | 0), tx = fx - i, tz = fz - j, k = j * nx + i;
-      let h00 = H[k], h10 = H[k + 1], h01 = H[k + nx], h11 = H[k + nx + 1];
-      if (refY !== undefined && extra.size && (extra.has(k) || extra.has(k + 1) || extra.has(k + nx) || extra.has(k + nx + 1))) {
-        const lim = refY + stepUp;
-        h00 = layerAt(k, lim); h10 = layerAt(k + 1, lim); h01 = layerAt(k + nx, lim); h11 = layerAt(k + nx + 1, lim);
-      }
+      const lim = limit(refY), h00 = layerAt(k, lim), h10 = layerAt(k + 1, lim), h01 = layerAt(k + nx, lim), h11 = layerAt(k + nx + 1, lim);
       if (Math.max(h00, h10, h01, h11) - Math.min(h00, h10, h01, h11) > sharpEdge) return tz < 0.5 ? (tx < 0.5 ? h00 : h10) : (tx < 0.5 ? h01 : h11);
       return (h00 * (1 - tx) + h10 * tx) * (1 - tz) + (h01 * (1 - tx) + h11 * tx) * tz;
     },
-    /** Slope = height change / horizontal distance (same as the terrain module) */
-    slope(x, z) {
+    /** Slope = height change / horizontal distance (same as the terrain module); refY picks the layer as in height */
+    slope(x, z, refY) {
       const fx = (x - minX) / cell, fz = (z - minZ) / cell;
       if (!(fx >= 0 && fz >= 0 && fx <= maxI && fz <= maxJ)) return 0;
       const i = Math.min(maxI - 1, fx | 0), j = Math.min(maxJ - 1, fz | 0), tx = fx - i, tz = fz - j, k = j * nx + i;
-      const h00 = H[k], h10 = H[k + 1], h01 = H[k + nx], h11 = H[k + nx + 1];
+      const lim = limit(refY), h00 = layerAt(k, lim), h10 = layerAt(k + 1, lim), h01 = layerAt(k + nx, lim), h11 = layerAt(k + nx + 1, lim);
       const gx = ((h10 - h00) * (1 - tz) + (h11 - h01) * tz) / cell, gz = ((h01 - h00) * (1 - tx) + (h11 - h10) * tx) / cell;
       return Math.sqrt(gx * gx + gz * gz);
     },
-    /** Ground type at the nearest grid point */
-    type(x, z) {
+    /** Ground type at the nearest grid point; refY picks the layer as in height */
+    type(x, z, refY) {
       const fx = (x - minX) / cell, fz = (z - minZ) / cell;
       // same bounds as height / slope: rounding alone would give a point up to half a cell outside the grid the edge's type while
       // height already says "outside", and a rule picking that type would plant on the outside plane next to the floor
       if (!(fx >= 0 && fz >= 0 && fx <= maxI && fz <= maxJ)) return 'default';
-      const i = Math.round(fx), j = Math.round(fz);
-      return types[T[j * nx + i]];
+      const k = Math.round(fz) * nx + Math.round(fx);
+      return types[lowerLayer(k, limit(refY))?.t ?? T[k]];
     },
   };
 }

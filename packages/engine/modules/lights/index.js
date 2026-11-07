@@ -23,7 +23,7 @@ import { warnOnce, fmt } from '../../core/base/validate.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { coded } from '../../core/base/errorHints.js';
 import { daylightOf } from '../../render/daylight.js';
-import { addSource } from './sources.js';
+import { addSource, restoreGlow } from './sources.js';
 import { makeGroup, assign, update } from './slots.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { LightPool, LightPoolOptions } from '../../types/world' */
@@ -71,7 +71,7 @@ export function lightPool(opts = {}) {
   };
 
   return {
-    name: 'lightPool', type: 'picture', params: LIGHT_POOL_PARAMS, options: opts, label: 'Light pool', stage: 'late',
+    name: 'lightPool', skipKind: 'none', type: 'picture', params: LIGHT_POOL_PARAMS, options: opts, label: 'Light pool', stage: 'late',
     install(engine) { engine.i18n.add({ 'zh-CN': { 'module.lightPool': '光源池' }, en: { 'module.lightPool': 'light pool' } });
       const e = pool.e = engine;
       const k = Math.max(0, Math.min(shadows, point));
@@ -93,10 +93,13 @@ export function lightPool(opts = {}) {
       if ((pool.timer += dt) >= every) { pool.timer = 0; assign(pool); }
       update(pool, dt);
     },
-    dispose() { offCut?.remove(); for (const L of api.lights) { L.removeFromParent(); L.target?.removeFromParent(); L.dispose(); } },
+    // newest first: sources sharing one material each saved the value they found, so the oldest restore comes last and leaves the true original (M12)
+    dispose() { offCut?.remove(); for (let i = pool.sources.length - 1; i >= 0; i--) restoreGlow(pool.sources[i]); for (const L of api.lights) { L.removeFromParent(); L.target?.removeFromParent(); L.dispose(); } },
     describe() {
       const u = api.stats;
       return { lights: api.lights.length, lit: u.lit, sources: u.sources, shadows: Math.max(0, Math.min(shadows, point)) };
     },
   };
 }
+
+export const handRolled = 'none: lights in the scene are plain three.js, used on purpose';

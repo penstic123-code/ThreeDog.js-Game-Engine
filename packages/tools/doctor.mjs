@@ -8,11 +8,12 @@ import { existsSync, readFileSync, mkdirSync, writeFileSync, rmSync, realpathSyn
 import { createRequire } from 'node:module';
 import { join, dirname } from 'node:path';
 import { createConnection } from 'node:net';
-import { ROOT, ENGINE, TOOLS, MODE, workspaces, rel, cli, engineMismatch } from './paths.mjs';
+import { ROOT, ENGINE, TOOLS, MODE, workspaces, rel, cli, engineMismatch, addonDir } from './paths.mjs';
+import { stalePins } from './lib/pin-range.mjs';
 import { devServerInfo } from './devinfo.mjs';
 import { nodeProblem, NODE_RANGE, NODE_FIX } from './lib/node-version.mjs';
 
-const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['ci', 'json', 'gpu', 'software'] });
+const { opt } = cli(process.argv.slice(2), { workspace: false, flags: ['ci', 'json', 'gpu', 'software', 'fix'] });
 const ci = !!opt.ci, json = !!opt.json;
 let bad = 0;
 const items = [], render = {};
@@ -53,6 +54,26 @@ else {
   // new-game leaves the lock alone (the game runs through the link): only npm ci needs the entry, and the next npm install writes it
   if (missing.length) info(`not in package-lock.json yet: ${missing.join(', ')} (fine for dev / check / test; run npm install in the repo root before npm ci)`);
   else ok('package-lock.json matches the workspaces');
+}
+
+// ── Games' threedog / @threedog/* ranges, and a second copy of the engine in a game's node_modules ──
+// Why: on 0.x a ^ range stops at the next minor, so after an engine upgrade a game still on ^0.8.0 makes npm install fail with ETARGET, or quietly
+// installs an old second engine. Reads package.json files only, so it works when npm install has failed. --fix rewrites the range in place.
+{
+  const current = n => { try { return JSON.parse(readFileSync(join(n === 'threedog' ? ENGINE : addonDir(n.slice(10)), 'package.json'), 'utf8')).version; } catch { return null; } };
+  for (const ws of workspaces().filter(w => w !== ENGINE)) {
+    const file = join(ws, 'package.json'), pkg = JSON.parse(readFileSync(file, 'utf8')), stale = stalePins(pkg, current);
+    if (stale.length && opt.fix) {
+      for (const [n, dep, , v] of stale) pkg[n][dep] = MODE === 'monorepo' ? '*' : `^${v}`;
+      writeFileSync(file, JSON.stringify(pkg, null, 2) + '\n');
+      ok(`fixed ${rel(file)}: ${stale.map(s => s[1]).join(', ')}`);
+    } else if (stale.length) no(`${rel(file)}: ${stale.map(([, d, r, v]) => `${d} ${r} does not accept ${v}`).join('; ')}`, 'run threedog doctor --fix, then npm install');
+    // a copy of the engine inside the game's own node_modules is never the workspace one
+    for (const dep of ['threedog', '@threedog/tools']) {
+      const copy = join(ws, 'node_modules', dep);
+      if (existsSync(copy) && realpathSync(copy) !== realpathSync(dep === 'threedog' ? ENGINE : addonDir('tools'))) no(`${rel(ws)} has its own copy of ${dep}`, `delete ${rel(copy)} (after threedog doctor --fix), then npm install`);
+    }
+  }
 }
 
 // ── Which physical copy each context really uses (read-only; nothing is started) ──

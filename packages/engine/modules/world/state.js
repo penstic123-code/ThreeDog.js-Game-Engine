@@ -1,7 +1,8 @@
 // Internal half of World (World.js copies these onto World.prototype; a mixin, not a base class, so the generated World.d.ts needs no import of this file): state tables, the hooks the engine calls, and the helpers other world files use.
 // Split by responsibility: World.js keeps the public API and its documentation; nothing here is public.
 import { DEV, fmt } from '../../core/base/validate.js';
-import { STRINGS as RECORD_STRINGS, restRecord, orphanIds } from './records.js';
+import { STRINGS as RECORD_STRINGS, restRecord, orphanIds, removeRecord } from './records.js';
+import { keepTable } from '../../core/base/sections.js';
 import { saveWorld, loadWorld, renamePending, isPlain } from './persist.js';
 import { Cells } from '../../core/stream/cells.js';
 import { centerOf } from './pos.js';
@@ -9,6 +10,7 @@ import { codedError } from '../../core/base/errorHints.js';
 
 export function initState(w, cellSize) {
   /** @internal */ w._anchor = null;
+  /** @internal the session handle that ends an anchor set during play */ w._anchorEnd = null;
   /** @internal id of the record whose model build() is running right now (sync part only), else null */ w._building = null;
   /** @internal */ w._zone = null;
   /** @internal */ w._cells = new Cells(cellSize);
@@ -29,10 +31,14 @@ class Internals {
   get buildingId() { return this._building; }
   /**
    * @internal An authored record's resting place, known only once its model is built (a physics body lifted to sit on the ground): when the record is
-   * still where its content put it (within tolerance meters), the content position moves there too, so the record stays out of the save. A record that was
-   * moved is left alone.
+   * still where its content put it (within tolerance meters), record and content position move there together, so the record stays out of the save. A record
+   * that was moved, or that no content wrote, is left alone: the answer says which.
+   * @returns {boolean}
+   * @internal
    */
-  rest(id, position, tolerance = 0) { restRecord(this, id, position, tolerance); }
+  rest(id, position, tolerance = 0) { return restRecord(this, id, position, tolerance); }
+  /** @internal What stands for the model of id being built now: an async build compares it after waiting, because a load or rebuild may have started another build meanwhile */
+  building(id) { return this._v.map.get(id); }
   /**
    * @internal The dev editor changed the design itself: the entry's old content is gone, not removed in play, so no baseline and no "removed" mark stay behind for
    * the save to pin. The record is already gone (thing.remove); the content loader puts the new one in as an authored record again.
@@ -55,10 +61,30 @@ class Internals {
    * each with the reason (still authored, or the new id has saved data of its own), for the dev warning.
    * @param {Record<string, string | null>} map
    * @returns {string[]}
+   * @internal
    */
   renameIds(map) {
     for (const [a, b] of Object.entries(map)) this._renames.set(a, b);
     return renamePending(this);
+  }
+  /**
+   * @internal A failed content load puts the world back (core/base/sections.js undo): the function that does it. Records it added go, poses and fields it changed return, and
+   * the tables a save diffs against (a deep copy: repose writes inside the baseline) are as they were.
+   * @returns {() => void}
+   * @internal
+   */
+  undoPoint() {
+    const live = [...this.records.values()].map(r => [r, { ...r, position: { ...r.position } }]), had = new Set(this.records.keys());
+    const base = structuredClone(this._base), pending = structuredClone(this._pending), tables = [this._removed, this._renames, this._levels, this._origin, this._unsaved].map(keepTable);
+    return () => {
+      for (const id of [...this.records.keys()]) if (!had.has(id)) removeRecord(this, id);
+      for (const [t, was] of [[this._base, base], [this._pending, pending]]) { t.clear(); for (const [k, v] of was) t.set(k, v); }
+      for (const fn of tables) fn();
+      for (const [r, { position, ...fields }] of live) {
+        for (const k of Object.keys(r)) if (k !== 'position' && !(k in fields)) delete r[k];
+        Object.assign(r, fields); Object.assign(r.position, position); this._index(r);
+      }
+    };
   }
   /** @internal Whether id is an authored (content) record, removed or not: thing.remove's undo puts such a record back without a world.add */
   authored(id) { return this._base.has(id); }
@@ -76,11 +102,10 @@ class Internals {
   get center() { return this.anchor ?? this.engine.actorPosition() ?? this.engine.focus; }
 
   // ---------- called by the engine ----------
-  /** Fixed step: read this step's simulation center → simulate → copy model-driven positions back to the data @internal */
+  /** Fixed step: read this step's simulation center → simulate. Model-driven positions come back to the data after every module has run (index.js) @internal */
   fixed(dt) {
     const a = this.center;
     this._s.fixed(dt, centerOf(a));
-    this._v.pull();
   }
   /** Every frame: build / tear down models by stream sources, sync positions, call update @internal */
   frame(dt) { this._v.frame(dt); }

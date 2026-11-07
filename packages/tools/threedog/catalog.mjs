@@ -4,14 +4,14 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { abs, rel, ENGINE, DOCS_REL, API_DIR_REL, EXAMPLES_REL, MODULES_REL } from '../paths.mjs';
-import { walk } from '../lib/text.mjs';
+import { metadata } from 'threedog/metadata';
+import { walk, esc } from '../lib/text.mjs';
 
 const MAX_FILES = 3, MAX_TEXT = 6000, MAX_SIZE = 200_000;
 
 /** Every .js / .mjs / .md under dir (skipping build output, tests and dependencies) */
 const files = (dir, exts = /\.(m?js|md)$/) => walk(dir, { exts, skip: ['tests', 'generated'], skipDir: n => n.startsWith('.') });
 const read = p => { try { return statSync(p).size < MAX_SIZE ? readFileSync(p, 'utf8') : ''; } catch { return ''; } };
-const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** Files under dirs whose text matches re, most matches first, as 'path:line' of the first match */
 function find(dirs, re, ext, max = MAX_FILES) {
@@ -45,38 +45,14 @@ function locate(id, kind, gameDir) {
   };
 }
 
-/** Names in the api page's "Methods and properties" section (the public surface); null when the module has no page */
-function publicApi(id) {
-  const f = abs(`${API_DIR_REL}/${id}.md`);
-  if (!existsSync(f)) return null;
-  const sec = (read(f).split(/^## /m).find(x => x.startsWith('Methods and properties')) ?? '').split(/\r?\n/);
-  const names = new Set();
-  for (const line of sec) { const m = /^\s*-\s+`(?:[\w$]+\.)?([\w$]+)/.exec(line); if (m) names.add(m[1]); }
-  return names;
-}
 const MAX_API = 40;
 
-/** Option docs of a module from its api page ("- Options `X`:" lines, generated from the JSDoc / d.ts): { key: { type, desc } } or null.
- *  Why read the page and not keep text in the schema: the type and the sentence live once, in the JSDoc; the schema keeps names, defaults, checks. */
-function optionDocs(id) {
-  const f = abs(`${API_DIR_REL}/${id}.md`);
-  if (!existsSync(f)) return null;
-  const lines = read(f).split(/\r?\n/), at = lines.findIndex(l => /^- Options\b/.test(l));
-  if (at < 0) return null;
-  const out = {};
-  for (let i = at + 1; i < lines.length && /^\s+-\s/.test(lines[i]); i++) {
-    const m = /^\s+-\s+`([\w$]+)\??:\s*(.*?)`\s*(.*)$/.exec(lines[i]);
-    if (m) out[m[1]] = { type: m[2], desc: m[3].trim() };
-  }
-  return out;
-}
-
-/** Fill type / desc of params from docs (the schema's own desc wins); returns the keys with no description anywhere */
+/** Fill type / desc of the live params from the metadata (the live schema's own desc wins); returns the keys with no description anywhere */
 function mergeDocs(params, docs) {
   const missing = [];
   for (const [k, s] of Object.entries(params || {})) {
     const d = docs?.[k];
-    if (d?.type && s.type === 'any') s.docType = d.type;
+    if (d?.docType && s.type === 'any') s.docType = d.docType;
     if (!s.desc && d?.desc) s.desc = d.desc;
     if (!s.desc) missing.push(k);
   }
@@ -100,7 +76,7 @@ const filesLines = l => [l.source?.length && `source: ${l.source.join(', ')}`, l
   l.recipes?.length && `recipes: ${l.recipes.join(', ')}`, l.examples?.length && `examples: ${l.examples.join(', ')}`].filter(Boolean);
 
 const rowLine = s => `${s.id} [${[s.stage, s.state].filter(Boolean).join(', ') || s.kind}] ops: ${list(s.ops)} · saves: ${list(s.saves)}`
-  + `${s.time ? ' · time: ' + s.time : ''}${s.problems ? ` · ${s.problems} problem(s)` : ''}`;
+  + `${s.time ? ' · time: ' + s.time : ''}${s.blockedBy ? ` · blocked by ${s.blockedBy.map(b => b.module).join(', ')}` : ''}${s.problems ? ` · ${s.problems} problem(s)` : ''}`;
 /**
  * Answer first: the rows that can do something (ops) or have problems get a line each; the rest are named on one line per kind.
  * Why: 18 drawing parts and a dozen op-less modules were 35 of 50 lines on the world example, all saying "ops: — · saves: —". full = every row.
@@ -122,7 +98,7 @@ function moduleText(x, where) {
   if (x.ops?.length) out.push('ops:', ...x.ops.map(opLine));
   if (x.kind === 'capability') out.push(`now: ${JSON.stringify(x.facts)}`);
   else out.push(`saves: ${list(x.saves.map(p => `${p.key} v${p.version}`))}`);
-  if (x.time) out.push(`time: hooks ${list(x.time.hooks)} · steps in ${x.time.step} · skip hook ${x.time.skip ? 'yes' : x.time.noSkip ? 'no (noSkip: ' + x.time.noSkip + ')' : 'no'}`);
+  if (x.time) out.push(`time: hooks ${list(x.time.hooks)} · steps in ${x.time.step} · skip kind ${x.time.kind ?? 'undeclared'} · skip hook ${x.time.skip ? 'yes' : x.time.noSkip ? 'no (noSkip: ' + x.time.noSkip + ')' : 'no'}`);
   const q = x.queries, qs = q ? [q.describe, ...q.extra].filter(Boolean) : [];
   if (q) out.push(`queries: ${list(qs)}${q.api.length ? ' · api: ' + q.api.join(' ') : ''}`);
   for (const p of x.problems ?? []) out.push('⚠ ' + p);
@@ -155,10 +131,10 @@ export function catalogCommand(r, id, opt, dir, library = null) {
   const data = { ...r.data, files: where };
   if (data.params && data.kind !== 'op') {   // type and description come from the JSDoc-generated api page (drawing parts: their own desc)
     data.params = Object.fromEntries(Object.entries(data.params).map(([k, s]) => [k, { ...s }]));
-    const missing = mergeDocs(data.params, data.kind === 'module' ? optionDocs(id) : null);
+    const missing = mergeDocs(data.params, data.kind === 'module' ? metadata.modules[id]?.params : null);
     if (missing.length) data.problems = [...(data.problems ?? []), `${missing.length} param(s) without a description (no doc): ${missing.join(', ')}`];
   }
-  const pub = r.data.kind === 'module' ? publicApi(id) : null;   // only what the api page lists: the page keeps internal fields (engine, uniforms...) out
+  const known = r.data.kind === 'module' ? metadata.modules[id] : null, pub = known?.page ? new Set(known.names) : null;   // only what the api page lists: the page keeps internal fields (engine, uniforms...) out
   if (pub && data.queries) data.queries = { ...data.queries, api: data.queries.api.filter(n => pub.has(n)).slice(0, MAX_API) };
   return { ok: true, text: cut(data.kind === 'op' ? opText(data, where) : moduleText(data, where)), data };
 }

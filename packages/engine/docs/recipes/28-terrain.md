@@ -43,7 +43,7 @@ Both functions run in workers, so they are **pure**: they see only their paramet
 
 ## 2. Changing the ground: `engine.terrain.edit`
 ```js
-const at = { x: 12, z: 20 };
+const at = [12, 0, 20];   // an op's 'position' argument is [x, y, z]
 engine.ops.define('ground.dig', { args: { at: 'position' }, run(e, a) { e.terrain?.edit(a.at, { radius: 3, lower: 1.5 }); } });
 engine.ops.define('ground.level', { args: { at: 'position' }, run(e, a) {
   e.terrain?.edit(a.at, { shape: 'square', radius: 6, flatten: e.surface(a.at) });   // a flat foundation at the height of its center
@@ -155,7 +155,7 @@ Limits:
 `engine.vegetation`: species, placement, tree collision, felling) and the picture (`engine.terrainDraw`, slot `'terrain-draw'`;
 `engine.vegetationDraw`, slot `'vegetation-draw'`). Collision, paths, `engine.surface`, `instanceAt` and saves read only the data, so a game that
 replaces a picture keeps all of play. A picture listens to the data part's `view` hooks and never changes the data:
-```js
+```js fragment
 engine.use({ name: 'myGround', type: 'picture', provides: ['terrain-draw'], install(e, ctx) {
   const meshes = new Map();
   ctx.track(e.terrain.view({
@@ -196,7 +196,7 @@ ground-type weight, spawn density, a walkable mask, danger, travel cost.
 `interp` is the picture between nodes, and none of them is the right one: `'nearest'` for terraces, blocky ground, tile masks and ids; `'linear'` (default) for most fields;
 `'cubic'` for slopes without cell creases, which can overshoot beside a sharp step (`clamp: true` keeps it inside the four corner values).
 
-```js
+```js fragment
 const g = await engine.assets.gridFromImage('/maps/height16.png', { range: [-5, 60] });   // meters, 16-bit file
 const heightAt = sampleGrid(g.data, { ...g, size: [512, 512], origin: [-256, -256], interp: 'cubic', clamp: true });
 heightAt(10, 20);                                                    // gameplay side: where to put a camp, a mine, a lighthouse

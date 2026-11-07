@@ -39,6 +39,24 @@ function parse(buf) {
   return { meta, base };
 }
 
+/** Unwrapped geometry -> { vertices: the source's count, place: source vertex -> a vertex holding it now, or -1 }. A second file's list speaks of the source, not of the layout the first file left */
+const layouts = new WeakMap();
+
+/** The source vertex list in terms of the geometry as it stands; null when a vertex the file names did not survive the earlier layout @param {any} g @param {Uint32Array} from */
+function gatherList(g, from) {
+  const was = layouts.get(g);
+  if (!was) return from;
+  const list = from.map(v => was.place[v]);   // Uint32Array: a -1 reads back as the maximum
+  return list.some(v => v >= g.attributes.position.count) ? null : list;
+}
+
+/** Remember where each source vertex went @param {any} g the new geometry @param {number} vertices the source's count @param {Uint32Array} from the file's list */
+function noteLayout(g, vertices, from) {
+  const place = new Int32Array(vertices).fill(-1);
+  from.forEach((v, i) => { place[v] = i; });
+  layouts.set(g, { vertices, place });
+}
+
 /** The mesh with the unwrapped layout: every attribute gathered through the source vertex list, the new index, and uv1 */
 function relayout(src, from, index, uv1) {
   const g = new THREE.BufferGeometry();
@@ -123,10 +141,12 @@ export const lightmapMethods = {
     for (const m of meta.meshes) {
       const mesh = names.get(m.name);
       // the vertex count is what the bake's list was made from: another count means another mesh, and its UVs would be noise
-      if (!mesh || mesh.isInstancedMesh || mesh.geometry.attributes.position.count !== m.vertices) { set.missing.push(m.name); continue; }
-      const at = binary + m.at, old = mesh.geometry;
-      mesh.geometry = relayout(old, new Uint32Array(/** @type {ArrayBuffer} */ (buf), at, m.count), new Uint32Array(/** @type {ArrayBuffer} */ (buf), at + m.count * 4, m.indices),
+      if (!mesh || mesh.isInstancedMesh || (layouts.get(mesh.geometry)?.vertices ?? mesh.geometry.attributes.position.count) !== m.vertices) { set.missing.push(m.name); continue; }
+      const at = binary + m.at, old = mesh.geometry, from = new Uint32Array(/** @type {ArrayBuffer} */ (buf), at, m.count), list = gatherList(old, from);
+      if (!list) { set.missing.push(m.name); continue; }
+      mesh.geometry = relayout(old, list, new Uint32Array(/** @type {ArrayBuffer} */ (buf), at + m.count * 4, m.indices),
         new Float32Array(/** @type {ArrayBuffer} */ (buf), at + (m.count + m.indices) * 4, m.count * 2));
+      noteLayout(mesh.geometry, m.vertices, from);
       old.dispose();   // nothing else frees its GPU buffers; a mesh that shares it just uploads it again
       for (const x of mats(mesh)) { x.lightMap = tex; x.needsUpdate = true; }
       set._entries.set(mesh, m.matrix);

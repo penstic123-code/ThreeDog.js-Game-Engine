@@ -37,7 +37,7 @@ export class FarFlights {
     s.key = kind + '#' + ++this.defs;
     if (T.size) T.pureLane().broadcast({ def: s.key, src: s.pure.src, label }, 'def:' + s.key);
   }
-  /** dt: real seconds this turn covers (bookkeeping); d: the dt far gets (dt on the kind's time channel, sim.scaled) */
+  /** dt: real seconds this turn covers (bookkeeping); d: the dt far gets (sim.settle) */
   add(e, s, dt, d = dt) {
     let b = this.open.get(s); if (!b) this.open.set(s, b = []);
     b.push([e, dt, d]);
@@ -51,7 +51,7 @@ export class FarFlights {
     const engine = this.sim.w.engine, T = engine.threads;
     // copies taken now: what far sees is the record as of this step, whatever happens to it during the flight
     const f = { s, items, snaps: items.map(([e, , d]) => [structuredClone(e.rec), d]), results: null };
-    for (const [e, dt] of items) e.flight = { f, from: e.last - dt };
+    for (const [e, dt, d] of items) e.flight = { f, from: e.last - dt, d };
     const t = engine.commits.request({ lag: FAR_LAG, apply: r => this.apply(f, r), fallback: () => f.snaps.map((_, i) => this.compute(f, i)) });
     // a failed worker run is ignored: the fallback runs the same code here at the due step and throws the same (clear) error
     if (T.size) T.pureLane().run({ call: s.key, items: f.snaps }).then(r => { f.results = r.map(x => x.args[0]); t.resolve(f.results); }, () => {});

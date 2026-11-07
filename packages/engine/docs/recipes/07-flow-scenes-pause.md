@@ -4,7 +4,7 @@
 
 Needs the module `flow()` (not in openWorld; add it yourself: `engine.use(openWorld({ camera: 'follow', ...}), flow())`).
 - **Flow states**: title, playing (built-in `playing`), paused (built-in `paused`: freezes gameplay + locks input), ending, ... Only one is active at a time.
-- **Scene transition** `transition(fn)`: lock input -> fade to black -> fade music out -> (with `{ autosave: 'auto' }` save slot 'auto'; off by
+- **Scene transition** `transition(fn)`: lock input -> fade to black -> fade music out -> (with `{ autosave: 'auto' }` save slot 'auto'; off by If the world does not settle within `engine.loading.timeoutMs`, it rejects with `module-not-ready` and gives the screen and input back. Autosave waits for the end of a transition.
   default) -> run fn -> wait until every module is ready -> fade in -> unlock. Repeated calls queue up automatically.
 
 ## 1. Pause / title / ending (in main.js)
@@ -34,9 +34,14 @@ state when the menu closes; without flow it calls `engine.freeze('settings')` di
 Stopped while frozen: the fixed step (movement, physics), module `fixed`, the game clock `clock`, quest checks (they run in the fixed step), timeline
 `wait` / tweens / camera / paths. Still running: rendering, UI, `onFrame`, the fade-to-black `fadeScreen`.
 
-Restarting a run from a UI button (retry, "play again"): do not reset positions, health and spawns inside the click handler or an `onFrame` callback; that is
-mid-frame and can leave half the world on the old tick. Apply it on a fixed tick: `engine.nextFixed(resetRun)`
-(runs at the start of the next fixed step, in a stable order), or set a flag in the handler and reset in `onFixed`.
+Restarting a run from a UI button (retry, "play again"): a whole new run is `engine.session.newGame()`; it works from a frozen screen too, and flow goes to `'playing'` by itself.
+To reset only part of the run, do not write positions, health and spawns inside the click handler or an `onFrame` callback; that is mid-frame and can leave half the world on the old tick.
+Apply it on a fixed tick with `engine.nextFixed(fn)` or a flag read in `onFixed`. No fixed step runs while frozen, so on an end screen with `freeze: true` leave the freeze first:
+```js
+engine.flow.define('gameOver', { freeze: true, lockInput: true });
+const resetRun = () => engine.vars.bump('tries', 1);   // the game's own reset: positions, health, spawns
+const retry = async () => { engine.flow.go('playing'); await engine.nextFixed(resetRun); };   // this order: frozen, nextFixed never fires
+```
 
 ### Back key (Esc): the UI focus stack
 Windows (inventory, quests, settings), dialogue and cutscenes are pushed onto the stack in the order they open (`uiFocus(engine)` in `ui/Focus.js`),
@@ -58,7 +63,7 @@ already showing. The title's buttons go through `engine.session` (section 4): a 
 To open straight into play, pick the start state up front instead of leaving the title afterwards; time and weather come from the engine's
 own URL keys (`?time=22:20&weather=storm`, applied after `engine:ready`, weather at once, then `wait` seconds are advanced), so only the game's
 own state needs a key of its own.
-```js
+```js fragment
 const q = new URLSearchParams(location.search), moment = q.get('moment');   // the game's own key: which lamps are lit, the score ...
 engine.use(openWorld({ camera: 'follow' }), flow({ start: moment ? 'playing' : 'title' }));
 engine.flow.define('title', { freeze: true, lockInput: true,
@@ -83,7 +88,7 @@ advances only on `engine.step`, so a `weather.set(name, { seconds: 0.1 })` made 
 color is one frame old (share `engine.uniforms.uSkyHorizon` instead, recipe 08).
 
 ## 2. Changing scene / teleporting
-```js
+```js fragment
 // A level-based game: switch to another map
 await engine.flow.transition(async () => {
   await engine.level.load('/models/town2.glb');             // or a name from the assets manifest
@@ -94,15 +99,14 @@ await engine.flow.transition(async () => {
 // Teleport within the same map: no save, music keeps playing
 engine.flow.transition(() => engine.player.placeAt([40, 0, -20]), { music: 'keep' });
 ```
-When the level changes, the old level's things are cleared automatically: trigger zones built by `triggers.fromMarkers`, and pickups / trigger zones /
-props in content whose position uses a level marker.
-An NPC like that is not deleted: its data (in `engine.world`, with zone = level name) stays and only the model is removed; it is rebuilt automatically
+When the level changes, trigger zones built by `triggers.fromMarkers` are cleared automatically. NPCs, pickups and props in content whose position uses a level
+marker are not deleted: their data (in `engine.world`, with zone = level name) stays and only the model is removed; it is rebuilt automatically
 when you return to this map, with its state intact.
 Things the game builds itself that belong to this map are registered with `engine.level.track(handle)` (`{ remove() }`) and deleted together when the
 map changes.
 Loading a save across levels: the save records the level name, so `await engine.saves.load('slot1')` first switches back to that map, waits for it to
-finish loading, and then puts the player and everything else back (the level must be loaded by name, `level({ url })`; a code-built `level({ scene })`
-can't be recorded).
+finish loading, and then puts the player and everything else back. The level must be loaded by name, `level({ url })`. For an area built in code that name
+is a builder in the assets manifest (recipe 66, "Two areas built in code"); a `level({ scene })` object has no name to record.
 
 Saves live in the browser's IndexedDB (falling back to localStorage, with one notice). `save()` / `remove()` / `load()` return a Promise (a failed write shows a notice), while
 `list()` / `export()` are synchronous (saves are read into memory at startup). Attachments, file backup and `storageKey`: `../api/saves.md`.
@@ -136,21 +140,20 @@ engine.input.action('menuConfirm', { label: 'OK', keys: ['Space'], context: 'men
   whether input is locked.
 - In tests: after `engine.flow.go('paused'); engine.step(1)` the player position, `engine.clock.now`, quest progress and timelines are unchanged;
   after `await engine.flow.transition(fn)` returns, `transitioning` is false (if fn throws, the error goes to the caller and the screen still fades back in).
-- Related tests: `threedog test 游戏流程`, `threedog test 接缝`.
 
 ## 4. New game / continue / back to title / retry (engine.session)
 Every playthrough starts from a clean slate, so a second new game is exactly like the first:
-```js
+```js fragment
 await engine.session.newGame();          // the state right after start(): world, containers, vars, quests, clock, sky, weather, random
 await engine.session.load('slot1');      // continue (title "Continue", settings "Load"); retry: engine.session.load('checkpoint')
 await engine.session.quit();             // back to the title (settings "Back to title"); the title's Start calls newGame
 engine.session.track(engine.events.once('npc:talk', onTalk));   // anything the game adds during play: removed when the playthrough ends
 ```
-Ending a playthrough skips a running cutscene, removes tracked handles, drops clock timers added after start(), drops background results not yet
+Ending a playthrough drops a running cutscene, removes tracked handles, drops clock timers added after start(), drops background results not yet
 applied (commits), stops the music, applies the start state and snaps the camera to the player. flow goes back to its start state, then to
 `'playing'`. Events: `session:end`, `session:start { kind: 'new' | 'load', slot? }` (play an intro per new game there, not on `engine:ready`).
 - When a save part's `load()` throws, newGame / `session.load` resolve `false` and the old playthrough goes on: its data is rolled back, its
-  tracked handles and timers stay, flow returns to the state it left, and `session:failed { kind, slot? }` fires instead of `session:start`.
+  tracked handles and timers stay, flow returns to the state it left, and `session:failed { kind, slot? }` fires instead of `session:start` (also from a rolled-back `saves.load` or `saves.apply`, with `kind: 'quick'`) (for a quit: instead of the title, kind 'quit').
 - `saves.load(slot)` is a quick load onto the running playthrough (keeps what the game added); `session.load(slot)` ends the playthrough first and
   refuses an unreadable save without touching the game. Deleting a save is `saves.remove(slot)`.
 - Listeners and hooks registered at boot stay (they are the game); register play-time ones with `session.track`.

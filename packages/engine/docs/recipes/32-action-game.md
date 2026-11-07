@@ -44,8 +44,8 @@ looks, so a swing goes where you aim. The rules do not need the picture: `?pictu
 `examples/action/picture/`.
 
 ## 4. Movement: jumps, speed effects, bullet time, platforms, falling
-```js
-createPlayer({ ...presets.player.thirdPerson, maxJumps: 2 });                       // double jump: the same jump key twice
+```js fragment
+engine.characters.createPlayer({ ...presets.player.thirdPerson, maxJumps: 2 });     // double jump: the same jump key twice
 engine.player.launch(16, { owner: 'pad' });                                          // a jump pad / spring
 engine.mod('move.speed', { owner: 'haste', id: 'player', mul: 1.2, for: 5 });       // haste for 5 s; no id = every character (mud, wind)
 engine.time.channel('enemies');                                                     // once, before anything uses it: a channel of your own
@@ -76,15 +76,14 @@ engine.player.mover = 'manual'; /* a cutscene, your own physics */ engine.player
   floor mesh, not the whole model: a group with a mast or a railing has its top up there, and the character passes under it to whatever is below (a
   boat at sea leaves it on the sea floor). A character gets on when its feet are at most `stepHeight` below the top, or it falls or is placed onto
   it (`placeAt` over a support stands on it). Moving the parent moves the floor mesh, so move the whole model as you like.
-  ```js
+  ```js fragment
   const raft = new THREE.Group(), deck = new THREE.Mesh(new THREE.BoxGeometry(3, 0.2, 2), wood);
   raft.add(deck, mast); engine.scene.add(raft);
   engine.characters.support(deck, { id: 'raft' });                       // the deck, not the raft with its mast
   engine.onFixed(dt => { raft.position.x += 1.5 * dt; });                 // the player on it is carried
   ```
   A ride the player does not steer is `engine.control` instead (recipe 57, Moved by script).
-- **Falling out**: `createPlayer({ ..., fall: { belowY: -20 } })` fires `character:fall { character, safe, preventDefault() }` once and puts the player
-  back on `player.safeGround` (the last spot it stood still on safe, unmoving ground; saved). Take hp in the listener; `preventDefault()` to handle it yourself.
+- **Falling out**: `createPlayer({ ..., fall: { belowY: -20 } })` fires `character:fall { character, safe }` once. Take hp in the listener. The rule `fall` decides what happens, and the engine alone decides nothing: `engine.mod('fall', { owner: 'game', set: 'rescue' })` (or `characters({ fall: 'rescue' })`; `openWorld` and the new-game templates choose it) puts the player back on `player.safeGround`, the last spot it stood still on safe, unmoving ground (saved); `set: false` handles it yourself, a function `(facts, engine) => 'rescue' | false` decides per fall (`facts.kind` is `'character'` or `'body'`), and without `id` it covers everything that falls, rigid bodies below y = -200 too.
 - **Your own controller**: `mover: 'manual'` = you write the position; `move()` then only updates `grounded`, `support` (platforms still carry),
   `safeGround` and the fall check. Switch at any time (`player.mover = 'manual'` / `'simple'`): a cutscene, a grapple, a ladder.
 - **Knockback / dashes**: `player.push(vx, vz, seconds)`. Writing `player.velocity` or `player.vy` is an impulse: the mover keeps integrating from

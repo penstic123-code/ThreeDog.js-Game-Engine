@@ -196,9 +196,9 @@ export async function run({ check }) {
     /pagePicture\(/.test(src('shot.mjs')) && /imagePicture\(/.test(src('shot.mjs')) && /pagePicture\(/.test(src('threedog/commands.mjs'))
     && !/probePicture\.toString/.test(src('shot.mjs') + src('threedog/commands.mjs')));
   // a probe that fails while it sets up (here: no document) must not leave the engine marked as probing: the who-wrote-it record and the light watch would stay off
-  const failed = { _probing: false };
+  const failed = { _tools: { probing: false } };
   await (0, eval)(`(${probeSource})`)(failed, {}).catch(() => {});
-  check('[guard] a probe that throws in its setup leaves _probing off', failed._probing === false);
+  check('[guard] a probe that throws in its setup leaves probing off', failed._tools.probing === false);
   const tmp = mkdtempSync(join(tmpdir(), 'threedog-picture-'));
   try {
     writeFileSync(join(tmp, 'g.png'), png(480, 270, (x, y) => ((x % 60 < 6 && y % 60 < 6) ? [255, 245, 225] : [30, 32, 40])));

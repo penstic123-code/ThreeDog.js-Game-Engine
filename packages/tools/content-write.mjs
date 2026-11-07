@@ -7,7 +7,8 @@
 // Why a targeted text edit and no re-print of the file: the author's comments, column alignment and trailing commas stay as they are.
 // Why only one file: the id index (.threedog/content-index.json, content-check/index-ids.mjs) says which file holds the id, so a write reads,
 // parses and checks that file alone; a game with thousands of placements in many files costs the same as a small one. The full check stays in
-// `npm run check`. When the index is missing or wrong (the id is not in the file it names), it is rebuilt once from all files, then the write retries.
+// `npm run check`. When the index is missing, stale (a file changed behind it, a hand edit or a rename) or wrong (the id is not in the file it names), it is rebuilt
+// from all files first; a content file that does not load then refuses the write by name, because the positions after it are unknown.
 // Safety: `expect` (the value the caller believes is there) refuses a write when the file changed under it (another tool or the AI edited it);
 // entries built by code (a loop, after a spread, a computed value) are refused with the line of that code; the write is atomic (temp + rename)
 // and restored when the check after it fails (lib/atomic.mjs).
@@ -16,8 +17,9 @@ import * as nodeFs from 'node:fs';
 import { resolve, join, relative, sep } from 'node:path';
 import { parseAst } from 'vite';
 import { rel, command } from './paths.mjs';
+import { same } from './lib/text.mjs';
 import { loadGame, dupKeys, importFresh } from './content-check/load.mjs';
-import { buildIndex, readIndex, indexPath, fileEntries, entryId, positional } from './content-check/index-ids.mjs';
+import { buildIndex, readIndex, indexPath, fileEntries, fileStamp, entryId, positional } from './content-check/index-ids.mjs';
 import { exportedLiteral } from './vite/vite-threedog-content-src.js';
 import { writeAtomic, writeChecked } from './lib/atomic.mjs';
 import { keyName, literalValue } from './lib/ast-value.mjs';
@@ -27,8 +29,6 @@ const BARE = /^[\p{L}_][\p{L}\p{N}_.-]*$/u;
 const SIMPLE = /^(Literal|ArrayExpression|ObjectExpression|UnaryExpression|TemplateLiteral)$/;
 const lineAt = (text, off) => text.slice(0, off).split('\n').length;
 // key order is not a value: an undo that puts a cleared field back puts it at the end of the entry
-const sorted = v => Array.isArray(v) ? v.map(sorted) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])])) : v;
-const same = (a, b) => JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
 
 /** Counters for tests: how many content texts were parsed (a write parses its one file) */
 export const stats = { parsed: 0 };
@@ -83,90 +83,114 @@ function findEntry(text, id, kind, from, where) {
     return hits.length ? { root, ...hits[0] } : { error: null };
   }
   if (root?.type === 'ObjectExpression') {
-    const prop = root.properties.find(p => p.type === 'Property' && keyName(p) === id);
-    if (!prop) return { error: null };
-    return { root, prop, el: prop.value };
+    const props = root.properties.filter(p => p.type === 'Property' && keyName(p) === id);
+    if (props.length > 1) return { error: twice(text, where, id, props) };
+    return props.length ? { root, prop: props[0], el: props[0].value } : { error: null };
   }
   return { error: `${where} does not export a plain array or object literal (it is built by code): edit it by hand`, generated: true };
 }
+
+/** Why a key written more than once is refused: the game reads the last, a write reaches the first, and it would say ok with nothing changed */
+const twice = (text, where, key, props) => `${where}: ${key} is written ${props.length} times (lines ${props.map(p => lineAt(text, p.start)).join(', ')}): the game uses the last one. Keep one by hand, then write again`;
 
 /** set: the new text with every [field, value] applied in order and every `unset` name cut, or { error } / { conflict } */
 function planSet(text, hit, fields, unset, expect, where, spot = {}) {
   const { el } = hit;
   if (el?.type !== 'ObjectExpression') return { error: `${where} is not a plain object literal (built by code at line ${lineAt(text, (el ?? hit.prop).start)}): edit it by hand` };
   if (el.properties.some(p => p.type !== 'Property' || p.computed || keyName(p) == null)) return { error: `${where} has a spread or computed property (line ${lineAt(text, el.start)}): edit it by hand` };
+  for (const f of new Set([...Object.keys(fields), ...unset, ...Object.keys(expect || {})])) {
+    const named = el.properties.filter(p => keyName(p) === f);
+    if (named.length > 1) return { error: twice(text, where, f, named) };
+  }
   for (const [f, want] of Object.entries(expect || {})) {
     const p = el.properties.find(q => keyName(q) === f), now = p ? literalValue(p.value) : undefined;
     if (!same(now ?? undefined, want ?? undefined)) return { conflict: true, error: `${where}.${f} is ${now === undefined ? 'not set' : lit(now)} in the file now, not ${lit(want)} as expected (someone else, maybe the AI, changed it): nothing written. Write again with the value you want, or keep the file's` };
   }
-  const edits = [], changes = [];
-  let after = el.properties.length ? el.properties[el.properties.length - 1].end : null;
-  const added = [];
+  const edits = [], changes = [], props = el.properties;
+  let after = props.length ? props[props.length - 1].end : null;
+  const added = [], gone = new Set(unset.filter(f => props.some(p => keyName(p) === f)));   // already gone is what was asked for; expect says when that matters
   for (const [field, value] of Object.entries(fields)) {
-    const prop = el.properties.find(p => keyName(p) === field), lt = lit(value), fkey = IDENT.test(field) ? field : lit(field);
+    const prop = props.find(p => keyName(p) === field), lt = lit(value), fkey = IDENT.test(field) ? field : lit(field);
     if (prop) {
       if (prop.shorthand || !SIMPLE.test(prop.value.type) || literalValue(prop.value) === undefined) return { error: `${where}.${field} is computed by code (${text.slice(prop.value.start, prop.value.end).slice(0, 40)}, line ${lineAt(text, prop.start)}): edit it by hand` };
       edits.push({ start: prop.value.start, end: prop.value.end, text: lt });
       changes.push(`${field}: ${text.slice(prop.value.start, prop.value.end)} -> ${lt}`);
-    } else if (spot[field] != null && el.properties.some(p => keyName(p) === spot[field])) {
-      // back to its place (the editor's undo of a cut field): in front of the property it stood before, with the separator the file keeps between two properties
-      const next = el.properties.find(p => keyName(p) === spot[field]), prev = el.properties[el.properties.indexOf(next) - 1];
+    } else if (spot[field] != null && !gone.has(spot[field]) && props.some(p => keyName(p) === spot[field])) {
+      // back to its place (the editor's undo of a cut field): in front of the property it stood before, with the separator the file keeps between two properties.
+      // Not in front of a property cut in the same write: that insert and that cut would share offsets, and the cut would eat the new text
+      const next = props.find(p => keyName(p) === spot[field]), prev = props[props.indexOf(next) - 1];
       edits.push({ start: next.start, end: next.start, text: `${fkey}: ${lt}${prev ? text.slice(prev.end, next.start) : ', '}` });
       changes.push(`${field}: ${lt} (added)`);
     } else { added.push(`${fkey}: ${lt}`); changes.push(`${field}: ${lt} (added)`); }
   }
   // the comma that goes is the one written after a cut field, or before it when nothing stays behind it: a field added at the end comes off again byte for byte.
   // Fields cut together are one plan: cut one by one, two trailing ones overlapped and every offset after the first was wrong
-  const props = el.properties, gone = new Set(unset.filter(f => props.some(p => keyName(p) === f)));   // already gone is what was asked for; expect says when that matters
   for (const field of gone) {
     if (Object.hasOwn(fields, field)) return { error: `${where}: ${field} is both set and unset` };
     const prop = props.find(p => keyName(p) === field);
     changes.push(`${field}: ${text.slice(prop.value.start, prop.value.end)} (removed)`);
   }
+  // A comment between two properties is the author's and usually about the one below: a cut stops short of it and takes only the field and its comma
+  const noted = i => /\/[/*]/.test(text.slice(props[i].end, props[i + 1].start));
   const lastKept = props.findLastIndex(p => !gone.has(keyName(p)));
-  if (lastKept < 0 && gone.size) after = null;
-  else {
-    for (let i = 0; i < lastKept; i++) if (gone.has(keyName(props[i]))) edits.push({ start: props[i].start, end: props[i + 1].start, text: '' });
-    if (lastKept < props.length - 1) { after = props[lastKept].end; edits.push({ start: after, end: props.at(-1).end, text: '' }); }
+  // Nothing stays in the entry: its comments still do, unless there are none and the body can simply be replaced
+  const bare = lastKept < 0, body = bare && props.reduceRight((b, p) => b.slice(0, p.start - el.start) + b.slice(p.end - el.start), text.slice(el.start, el.end));
+  const notes = bare && /\/[/*]/.test(body);
+  if (bare) {
+    after = null;
+    if (notes) for (const p of props) edits.push({ ...cutSpan(text, p, false), text: '' });
+  } else {
+    for (let i = 0; i < lastKept; i++) if (gone.has(keyName(props[i]))) edits.push(noted(i) ? { ...cutSpan(text, props[i], false), text: '' } : { start: props[i].start, end: props[i + 1].start, text: '' });
+    if (lastKept < props.length - 1) {
+      after = props[lastKept].end;
+      if (props.slice(lastKept, -1).some((_, i) => noted(lastKept + i))) for (const p of props.slice(lastKept + 1)) edits.push({ ...cutSpan(text, p, false), text: '' });
+      else edits.push({ start: after, end: props.at(-1).end, text: '' });
+    }
   }
   // nothing stays and something new comes: the new text replaces the whole body. Nothing comes: only the fields go
-  if (added.length) edits.push(after != null ? { start: after, end: after, text: ', ' + added.join(', ') } : { start: el.start + 1, end: el.end - 1, text: ` ${added.join(', ')} ` });
-  else if (lastKept < 0 && gone.size) edits.push({ start: props[0].start, end: props.at(-1).end, text: '' });
+  if (added.length) edits.push(after != null ? { start: after, end: after, text: ', ' + added.join(', ') } : notes ? { start: el.start + 1, end: el.start + 1, text: ` ${added.join(', ')},` } : { start: el.start + 1, end: el.end - 1, text: ` ${added.join(', ')} ` });
+  else if (bare && gone.size && !notes) edits.push({ start: props[0].start, end: props.at(-1).end, text: '' });
   let out = text;
   for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   return { after: out, change: changes.join('; '), line: lineAt(text, el.start) };
 }
 
-/** add: append one element / property at the end, matching the container's layout (one entry per line, trailing comma or not) */
+/** Where a new line goes after an item ending at `from`: the end of that line, past an end-of-line comment; `from` when the line holds more than that (an unclosed block comment, the closing bracket) */
+function lineEnd(text, from, close) {
+  const rest = /^[ \t]*(\/\/.*|\/\*.*?\*\/[ \t]*)?(?=\r?\n)/.exec(text.slice(from, close));
+  return from + (rest?.[0].length ?? 0);
+}
+
+/** add: append one element / property at the end, matching the container's layout (one entry per line, trailing comma or not) and its line ending (a CRLF file stays one) */
 function planAdd(text, root, entryText) {
   const items = root.type === 'ArrayExpression' ? root.elements.filter(Boolean) : root.properties;
-  const close = root.end - 1;
-  if (!items.length) return { after: text.slice(0, root.start + 1) + `\n  ${entryText},\n` + text.slice(close), line: lineAt(text, root.start) + 1 };
+  const close = root.end - 1, eol = text.includes('\r\n') ? '\r\n' : '\n';
+  if (!items.length) {   // a comment waiting in the empty list stays above the entry
+    const head = text.slice(0, close).trimEnd();
+    return { after: `${head}${eol}  ${entryText},${eol}` + text.slice(close), line: lineAt(head, head.length) + 1 };
+  }
   // a list written on one line (a new game's props.js) opens here, once: only white space goes in, and ten added entries stay ten lines and not one endless line
   if (root.type === 'ArrayExpression' && !text.slice(root.start, close).includes('\n')) {
-    return { after: text.slice(0, root.start + 1) + `\n  ${text.slice(root.start + 1, close).trim().replace(/,$/, '')},\n  ${entryText},\n` + text.slice(close), line: lineAt(text, root.start) + 2 };
+    return { after: text.slice(0, root.start + 1) + `${eol}  ${text.slice(root.start + 1, close).trim().replace(/,$/, '')},${eol}  ${entryText},${eol}` + text.slice(close), line: lineAt(text, root.start) + 2 };
   }
   const last = items[items.length - 1];
   const lineStart = text.lastIndexOf('\n', last.start) + 1, indent = /^\s*/.exec(text.slice(lineStart, last.start))[0];
   if (lineAt(text, root.start) === lineAt(text, last.start) || lineStart === 0 || text.slice(lineStart, last.start).trim()) {   // one-line container
     return { after: text.slice(0, last.end) + ', ' + entryText + text.slice(last.end), line: lineAt(text, last.start) };
   }
-  const tail = text.slice(last.end, close), comma = /^\s*,/.exec(tail);
-  if (comma) {   // trailing comma style: the new entry goes on its own line after the last one's line (its end-of-line comment stays with it)
-    const nl = text.indexOf('\n', last.end + comma[0].length), at = nl < 0 || nl > close ? last.end + comma[0].length : nl;
-    return { after: text.slice(0, at) + `\n${indent}${entryText},` + text.slice(at), line: lineAt(text, at) + 1 };
-  }
-  return { after: text.slice(0, last.end) + `,\n${indent}${entryText}` + text.slice(last.end), line: lineAt(text, last.end) + 1 };
+  // on its own line after the last one's line, so an end-of-line comment stays with the entry it was written on; the file's trailing comma style goes on
+  const comma = /^\s*,/.exec(text.slice(last.end, close)), at = lineEnd(text, last.end + (comma?.[0].length ?? 0), close);
+  return { after: text.slice(0, last.end) + (comma ? '' : ',') + text.slice(last.end, at) + `${eol}${indent}${entryText}${comma ? ',' : ''}` + text.slice(at), line: lineAt(text, at) + 1 };
 }
 
-/** remove: the span to cut: the entry and its comma; a line left empty goes too (with the entry's own end-of-line comment) */
-function cutSpan(text, node) {
+/** The span to cut: the node and its comma; a line left empty goes too (with the node's own end-of-line comment). commaBefore: with no comma after it, take the one before */
+function cutSpan(text, node, commaBefore = true) {
   let start = node.start, end = node.end;
   const after = /^\s*,/.exec(text.slice(end));
   if (after) end += after[0].length;
-  else { const before = /,\s*$/.exec(text.slice(0, start)); if (before) start -= before[0].length; }
+  else if (commaBefore) { const before = /,\s*$/.exec(text.slice(0, start)); if (before) start -= before[0].length; }
   const ls = text.lastIndexOf('\n', start - 1) + 1, nl = text.indexOf('\n', end), le = nl < 0 ? text.length : nl;
-  if (!text.slice(ls, start).trim() && /^\s*(\/\/.*)?$/.test(text.slice(end, le))) { start = ls; end = nl < 0 ? le : nl + 1; }
+  if (!text.slice(ls, start).trim() && /^\s*(\/\/.*)?\s*$/.test(text.slice(end, le))) { start = ls; end = nl < 0 ? le : nl + 1; }   // the \s* behind the comment: a CRLF line ends in \r, which . does not match
   return { start, end };
 }
 
@@ -208,13 +232,21 @@ async function checkFile(path, before, after, kind, entryValue, index, wasArray)
   return { problems: out, value: mod.default };
 }
 
-/** Rebuild the index from every content file (the slow path: only when it is missing or wrong) */
+/** A write or read that cannot go on for a reason the caller should read: contentRead and contentWrite answer it as { ok: false, error } */
+class Refused extends Error {}
+const answerRefusal = e => { if (e instanceof Refused) return { ok: false, error: e.message }; throw e; };
+
+/** Rebuild the index from every content file (the slow path: only when it is missing, stale or wrong) */
 async function rebuildIndex(dir, io) {
-  const { data, parts } = await loadGame(dir);
+  const { data, parts, unread } = await loadGame(dir);
+  // a file left out moves every later entry of its kind, so an index built without it would point ids at the wrong entries again
+  if (unread.length) throw new Refused(`${rel(unread[0])} does not load, so the entries after it cannot be told apart by position: nothing written. Fix that file (threedog check names the error), then write again`);
   const { index } = buildIndex(dir, data, parts);
   try { io.mkdirSync(join(dir, '.threedog'), { recursive: true }); writeAtomic(indexPath(dir), JSON.stringify(index), io); } catch { /* read-only folder: still usable in memory */ }
   return index;
 }
+/** The index to work from: what is on disk while it matches the files, else a new one */
+const currentIndex = async (dir, io) => readIndex(dir, io) ?? rebuildIndex(dir, io);
 
 /**
  * Which one file and entry an id names: { target, index, rebuilt } or { error, generated? }. The index is rebuilt once when it does not know the id.
@@ -242,12 +274,15 @@ async function locate(dir, req, index, rebuilt, io) {
  * @returns {Promise<{ ok: boolean, error?: string, generated?: boolean, kind?: string, file?: string, line?: number, fields?: Record<string, any>, computed?: string[] }>}
  *   fields: every literal property; computed: the names written as code (a write to those is refused)
  */
-export async function contentRead(dir, req, opt = {}) {
+export const contentRead = (dir, req, opt = {}) => read(dir, req, opt).catch(answerRefusal);
+async function read(dir, req, opt) {
   const io = opt.io ?? nodeFs;
   for (let rebuilt = false; ; rebuilt = true) {
-    const found = await locate(dir, req, rebuilt ? await rebuildIndex(dir, io) : readIndex(dir, io), rebuilt, io);
+    const found = await locate(dir, req, rebuilt ? await rebuildIndex(dir, io) : await currentIndex(dir, io), rebuilt, io);
     if (found.error) return { ok: false, error: found.error, ...(found.generated && { generated: true }) };
-    const { file, kind } = found.target, from = found.index?.files?.[file]?.from ?? 0, text = io.readFileSync(resolve(dir, file), 'utf8');
+    const { file, kind } = found.target, from = found.index?.files?.[file]?.from ?? 0, out = leavesContent(dir, file, io);
+    if (out) return { ok: false, error: out };
+    const text = io.readFileSync(resolve(dir, file), 'utf8');
     const hit = findEntry(text, req.id, kind, from, `${file} '${req.id}'`);
     if (hit.error) return { ok: false, error: hit.error, ...(hit.generated && { generated: true }) };
     if (!hit.el && !found.rebuilt) continue;   // the index is out of date: the id moved since it was written
@@ -261,6 +296,25 @@ export async function contentRead(dir, req, opt = {}) {
   }
 }
 
+/** A .js file inside the content folder, by name (nothing on disk is asked) */
+function namedInContent(dir, p) {
+  const r = relative(join(dir, 'content'), p);
+  return !!r && !r.startsWith('..') && !r.includes(':') && p.endsWith('.js');
+}
+
+/**
+ * Why path may not be opened or replaced, or null. The name says where it seems to be; the real paths say where it is, so a junction or link in content, or an index
+ * naming another file, cannot lead a read or a write out of the folder. content itself may be a link: both sides are real paths.
+ * @param {string} dir @param {string} file  as the request or the index named it @param {any} io
+ * @returns {string | null}
+ */
+function leavesContent(dir, file, io) {
+  const path = resolve(dir, file);
+  if (!io.existsSync(path)) return `${file} does not exist`;
+  const real = io.realpathSync(path);
+  return namedInContent(dir, path) && namedInContent(join(io.realpathSync(join(dir, 'content')), '..'), real) ? null : `${file} is outside ${rel(join(dir, 'content'))}: write-back only reads and edits files really in it`;
+}
+
 /**
  * Write one change into a game's content files.
  * @param {string} dir  game folder
@@ -270,20 +324,20 @@ export async function contentRead(dir, req, opt = {}) {
  * @param {{ dry?: boolean, io?: any }} [opt]  io: the fs functions used (tests pass counting wrappers)
  * @returns {Promise<{ ok: boolean, error?: string, conflict?: boolean, where?: string, file?: string, line?: number, change?: string, path?: string, problems?: string[], restore?: Record<string, string> }>}
  */
-export async function contentWrite(dir, req, opt = {}) {
+export const contentWrite = (dir, req, opt = {}) => write(dir, req, opt).catch(answerRefusal);
+async function write(dir, req, opt) {
   const io = opt.io ?? nodeFs, fail = (error, extra) => ({ ok: false, error, ...extra });
   const { op } = req;
   if (!['set', 'add', 'remove', 'restore'].includes(op)) return fail(`unknown op '${op}': set, add, remove or restore`);
-  let index = readIndex(dir, io), rebuilt = !!opt.rebuilt, isArray = false;
+  let rebuilt = !!opt.rebuilt, isArray = false;
   const cdir = join(dir, 'content');
   const fileOf = f => resolve(dir, f);
-  const inContent = p => { const r = relative(cdir, p); return !!r && !r.startsWith('..') && !r.includes(':') && p.endsWith('.js'); };
   const odd = unwritable(req.fields ?? {}, 'fields') ?? unwritable(req.entry ?? {}, 'entry');
   if (odd) return fail(`${odd}: nothing written`);
-  if (req.file && !inContent(fileOf(req.file))) return fail(`${req.file}: write-back only edits .js files inside ${rel(cdir)}`);
+  if (req.file && !namedInContent(dir, fileOf(req.file))) return fail(`${req.file}: write-back only edits .js files inside ${rel(cdir)}`);
 
-  // 1. Which file: the given one, else the index (rebuilt once when it does not know the id)
-  let target;
+  // 1. Which file: the given one, else the index (rebuilt once when it does not know the id). A given file needs the index too: `from` turns a position into an id
+  let index = await currentIndex(dir, io), target;
   for (;;) {
     if (op === 'add') {
       const kind = req.kind ?? (req.file && kindOfFile(dir, fileOf(req.file)));
@@ -307,7 +361,8 @@ export async function contentWrite(dir, req, opt = {}) {
     break;
   }
   const path = fileOf(target.file), kind = target.kind, info = index?.files?.[target.file], from = info?.from ?? 0;
-  if (!io.existsSync(path)) return fail(`${target.file} does not exist`);
+  const out = leavesContent(dir, target.file, io);
+  if (out) return fail(out);
   const before = io.readFileSync(path, 'utf8');
   const where = `${target.file}${req.id ? ` '${req.id}'` : ''}`;
 
@@ -338,7 +393,7 @@ export async function contentWrite(dir, req, opt = {}) {
     const hit = findEntry(before, req.id, kind, from, where);
     if (hit.error) return fail(hit.error, hit.generated && { generated: true });
     if (!hit.el) {
-      if (!rebuilt && !req.file) { await rebuildIndex(dir, io); return contentWrite(dir, req, { ...opt, rebuilt: true }); }
+      if (!rebuilt && !req.file) { await rebuildIndex(dir, io); return write(dir, req, { ...opt, rebuilt: true }); }
       return fail(`no literal entry '${req.id}' in ${target.file} (the index is out of date: run threedog check, or pass --file)`);
     }
     isArray = hit.root.type === 'ArrayExpression';
@@ -383,7 +438,7 @@ export async function contentWrite(dir, req, opt = {}) {
       for (const [id, list] of Object.entries(index.ids)) { const keep = list.filter(e => e.file !== target.file); if (keep.length) index.ids[id] = keep; else delete index.ids[id]; }
       const { ids, indexIds, positional } = fileEntries(kind, target.file, value, from, plan.after);
       for (const [id, e] of ids) (index.ids[id] ??= []).push(e);
-      index.files[target.file] = { kind, mtime: io.statSync(path).mtimeMs, from, count: Array.isArray(value) ? value.length : Object.keys(value || {}).length, indexIds, positional };
+      index.files[target.file] = { kind, ...fileStamp(io.statSync(path)), from, count: Array.isArray(value) ? value.length : Object.keys(value || {}).length, indexIds, positional };
       try { writeAtomic(indexPath(dir), JSON.stringify(index), io); } catch { /* the next write rebuilds it */ }
     }
   }

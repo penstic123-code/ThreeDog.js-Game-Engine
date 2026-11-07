@@ -69,9 +69,12 @@ export class Input {
     };
     /**
      * Touch button (appears only on touch devices); pressing it triggers the action. labelKey is the string-table key of the button text (updates when the
-     * language changes) @param {string} action @param {string} labelKey
+     * language changes). Returns { remove() }: a module tracks it, so the button leaves with the module
+     * @param {string} action @param {string} labelKey @returns {{ remove(): void }}
      */
-    touchButton(action: string, labelKey: string): void;
+    touchButton(action: string, labelKey: string): {
+        remove(): void;
+    };
     /**
      * Press (down true) or release an action from code, through the same path as a real key: tests, AI drivers, replays. Presses the action's first bound key
      * and holds it until simulate(action, false), so the player walks like with a held key. Takes action names (moveForward, moveLeft, run, interact, ...;
@@ -80,6 +83,16 @@ export class Input {
      * @example engine.input.simulate('moveForward'); engine.step(1); engine.input.simulate('moveForward', false)
      */
     simulate(action: string, down?: boolean): void;
+    /**
+     * A local player's share of the input on a shared screen: its own keys and gamepad, read like engine.input (axis, down, pressed, released). Pass it to createPlayer({ id, input }).
+     * pad: gamepad index; that pad leaves engine.input and answers the game's pad bindings here. keys: { action: keys } for this seat alone. Two seats on one pad or key throw `input-seat`.
+     * @example const two = engine.input.seat({ pad: 1, keys: { moveForward: 'KeyI', moveBack: 'KeyK', moveLeft: 'KeyJ', moveRight: 'KeyL', jump: 'KeyU' } });
+     * @param {{ pad?: number, keys?: Record<string, string | string[]> }} [opts] @returns {Seat}
+     */
+    seat(opts?: {
+        pad?: number;
+        keys?: Record<string, string | string[]>;
+    }): Seat;
     /**
      * The player's rebinding (the settings menu calls this and saves it): replaces the game's keys on the settings layer of 'input.keys'.
      * keys null takes the player's choice away (the game's or the default keys show again). Works before the action is declared (a saved binding
@@ -198,3 +211,4 @@ export class Input {
 }
 import type { Pointer } from '../../../core';
 import type { Autopilot } from '../../../core';
+import { Seat } from './inputSeat.js';

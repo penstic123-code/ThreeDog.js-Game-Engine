@@ -1,6 +1,7 @@
 // R13 type-check of code blocks in docs: the ```js blocks in packages/engine/docs/recipes/*.md and packages/engine/docs/api/*.md are copied by the AI;
 // if an API is renamed or its parameters change and the docs lag behind, the copy is wrong. Each block is extracted into its own temporary .js file and checked by TypeScript against the engine d.ts.
 // Handling incomplete snippets:
+//   - ```js fragment blocks are read too: the mark means "not run as it stands" (the doc-run spec skips them), and undefined names are no error here, so its calls stay checked
 //   - a prelude declaration file provides the usual top-level variables: engine / e (Engine), THREE (any), dt (number), opts / game (any)
 //   - import 'threedog' and 'xxx/engine/index.js' (any relative path) are redirected to the real packages/engine/index.js: a block importing from 'threedog' was typed any, so
 //     createEngine({ style }) and interactions({ keys }) passed. Other unresolved imports and undefined names (TS2304/2552/2307) are not reported
@@ -45,7 +46,7 @@ export default {
   id: 'R13', title: 'Type-check of doc code blocks',
   run() {
     // also the pages a newcomer reads first (root and package READMEs, the conventions, the three.js and command pages): they hold js blocks too and were unchecked
-    const front = ['README.md', `${P.ENGINE_REL}/README.md`, `${P.DOCS_REL}/CONVENTIONS.md`, `${P.DOCS_REL}/THREE.md`, `${P.DOCS_REL}/COMMANDS.md`,
+    const front = ['README.md', 'README.zh-CN.md', `${P.ENGINE_REL}/README.md`, `${P.DOCS_REL}/CONVENTIONS.md`, `${P.DOCS_REL}/THREE.md`, `${P.DOCS_REL}/COMMANDS.md`,
       'packages/post-effects/README.md', 'packages/terrain-noise/README.md', 'packages/tools/README.md'].filter(f => existsSync(abs(f)));
     const docs = [...front, ...walk(P.RECIPES_REL, ['.md']), ...walk(P.API_DIR_REL, ['.md'])];
     const slots = slotNames();
@@ -56,7 +57,7 @@ export default {
         const L = read(doc).split('\n');
         let inBlock = false, start = 0, buf = [], n = 0;
         L.forEach((line, i) => {
-          if (!inBlock && /^\s*```js\s*$/.test(line)) { inBlock = true; start = i + 2; buf = []; n++; return; }
+          if (!inBlock && /^\s*```js(\s+fragment)?\s*$/.test(line)) { inBlock = true; start = i + 2; buf = []; n++; return; }
           if (inBlock && /^\s*```\s*$/.test(line)) {
             inBlock = false;
             if (ALLOW.some(([d, k, frag]) => d === doc && k === n && frag == null)) return;

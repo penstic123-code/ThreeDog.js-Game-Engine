@@ -1,10 +1,10 @@
 // R22 the hand-written docs keep their shape: each sentence in one place, entry docs stay small.
 // Detection:
 //   1. AI.md entry table (error, engine repository): every public engine namespace (an Engine property whose type has methods, read from the d.ts
-//      with the program shared with R18) appears as `engine.<name>` in the "One thing, one entry point" table, and every row's last column names
+//      with the program shared with R18) appears as `engine.<name>` in the "What exists: look here first" table, and every row's last column names
 //      a recipe file that exists. Adding a public API means adding its row and recipe section in the same commit.
 //      The game template's "Already here" table is generated from AI.md rows (lib/default-layer.mjs); a key without a row is an error.
-//   2. Sizes: AI.md over 11 KB and the game template's CLAUDE.md over 7.25 KB (as new-game writes it, every placeholder filled) are errors (both are read every session, so they stay indexes and
+//   2. Sizes: AI.md over 11.5 KB and the game template's CLAUDE.md over 7.3 KB (the line about the bypass hints) (as new-game writes it, every placeholder filled) are errors (both are read every session, so they stay indexes and
 //      correctness rules; detail moves to the recipe it belongs to). A game's DESIGN.md over 8 KB and STATUS.md over 4 KB are warnings.
 //      Plus a size budget for all shipped AI docs: hand-written (recipes and the rest) and generated (API.md, api/, CODEMAP.md).
 //   3. Duplicates (warn): one sentence of 12 or more words in two hand-written docs (AI.md, recipes, READMEs, CLAUDE.md files, .claude/rules,
@@ -18,14 +18,14 @@ import { existsSync, statSync } from 'node:fs';
 import { defaultLayer } from '../lib/default-layer.mjs';
 import { render } from '../lib/scaffold.mjs';
 import { join } from 'node:path';
+import { kb } from '../lib/text.mjs';
 import { walk, read, abs, rel, P, engineApi, docLevel } from './_lib.mjs';
 import { docFiles } from './R18-doc-refs.mjs';
 
-const AI_REL = `${P.DOCS_REL}/AI.md`, AI_MAX = 11 * 1024, TPL_CLAUDE_MAX = 7.25 * 1024, DESIGN_MAX = 8 * 1024, STATUS_MAX = 4 * 1024, MIN_WORDS = 12;
+const AI_REL = `${P.DOCS_REL}/AI.md`, AI_MAX = 11.5 * 1024, TPL_CLAUDE_MAX = 7.3 * 1024, DESIGN_MAX = 8 * 1024, STATUS_MAX = 4 * 1024, MIN_WORDS = 12;
 // Size budget of what ships to an AI (set a little above the size after the 2026-11-05 cuts; growing past it is a decision, so raise it in the same change as the reason):
 // hand-written = recipes + the docs/*.md that people write (not API.md or CODEMAP.md); generated = API.md + api/ + CODEMAP.md
-const HAND_MAX = 840 * 1024, GENERATED_MAX = 340 * 1024, GENERATED_FILES = new Set(['API.md', 'CODEMAP.md']);
-const kb = n => (n / 1024).toFixed(1) + ' KB';
+const HAND_MAX = 875 * 1024,   /* 66-common-tasks.md: whole examples and existing-game sections that threedog how prints and a test runs; CONVENTIONS.md: the entry rows that let how find every capability (R64) */ GENERATED_MAX = 360 * 1024, GENERATED_FILES = new Set(['API.md', 'CODEMAP.md']);
 const PASSAGE = 30, SUMMARY_OVER = 15 * 1024;
 
 /** Word stream of a markdown text without code blocks: [{ w, line }] (inline code kept as one word, so a copied call counts) */
@@ -61,8 +61,8 @@ export function passages(files) {
 /** Problems with AI.md's entry table and size (exported for the rule tests) */
 export function entryTable(text, namespaces, recipeExists) {
   const out = [], L = text.split('\n');
-  const start = L.findIndex(l => /^## One thing, one entry point/.test(l));
-  if (start < 0) return [{ level: 'error', line: 0, msg: 'AI.md has no "## One thing, one entry point" section', fix: 'restore the entry table: | To do | Use | Recipe |' }];
+  const start = L.findIndex(l => /^## What exists: look here first/.test(l));
+  if (start < 0) return [{ level: 'error', line: 0, msg: 'AI.md has no "## What exists: look here first" section', fix: 'restore the entry table: | To do | Use | Recipe |' }];
   let end = L.findIndex((l, i) => i > start && /^## /.test(l)); if (end < 0) end = L.length;
   const rows = L.slice(start + 1, end).map((l, i) => [l, start + 2 + i]).filter(([l]) => /^\|/.test(l) && !/^\|\s*-/.test(l) && !/^\|\s*To do\s*\|/.test(l));
   const table = rows.map(r => r[0]).join('\n');

@@ -50,7 +50,7 @@ export async function run({ check }) {
   const src = f => readFileSync(join(TOOLS, f), 'utf8');
   check('tier: ?threedog-tier=high|low is read, anything else ignored; Engine takes it only headless; shot / gallery / capture pass it',
     forcedTier('?threedog-headless&threedog-tier=high') === 'high' && forcedTier('?threedog-tier=low') === 'low' && forcedTier('?threedog-tier=ultra') === null && forcedTier('') === null
-    && /\(headless && forcedTier\(\)\) \|\| \(owned \? tierBeforeRenderer\(\) : null\);[^]*this\.tier = tierFirst \|\| detectTier\(r\)/.test(readFileSync(join(ENGINE, 'core/engine/Engine.js'), 'utf8'))
+    && /\(headless && forcedTier\(\)\) \|\| \(owned \? tierBeforeRenderer\(\) : null\);[^]*this\._deviceTier = tierFirst \|\| detectTier\(r\)/.test(readFileSync(join(ENGINE, 'core/engine/Engine.js'), 'utf8'))
     && /'threedog-tier': tier/.test(src('shot.mjs')) && /'threedog-tier': 'high'/.test(src('gallery.mjs')) && /'threedog-tier': 'high'/.test(src('capture.mjs')));
   // content check's browser stand-in answered window.__THREE__ with a truthy stand-in: "Multiple instances of Three.js" on every check
   const { withDomStub } = await import('../content-check/dom-stub.mjs');
@@ -90,7 +90,7 @@ export async function run({ check }) {
     rmSync(dir, { recursive: true, force: true });
   }
   check('new-game: every layer has picture/, no style/, and main.js wires createPicture with the engine lights off',
-    Object.values(made).every(m => m.picture && m.noStyle && /createPicture\(engine\)/.test(m.main) && /lights: false/.test(m.main) && !m.main.includes('style/index')), JSON.stringify(Object.values(made).map(m => [m.picture, m.noStyle])));
+    Object.values(made).every(m => m.picture && m.noStyle && /engine\.use\(createPicture\(\)\)/.test(m.main) && /lights: false/.test(m.main) && !m.main.includes('style/index')), JSON.stringify(Object.values(made).map(m => [m.picture, m.noStyle])));
   check('new-game: picture/lights.js sizes the shadow map by engine.tier', /engine\.tier/.test(made.blank.lights));
   check('new-game: the worlds with a sky leave lights and fog to picture/', /lights: false/.test(made.world.main) && !/sky: \{/.test(made.world.main));
   check('new-game / init reject unknown flags (no --style: the art starts in the game picture/ folder)',

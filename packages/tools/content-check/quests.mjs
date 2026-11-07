@@ -10,8 +10,7 @@ export function checkQuests({ c, items, npcs, code, err, warn, checkRefs, checkP
     if (g.optional !== undefined && !part) err('quests', `${w} has optional, which only works on a part inside all: [...] (parallel goals); a plain step always has to be done`);
     checkRefs('quests', w, g.done, CONDITIONS, 'completion condition done');
     if (g.target === undefined) return;
-    if (isObj(g.target) && g.target.npc !== undefined) { if (!npcs[g.target.npc]) err('quests', `the NPC ${g.target.npc} in target of ${w} does not exist (existing NPCs: ${known(npcs)})`); }
-    else if (isObj(g.target) && g.target.nearest !== undefined) { if (!items[g.target.nearest]) err('quests', `the item ${g.target.nearest} in target of ${w} does not exist (existing items: ${known(items)})`); }
+    if (isObj(g.target) && (g.target.npc !== undefined || g.target.nearest !== undefined)) { /* an NPC / item target: its existence is the quests section's own references, checked once in content-check.mjs */ }
     else checkPos('quests', `target of ${w}`, typeof g.target === 'string' ? { place: g.target } : g.target);
   };
   for (const [id, q] of Object.entries(quests)) {

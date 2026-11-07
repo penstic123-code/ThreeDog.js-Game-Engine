@@ -99,7 +99,7 @@ export async function run({ check }) {
     check('R40 reads the code of a game in its own repo, not the engine examples', /main\.js:1 .*Math\.random/.test(hints.stdout) && !/examples\//.test(hints.stdout), hints.stdout.slice(-400));
     const m = resolveIn(ROOT, ['-w', '.threedog/zz-nested-game']);
     check('the monorepo root stays monorepo mode', m.mode === 'monorepo' && same(m.root, ROOT), JSON.stringify(m));
-    check('-w <that game> from the root says to run the command inside it', /game folder of its own: run the command inside it/.test(m.w), m.w);
+    check('-w <that game> from the root says to run the command inside it', /game folder of its own: cd .* and run the command there, without -w/.test(m.w), m.w);
   } finally {
     rmSync(repo, { recursive: true, force: true });
     rmSync(nested, { recursive: true, force: true });

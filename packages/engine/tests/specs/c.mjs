@@ -272,7 +272,7 @@ export const specs = [
         const m = (await engine.assets.model(url)).getObjectByProperty('isMesh', true).material;
         const mesh = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), mat); engine.add(mesh);
         engine.rays.addStatic(mesh); const had = engine.rays.statics.has(mesh);
-        mesh.geometry.dispose(); const gone = !engine.rays.statics.has(mesh); engine.detach(mesh);
+        mesh.geometry.dispose(); const gone = !engine.rays.statics.has(mesh); mesh.removeFromParent();
         return { purpose: m.userData.purpose, flat: m.flatShading, tr: m.transparent, op: m.opacity, side: m.side === THREE.DoubleSide,
           em: m.emissive?.getHex(), want: new THREE.Color(0x332211).getHex(), had, gone };
       });
@@ -294,8 +294,8 @@ export const specs = [
         const same = JSON.stringify(seq()) === JSON.stringify(seq());
         engine.random.setSeed(9); engine.random.next(); const saved = engine.saves.collect();
         const a = engine.random.next(); engine.saves.apply(saved); const b = engine.random.next();
-        const auto = () => { engine.random.setSeed(7); engine.weather.set('clear', { seconds: 0.01 }); engine.weather.setAuto(true); engine.step(0.1); return engine.weather.name; };
-        const w1 = auto(), w2 = auto(); engine.weather.setAuto(false);
+        const auto = () => { engine.random.setSeed(7); engine.weather.set('clear', { seconds: 0.01 }); engine.weather.auto = true; engine.step(0.1); return engine.weather.name; };
+        const w1 = auto(), w2 = auto(); engine.weather.auto = false;
         engine.freeze('xtest'); const t0 = engine.time.now('real'), c0 = engine.clock.now; engine.step(1);
         const frozen = engine.time.now('real') === t0 && engine.clock.now === c0; engine.stacks.get('freeze').release('xtest');
         engine._unhalt();

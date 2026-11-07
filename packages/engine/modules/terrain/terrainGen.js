@@ -16,9 +16,11 @@ export { DEFAULT_TERRAIN } from './terrainDefaults.js';
 const srgbToLinear = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 const hexToLinear = h => [((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255].map(srgbToLinear);
 
-// grid and cell keys of the edit overlay (terrainEdit.js reads them back)
-const key = (i, j) => (i + 50000) * 100000 + (j + 50000);
-export const unkey = k => [Math.floor(k / 100000) - 50000, (k % 100000) - 50000];
+// grid and cell keys of the edit overlay, the height cache and the shape cache (terrainEdit.js reads them back). Inside +-2^25 cells a key is
+// one exact integer (< 2^52, so no two cells share one); farther out it is the string 'i,j'. A string never equals a number, so the two ranges cannot clash either.
+const KEY_HALF = 2 ** 25, KEY_SPAN = 2 ** 26;
+const key = (i, j) => (i >= -KEY_HALF && i < KEY_HALF && j >= -KEY_HALF && j < KEY_HALF) ? (i + KEY_HALF) * KEY_SPAN + (j + KEY_HALF) : i + ',' + j;
+export const unkey = k => typeof k === 'string' ? k.split(',').map(Number) : [Math.floor(k / KEY_SPAN) - KEY_HALF, (k % KEY_SPAN) - KEY_HALF];
 
 export function createTerrain(userCfg = {}) {
   const cfg = { ...DEFAULT_TERRAIN, ...userCfg, colors: { ...DEFAULT_TERRAIN.colors, ...(userCfg.colors || {}) }, boundsPad: { ...DEFAULT_TERRAIN.boundsPad, ...(userCfg.boundsPad || {}) } };

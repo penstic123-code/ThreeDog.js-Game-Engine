@@ -1,7 +1,6 @@
 # Utility functions (imported from threedog)
 
 - `PICTURE_SLOTS: Readonly<Record<PictureSlot, { readonly what: str…` — The picture slots: what each one is and which describe('picture').picture.writers names it covers (a name ending in '.' covers everything under it)
-- `weather(opts?: WeatherOptions) → [ModuleDef<Weather>, ModuleDef<im…` — Weather: two modules for one engine.use: the state (engine.weather, type 'world') and its picture (engine.weatherDraw, type 'picture'; sky optional)
 - `presets: { weather, calendar, player, interactions, bindings, camera }` — Opt-in gameplay presets: named option objects a game picks on purpose (the engine never applies one itself). Each only bundles options the game could write; spread and override: weather({ ...presets.weather.temperate, autoPool: ['clear', 'rain'] })
 - `world(opts?: { cellSize?, radius?, farEvery?, farMaxPerTick?, buildPerFrame? }) → import("../../../core").ModuleDef…` — World data module: installed as engine.world. Put things here that must be saved, survive level changes and keep changing while far away; models are only built while nearby
 - `net(opts?: { role, transport, sync?, syncEvery?, keepAlive?, rate?, … }) → import("../../../core").ModuleDef…` — (experimental) Optional co-op multiplayer: one host owns the state, clients mirror it and ask for changes through ops. Installed as engine.net. Host: peers' requests run as `ops.run(name, args, { source: 'net', actor })` only for ops defined with net: 'peer', with the op's args shape checked, the optional owner check, and a per-peer rate limit; the result comes back after the state diff that contains it. State: world records, containers, vars and the other save parts are sent as a snapshot on join and as diffs every syncEvery steps. Client: ops.run of a peer op returns { ok: true, pending: true, seq } (watch state or the net:result event, not the return value); its own avatar moves locally and is sent to the host (clamped to maxSpeed); other avatars glide between updates.
@@ -58,6 +57,9 @@
   - `behind: boolean`
 
 ## Other exported classes and functions
+- `pixelGrid(options: { camera, pixelsPerMeter }) → PixelGrid` — The art pixel grid of an orthographic camera. Pure math.
+- `pixelSprite(options: PixelSpriteOptions) → Mesh` — A plain THREE.Mesh: a vertical plane that turns around Y with the camera's forward direction, stretched so one texel is one art pixel. Works as a character's `model`. mesh.position stays exact; only what is drawn is rounded.
+- `spriteFrame(mesh: Mesh, frame: number, flip?: boolean) → Mesh` — Show a sheet frame (left to right, top to bottom); flip mirrors it, left out it stays as it was
 - `wind(position: Node, origin: Node, amplitude: Node | number) → Node` — (experimental) GLSL vec3 threedogWind(vec3 position, vec3 origin, float amplitude): object-space sway offset, higher vertices sway more. position: object space before the instance transform (positionGeometry); origin: the object's world origin (objectOrigin()); amplitude: metres per metre of height. Reads uTime, uWind, uWindFreq.
 - `cloudShadow(worldPos: Node) → Node` — (experimental) GLSL float threedogCloudShadow(vec3 worldPos): light factor 0-1 under the drifting clouds (1 = no shadow). Reads uTime, uWeatherCloud, uCloudShadow*, uCloudShadowSpeed.
 - `season(color: Node, kind: Node | 0 | 1) → Node` — (experimental) GLSL vec3 threedogSeason(vec3 color, int kind): kind 0 foliage, 1 ground; tints by uFoliageTint / uGroundTint (mix mode when uFoliageMix / uGroundMix > 0). A vec4 color is read as its rgb.

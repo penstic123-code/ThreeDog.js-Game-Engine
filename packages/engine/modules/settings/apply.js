@@ -1,7 +1,7 @@
 import { reportError } from '../../core/base/errors.js';
 import { codedError } from '../../core/base/errorHints.js';
-// Apply one setting to the engine (helper of Settings.js): the built-in keys (pixel ratio, shadows, post effects, view distance, density, audio buses) and
-// the game's own settings (define). `s` is the Settings instance.
+// Apply one setting to the engine (helper of Settings.js): the built-in keys (pixel ratio, shadows, post effects, quality tier, audio buses) and the rows of modules and of
+// the game (define). `s` is the Settings instance.
 
 /** The shared values each built-in row limits. A game's own row names its values with define(key, def, { limits }); both go through limit() */
 const BUILTIN_LIMITS = { shadows: ['shadows.enabled'], bloom: ['post.bloom.enabled'], ao: ['post.ao.enabled'] };
@@ -14,10 +14,18 @@ const BUILTIN_LIMITS = { shadows: ['shadows.enabled'], bloom: ['post.bloom.enabl
  * @param {any} e @param {string} name the shared point ('shadows.enabled') @param {boolean | number} val
  */
 function limit(e, name, val) {
-  if (!e.stacks.has(name)) return;   // a game without this effect has nothing to switch
-  const p = e.stacks.get(name);
-  if (val === true || val === 1) p.release('settings');
+  const allow = val === true || val === 1;
+  // an effect not added yet (settings install before the game's boot code) has no point: the limit waits on one made now, and add() starts under it. Allowing has nothing to lift
+  if (!e.stacks.has(name) && (allow || !name.startsWith('post.'))) return;
+  const p = e.stacks.has(name) ? e.stacks.get(name) : e.post.switchPoint(name);
+  if (allow) p.release('settings');
   else p.take({ owner: 'settings', layer: 'settings', ...(p.kind === 'number' ? { mul: val === false ? 0 : val } : { set: val }) });
+}
+/** @internal a row leaves: no control is left to lift its limits, so it gives its shared values back @param {any} e @param {string[]} names */
+export function releaseRow(e, names) { for (const n of names) if (e.stacks.has(n)) e.stacks.get(n).release('settings'); }
+/** @internal the module leaves: so does every row */
+export function releaseLimits(s) {
+  for (const names of [...Object.values(BUILTIN_LIMITS), ['tier'], ...[...s.custom.values()].map(c => c.limits ?? [])]) releaseRow(s.engine, names);
 }
 /** @internal the row's value fits the points it limits: a switch row (boolean) limits switches or numbers, a number row (a factor) only numbers */
 export function checkLimits(s, key, def, names) {
@@ -43,10 +51,9 @@ export function applySetting(s, key, val) {
     if (limits) for (const n of limits) limit(e, n, typeof val === 'number' ? val : !!val);
     switch (key) {
       case 'pixelRatio': e.setPixelRatio(val); break;
-      case 'antialias': e.post.setAntialias(val); break;
+      case 'antialias': e.post.nextAntialias(val); break;
+      case 'tier': if (val) e.mod('tier', { owner: 'settings', layer: 'settings', set: val }); else e.stacks.get('tier').release('settings'); break;
       case 'adaptive': if (e.adaptive) { e.adaptive.on = val; if (!val && e.adaptive.max) e.setPixelRatio(e.adaptive.max); } break;
-      case 'viewChunks': { const H = s.chunkHost(); if (H?.setViewChunks && H.viewChunks !== val) H.setViewChunks(val); break; }
-      case 'density': { const H = s.chunkHost(); if (H?.setDensity && H.density !== val) H.setDensity(val); break; }
       default:
         // a saved slider for a bus this build no longer has is skipped, not an error
         if (key.startsWith('vol.')) { if (key.slice(4) in e.audio.levels) e.audio.setVolume(key.slice(4), val); }

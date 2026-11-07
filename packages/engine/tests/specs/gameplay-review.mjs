@@ -223,7 +223,7 @@ export const specs = [
         out.underDialogue = run.over;
         line.remove(); await settle();
         press(); await settle();
-        out.onTop = run.over?.skipped;
+        out.onTop = run.over?.ending === 'skipped';
 
         run = play(); E.step(1 / 60);
         const f = E.freeze('review');
@@ -231,13 +231,13 @@ export const specs = [
         out.frozen = run.over;
         f.remove(); await settle();
         press(); await settle();
-        out.thawed = run.over?.skipped;
+        out.thawed = run.over?.ending === 'skipped';
 
         run = { over: null };
         E.timeline.play([{ say: { speaker: 'A', text: 'its own line' } }, { wait: 60 }], { actors: [] }).then(v => { run.over = v; });
         await settle();
         press(); await settle();
-        out.ownLine = run.over?.skipped;
+        out.ownLine = run.over?.ending === 'skipped';
         return out;
       });
       check('a dialogue above it keeps the key', r.underDialogue === null, J(r));
@@ -286,6 +286,28 @@ export const specs = [
         return { had, hf: L.heightfield, ready: L.ready, root: L.root };
       });
       check('heightfield goes with the level, and nothing counts as loading', r.had && r.hf === null && r.ready === true && r.root === null, J(r));
+    },
+  },
+  {
+    name: '[guard] one quantity rule for every container call',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const I = engine.inventory, out = {}, code = fn => { try { fn(); return 'no error'; } catch (err) { return err.code ?? String(err.message); } };
+        I.define('qty-apple', { name: 'Apple', stack: 99 });
+        const a = I.container('qty-a', { capacity: 4 }), b = I.container('qty-b', { capacity: 4 });
+        engine.ops.allow(() => {
+          a.add('qty-apple', 3);
+          out.bad = [-2, 0, 1.5, NaN, 2 ** 60].map(n => code(() => a.remove('qty-apple', n)));
+          out.badAdd = code(() => a.add('qty-apple', -1));
+          out.badTransfer = code(() => I.transfer(a, b, 'qty-apple', -1));
+          out.badTrade = code(() => a.trade('qty-apple', 'qty-apple', { takeN: -1 }));
+          out.badSetData = code(() => a.setData('qty-apple', { x: 1 }, 0));
+        });
+        out.count = a.count('qty-apple');
+        return out;
+      });
+      check('remove / add / transfer / trade / setData refuse -2, 0, 1.5, NaN, 2^60 before writing; the stock stays 3', r.bad.every(c => c === 'container') && r.badAdd === 'container' && r.badTransfer === 'container' && r.badTrade === 'container' && r.badSetData === 'container' && r.count === 3, JSON.stringify(r));
     },
   },
 ];

@@ -8,7 +8,8 @@
 //   file sizes), GAMEMAP up to date, content validation and types. The engine's own checks run in the monorepo.
 //   npm run check -- --rule R4,R8   run only these rules (R04 / r4 work too, and so does --rule R4 --rule R8; the generator checks below are skipped; an id that names no rule
 //                                   is an error that lists them all)
-//   npm run check                   errors in full, warnings as one count line per rule
+//   npm run check                   errors in full, warnings as one count line per rule; the bypass hints (R40) list their first 5 and the last line
+//                                   says "check passed, N bypasses" (--rule R40 lists them all)
 //   npm run check -- --verbose      list the warnings (the first 15 per rule) and extra rule info (for example which checkOptions R6 skipped)
 //   npm run check -- --all          list every warning
 //   npm run check -- --json         the same run as one JSON result on stdout (lib/result.mjs: { ok, summary, items }); the text goes to stderr
@@ -52,8 +53,8 @@ const t0 = Date.now(), stage = s => opt.json || console.log(`… ${s} (${((Date.
 // repo-wide wherever it was started. They start before the rules: an AI runs check constantly, and rules-then-the-rest cost the sum of both
 const w = scope ? ['-w', scope.rel] : [];
 const NAMES = { 'gentypes.mjs': 'generated declarations', 'codemap.mjs': 'code map', 'gamemap.mjs': 'GAMEMAP', 'content-check.mjs': 'content',
-  'types.mjs': 'type check', 'apidoc.mjs': 'API docs' };
-const SUB = onlyRules ? [] : MONO && !scope ? [['gentypes.mjs', '--check'], ['codemap.mjs', '--check'], ['gamemap.mjs', '--check'], ['content-check.mjs'], ['types.mjs'], ['apidoc.mjs', '--check']]
+  'types.mjs': 'type check', 'apidoc.mjs': 'API docs', 'metadata.mjs': 'metadata' };
+const SUB = onlyRules ? [] : MONO && !scope ? [['gentypes.mjs', '--check'], ['codemap.mjs', '--check'], ['gamemap.mjs', '--check'], ['content-check.mjs'], ['types.mjs'], ['apidoc.mjs', '--check'], ['metadata.mjs', '--check']]
   : [['gamemap.mjs', '--check', ...w], ['content-check.mjs', ...w], ['types.mjs', ...w, ...(scope && !opt.json ? ['--tally-json'] : [])]];
 const JSON_SUB = new Set(['types.mjs', 'content-check.mjs']);   // these two print the result shape themselves
 const runSub = ([file, ...args]) => new Promise(res => {
@@ -66,7 +67,8 @@ const runSub = ([file, ...args]) => new Promise(res => {
 });
 if (SUB.length) stage(`running beside the rules: ${SUB.map(([f]) => NAMES[f]).join(', ')}`);
 const subs = Promise.all(SUB.map(runSub));
-const ruleErrors = await runRules({ only: onlyRules, all: !!opt.all, verbose: !!opt.verbose, game: !MONO || !!scope, scope, items: jsonItems });
+const { errors: ruleErrors, bypasses } = await runRules({ only: onlyRules, all: !!opt.all, verbose: !!opt.verbose, game: !MONO || !!scope, scope, items: jsonItems });
+const tail = bypasses ? `, ${bypasses} bypass${bypasses > 1 ? 'es' : ''}` : '';   // R40 hints that stay open: "passed" does not mean the engine systems were used
 let bad = ruleErrors;
 stage('rules finished');
 const mine = await subs;
@@ -87,7 +89,7 @@ mine.forEach((r, i) => {
 });
 if (opt.json) process.exit(bad ? 1 : 0);   // the result is written at exit
 if (scope) {
-  console.log(`\ncheck ${scope.rel}: ${bad ? 'FAILED' : 'passed'} (only this workspace's problems count; run plain npm run check at the root before committing engine changes)`);
+  console.log(`\ncheck ${scope.rel}: ${bad ? 'FAILED' : 'passed'}${tail} (only this workspace's problems count; run plain npm run check at the root before committing engine changes)`);
   for (const line of scope.summary()) console.log(line);
-} else console.log(bad ? `\n✗ check FAILED: ${failed.join(', ')}` : '\n✓ check passed');
+} else console.log(bad ? `\n✗ check FAILED: ${failed.join(', ')}` : `\n✓ check passed${tail}`);
 process.exit(bad ? 1 : 0);

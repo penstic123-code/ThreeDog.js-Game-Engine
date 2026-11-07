@@ -55,11 +55,11 @@ export const specs = [
         B.renderer.toneMapping = THREE.NeutralToneMapping;
         out.tone = [r0, B.describe().render.toneMapping.writer, B.describe().owned?.toneMapping?.writer, '_renderBase' in B && !('tone' in B._renderBase)];
         B.dispose();
-        // camera: the class carries the ortho behavior (no method patched on the instance), and describe says which projection
-        const cam = engine.camera;
-        cam.orthoSize = 30; cam.isOrthographicCamera = true; cam.isPerspectiveCamera = false; cam.updateProjectionMatrix();
-        out.cam = [Object.hasOwn(cam, 'updateProjectionMatrix'), cam.isEngineCamera, engine.describe().camera.projection, engine.describe().camera.orthoSize, cam.top];
-        cam.orthoSize = 0; cam.isOrthographicCamera = false; cam.isPerspectiveCamera = true; cam.updateProjectionMatrix();
+        // camera: an orthographic view is a real THREE.OrthographicCamera (the default camera is a plain PerspectiveCamera with nothing to switch), and describe says which projection
+        const cam = engine.camera, real = new THREE.OrthographicCamera(-15, 15, 15, -15, 0.1, 100);
+        engine.camera = real;
+        out.cam = [cam.constructor === THREE.PerspectiveCamera, 'orthoSize' in cam, engine.describe().camera.projection, engine.describe().camera.orthoSize, real.top];
+        engine.camera = cam;
         out.camBack = engine.describe().camera.projection;
         return out;
       });
@@ -67,7 +67,7 @@ export const specs = [
       check('enabled back on: renderer switch on, lights unchanged', r.on[0] === true && r.on[1] === false && r.on[2] === true, JSON.stringify(r.on));
       check('settings off, game sets castShadow in between, settings on: final castShadow is what the game set', r.menuOff[0] === false && r.menuOff[1] === false && r.menuOff[2] === true && r.menuOn[0] === true && r.menuOn[1] === false && r.menuOn[2] === true, JSON.stringify([r.menuOff, r.menuOn]));
       check("toneMapping: owned record 'engine' at start; a direct write -> render.toneMapping.writer 'game', owned writer 'three (engine yielded)'; no remembered creation value", r.tone[0] === 'engine' && r.tone[1] === 'game' && r.tone[2] === 'three (engine yielded)' && r.tone[3], JSON.stringify(r.tone));
-      check('ortho camera: EngineCamera class method (not an instance patch), describe().camera.projection orthographic + orthoSize', !r.cam[0] && r.cam[1] === true && r.cam[2] === 'orthographic' && r.cam[3] === 30 && Math.abs(r.cam[4] - 15) < 1e-9 && r.camBack === 'perspective', JSON.stringify(r.cam));
+      check('ortho camera: a real OrthographicCamera, the default camera stays a plain PerspectiveCamera, describe().camera.projection orthographic + orthoSize', r.cam[0] && !r.cam[1] && r.cam[2] === 'orthographic' && r.cam[3] === 30 && Math.abs(r.cam[4] - 15) < 1e-9 && r.camBack === 'perspective', JSON.stringify(r.cam));
     },
   },
 ];

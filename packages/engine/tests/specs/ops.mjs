@@ -100,6 +100,7 @@ export const specs = [
   {
     name: 'ops-core perf: 10,000 run() calls (dev checks on) stay in the low milliseconds',
     url: '/tests/city/index.html',
+    serial: true,   // judges by a measured time (R56)
     async run({ check, ev }) {
       const r = await ev(() => {
         let n = 0;
@@ -358,6 +359,34 @@ export const specs = [
       check('catalog and explain say which ops are atomic', r.catalog.includes('test.ok:true') && r.catalog.includes('test.plain:false') && r.exAtomic === true && r.exText.includes('atomic'), r.catalog + ' ' + r.exText);
       check('trace: failed op noted with its code', r.notes.includes('broken'), JSON.stringify(r.notes));
       check('trace focus: clear sight lines recorded only for the focused object; off = nothing', r.unfocused === 0 && r.focused.length === 1 && r.focused[0] === 'g1' && r.offLen === 0, JSON.stringify([r.unfocused, r.focused, r.offLen]));
+    },
+  },
+  {
+    name: 'ops-context: ctx.session names the playthrough, for can, run, after and a nested op; a quick load stays in it, a refused one moves nothing',
+    url: '/tests/threads/',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const E = threedogThreads.createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: 'ops-context' }), seen = [];
+        await E.start(); E.haltLoop();
+        const note = where => (_e, _a, ...rest) => { seen.push(`${where}${rest.at(-1).session}`); return true; };
+        E.ops.define('ctx.inner', { can: note('i'), run: note('n') });
+        E.ops.define('ctx.outer', { can: note('c'), run: (e, a, ctx) => { note('r')(e, a, ctx); e.ops.run('ctx.inner'); }, after: note('a') });
+        const first = E.session.id;
+        E.ops.run('ctx.outer');
+        E.saves.save('ops-context');
+        await E.saves.load('ops-context');
+        const quick = E.session.id;
+        await E.session.newGame();
+        const fresh = E.session.id;
+        await E.session.load('ops-context');
+        const loaded = E.session.id, missing = await E.session.load('ops-context-none');
+        E.ops.run('ctx.outer');
+        const out = { first, quick, fresh, loaded, missing, end: E.session.id, seen: seen.join() };
+        E.saves.remove('ops-context'); E.dispose();
+        return out;
+      });
+      check('a playthrough starts at 1; a quick load stays, newGame and session.load each move it on, a refused load does not', r.first === 1 && r.quick === 1 && r.fresh === 2 && r.loaded === 3 && r.missing === false && r.end === 3, JSON.stringify(r));
+      check('can, run, a nested op and after all read the same session', r.seen === 'c1,r1,i1,n1,a1,c3,r3,i3,n3,a3', r.seen);
     },
   },
 ];

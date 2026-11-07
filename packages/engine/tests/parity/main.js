@@ -44,7 +44,9 @@ function canvasPixels(c) {
 /** The plain renderer with the baseline a careful three.js setup would use, set by hand @param {HTMLCanvasElement} canvas @returns {Promise<any>} */
 async function plainRenderer(canvas) {
   const R = engine.renderer;
-  const r = GPU ? new TG.WebGPURenderer({ canvas, antialias: false, forceWebGL: engine.describe().renderer.backend === 'webgl2' }) : new THREE.WebGLRenderer({ canvas, antialias: false });
+  // the engine turns MSAA on by tier: the plain side asks the same, or every edge differs on a machine in a high tier
+  const antialias = engine.post.antialias;
+  const r = GPU ? new TG.WebGPURenderer({ canvas, antialias, forceWebGL: engine.describe().renderer.backend === 'webgl2' }) : new THREE.WebGLRenderer({ canvas, antialias });
   if (GPU) await r.init();
   r.setPixelRatio(1); r.setSize(W, H, false);
   r.outputColorSpace = THREE.SRGBColorSpace;

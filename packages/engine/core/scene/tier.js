@@ -11,6 +11,16 @@ export function forcedTier(search = typeof location === 'undefined' ? '' : locat
   return TIERS.includes(t) ? t : null;
 }
 
+/** The name under engine.saves.storageKey of a player's MSAA choice */
+export const MSAA_KEY = 'msaa';
+/**
+ * The player's MSAA choice for this game, or null. Read in createEngine before the renderer, and so before saves exist: the key is storageKey(MSAA_KEY) spelled from saveKey.
+ * @param {string} saveKey @returns {boolean | null}
+ */
+export function storedMsaa(saveKey) {
+  try { const v = localStorage.getItem(`${saveKey}-${MSAA_KEY}`); return v == null ? null : v === '1'; } catch { return null; }
+}
+
 /**
  * Default render scale. High tier: the display scale up to 1.5. Low tier: at least 0.75 x display scale (1.5 on a 2x screen; a fixed 1 there
  * would be an upscaled blurry picture), never above 1.5 or the display scale.

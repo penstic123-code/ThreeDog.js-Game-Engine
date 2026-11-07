@@ -25,10 +25,13 @@
 // While frozen (engine.freeze / flow 'paused') wait, tweens, camera and paths do not advance; they resume after unfreezing.
 //   On skip all running tweens jump to their end and the remaining steps finish instantly (do steps still run, so state matches a normal playthrough).
 // Camera takeover: a camera step takes the camera (engine.takeCamera, see camera/common.js) and releases its claim and restores the view after the whole run; the camera
-// module then resumes.
+// module then resumes. While a newer holder has the camera, or something above the cutscene has a path's character, the step keeps its time and writes nothing (shots.js).
 //   To hand the camera back midway: { camera: { release: true } }
 // General tween (usable anywhere in a game): await engine.timeline.tween(mesh, { 'position.y': 2, 'material.opacity': 0 }, { duration: 1, ease: 'outCubic' })
-// Events: timeline:start, timeline:end { skipped }
+// Ending: a run has one, set once: 'finished', 'skipped', 'dropped' (its state is gone: a load, a new game, the engine) or 'failed' (a step threw). play() resolves with
+// { ending, error? }, timeline:end carries the same, describe counts them. Dropped and failed run nothing more and give the screen back; a run that ends in a step of its own
+// choosing keeps the fade it asked for. What a run holds goes back in the one finally of play().
+// Events: timeline:start, timeline:end { id, ending, error? }
 // Scenario param cutscene (engine.applyState / URL ?cutscene=skip): 'skip' skips the playing cutscene and all later ones, 'keep' restores normal behavior.
 import { Tweener } from './Tween.js';
 import { fadeScreen, uiFocus } from '../../ui/UI.js';
@@ -41,6 +44,7 @@ import { warnOnce } from '../../core/base/validate.js';
 const TWEEN_KEYS = ['duration', 'ease'];
 import { coded, codedError } from '../../core/base/errorHints.js';
 import { reportError } from '../../core/base/errors.js';
+import { stateTurn } from '../../core/saves/stateReplace.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { Ease } from '../../types/common' */
 /** @import { TimelineStep, TimelinePlayOptions, TimelineOptions, TweenTo, TweenPromise } from '../../types/gameplay' */
@@ -72,6 +76,7 @@ export class Timeline {
     /** @internal */ this._tweener = new Tweener();
     /** @internal */ this.runs = new Set();
     /** @internal numbers the runs of this engine (timeline:start / timeline:end id) */ this._runSeq = 0;
+    /** @internal how runs ended, and the last failure: describe */ this._endings = { finished: 0, skipped: 0, dropped: 0, failed: 0 }; this._failure = null;
     /** Skip every cutscene immediately (set by scenario param cutscene=skip) @type {boolean} @experimental */
     this.skipAll = false;
     ctx.track(engine.input.action('skip', { context: 'cutscene', label: 'timeline.skipAction', optional: true, owner: 'timeline' }));   // cancel skips anyway
@@ -87,7 +92,7 @@ export class Timeline {
 
   /**
    * General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, { duration: 1, ease: 'outCubic' }); duration in seconds (default 1), ease default 'inOutCubic'; tween(mesh, to, 1) throws in dev.
-   * Returns a Promise (with finish() / remove())
+   * Returns a Promise (with finish() / remove()); a write that throws ends the tween and rejects it
    * @param {any} target
    * @param {TweenTo} to
    * @param {{ duration?: number, ease?: Ease }} [opts]
@@ -99,17 +104,17 @@ export class Timeline {
   }
 
   /**
-   * Play a timeline; resolves with { skipped } when it ends
+   * Play a timeline; resolves with { ending, error? } when it ends: 'finished', 'skipped', 'dropped' (a load, a new game or dispose took its state) or 'failed' (a step threw; error says what)
    * @param {TimelineStep | TimelineStep[]} steps
    * @param {TimelinePlayOptions} [opts]
-   * @returns {Promise<{ skipped: boolean }>}
+   * @returns {Promise<{ ending: 'finished' | 'skipped' | 'dropped' | 'failed', error?: string }>}
    */
   async play(steps, opts = {}) {
     readParams('timeline.play()', keysSchema(['skippable', 'letterbox', 'actors']), opts);
     const { skippable = true, letterbox = false } = opts, e = this.engine;
     const actors = opts.actors ?? (e.player ? [e.player] : []);
     if (!Array.isArray(actors)) throw codedError('module-params', `timeline.play(steps, { actors }): actors is a list of characters (or ids) the cutscene drives, e.g. [engine.player, guard]; [] drives nobody. Got ${typeof actors}`);
-    const run = { id: ++this._runSeq, skippable, letterbox, skipping: false, cancels: new Set(), cam: null, actors: new Set(), ctx: null, line: false };
+    const run = { id: ++this._runSeq, skippable, letterbox, ending: null, error: null, cancels: new Set(), cam: null, actors: new Set(), ctx: null, line: false, faded: false, duringLoad: e.saves.replacing };
     // a bad or remote actor throws: the ones already taken go back, or the player stays in the cutscene with no run left to end it
     try { for (const a of actors) this._take(run, a); } catch (err) { this._give(run); throw err; }
     // enter the UI focus stack: skippable cutscenes skip on Esc, unskippable ones swallow Esc (so it does not open the settings menu)
@@ -118,19 +123,27 @@ export class Timeline {
     this._refreshUI();
     e.events.emit('timeline:start', { id: run.id });
     if (this.skipAll && skippable) this.skip(run);
+    const turn = stateTurn(e);   // no load could continue a run from half way: an autosave waits for its end
     try {
       await this._step(steps, run);
+      run.ending ??= 'finished';
     } catch (err) {
       reportError(this.engine, err, 'timeline step', { soft: true });   // a step that threw ends this run; the game carries on
+      run.error = err?.message ?? String(err);
+      this._stop(run, 'failed');   // a parallel branch beside the throw is still waiting
     } finally {
+      if (run.faded && gone(run) && ![...this.runs].some(r => r !== run && r.faded)) fadeScreen(e, 0, { seconds: 0 });   // the steps that would have faded back in will not run
+      turn.remove();
       releaseCamera(this, run);
       run.focus.remove();
       this._give(run);
       this.runs.delete(run);
       this._refreshUI();
-      e.events.emit('timeline:end', { id: run.id, skipped: run.skipping });
+      this._endings[run.ending]++;
+      if (run.error) this._failure = run.error;
+      e.events.emit('timeline:end', { id: run.id, ...answer(run) });
     }
-    return { skipped: run.skipping };
+    return answer(run);
   }
 
   /**
@@ -139,12 +152,20 @@ export class Timeline {
    * @returns {void}
    */
   skip(run) {
-    for (const r of run ? [run] : [...this.runs]) {
-      if (r.skipping) continue;
-      r.skipping = true;
-      this._tweener.finishAll(r);
-      for (const c of [...r.cancels]) c();
-    }
+    for (const r of run ? [run] : [...this.runs]) if (!r.ending) this._stop(r, 'skipped');
+  }
+
+  /** @internal The one way a run stops early. The ending is set once; only a skip can still turn into a harder one, because it goes on running the steps left */
+  _stop(r, ending) {
+    if (r.ending && r.ending !== 'skipped') return;
+    r.ending = ending;
+    this._tweener.finishAll(r);
+    for (const c of [...r.cancels]) c();
+  }
+
+  /** @internal The state a run belongs to is gone: it ends without its remaining steps, whose effects would land in what replaced it. keep: a run a load started stays */
+  _drop(keep = () => false) {
+    for (const r of [...this.runs]) if (!keep(r)) this._stop(r, 'dropped');
   }
 
   /**
@@ -190,7 +211,7 @@ export class Timeline {
   // ---------- Steps ----------
   /** @internal */
   async _step(s, run) {
-    if (s == null) return;
+    if (s == null || gone(run)) return;
     if (Array.isArray(s)) { for (const x of s) await this._step(x, run); return; }
     if (typeof s === 'function') { await s(this.engine, run); return; }
     checkStep(s);
@@ -206,10 +227,11 @@ export class Timeline {
     if ('fade' in s) { await this._fade(s.fade, s.to ?? 1, run); return; }
   }
 
-  /** Full-screen fade: jumps to the target when skipped @internal */
+  /** Full-screen fade: jumps to the target when skipped. faded: the run holds the screen, so an ending that drops the later steps gives it back @internal */
   async _fade(seconds, to, run) {
     const now = () => fadeScreen(this.engine, to, { seconds: 0 });
-    if (run.skipping) return now();
+    run.faded = to > 0;
+    if (run.ending) return now();
     run.cancels.add(now);
     await fadeScreen(this.engine, to, { seconds });
     run.cancels.delete(now);
@@ -221,7 +243,7 @@ export class Timeline {
    * @internal
    */
   _wait(run, seconds) {
-    if (run.skipping || !(seconds > 0)) return Promise.resolve();
+    if (run.ending || !(seconds > 0)) return Promise.resolve();
     return new Promise(res => {
       const done = () => { h.remove(); run.cancels.delete(done); res(); };
       const h = this.engine.clock.after(seconds, done, { channel: 'real' });
@@ -229,13 +251,13 @@ export class Timeline {
     });
   }
   /** @internal */
-  _timed(run, o) { return this._tweener.run({ ...o, duration: run.skipping ? 0 : o.duration, group: run }); }
+  _timed(run, o) { return this._tweener.run({ ...o, duration: run.ending ? 0 : o.duration, group: run }); }
   /** @internal */
-  _tween(run, target, to, d, ease) { return this._tweener.tween(target, to, run.skipping ? 0 : d, ease, run); }
+  _tween(run, target, to, d, ease) { return this._tweener.tween(target, to, run.ending ? 0 : d, ease, run); }
 
   /** @internal */
   _waitFor(name, timeout, run) {
-    if (run.skipping) return Promise.resolve();
+    if (run.ending) return Promise.resolve();
     return new Promise(res => {
       let timer = null, over = false;
       const done = () => { if (over) return; over = true; sub.remove(); timer?.remove(); run.cancels.delete(done); res(); };
@@ -249,7 +271,7 @@ export class Timeline {
   _say(s, run) {
     const e = this.engine, d = e.dialogue;
     if (!d) { warnOnce(coded('module-needs', '[timeline] the say step was skipped: it needs dialogue(); add it to engine.use(...)')); return Promise.resolve(); }
-    if (run.skipping) return Promise.resolve();
+    if (run.ending) return Promise.resolve();
     // the line is on top of the focus stack: Esc still skips the whole cutscene
     const said = d.say(s.nodes || s.text, { speaker: s.speaker, node: s.node || 'start', channel: s.channel, at: s.at, seconds: s.seconds, onCancel: run.skippable ? () => this.skip(run) : null });
     run.line = s.channel !== 'bubble';   // a main line sits above the run in the focus stack; a bubble takes no focus
@@ -264,13 +286,18 @@ export class Timeline {
   // ---------- Letterbox ----------
   /** @internal */
   _refreshUI() {
-    const runs = [...this.runs], on = runs.some(r => r.letterbox), canSkip = runs.some(r => r.letterbox && r.skippable && !r.skipping);
+    const runs = [...this.runs], on = runs.some(r => r.letterbox), canSkip = runs.some(r => r.letterbox && r.skippable && !r.ending);
     this.top.classList.toggle('is-on', on); this.bottom.classList.toggle('is-on', on);
     this.skipBtn.textContent = this.engine.t('timeline.skip');
     this.skipBtn.classList.toggle('is-on', canSkip);
     this.skipBtn.hidden = !canSkip;
   }
 }
+
+/** The run's state is gone, or it broke: the steps left must not run. A skip does run them, so what it leaves matches a playthrough */
+const gone = run => run.ending === 'dropped' || run.ending === 'failed';
+/** What a run says when it ends, to play() and timeline:end alike */
+const answer = run => ({ ending: run.ending, ...(run.error && { error: run.error }) });
 
 const STRINGS = {
   'zh-CN': { 'module.timeline': '时间轴', 'timeline.skip': '{key:cancel} 跳过', 'timeline.skipAction': '跳过过场' },
@@ -290,14 +317,17 @@ export function timeline(opts = {}) {
   readParams('timeline', TIMELINE_PARAMS, opts);
   let t = null;
   return {
-    name: 'timeline', type: 'rules', params: TIMELINE_PARAMS, options: opts, label: 'Timeline', stage: 'control', before: ['cameraRig'], optional: ['dialogue'],   // before the camera, so the takeover applies on the same frame
+    name: 'timeline', skipKind: 'none', type: 'rules', params: TIMELINE_PARAMS, options: opts, label: 'Timeline', stage: 'control', before: ['cameraRig'], optional: ['dialogue'],   // before the camera, so the takeover applies on the same frame
     install(e, ctx) {
       e.i18n.add(STRINGS); t = new Timeline(e, ctx);
       // a running cutscene ends with its playthrough (session waits one macrotask for its steps to settle)
-      ctx.track(e.events.on('session:end', () => { if (t.runs.size) t.skip(); }));
+      ctx.track(e.events.on('session:end', () => t._drop()));
       return t;
     },
     frame(dt) { t.frame(dt); },
+    afterLoad() { t._drop(r => r.duringLoad); },
+    // unloaded mid-cutscene: every run ends through its finally (camera, focus, actors go back); nothing else would, the frame hook is gone
+    dispose() { t._drop(); },
     // scenario param cutscene: 'skip' | 'keep'
     stateKeys: ['cutscene'],
     applyState(e, p) {
@@ -307,7 +337,9 @@ export function timeline(opts = {}) {
     },
     describe(e, ctx) {
       const runs = [...t.runs];
-      if (runs.length) ctx.out.cutscene = { count: runs.length, skippable: runs.some(r => r.skippable && !r.skipping), letterbox: runs.some(r => r.letterbox), actors: [...t._held.keys()] };
+      if (runs.length || t._failure) ctx.out.cutscene = { count: runs.length, skippable: runs.some(r => r.skippable && !r.ending), letterbox: runs.some(r => r.letterbox), actors: [...t._held.keys()], endings: { ...t._endings }, ...(t._failure && { failure: t._failure }) };
     },
   };
 }
+
+export const handRolled = [{ kind: 'tween', seen: 'a tween of its own', use: 'await engine.timeline.tween(target, to, { duration, ease }): on game time, stops with pause (recipe 07)', quiet: /\b(engine|e|eng|ctx)\.timeline\b/, code: /\b(?:elapsed|time|timer|age|t)\s*\/\s*(?:\w+\.)?(?:dur|duration)\b/i, orRaw: /\bfrom\s+['"](?:gsap|@tweenjs\/tween\.js|tween\.js|animejs)['"]/ }];

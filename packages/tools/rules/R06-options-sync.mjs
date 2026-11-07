@@ -22,8 +22,13 @@
 //    (chunks → viewChunks) or range (a distance → radius) → error.
 //    Rest pattern: constructor(engine, { a, b = 1, ...rest }) { checkOptions('x()', rest, []) } checks only what is left after the destructure,
 //    so the destructured names (a, b) count as known keys too.
+// F (error). The other direction of A, from what the engine says it has: every option in metadata.mjs's params and every name on a contract's api (but those its source marks @internal) must be in the
+//    hand-written d.ts. Why a check and not generated types: the d.ts carries the doc comments. Why beside A: A starts from a checkOptions / readParams call it can
+//    resolve, so a label it skips is unchecked, and it knows nothing about contracts. Factories outside index.d.ts (rigModule behind its cameras, starter pictures,
+//    subpath exports) are matched through what game code can call, or left out when nothing public names them.
 // Limitation: A only understands known-key arrays resolvable in the same file (literals, ...constants, ...Object.keys(constant)); B ignores variable shadowing
 // and cannot see reads in a game repo.
+import { metadata } from 'threedog/metadata';
 import { ts, parse, visit, engineFiles, projectFiles, lineOf, read, stringArray, objectKeys, constInit, dtsProgram, dtsFiles, abs, P } from './_lib.mjs';
 
 // Allowlist: [label, key, reason] (part A); [file, name, reason] (part B)
@@ -31,7 +36,7 @@ const ALLOW_KEYS = [];
 const ALLOW_PARAMS = [];
 
 // ---------- d.ts type resolution ----------
-function typeTools() {
+export function typeTools() {
   const program = dtsProgram(), checker = program.getTypeChecker();
   const exportsOf = f => { const sf = program.getSourceFile(abs(f)); const m = sf && checker.getSymbolAtLocation(sf); return m ? checker.getExportsOfModule(m) : []; };
   const indexFns = new Map(exportsOf(P.INDEX_DTS_REL).map(s => [s.name, s]));
@@ -187,6 +192,32 @@ function partA(out, stats) {
   }
 }
 
+// ---------- F: what metadata lists is in the types ----------
+/** Names one metadata fact says exist and a d.ts type lacks */
+const missing = (names, has) => names.filter(k => !has(k));
+/** Problems in the given facts: modules { call, file, params, aliases }, contracts { api }. T: typeTools() */
+export function typeGaps(T, { modules, contracts }) {
+  const out = [];
+  for (const [name, m] of Object.entries(modules)) {
+    const keys = Object.keys(m.params ?? {});
+    if (!keys.length || !m.file.startsWith(P.MODULES_REL)) continue;
+    for (const { call, file = m.file } of m.aliases ?? [m]) {
+      if (!T.indexFns.has(call)) { out.push({ file, msg: `${call}() has options but is not in ${P.INDEX_DTS_REL}`, fix: `declare ${call}(opts) there, with a doc comment per option` }); continue; }
+      const t = resolveParamType(T, call + '()', 0), fields = t && T.fields(t);
+      if (!fields) { if (!t || !T.isObjLike(t)) out.push({ file, msg: `${call}() takes options but its d.ts declares none`, fix: `give ${call}() in ${P.INDEX_DTS_REL} an options type` }); continue; }
+      const gone = missing(keys, k => fields.has(k));
+      if (gone.length) out.push({ file, msg: `module ${name}: option(s) missing from the type of ${call}(): ${gone.join(', ')}`, fix: 'add them to the options interface, each with a doc comment' });
+    }
+  }
+  for (const [name, c] of Object.entries(contracts)) {
+    const api = c.api.filter(k => !c.internal?.includes(k)), t = api.length ? T.prop(T.engineType, name) : null;
+    if (!api.length || (c.kind === 'object' && !t)) continue;   // a mover or a vehicle is an object handed around: no engine.<name> holds one
+    const gone = !t ? api : missing(api, k => T.prop(t, k));
+    if (gone.length) out.push({ file: c.file, msg: `contract ${name}: engine.${name} has no ${gone.join(', ')} in the types`, fix: `add them to the type of engine.${name} in the d.ts` });
+  }
+  return out;
+}
+
 // ---------- B: destructured parameters never read ----------
 function partB(out) {
   const readCache = new Map();
@@ -261,6 +292,7 @@ export default {
     partB(out);
     partC(out);
     partE(out);
+    for (const p of typeGaps(typeTools(), metadata)) out.push({ level: 'error', line: 1, ...p });
     out.note = `${stats.matched} checkOptions calls (checkOptions + readParams) matched, ${stats.skipped.length} skipped because the label cannot be resolved to a d.ts type (add --verbose for the list)`;
     out.verbose = stats.skipped;
     return out;

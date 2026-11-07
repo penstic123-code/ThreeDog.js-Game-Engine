@@ -42,10 +42,15 @@ export const specs = [
         const E = mk(createEngine, 'io-all');
         // every built-in module; modules take no keys, so nothing is bound here
         E.use(...T.openWorld({ seed: 1, camera: 'follow', debug: true }), T.interactions({ ...T.presets.interactions.nearest }), T.dialogue(), T.inventory(),
-          T.pickups(), T.quests(), T.photo(), T.level(), T.triggers(), T.particles(), T.music(), T.timeline(), T.nav(), T.content(), T.flow(), T.hud(), T.grids());
+          T.pickups(), T.quests(), T.photo(), T.triggers(), T.particles(), T.music(), T.timeline(), T.nav(), T.content(), T.flow(), T.hud(), T.grids());
         E.setCamera('rts');   // the strategy camera declares rotateLeft / rotateRight when switched in
         const basics = ['moveForward', 'moveBack', 'moveLeft', 'moveRight', 'confirm', 'cancel', 'uiUp', 'uiDown', 'uiLeft', 'uiRight'];
         out.bound = [...E.input.actions.keys()].filter(a => !basics.includes(a) && E.input.keysOf(a).length).map(a => `${a}: ${E.input.keysOf(a).join('/')}`);
+        // level holds the ground terrain holds in openWorld, so it is checked on its own engine
+        const L = mk(createEngine, 'io-level');
+        L.use(T.level());
+        out.bound.push(...[...L.input.actions.keys()].filter(a => !basics.includes(a) && L.input.keysOf(a).length));
+        L.dispose();
         out.declared = ['choice1', 'choice9', 'skip', 'debugPanel', 'triggersDebug', 'rotateLeft'].filter(a => E.input.actions.has(a));
         out.contexts = { choice1: E.input.actions.get('choice1')?.context, skip: E.input.actions.get('skip')?.context };
         out.basics = basics.every(a => E.input.keysOf(a).length > 0);

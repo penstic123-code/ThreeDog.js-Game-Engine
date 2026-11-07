@@ -53,7 +53,7 @@ export async function run({ check }) {
     check('[guard] a shared value: rain dims the sun through sun.level, the sky writes the light once', Math.abs(seen.level - 0.7) < 1e-6, JSON.stringify(seen));
     check('describe shows who holds each slot', seen.slots.sky === 'gradientSky' && seen.slots.sun === 'gradientSky' && seen.slots.fog === 'rain' && seen.slots.tone === null, JSON.stringify(seen.slots));
     let w = await page.evaluate(() => writers());
-    check('[guard] three clean parts: no fight, no stray write, no warning', w.conflicts.length === 0 && w.held.length === 0 && about(/picture-|written twice|is held by/).length === 0, warnings.join(' | ') + JSON.stringify(w.conflicts));
+    check('[guard] three clean parts: no fight, no stray write, no warning', w.conflicts.length === 0 && w.held.length === 0 && about(/picture-|two writers|is held by/).length === 0, warnings.join(' | ') + JSON.stringify(w.conflicts));
     check('[guard] a declared owner is told from a stray: the holder wrote it', w.values['fog.far']?.writer === 'holder' && w.values['fog.far']?.holder === 'rain' && /parts\/rain\.js:\d+$/.test(w.values['fog.far'].at), JSON.stringify(w.values['fog.far']));
     check('the sun is found by name: its strength is the holder\'s', w.values['light:sun.intensity']?.writer === 'holder' && /parts\/sky\.js:\d+$/.test(w.values['light:sun.intensity'].at), JSON.stringify(w.values['light:sun.intensity']));
     const flash = await page.evaluate(() => { window.engine.events.emit('rain:flash', {}); step(2); return writers(); });
@@ -101,9 +101,10 @@ export async function run({ check }) {
     ({ page, warnings, about } = await open('none'));
     await page.evaluate(() => { const e = window.engine, sun = new window.THREE.DirectionalLight(); sun.name = 'sun'; e.scene.add(sun); step(1); e.use(window.clash.dawn(), window.clash.dusk()); step(4); });
     w = await page.evaluate(() => writers());
-    let msg = about(/written twice/)[0] ?? '';
+    let msg = about(/two writers/)[0] ?? '';
     check('[guard] two parts in one file write sun.intensity undeclared: both parts and lines named', /light:sun\.intensity/.test(msg) && /parts\/clash\.js:\d+ \(part 'dawn'\)/.test(msg) && /parts\/clash\.js:\d+ \(part 'dusk'\)/.test(msg), msg + JSON.stringify(w.conflicts));
-    check('[guard] the warning gives the fix: claim it, or a shared value', /provides: \['sun'\]/.test(msg) && /engine\.stacks\.define/.test(msg) && /ctx\.mod/.test(msg), msg);
+    const fixText = await page.evaluate(() => window.engine.explain({ value: 'light:sun.intensity' }).text);
+    check('[guard] the hint stays one line and explain gives the fix: claim it, or a shared value', msg.split('\n').length === 1 && /provides: \['sun'\]/.test(fixText) && /engine\.stacks\.define/.test(fixText) && /ctx\.mod/.test(fixText), fixText);
     await page.close();
 
     ({ page, warnings, about } = await open('together'));
@@ -119,7 +120,7 @@ export async function run({ check }) {
     const color = w.held.find(h => h.value === 'fog.color'), near = w.held.find(h => h.value === 'fog.near');
     check('[guard] a one-shot write from a part\'s listener is caught and named by its file', color?.by === 'gust' && /parts\/clash\.js:\d+/.test(color.at), JSON.stringify(w.held));
     check('[guard] a write outside any part is told apart from another part\'s', near && near.by === null && /picture-parts\/main\.js:\d+/.test(near.at) && about(/code outside any part/).length === 1, JSON.stringify(near));
-    const text = await page.evaluate(() => window.engine.explain({ picture: 'fog.far' }).text);
+    const text = await page.evaluate(() => window.engine.explain({ value: 'fog.far' }).text);
     check('explain says stray or holder', /rain/.test(text) && /(stray|holds fog)/.test(text), text);
     await page.close();
 
@@ -133,7 +134,7 @@ export async function run({ check }) {
 
     // ---- the recipe's example, taken from the recipe
     const recipe = readFileSync(join(ENGINE, 'docs/recipes/62-picture-code.md'), 'utf8');
-    const block = /```js\n(\/\/ picture\/harbor-fog\.js[\s\S]*?)```/.exec(recipe)?.[1] ?? '';
+    const block = /```js(?: fragment)?\n(\/\/ picture\/harbor-fog\.js[\s\S]*?)```/.exec(recipe)?.[1] ?? '';
     ({ page, warnings, about } = await open('none'));
     seen = await page.evaluate(source => {
       const e = window.engine, before = snapshot();

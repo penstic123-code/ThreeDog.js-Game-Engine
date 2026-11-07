@@ -13,19 +13,21 @@
 // Picture:
 // window UI part 'inventory' (engine.ui.set('inventory', false | { drop: true } | yourPart)); body via ui.templates.inventory(data, { esc, t, icon })
 //   list styling   CSS classes .threedog-win-inventory .threedog-row ... (override in ui.css)
+import { keepTable } from '../../core/base/sections.js';
 import { checkOptions, warnMissing, freezeDef } from '../../core/base/validate.js';
 import { readParams } from '../../core/base/params.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { Container } from './Container.js';
 import { Containers } from './Containers.js';
 import { followRuntimeIds } from '../../core/saves/saveIds.js';
-import { refuseSave } from '../../core/saves/saveValues.js';
+import { refuseSave } from '../../core/base/saveValues.js';
 import { isPlainObject } from '../../core/base/util.js';
 import { inventoryWindow, windowData, defineInventoryOps, INVENTORY_STRINGS } from './inventoryOps.js';
 
 export class Inventory {
   /** @internal track: the module's ctx.track */
-  constructor(engine, { action, capacity = Infinity, maxWeight = Infinity, defaultStack } = {}, track) {
+  constructor(engine, { action, capacity = Infinity, maxWeight = Infinity, defaultStack } = {}, ctx) {
+    const { track } = ctx;
     this.engine = engine;
     this.defs = new Map();
     this.defaultStack = defaultStack;
@@ -33,25 +35,29 @@ export class Inventory {
     // 'inventory' part. Other actors' bags are plain containers (net creates one per peer).
     /** @internal */ this.home = new Container(this, 'player', { capacity, maxWeight });
     this._containers = new Containers(this, this.home);
+    /** @internal start items of packs loaded after start(), given again at each new game */ this._lateStart = new Set();
     this.action = action;
     this._seq = 0;              // entry key counter ('sword#7'), saved so keys never repeat
     engine.i18n.add(INVENTORY_STRINGS);
     // declared only: the game binds the key (presets.bindings.inventory or its own; [] = no key), so every key in a game comes from one bindings table
     track(engine.input.action(action, { label: 'inventory.action', owner: 'inventory' }));
-    if (engine.input.keysOf(action).length) engine.input.touchButton(action, 'inventory.action');
-    engine.ui.define('inventory', inventoryWindow, { modal: { cancel: e => e.ui.close('inventory'), freeze: () => this.pauseGame, data: () => windowData(this) } });
+    if (engine.input.keysOf(action).length) track(engine.input.touchButton(action, 'inventory.action'));
+    ctx.ui.define('inventory', inventoryWindow, { modal: { cancel: e => e.ui.close('inventory'), freeze: () => this.pauseGame, data: () => windowData(this) } });
     for (const ev of ['i18n:change', 'input:rebind']) track(engine.events.on(ev, () => this._refresh()));
+    // a pack loaded after start() stays for the next playthrough with its props and definitions, and its start items with them
+    track(engine.events.on('session:start', ({ kind }) => { if (kind === 'new') for (const d of this._lateStart) this.giveStart(d); }));
+    track(engine.events.on('session:end', () => engine.ui.close('inventory')));   // it shows the playthrough that ended, and its freeze must not reach the next one
     // version 1 is the current shape; raise it with a migrate step when it changes. seq: the numbering of entry keys (sword#3); a save without it continues
     // after the highest key it holds
-    engine.saves.register('inventory', { atomic: true, version: 1, save: () => ({ seq: this._seq, items: this.home._save() }), load: d => {
+    ctx.saves.register('inventory', { atomic: true, version: 1, save: () => ({ seq: this._seq, items: this.home._save() }), load: d => {
       if (d != null && !(isPlainObject(d) && (d.items == null || Array.isArray(d.items)))) refuseSave('inventory', 'the part', 'must be { seq, items: [{ id, count }] }', d);
       this.home._load(d?.items);
       const top = Math.max(0, ...this.home._entries.map(x => Number(x.key.split('#')[1]) || 0));
-      this._seq = Number.isInteger(d?.seq) && d.seq >= top ? d.seq : top;
+      this._seq = Number.isSafeInteger(d?.seq) && d.seq >= top ? d.seq : top;   // past safe whole numbers ++ stops counting and keys repeat
       this._refresh();
     } });
     // version 2: container ids that are runtime record ids (a spawned chest) follow the world part's `kind-n` -> `kind#n` rename (world/persist.js)
-    engine.saves.register('containers', { atomic: true, version: 2, migrate: { 1: followRuntimeIds }, save: () => this._containers.save(), load: d => this._containers.load(d) });
+    ctx.saves.register('containers', { atomic: true, version: 2, migrate: { 1: followRuntimeIds }, save: () => this._containers.save(), load: d => this._containers.load(d) });
   }
 
   /**
@@ -61,6 +67,10 @@ export class Inventory {
    * @param {string} [actor]
    * @returns {Container}
    */
+  /** @internal start items into the bag, written outside ops like the load they stand for; late: every new game gives them again */
+  giveStart(d, late = false) { this.engine.ops.allow(() => { for (const [id, n] of Object.entries(d)) this.add(id, n, { silent: true }); }); if (late) this._lateStart.add(d); }
+  /** @internal the pack that gave them left */
+  forgetStart(d) { this._lateStart.delete(d); }
   of(actor = this.engine.actor) { return this._containers.map.get(actor) ?? this._containers.get(actor); }
   /** The player inventory: the container of engine.actor (read live, so it follows a hand-over of control). */
   get bag() { return this.of(); }
@@ -91,11 +101,20 @@ export class Inventory {
    */
   container(id, opts) { return this._containers.get(id, opts); }
   /**
-   * Content renames (content/renames.js): containers saved under an old authored id move to the new one (content.load calls it before adding containers)
+   * @internal Content renames (content/renames.js): containers saved under an old authored id move to the new one (content.load calls it before adding containers)
    * @param {Record<string, string | null>} map
-   * @returns {void}
+   * @returns {() => void} what puts the containers back, for a failed load
    */
-  renameIds(map) { this._containers.rename(map); }
+  renameIds(map) { return this._containers.rename(map); }
+  /**
+   * @internal A failed content load puts defs, containers and goods back (core/base/sections.js undo): the function that does it
+   * @returns {() => void}
+   */
+  undoPoint() {
+    const boxes = this._containers, seq = this._seq, tables = [this.defs, boxes.map, boxes.renames].map(keepTable);
+    const was = [...boxes.map.values()].map(c => [c, { id: c.id, capacity: c.capacity, maxWeight: c.maxWeight, seeded: c.seeded, _start: c._start, _entries: c._entries.map(x => ({ ...x })) }]);
+    return () => { for (const fn of tables) fn(); for (const [c, v] of was) Object.assign(c, v); this._seq = seq; };
+  }
   /**
    * Move n (default 1) of an item, or of one entry by key, between containers (container or id; an actor's bag has the actor's id). Pieces keep their data and key.
    * Moves fewer if the target is full, returns how many moved (0 = none). Players moving items run the op instead: engine.ops.run('inventory.transfer', { from,
@@ -135,7 +154,7 @@ export class Inventory {
 
   /**
    * Define an item. stack = pieces per slot (default 99); weight counts against maxWeight; use(e, { actor, item, key, data }) makes it usable with the
-   * inventory.use op (canUse returns true or a reason, consume: true removes one first). Games may add their own fields (price...).
+   * inventory.use op (canUse returns true or a reason, consume: true removes one first; use answers { ok: false, code } or throws: the item stays and no item:use). Games may add their own fields (price...).
    * The definition is shared by every piece and frozen; per-piece state (durability, ammo) goes in entry data: add('sword', 1, { data: { durability: 40 } }).
    * @example engine.inventory.define('potion', { name: 'Potion', icon: '🧪', weight: 0.2, consume: true, use: (e, { actor }) => heal(actor, 30) })
    * @param {string} id
@@ -188,6 +207,24 @@ const INVENTORY_PARAMS = {
   pauseGame: { type: 'bool', optional: true, desc: 'true: gameplay freezes while the window is open (default false)' },
 };
 
+/** The item sections of content data. Containers hold their goods only the first time: the save wins, an emptied chest does not refill on reload */
+const keepBag = (d, { engine: e }) => e.inventory.undoPoint();
+const INVENTORY_CONTENT = {
+  items: { desc: 'items (id -> name, icon, description); also export startItems for starting items', undo: keepBag, commit(d, { engine: e }) { for (const [id, def] of Object.entries(d)) e.inventory.define(id, def); } },
+  startItems: {
+    desc: 'starting items (exported from items.js)', once: true,
+    undo(d, c) { const back = keepBag(d, c); return () => { back(); c.engine.inventory.forgetStart(d); }; },
+    references: d => Object.keys(d).map(id => ({ section: 'items', id, at: 'startItems' })),
+    commit(d, { engine: e }) { e.inventory.giveStart(d, e.session.captured); },   // after start() the new-game state has no such items
+  },
+  containers: {
+    desc: 'chests / shelves (container id -> { capacity, items: starting goods }; starting goods are placed only the first time, then saved)', undo: keepBag,
+    references: d => Object.entries(d).flatMap(([box, c]) => Object.keys(c.items ?? {}).map(id => ({ section: 'items', id, at: `containers.${box}` }))),
+    validate(d, { ids }) { for (const id of Object.keys(d)) ids.claim(id, `containers.${id}`); },
+    commit(d, { engine: e }) { for (const [id, c] of Object.entries(d)) e.inventory.container(id, { capacity: c.capacity, items: c.items }); },
+  },
+};
+
 /**
  * Inventory module. Installs engine.inventory, the 'inventory' UI part and the ops inventory.transfer / use / drop / trade (drop needs pickups()); items
  * on the ground are the pickups() module.
@@ -200,13 +237,14 @@ export function inventory(opts = {}) {
   const o = readParams('inventory', INVENTORY_PARAMS, opts);
   let inv = null;
   return {
-    name: 'inventory', type: 'rules', provides: ['inventory'], label: 'Inventory', params: INVENTORY_PARAMS, options: o, noSkip: 'no timers or spatial state',
+    content: INVENTORY_CONTENT,
+    name: 'inventory', skipKind: 'none', type: 'rules', provides: ['inventory'], label: 'Inventory', params: INVENTORY_PARAMS, options: o, noSkip: 'no timers or spatial state',
     install(e, ctx) {
-      inv = new Inventory(e, o, ctx.track);   // o: the schema defaults are filled in, the class repeats none
+      inv = new Inventory(e, o, ctx);   // o: the schema defaults are filled in, the class repeats none
       // pauseGame: true freezes gameplay (engine.freeze('ui-inventory'), the part's own owner; the same mechanism flow's 'paused' and settings({ freezeWorld }) use) while the window is open.
       // Rendering and UI go on; the freeze is released when the window closes or the inventory is turned off with engine.ui.set('inventory', false).
       inv.pauseGame = !!opts.pauseGame;   // also settable at runtime: engine.inventory.pauseGame = true
-      defineInventoryOps(e, inv);
+      defineInventoryOps(e, ctx, inv);
       return inv;
     },
     frame(dt, e) {   // the inventory key toggles the part; while open the part holds the input lock, so the close press is read raw
@@ -220,3 +258,5 @@ export function inventory(opts = {}) {
     },
   };
 }
+
+export const handRolled = [{ kind: 'inventory', seen: 'a hand-made inventory (items kept in your own array / object)', use: 'the inventory module: engine.use(inventory()), engine.inventory.add / remove / has (counts, containers, events, saved with the game)', quiet: /\b(engine|e|eng)\.inventory\b|\binventory\(\s*[{)]/, code: /(?:\b(?:const|let|var)\s+|\bthis\.)(inventory|backpack|bag|pockets|inv)(?:Items|Slots|List|Contents|Data|Map|Counts?|s)?\s*=\s*(\[\s*\]|\{\s*\}|new Map\b|new Set\b)/i, tags: false }];

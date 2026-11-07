@@ -142,6 +142,7 @@ export const specs = [
   {
     name: 'S1 world data: 2000 records (far simulation) cost under 0.5 ms per fixed step (open world)',
     url: '/?cutscene=skip',   // the opening cutscene takes over the camera (focus does not follow the player)
+    serial: true,   // judges by a measured time (R56)
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();

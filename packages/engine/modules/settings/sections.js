@@ -8,7 +8,7 @@
 //   data-reset="controls"                 restore default keys
 //   data-locale="en"                      switch language
 
-import { setFov } from '../../core/scene/view.js';
+import { setFov, lensFov } from '../../core/scene/view.js';
 
 const pct = v => Math.round(v * 100) + '%';
 /** Value shown beside a slider */
@@ -60,8 +60,11 @@ export const BUILTIN_SECTIONS = {
       if (e.post.get('bloom')) add('bloom', t('settings.bloom'), toggle('bloom', v.bloom, tools));
       if (e.post.get('ao')) add('ao', t('settings.ao'), toggle('ao', v.ao, tools));
       add('adaptive', t('settings.adaptive'), toggle('adaptive', v.adaptive, tools));
-      if (s.chunkHost()?.setViewChunks) add('viewChunks', t('settings.viewDistance'), range('viewChunks', v.viewChunks, 2, 8, 1, tools));
-      if (s.chunkHost()?.setDensity) add('density', t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools));
+      // the ground's own rows: the slider reaches at least as far as the game's value and the share Low gave it
+      const view = s.custom.get('viewChunks');
+      if (view) add('viewChunks', t('settings.viewDistance'), range('viewChunks', v.viewChunks, Math.min(2, v.viewChunks), Math.max(8, view.def), 1, tools));
+      if (s.custom.has('density')) add('density', t('settings.density'), range('density', v.density, 0.25, 1.5, 0.25, tools));
+      if (v.antialias !== e.post.antialias) h += `<p class="threedog-set-note">${esc(t('settings.nextStart'))}</p>`;   // MSAA is fixed with the canvas: say why the picture did not change
       return h;
     },
   },
@@ -146,7 +149,7 @@ export const OPTIONAL_SECTIONS = {
       const e = s.engine, rig = () => e.cameraRig;
       s.define('camera.sensitivity', rig()?.sensitivity ?? 1, v => { if (rig() && 'sensitivity' in rig()) rig().sensitivity = v; });
       s.define('camera.invertY', rig()?.invertY ?? false, v => { if (rig() && 'invertY' in rig()) rig().invertY = v; });
-      s.define('camera.fov', e.camera.fov, v => setFov(e, v));   // the player's slider: yields to a fov the game took (engine.autoView.manual('fov'))
+      s.define('camera.fov', lensFov(e) ?? 50, v => setFov(e, v));   // the player's slider: yields to a fov the game took (engine.autoView.manual('fov'))
       // a new rig starts from its own defaults (and setCamera resets the fov): put the player's choices back on it
       s._track(e.events.on('camera:change', () => { for (const k of ['camera.sensitivity', 'camera.invertY', 'camera.fov']) s.custom.get(k)?.apply(s.values[k], e); }));
     },

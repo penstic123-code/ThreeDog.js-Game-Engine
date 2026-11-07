@@ -51,7 +51,7 @@ const BUDGET_PARAMS = { every: { type: 'int', default: 1, min: 1, desc: 'redraw 
 
 function readBox(o) {
   const v = readParams(BOX, BOX_PARAMS, o), f = v.follow;
-  if (!(f === false || f === 'focus' || f === 'camera' || f?.isObject3D || typeof f === 'function')) refuse(`${BOX}: follow must be 'focus' | 'camera' | an Object3D | () => Vector3 | false; got ${JSON.stringify(f)}`);
+  if (!(f === false || f === 'focus' || f === 'camera' || f?.isObject3D || typeof f === 'function')) refuse(`${BOX}: follow must be 'focus' | 'camera' | an Object3D | () => Vector3 | false; got ${f?.root?.isObject3D ? 'a character: pass its .root' : String(f)}`);
   if (v.snap !== 'texel' && !(typeof v.snap === 'number' && v.snap >= 0)) refuse(`${BOX}: snap must be meters (a number, 0 = none) or 'texel'; got ${JSON.stringify(v.snap)}`);
   return v;
 }
@@ -348,7 +348,7 @@ export function defineShadows(e, { owned }) {
      * its target, including what you write later. Nothing follows anything until you call this; remove() puts the light back. On engine.lights.sun under a sky it
      * changes the engine's own box, and remove() restores that.
      * @example
-     * const box = engine.shadows.box(sun, { follow: player, extent: 40, snap: 'texel' });
+     * const box = engine.shadows.box(sun, { follow: player.root, extent: 40, snap: 'texel' });
      * box.set({ extent: 60 }); box.remove();
      * @param {any} light a DirectionalLight in engine.scene
      * @param {{ follow?: 'focus' | 'camera' | any | (() => any) | false, extent?: number, snap?: number | 'texel', ahead?: number }} [options]

@@ -38,4 +38,26 @@ export const specs = [
     async run(ctx) { await ctx.page.waitForFunction(() => window.engine?.ready && window.engine.rigid?.ready, null, READY); await run(ctx); } },
   { name: '[guard] rigid push: the player walking into a crate pushes it (rapier mover)', url: '/tests/vehicle/index.html?mover=rapier', timeout: 90000,
     async run(ctx) { await ctx.page.waitForFunction(() => window.engine?.ready && window.engine.rigid?.ready, null, READY); await run(ctx); } },
+  { name: '[guard] rigid: a body under a moved parent registers at the world pose and writes back through the parent; a sheared parent is refused by name', url: '/tests/vehicle/index.html', timeout: 90000,
+    async run({ check, ev, page }) {
+      await page.waitForFunction(() => window.engine?.ready && window.engine.rigid?.ready, null, READY);
+      const r = await ev(() => {
+        const e = window.engine, R = e.rigid, T = __threedogThree;
+        e.haltLoop();
+        const parent = new T.Group(); parent.position.set(10, 20, 0); parent.rotation.y = Math.PI / 2; e.add(parent);
+        const mesh = new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()); mesh.position.set(1, 0, 0); parent.add(mesh);
+        const b = R.addBox(mesh, { size: [1, 1, 1], mass: 1 });
+        const t = b.body.translation(), out = { world: [t.x, t.y, t.z] };
+        e.step(0.5, { render: false, describe: false });
+        const w = new T.Vector3(); mesh.getWorldPosition(w); const t2 = b.body.translation();
+        out.drawnMinusBody = Math.hypot(w.x - t2.x, w.y - t2.y, w.z - t2.z);
+        const bad = new T.Group(); bad.scale.set(1, 2, 1); e.add(bad);
+        const m2 = new T.Mesh(new T.BoxGeometry(1, 1, 1), new T.MeshBasicMaterial()); bad.add(m2);
+        try { R.addBox(m2, { size: [1, 1, 1] }); out.refused = 'no throw'; } catch (err) { out.refused = err.message; }
+        return out;
+      });
+      check('body is created at the world position (10, 20, -1), not the local (1, 0, 0)', Math.abs(r.world[0] - 10) < 1e-3 && Math.abs(r.world[1] - 20) < 1e-3 && Math.abs(r.world[2] + 1) < 1e-3, JSON.stringify(r.world));
+      check('after stepping, the mesh still draws where the body is', r.drawnMinusBody < 1e-2, JSON.stringify(r));
+      check('a parent scaled differently per axis is refused, naming the parent', /rigid/.test(r.refused) && /differs between axes/.test(r.refused), r.refused);
+    } },
 ];

@@ -10,6 +10,50 @@ const PAGE = '/tests/threads/';
 
 export const specs = [
   {
+    name: 'character position: thing.set, world.set and world.move on a live character place it, the record stays in step, undo puts it back; a far NPC stays a record write',
+    url: PAGE,
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const { mk } = threedogThreads, T = threedogThreads.all, out = {};
+        const E = mk(T.createEngine, 'ctl-place');
+        E.use(T.world(), T.collision(), T.characters());
+        await E.start(); E.haltLoop();
+        const steps = n => { for (let i = 0; i < n; i++) E.step(1 / 60, { render: false, describe: false }); };
+        const P = E.characters.createPlayer({ control: () => ({ x: 0, z: 0 }), spawn: { x: 0, z: 0 } });
+        const npc = E.npcs.add({ id: 'pl-npc', name: 'Walker', position: { x: 4, z: 0 }, speed: 2, schedule: [{ at: 0, position: { x: 14, z: 0 } }] });
+        steps(30);
+        const both = id => { const c = id === 'player' ? P : npc.character, p = E.world.get(id).position; return { root: [c.root.position.x, c.root.position.z], rec: [p.x, p.z] }; };
+        const args = { id: 'player', position: [6, 0, 2] }, res = E.ops.run('thing.set', args);
+        out.thingSet = { ok: res.ok, now: both('player') }; steps(5); out.thingSetLater = both('player');
+        E.ops.undo('thing.set', args, res.value); steps(2); out.undone = both('player');
+        E.ops.allow(() => E.world.set('player', { position: [-3, 0, 1], mood: 'calm' })); out.worldSet = both('player'); steps(5); out.worldSetLater = both('player'); out.field = E.world.get('player').mood;
+        const put = (id, at) => E.ops.allow(() => E.world.move(id, at));
+        put('player', { x: 2, z: -2 }); out.worldMove = both('player'); steps(5); out.worldMoveLater = both('player');
+        // the record following the character is no placement: the writes it makes itself change nothing
+        P.root.position.x = 2.5; P.syncRecord(); out.follows = both('player');
+        put('pl-npc', { x: 8, z: 5 }); out.npc = both('pl-npc'); out.npcPath = E.world.get('pl-npc').nav.path; steps(1); out.npcLater = both('pl-npc');
+        try { put('player', { x: NaN, z: 0 }); } catch (x) { out.bad = x.code; }
+        out.afterBad = both('player');
+        // no model, no character: the record is all there is
+        const far = E.npcs.add({ id: 'pl-far', name: 'Away', position: { x: 5000, z: 0 } }); steps(2);
+        out.far = !far.character; put('pl-far', { x: 5005, z: 5 }); out.farRec = E.world.get('pl-far').position.x;
+        E.dispose();
+        return out;
+      });
+      const at = (v, x, z) => v.root[0] === x && v.root[1] === z && v.rec[0] === x && v.rec[1] === z;
+      const near = (v, x, z) => Math.hypot(v.root[0] - x, v.root[1] - z) < 0.3 && v.root[0] === v.rec[0] && v.root[1] === v.rec[1];
+      check('thing.set moves the player itself, and the record says the same', r.thingSet.ok && at(r.thingSet.now, 6, 2), JSON.stringify(r.thingSet));
+      check('the place holds on the next steps', near(r.thingSetLater, 6, 2), JSON.stringify(r.thingSetLater));
+      check('undo puts the character back', near(r.undone, 0, 0), JSON.stringify(r.undone));
+      check('world.set with a position places it, its other fields still land', at(r.worldSet, -3, 1) && near(r.worldSetLater, -3, 1) && r.field === 'calm', JSON.stringify([r.worldSet, r.worldSetLater, r.field]));
+      check('world.move places it', at(r.worldMove, 2, -2) && near(r.worldMoveLater, 2, -2), JSON.stringify([r.worldMove, r.worldMoveLater]));
+      check('syncRecord after moving the root by hand still only follows', at(r.follows, 2.5, -2), JSON.stringify(r.follows));
+      check('an NPC with a model is placed through its own placeAt: path dropped, model and record together', at(r.npc, 8, 5) && r.npcPath === null && near(r.npcLater, 8, 5), JSON.stringify([r.npc, r.npcPath, r.npcLater]));
+      check('a bad position is refused before anything moves', !!r.bad && at(r.afterBad, 2.5, -2), JSON.stringify([r.bad, r.afterBad]));
+      check('an NPC without a model is a plain record write', r.far && r.farRec === 5005, JSON.stringify([r.far, r.farRec]));
+    },
+  },
+  {
     name: 'character control: cutscene takes the player and gives back; walkTo paused by a cutscene resumes; conflict / bypass errors; NPC behaviour pauses; describe',
     url: PAGE,
     async run({ check, ev }) {

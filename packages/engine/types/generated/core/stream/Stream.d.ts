@@ -21,13 +21,11 @@ export class Stream {
     set radius(m: number | null);
     /**
      * Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the uViewDistance signal
-     * without terrain). Writing it takes effect like setRadius.
+     * without terrain).
      * @type {number | null}
      */
     get radius(): number | null;
-    /** Set the build radius in meters @param {number} m @experimental */
-    setRadius(m: number): void;
-    /** Everything registered within radius is built (start() waits for it before the loading screen goes away) @returns {boolean} */
+    /** No build within radius is still waiting (start() waits for it before the loading screen goes away). Nothing pending, not everything built: a build that failed is reported and left out; a game that needs a thing built checks it itself (handle.built) @returns {boolean} */
     get ready(): boolean;
     /** entries is the registered count, built the built count, queued the queued count @returns {{ entries: number, built: number, queued: number }} */
     get stats(): {
@@ -54,6 +52,10 @@ export class Stream {
      * (terrain chunks, collision, nearby models) the player stays where it is. move replaces the default placement (for a vehicle or a custom character).
      * timeout (seconds of frame time, default 60; Infinity waits forever): when the destination is still not ready, the Promise rejects (code stream-timeout,
      * naming the loaders still waiting) and the player is not moved.
+     * Ready means nothing is pending, not that everything built: a stream entry or world model whose build failed is reported and left out, and the trip still lands. A terrain chunk that
+     * failed stays not ready, as there is no ground to stand on, so that trip ends in stream-timeout. A game that needs a thing built checks it itself (handle.built, engine.world.view(id)).
+     * A trip belongs to the state it was asked in: it does not land while a load runs, and a newGame, load or saves.load that goes through abandons it (it rejects with
+     * code stream-removed and the player stays where the new state put it). A load that fails leaves it going.
      * @example await engine.stream.teleport([800, 0, 300]);
      * @example await engine.stream.teleport(door.target, { radius: 40, move: p => engine.player.placeAt(p) });
      * @param {any} position

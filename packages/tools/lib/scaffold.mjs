@@ -1,6 +1,7 @@
 // Shared by new-game and init: read the flags, copy the template layers, fill the placeholders.
 //   templates/game       the base: a blank scene with a camera, empty content files, a gray picture/ folder (no gameplay, no genre assumed)
 //   templates/openworld  an overlay for --open-world: generated terrain, day/night sky, follow camera, a player (a main.js only)
+//   templates/pixel      an overlay for --pixel: a sprite character in a pixel-snapped orthographic view, input, interaction, dialogue, saves (main.js + picture/sprites.js)
 // Why blank by default: an open world is one genre among many (a puzzle, a card table, a side-scroller start from nothing), and a default that has
 // to be deleted first steers every new game toward the same shape. Overlays are copied FIRST so their files win over the base.
 // Which renderer: a new game starts on WebGPU, its shaders in TSL; --webgl starts on WebGLRenderer, its shaders in GLSL. It is chosen here, once, because it decides the
@@ -39,6 +40,7 @@ export function gameName(folder) {
 
 const GAMEPLAY = {
   clean: 'This game starts blank (a scene, a camera, a start screen, autosave, an Esc menu) and has no gameplay yet; build what DESIGN.md describes. For patterns, read the engine recipes (`node_modules/threedog/docs/recipes/`, index in AI.md); `threedog new-game name --open-world` starts on generated ground with a player.',
+  pixel: 'This game starts from `--pixel`: a gray floor, a placeholder sprite character in a pixel-snapped orthographic view (`pixelSize`, `pixelSprite`, `pixelSnap`), an NPC with dialogue, a pickup, a start screen, autosave and an Esc menu, no gameplay yet; build what DESIGN.md describes and replace the placeholder sprite sheet in picture/sprites.js with real art.',
   openWorld: 'This game starts from `--open-world`: generated ground, a day/night sky, a follow camera, a player, a start screen, autosave and an Esc menu, no gameplay yet; build what DESIGN.md describes and remove what it does not need.',
 };
 
@@ -64,15 +66,17 @@ const ROUTE = {
   },
 };
 
-/** Read flags: --open-world, --webgl; the name is the first other argument. Unknown flags are an error (a typo
+/** Read flags: --open-world, --pixel (not both: one overlay), --webgl; the name is the first other argument. Unknown flags are an error (a typo
  *  silently making the wrong game is worse). env = process.env (npm eats flags: npm_config_* fallback) */
 export function parseArgs(argv, env = {}) {
   let p;
-  try { p = parseOptions(argv, { flags: ['open-world', 'webgl'], positional: true }); } catch (e) { return { error: e.message }; }
+  try { p = parseOptions(argv, { flags: ['open-world', 'pixel', 'webgl'], positional: true }); } catch (e) { return { error: e.message }; }
   if (p.rest.length > 1) return { error: `one name or folder only, got ${p.rest.join(' ')}` };
   const openWorld = !!p.opt['open-world'] || env.npm_config_open_world === 'true';
+  const pixel = !!p.opt.pixel || env.npm_config_pixel === 'true';
+  if (openWorld && pixel) return { error: '--open-world and --pixel are two different starting points: pick one' };
   const webgl = !!p.opt.webgl || env.npm_config_webgl === 'true';
-  return { name: p.rest[0], openWorld, webgl };
+  return { name: p.rest[0], openWorld, pixel, webgl };
 }
 
 /** The "Already here" table: rows of the engine's AI.md (the one task table). Without the engine docs next to the tools: a pointer, not a stale copy */
@@ -82,9 +86,9 @@ function defaultLayerTable() {
 }
 
 /** Fill the placeholders of one text file */
-export function render(text, { name, openWorld, webgl }) {
+export function render(text, { name, openWorld, pixel, webgl }) {
   const route = ROUTE[webgl ? 'webgl' : 'webgpu'];
-  let out = text.replaceAll('__NAME__', name).replaceAll('__GAMEPLAY_NOTE__', GAMEPLAY[openWorld ? 'openWorld' : 'clean']);
+  let out = text.replaceAll('__NAME__', name).replaceAll('__GAMEPLAY_NOTE__', GAMEPLAY[pixel ? 'pixel' : openWorld ? 'openWorld' : 'clean']);
   out = out.replace('__DEFAULT_LAYER__', () => defaultLayerTable());
   out = out.replace(/__TSL_IMPORT__\r?\n/g, route.__TSL_IMPORT__ && `${route.__TSL_IMPORT__}\n`);
   for (const [word, value] of Object.entries(route)) out = out.replaceAll(word, value);
@@ -94,14 +98,14 @@ export function render(text, { name, openWorld, webgl }) {
 /** package.json dependencies: --open-world adds @threedog/terrain-noise (its main.js imports it; the blank base does not) */
 export function applyDeps(deps, { openWorld }) {
   const out = { ...deps };
-  if (openWorld) out['@threedog/terrain-noise'] ??= '^0.9.0';
+  if (openWorld) out['@threedog/terrain-noise'] ??= '^1.0.0';
   return out;
 }
 
 /** Copy the template layers (overlay first, base after) into dir. Existing files are kept (so the overlay wins and init never overwrites).
  *  skipPackage: leave package.json to the caller. Returns { made, kept }. */
 export function copyTemplates(dir, opts, { skipPackage = false } = {}) {
-  const layers = [...(opts.openWorld ? ['openworld'] : []), 'game'], made = [], kept = [];
+  const layers = [...(opts.pixel ? ['pixel'] : opts.openWorld ? ['openworld'] : []), 'game'], made = [], kept = [];
   const walk = (from, to, top) => {
     mkdirSync(to, { recursive: true });
     for (const e of readdirSync(from, { withFileTypes: true })) {

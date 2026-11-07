@@ -2,7 +2,7 @@
 //   1. Asset manifest: register every model, texture and sound under a name; code uses names only, so swapping a file means editing the manifest.
 //   2. Preload: load everything marked preload once at startup; the loading screen shows progress.
 //   3. Cache and reuse: one file downloads once; models return independent copies (geometry and materials shared), so you can place many.
-// 4. Release: models count usage per copy; release(name) frees only when the last copy is removed, trim() frees every model with no copy in use (see their docs
+// 4. Release: one count of leases, and a model copy is one (assetEntry.js takeLease); release(name) frees only when the last lease ends, trim() frees every model with no copy in use (see their docs
 // below).
 //   5. Compression: Draco / Meshopt models and .ktx2 textures load as-is; the decoder downloads on first use (npm run assets -- optimize produces compressed files in public/optimized/).
 //   6. Made in code: a model / texture / sound may be a function in the manifest instead of a file, used by name exactly like a file (content, model(),
@@ -32,7 +32,7 @@ import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { warnMissing, warnOnce, fmt, DEV } from '../base/validate.js';
 import { codedError, coded } from '../base/errorHints.js';
 import { Animator } from './Animator.js';
-import { fetchEntry, freeEntry, retireEntry, dropCopy, disposeEntries, preloadEntries, shadowDefaults, longSound } from './assetEntry.js';
+import { waitLoad, freeEntry, retireEntry, takeLease, disposeEntries, preloadEntries, shadowDefaults, longSound } from './assetEntry.js';
 import { registerManifest, paramValues } from './assetManifest.js';
 import { setParams } from './assetHot.js';
 import { wrapLod } from './assetLod.js';
@@ -43,6 +43,7 @@ import { memory } from '../../render/backend.js';
 const STRINGS = {
   textureFailed: "{where}: texture '{name}' did not load ({msg}); {instead}. Register it (engine.assets.manifest({ textures: { name: 'file.png' } })) or check its URL",
   notLoaded: 'assets.modelNow(\'{name}\') is null: nothing has loaded that model yet (a code-built model is built, or read from the bake cache, on its first load too). Use `engine.assets.modelNow(\'{name}\') ?? await engine.assets.model(\'{name}\')`, or mark it preload: true in the manifest and await engine.assets.preload()',
+  noLease: 'assets.lease(\'{name}\'): nothing is registered or loaded under that name, so there is no data to hold. Fix: register it in an asset pack, or load it first with assets.model / assets.texture',
   noFont: 'assets.font(\'{name}\'): no font named {name}{known}. Register the file in an asset pack: engine.assets.manifest({ fonts: { {name}: \'/fonts/{name}.woff2\' } })',
   sameName: 'model \'{name}\': the same name was used with two different generator functions, so the cache would mix them (keyed by name + params). Use a different name per model; if the result depends on outer variables, put them in params',
 };
@@ -124,7 +125,7 @@ export class Assets {
    */
   setParams(name, values) { return setParams(this.engine, name, values); }
   /** @internal a module rebuilds its own copies after a hot swap (vegetation): fn({ names, geometry, material }) -> { name: copies } */
-  onSwap(fn) { (this._swapHooks ||= []).push(fn); }
+  onSwap(fn) { (this._swapHooks ||= new Set()).add(fn); return { remove: () => this._swapHooks.delete(fn) }; }
 
   _resolve(nameOrUrl, type) {
     let e = this.entries.get(nameOrUrl);
@@ -143,8 +144,17 @@ export class Assets {
    * @internal Run use(value, load) on an entry's live data, in the same tick it is checked. Why the loop: code resumed by an await runs after other
    * continuations, and one of them may have released the entry since the load finished; handing out that value is a freed model
    */
-  async _with(e, use) {
-    for (;;) { const v = await fetchEntry(this, e); if (v === e.load?.value) return use(v, e.load); }
+  async _with(e, use, wait) {
+    for (;;) {
+      const v = await waitLoad(this, e, wait);
+      if (wait?.whole && e.fellBack) throw e.fellBack;
+      if (v === e.load?.value) return use(v, e.load);
+    }
+  }
+  /** @internal A model copy for a caller that cannot stand on a stand-in and may stop waiting: a failed file rejects whatever the manifest falls back to, and an aborted signal leaves the load (assetEntry.js) */
+  wholeModel(nameOrUrl, signal) {
+    const e = this._resolve(nameOrUrl, 'model');
+    return this._with(e, () => this._copy(e), { whole: true, signal });
   }
   /** @internal The entry moves on from its current load (assetEntry.js) */
   _retire(e) { retireEntry(this, e); }
@@ -203,13 +213,33 @@ export class Assets {
     if (DEV && e?.type === 'model' && !e.promise) warnOnce(coded('asset-not-loaded', fmt(STRINGS.notLoaded, { name: nameOrUrl })));
     return null;
   }
+  /**
+   * @internal For modules that hand out what they load, as content does for its models. Hold an asset's data until the handle's remove(): release and trim wait for the last lease, and so does a build replaced by a hot swap or a palette write. For a texture, sound or
+   * shared material a game keeps past its own scene. Model copies hold one each already, so nobody has to lease what they took from model(). A lease says "do not free this",
+   * it frees nothing by itself: the data stays cached until release or trim. Counts are in describe().assets.
+   * @example const lease = ctx.track(await engine.assets.lease('rock'));   // in a module: ends with it
+   * @param {string} name a registered name, or a path already loaded
+   * @returns {Promise<{ name: string, remove(): void }>}
+   */
+  async lease(name) {
+    const e = this.entries.get(name);
+    if (!e) throw codedError('unknown-name', fmt(STRINGS.noLease, { name }));
+    return this._with(e, () => this._lease(e, name));
+  }
+  /** @internal the one place a lease is taken, and where describe().assets starts to report (only a game that holds something pays for the line) */
+  _lease(e, name) {
+    if (!this._reported) { this._reported = true; this.engine.describe?.add?.('assets', () => this._holders()); }
+    return takeLease(this, e, name);
+  }
+  /** @internal describe().assets: leases per name (a model copy is one) and the names whose release waits for them; both empty again means every lease came back */
+  _holders() {
+    const held = [...this.entries].filter(([, e]) => e.users > 0);
+    return { leases: Object.fromEntries(held.map(([k, e]) => [k, e.users])), waiting: held.filter(([, e]) => e.releasePending).map(([k]) => k) };
+  }
   /** @internal one copy of a loaded model, counted on the load that owns its data, which for a name that fell back belongs to the other entry */
   _copy(e, { castShadow, receiveShadow, static: isStatic = false } = {}) {
-    const load = e.load, owner = load.owner, gltf = load.value, root = skeletonClone(gltf.scene);
-    load.users++; e.users = (e.users || 0) + 1;
-    if (owner !== e) owner.users = (owner.users || 0) + 1;
-    e.releasePending = owner.releasePending = false;
-    this._instances.set(root, { e, load });
+    const load = e.load, gltf = load.value, root = skeletonClone(gltf.scene);
+    this._instances.set(root, { e, load, lease: this._lease(e) });
     // the call, then the manifest entry; else a generator's own flags; else cast + receive (shadowDefaults, the same rule content props use)
     shadowDefaults(root, { castShadow: castShadow ?? e.opts.castShadow, receiveShadow: receiveShadow ?? e.opts.receiveShadow });
     root.animations = gltf.animations;   // three's own place: .clone() keeps it as clips, where userData goes through JSON and the clips would come back broken
@@ -290,6 +320,7 @@ export class Assets {
    * A model with copies still in the scene is not released yet; it is freed when the last copy is engine.remove'd (copies in use are never broken).
    * A load still running ends here and its result is thrown away; code awaiting that load is a use, so it gets a fresh load, never the freed data.
    * A name that fell back has no data of its own: release the name it fell back to (describe().assets says what still holds it).
+   * A model whose geometry was handed out (assets.geometry, a generator's prototype) stays: nothing can know who still draws it, as with trim.
   */
   release(name) {
     for (const [k, v] of this.entries) if (v.variantOf === name) {
@@ -297,12 +328,12 @@ export class Assets {
       this.release(k);
       if (!waited) this.entries.delete(k);
     }
-    const e = this.entries.get(name); if (e) freeEntry(this, e);
+    const e = this.entries.get(name); if (e && !e.load?.pinned) freeEntry(this, e);
   }
   /** Release every model with no copy in use and every long decoded sound (music, long loops; short effects stay), unless marked preload (call after a level change; level calls it). A prop or template keeps one copy for good, so its model stays. A sound still playing plays on. Returns the names released */
   trim() {
     const freed = [];
-    for (const [k, e] of this.entries) if (e.type === 'model' ? e.value && !e.users && !e.load.pinned && !e.opts.preload : longSound(e)) { freeEntry(this, e); freed.push(k); }
+    for (const [k, e] of this.entries) if (e.type === 'model' ? e.value && !e.users && !e.load.pinned && !e.opts.preload : longSound(e) && !e.users) { freeEntry(this, e); freed.push(k); }
     return freed;
   }
   /**
@@ -316,7 +347,7 @@ export class Assets {
       const anim = this._animators.get(o); if (anim) { this._animators.delete(o); anim.dispose(); }
       const copy = this._instances.get(o); if (!copy) return;
       this._instances.delete(o);
-      dropCopy(this, copy);
+      copy.lease.remove();
     });
   }
   /**

@@ -34,7 +34,7 @@ export function layerTiles(e, layer, st) {
   mesh.name = `grid:${layer.grid.name}.${name}`; mesh.receiveShadow = true; mesh.frustumCulled = false;
   e.add(mesh, { owner: 'engine:grid' });
   let ver = -1, ground = 0, built = -1;
-  const offs = ['level:loaded', 'ground:change'].map(n => e.events.on(n, () => { ground++; }));   // new ground heights: a new level, or dug / raised terrain
+  const offs = ['level:loaded', 'level:unloaded', 'ground:change'].map(n => e.events.on(n, () => { ground++; }));   // new ground heights: a level came or left, or dug / raised terrain
   const col = new THREE.Color(), g = layer.grid;
   function rebuild() {
     const cells = layer.query(), pos = [], clr = [], idx = [];

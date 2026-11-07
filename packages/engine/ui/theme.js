@@ -17,7 +17,7 @@ const DEFAULT_UI = {
 const BASE_CSS = `
 :where(.threedog-root > *){pointer-events:auto}
 .threedog-ui{font:14px/1.55 var(--threedog-font);color:var(--threedog-fg)}
-.threedog-win{box-sizing:border-box;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(480px,calc(100% - 32px));
+.threedog-win{box-sizing:border-box;overflow-wrap:anywhere;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);width:min(480px,calc(100% - 32px));
   max-height:min(70%,560px);overflow:auto;
   background:var(--threedog-bg);border:1px solid var(--threedog-line);border-radius:var(--threedog-radius);padding:16px 18px;z-index:25;
   box-shadow:var(--threedog-shadow)}
@@ -45,7 +45,7 @@ const BASE_CSS = `
 .threedog-prompt{position:fixed;left:0;top:0;transform:translate(-50%,-100%);padding:6px 10px;border-radius:var(--threedog-radius-small);background:var(--threedog-bg);
   color:var(--threedog-fg);font:13px var(--threedog-font);cursor:pointer;z-index:15;white-space:nowrap}
 .threedog-prompt-hold{background:linear-gradient(90deg,var(--threedog-accent) calc(var(--progress,0)*100%),var(--threedog-bg) 0)}
-.threedog-dlg{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));
+.threedog-dlg{box-sizing:border-box;overflow-wrap:anywhere;position:fixed;left:50%;transform:translateX(-50%);bottom:calc(24px + env(safe-area-inset-bottom,0px));
   width:min(640px,calc(100% - 32px));
   background:var(--threedog-bg);color:var(--threedog-fg);border:1px solid var(--threedog-line);border-radius:var(--threedog-radius);
   padding:14px 18px 16px;font:15px/1.6 var(--threedog-font);z-index:20;cursor:pointer}

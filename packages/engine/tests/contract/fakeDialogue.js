@@ -32,6 +32,7 @@ export function fakeDialogue() {
   };
   return {
     name: 'dialogue', type: 'rules',
+    content: { dialogues: { commit(d) { for (const [id, def] of Object.entries(d)) api.define(id, def.nodes); } } },
     install(engine) {
       e = engine;
       e.ops.define('dialogue.advance', { net: 'local', can: () => api.active ? true : 'noDialogue', run: () => { const n = api.active.nodes[api.active.node]; if (!n.choices) api._next(n.next); } });

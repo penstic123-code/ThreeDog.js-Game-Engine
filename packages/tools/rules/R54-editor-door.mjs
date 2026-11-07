@@ -6,12 +6,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from './_lib.mjs';
+import { noComments } from '../lib/text.mjs';
 
 const DIR = 'packages/tools/editor', DOOR = 'design.js';
 const SCREEN = [[/\bfetch\s*\(|__threedog\//, 'talks to the server'], [/\bengine\.(world|content)\b/, 'reads content or world records'], [/\.definedAt\b|\bfileValues\b/, 'reads where an entry is written'],
   [/\.(template|source|grid|cell)\b/, 'names a content field']];
 const ALL = [[/\bworld\.(set|move|remove|add)\s*\(/, 'writes a world record directly']];
-const noComments = s => s.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' ')).replace(/(^|\s)\/\/.*$/gm, '$1');
 
 /** @param {string} name file name in editor/ @param {string} text @returns {{ line: number, msg: string }[]} */
 export function problems(name, text) {

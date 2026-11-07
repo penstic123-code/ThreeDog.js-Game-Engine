@@ -13,6 +13,7 @@ import { checkKinds, checkListed } from './content-check/kinds.mjs';
 import { checkAudio } from './content-check/audio.mjs';
 import { checkViews } from './content-check/views.mjs';
 import { checkFields, isObj } from './content-check/fields.mjs';
+import { sectionRefs } from './content-check/section-refs.mjs';
 import { glbLevels } from './content-check/glb.mjs';
 import { writeIndex } from './content-check/index-ids.mjs';
 import { cli, within } from './paths.mjs';
@@ -20,7 +21,7 @@ import { item, result, startJson } from './lib/result.mjs';
 import { KEYBOARD_CODE, gameCodeFiles, read } from './lib/text.mjs';
 import { actionUsed } from './gamemap/codeScan.mjs';
 import { noComments } from './gamemap/text.mjs';
-import { rel, findGames, loadGame, dupKeys, gameAssets, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
+import { rel, findGames, loadGame, dupKeys, gameAssets, missingAssetFiles, levelIsFile, mergeRules, CLOCK_RE, NO_GAME_EFFECTS } from './content-check/load.mjs';
 
 // Mouse buttons and gamepad buttons are keys too (core/input/inputPointer.js, core/input/inputPad.js): an attack on Mouse0 or PadX is a normal content action
 const KEY_RE = new RegExp(`^(${KEYBOARD_CODE}|Mouse[0-4]|Pad(A|B|X|Y|LB|RB|LT|RT|Select|Start|L3|R3|Up|Down|Left|Right))$`);
@@ -57,6 +58,7 @@ export async function checkGame(dir) {
   // Model / sound names: the asset packs the game exports from assets.js and registers at run time (one source, no scanning of source text)
   const assets = await gameAssets(dir), levelFile = levelIsFile(code);
   if (assets.error) errors.push(assets.error);
+  errors.push(...missingAssetFiles(dir, assets));
   let noAssetsNoted = false;
   // Content is data that names assets: a file path or a function in a model field is an error (the file / generator belongs in an asset pack)
   const checkModel = (kind, what, m) => {
@@ -71,7 +73,7 @@ export async function checkGame(dir) {
   // Collect the flags/counters set by effects (scan once first, to later judge "only checked, never set")
   const walkEffects = (fn) => {
     for (const d of Object.values(dialogues)) for (const n of Object.values(d?.nodes || {})) { fn(n.do); for (const ch of n.choices || []) fn(ch.do); }
-    for (const q of Object.values(quests)) { fn(q?.reward); fn(q?.onFail); }
+    for (const q of Object.values(quests)) { fn(q?.reward); fn(q?.onUnpaid); fn(q?.onFail); }
     for (const t of Object.values(c.triggers || {})) { fn(t?.onEnter); fn(t?.onExit); }
   };
   walkEffects(a => { for (const x of [a].flat()) if (isObj(x)) { if (x.setFlag) flagsSet.add(x.setFlag); if (x.bump) countersBumped.add(x.bump); } });
@@ -116,15 +118,13 @@ export async function checkGame(dir) {
   // 2. Items
   for (const [id, it] of Object.entries(items)) if (!it?.name) err('items', `item ${id} has no name (the displayed name)`);
   for (const [id, n] of Object.entries(c.startItems || {})) {
-    if (!items[id]) err('startItems', `${id} in startItems does not exist (existing items: ${known(items)})`);
-    else if (!(n > 0)) err('startItems', `the count of starting item ${id} must be positive`);
+    if (items[id] && !(n > 0)) err('startItems', `the count of starting item ${id} must be positive`);
   }
 
   // 3. Pickups
   (c.pickups || []).forEach((p, i) => {
     const where = `pickup #${i + 1}`;
     if (!p?.item) err('pickups', `${where} has no item (which item it is)`);
-    else if (!items[p.item]) err('pickups', `item ${p.item} of ${where} does not exist (existing items: ${known(items)})`);
     checkPos('pickups', where, p);
   });
 
@@ -208,6 +208,9 @@ export async function checkGame(dir) {
     checkRefs('triggers', `onEnter of ${where}`, t?.onEnter, EFFECTS, 'effect');
     checkRefs('triggers', `onExit of ${where}`, t?.onExit, EFFECTS, 'effect');
   }
+
+  // Ids the sections name that name nothing: each section's own `references` (startItems, containers, pickups, quest targets), read once for every tool
+  for (const r of await sectionRefs(c)) if (!c[r.names]?.[r.id]) err(r.at.split(/[.[]/)[0], `${r.at} names ${r.names.replace(/s$/, '')} ${r.id}, which does not exist (existing ${r.names}: ${known(c[r.names] || {})})`);
 
   // 9. Containers, vegetation, props
   checkWorldData({ c, items, err, checkModel, checkPos, isObj, known });

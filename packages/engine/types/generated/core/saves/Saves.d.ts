@@ -29,18 +29,26 @@ export class Saves {
      * version (default 1): raise it by 1 whenever what save() returns changes shape, and add migrate[oldVersion] = data => newData; load sees only the current
      * shape.
      * A save whose part is newer than this build's version is refused as a whole (load returns false, the save is kept).
-     * A part registered after a save was loaded (a module installed later) is handed its data from that save at once.
+     * load(data, turn): turn is this replacement's identity. Pass it on, level.load(x, { turn }) or content.load(x, { turn }): those wait for a running load to end, except with its turn.
+     * A part registered after a save was loaded (a module installed later) is handed its data from that save: at once when idle, else right after the replacement under way.
      * atomic: true joins this part to atomic ops: it is copied before an atomic op runs and put back if the op fails (plain data only; afterLoad does not run on rollback).
      * checkNewGame(data): dev only, called once start() finished with this part's data in the new-game state, to warn about what should not be there yet
      * (world: records placed by code instead of content). The part knows its own format; core only hands the data over.
+     * Returns a handle: remove() takes the part out and keeps its data as unattached data (it rides in later saves and goes back to a part registered under
+     * the key later), without holding on to the part's closures. remove({ keep: false }) gives back only what the part took over at register: for a part that never ran.
      * @param {string} key
      * @param {SaveProvider} provider
+     * @returns {{ remove(o?: { keep?: boolean }): void }}
      * @example
      * engine.saves.register('garden', { save: () => garden.toJSON(), load: d => garden.fromJSON(d) });
      * // later the format gains beds: version 2, and a step that upgrades version-1 data
      * engine.saves.register('garden', { version: 2, migrate: { 1: d => ({ ...d, beds: [] }) }, save: () => garden.toJSON(), load: d => garden.fromJSON(d) });
      */
-    register(key: string, provider: SaveProvider): void;
+    register(key: string, provider: SaveProvider): {
+        remove(o?: {
+            keep?: boolean;
+        }): void;
+    };
     /**
      * The save versions this build reads, per part: { world: 1, clock: 1, ... }. A save whose part is newer is refused; an older one is migrated.
      * @returns {Record<string, number>}
@@ -49,6 +57,7 @@ export class Saves {
     /**
      * Store a binary attachment outside the world save (a photo, a replay). It rides in the queue of save writes, so flush() waits for it, and exportFile() carries it.
      * Pass a function to make the bytes when the write runs: flush() then waits for that too. Without IndexedDB it is not kept.
+     * Rejects with save-stale, changing nothing, when another tab wrote this id since this tab last saw it; attachments(group) is how a tab looks.
      * @example await engine.saves.putAttachment('replay', 'run-1', blob, { score: 12 });
      * @param {string} group what the attachment is for
      * @param {string} id unique inside the group; the same id replaces
@@ -58,7 +67,7 @@ export class Saves {
      * @experimental
      */
     putAttachment(group: string, id: string, blob: Blob | (() => Promise<Blob>), meta?: any): Promise<void>;
-    /** Delete an attachment; no such id is fine @param {string} group @param {string} id @returns {Promise<void>} @experimental */
+    /** Delete an attachment; no such id is fine. Rejects with save-stale as putAttachment does @param {string} group @param {string} id @returns {Promise<void>} @experimental */
     removeAttachment(group: string, id: string): Promise<void>;
     /**
      * The attachments of a group, once storage is ready. Empty without IndexedDB.
@@ -85,6 +94,7 @@ export class Saves {
     /**
      * Collect the data of every part (does not write to the browser): { format, savedAt, versions, parts }.
      * A part whose save() throws is left out and reported (engine.error in dev); save() instead refuses to write such a save.
+     * Throws while a load is under way: what it would return is half of each state. saves.save waits instead.
      * @returns {{ format: number, savedAt: number, versions: Record<string, number>, parts: Record<string, any> }}
      */
     collect(): {
@@ -112,8 +122,13 @@ export class Saves {
      * The pre-load state is a copy (structuredClone) of every part's save(), so save() may return the live object load() writes into; a part whose
      * data cannot be copied makes apply refuse (false) before anything changes.
      * The state changes synchronously unless a part's load is async; only the result is a Promise.
+     * One replacement runs at a time: asked for while a load, newGame or quit is under way, this waits its turn, then reads the data and takes its
+     * rollback point. On the line after a synchronous apply it is not waiting on anything yet, so it applies at once and takes over the afterLoad.
+     * Inside a part's load() or an afterLoad it starts after they return, so do not await it there.
+     * On success 'save:loaded' fires with slot, as for saves.load: what the game does not save (a walk) ends on it, and derived state rebuilds.
      * @param {any} data
-     * @param {string} [slot]  for messages only
+     * What goes around it is the same for every door (core/saves/session.js): 'save:loaded' fires with `slot`, the title closes; a rollback fires 'session:failed' { kind: 'quick', slot }.
+     * @param {string} [slot]  for messages and the event
      * @returns {Promise<boolean>}
      */
     apply(data: any, slot?: string): Promise<boolean>;
@@ -121,7 +136,8 @@ export class Saves {
      * Save into a slot (default 'auto'). Returns Promise<boolean>
      * (resolves after the write to IndexedDB: true on success, false with a toast and console error on failure).
      * The in-memory save updates immediately, so a following load / list / export sees it at once; the 'save:written' event fires only after the write succeeds.
-     * If any part's save() throws, nothing is written and the slot keeps its previous save (false). A failed write keeps the previous save too.
+     * Asked for while a load, newGame or quit is under way, it waits for that to end and saves the result: a save never holds half of each state.
+     * If any part's save() throws, or its data holds NaN or Infinity at any depth (the message names the part and the path), nothing is written and the slot keeps its previous save (false). A failed write keeps the previous save too.
      * Show "saved" only after the result is true.
      * @param {string} [slot]
      * @returns {Promise<boolean>}
@@ -144,7 +160,11 @@ export class Saves {
         slot: string;
         savedAt: number;
     }[];
-    /** Delete a slot. Returns a Promise (disk write done); awaiting is optional @param {string} slot @returns {Promise<void>} */
+    /**
+     * Delete a slot. Returns a Promise (disk write done); awaiting is optional. A newer save another tab wrote meanwhile is kept: the slot lists again, with a toast (save-stale).
+     * A delete the store refused lists the slot again too, with a toast.
+     * @param {string} slot @returns {Promise<void>}
+     */
     remove(slot: string): Promise<void>;
     /** Export as a piece of text (can be copied as a backup; synchronous, without binary attachments) @param {string} [slot] @returns {string} @experimental */
     export(slot?: string): string;

@@ -1,6 +1,7 @@
 // The canvas's CSS box and the UI root laid over it (split out of Engine.js: all about "how big is the canvas on the page").
 import * as THREE from 'three';
 import { warnOnce } from '../base/validate.js';
+import { fitPixelSize } from './pixelRatio.js';
 
 const _size = new THREE.Vector2();
 const NO_CSS_SIZE = 'createEngine(): the canvas has no CSS size of its own (it would take its size from its pixel buffer), so the engine sizes it to the window. '
@@ -53,6 +54,7 @@ export const resizeMethods = {
   _resize() {
     const { w, h } = canvasBox(this);
     placeUI(this);
+    if (fitPixelSize(this, w, h)) return;
     const now = this.renderer.getSize(_size);
     if (now.x === w && now.y === h) return;   // ResizeObserver and the window event can both fire for one change
     this.renderer.setSize(w, h, !!this._autoSize);   // the post chain follows the renderer on its next draw (postWebGL.js follow)

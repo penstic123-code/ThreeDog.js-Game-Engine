@@ -9,9 +9,10 @@ import { join } from 'node:path';
 import { readdirSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
-import { runContract, contractEngine } from '@threedog/tools/contract';
+import { runContract, contractEngine, contractCtx } from '@threedog/tools/contract';
 
 const imp = f => import(pathToFileURL(join(ENGINE, f)).href);
+const { flatGround } = await imp('core/scene/ground.js');
 const { fakeInventory } = await imp('tests/contract/fakeInventory.js');
 const { inventory } = await imp('modules/gameplay/Inventory.js');
 const { interactions } = await imp('modules/gameplay/Interactions.js');
@@ -23,19 +24,20 @@ const { quests } = await imp('modules/gameplay/Quests.js');
 const { followCamera } = await imp('modules/camera/FollowCamera.js');
 const { particles } = await imp('modules/particles/Particles.js');
 const all = { ...await imp('modules/collision/Collision.js'), ...await imp('modules/level/index.js'), ...await imp('modules/nav/index.js') };
-const { EngineCamera } = await imp('core/scene/engineCamera.js');
 const THREE = await import('three');
 const { fakeDialogue } = await imp('tests/contract/fakeDialogue.js');
 const { fakeQuests } = await imp('tests/contract/fakeQuests.js');
 const { fakeCamera } = await imp('tests/contract/fakeCamera.js');
 const { fakeVehicle } = await imp('tests/contract/fakeVehicle.js');
+const { fakeCharacter } = await imp('tests/contract/fakeCharacter.js');
+const { fakeCollider3d } = await imp('tests/contract/fakeCollider3d.js');
 
 // What the engine's camera module touches beyond the small contract engine: engine.camera, a canvas to listen on, the scene, the takeover hold.
 // Stand-ins only (no browser): the contract checks the surface, the camera's looks are its own browser tests.
 const cameraParts = e => {
   globalThis.document ??= /** @type {any} */ ({ pointerLockElement: null, addEventListener() {} });
   const canvas = { addEventListener() {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }), requestPointerLock() {} };
-  Object.assign(e, { camera: new EngineCamera(50, 4 / 3, 0.1, 1000), scene: new THREE.Scene(), focus: new THREE.Vector3(), signal: new AbortController().signal,
+  Object.assign(e, { camera: new THREE.PerspectiveCamera(50, 4 / 3, 0.1, 1000), scene: new THREE.Scene(), focus: new THREE.Vector3(), signal: new AbortController().signal,
     renderer: { domElement: canvas, getSize: v => v.set(800, 600) }, takeCamera: () => ({ remove() {} }), _oFov: { drive(v) { e.camera.fov = v; } }, raycast: () => null,
     player: null });
 };
@@ -61,10 +63,18 @@ const CONTRACTS = {
   'modules/collision/contract.js': [['engine', o => all.collision(o)]],
   'modules/level/contract.js': [['engine', o => all.level(o), e => { e.setGround = () => {}; }]],
   'modules/nav/contract.js': [['engine', o => all.nav(o)]],
+  'core/scene/ground.contract.js': [['flat', () => ({ ...flatGround })]],
+  'modules/characters/character.contract.js': [['fake', () => fakeCharacter()]],   // the real one needs a browser: [guard] contract in specs/layer-conflicts.mjs
+  'modules/characters/mover.contract.js': [['fake', () => ({ name: 'fly', move() {}, dispose() {} })]],
   'modules/characters/vehicle.contract.js': [['rigid-shaped', rigidShaped], ['fake', () => fakeVehicle()]],
+  'modules/rigid/collider3d.contract.js': [['fake', () => fakeCollider3d()]],   // the real holder needs Rapier: tests/rigid-rules.mjs runs it
 };
 
-export async function run({ check }) {
+export async function run(t) {
+  try { await checkContracts(t); } finally { delete globalThis.document; }   // cameraParts' stand-in: a later test in this process must not see a document
+}
+
+async function checkContracts({ check }) {
   for (const [file, impls] of Object.entries(CONTRACTS)) {
     const contract = (await imp(file)).default;
     for (const [who, make, prepare] of impls) runContract(contract, () => make(contract.options), { check, label: `${contract.name} (${who})`, prepare });
@@ -75,9 +85,20 @@ export async function run({ check }) {
   walk('modules');
   const unrun = found.filter(f => !CONTRACTS[f]);
   check('every modules/**/contract.js is run by this test', !unrun.length, unrun.join(', '));
+  // [guard] who may write a character's position is stated where a replacement reads it, never implied
+  const silent = [];
+  for (const f of ['modules/characters/contract.js', 'modules/characters/mover.contract.js', 'modules/characters/vehicle.contract.js']) if ((await imp(f)).default.position?.authority !== 'solver') silent.push(f);
+  check('[guard] the character, mover and vehicle contracts state the position authority', !silent.length, silent.join(', '));
+  // [guard] no way around the bind check: a new contract is on the capability list in index.js, or named here with why it binds no capability
+  const { CAP_CONTRACTS } = await imp('core/engine/moduleSlots.js');
+  await imp('index.js');   // the list fills as index.js loads
+  const NOT_CAPS = { mover: 'a per-character value of the rule character.mover', vehicle: 'a per-object shape, no module holds it', character: 'a per-object shape: characters hands it out' };
+  const unbound = [];
+  for (const f of found) { const c = (await imp(f)).default; if (!CAP_CONTRACTS.has(c.name) && !NOT_CAPS[c.name]) unbound.push(c.name); }
+  check('[guard] every module contract binds at its capability (on the list in index.js) or says why not', CAP_CONTRACTS.size > 0 && !unbound.length, `size ${CAP_CONTRACTS.size}; missing: ${unbound.join(', ')}`);
 
   // ---- engine.wrap
-  const e = contractEngine(), mod = inventory(), inv = mod.install(e, { name: mod.name, track: h => h });
+  const e = contractEngine(), mod = inventory(), inv = mod.install(e, contractCtx(e, mod.name));
   e.inventory = inv; e.modules.set('inventory', mod);
   inv.define('fish', { name: 'Fish' }).define('rock', { name: 'Rock' });
   const order = [];

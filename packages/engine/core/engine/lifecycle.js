@@ -26,7 +26,7 @@ export function clearHooks(e) {
   e._fixed = []; e._fixedLate = []; e._frame = []; e._animate = []; e._onRender = { before: [], after: [] }; e._hooks = { fixed: [], frame: [], afterRender: [], skip: [] };
 }
 
-const STRINGS = { failed: '[engine] dispose hook of module {name} threw (the rest are still cleaned up)',
+const STRINGS = { failed: '[engine] dispose hook of module {name} threw (the rest are still cleaned up)', part: '[engine] a cleanup step of engine.dispose() threw, {why} (the rest are still cleaned up)',
   released: 'createEngine(): this canvas lost its WebGL context in an earlier engine.dispose(), so a new engine cannot draw on it; use a new canvas, or dispose the old engine with dispose({ keepContext: true })',
   opts: 'engine.dispose(opts): opts is { keepContext?: boolean }; got {v}' };
 
@@ -36,11 +36,13 @@ const released = new WeakSet();
 export function checkCanvasUsable(canvas) { if (canvas && released.has(canvas)) throw codedError('canvas-released', STRINGS.released); }
 
 /** Dispose the GPU data of one scene object: geometry, materials and their textures, instance buffers, shadow map, bone texture */
-function disposeObject(o) {
-  o.geometry?.dispose(); if (o.isInstancedMesh || o.isBatchedMesh || o.isLight) o.dispose(); o.skeleton?.dispose();   // instance buffers, batch textures, a light's shadow map, the bone texture
+function disposeObject(o, tidy) {
+  tidy(() => o.geometry?.dispose());
+  tidy(() => { if (o.isInstancedMesh || o.isBatchedMesh || o.isLight) o.dispose(); });   // instance buffers, batch textures, a light's shadow map
+  tidy(() => o.skeleton?.dispose());   // the bone texture
   for (const m of [].concat(o.material || [])) {
-    for (const k in m) if (m[k]?.isTexture) m[k].dispose();
-    m.dispose();
+    for (const k in m) if (m[k]?.isTexture) tidy(() => m[k].dispose());
+    tidy(() => m.dispose());
   }
 }
 
@@ -58,7 +60,9 @@ export const lifecycleMethods = {
     if (this.disposed) return;
     this.phase = 'disposed'; this.halted = true; this._starting = null;   // a finished start() must not answer a later call as if the engine were alive
     cancelAnimationFrame(this._raf);
-    dropOwned(this, [...(this._owned?.values() ?? [])]);   // owned.js keeps a page-wide list for allowOwned
+    // one step that throws must not leave the renderer, the UI and the listeners alive: a game's 'dispose' listener on a material reaches here, and three calls it inside m.dispose()
+    const tidy = fn => { try { fn(); } catch (err) { reportError(this, err, coded('module-dispose', fmt(STRINGS.part, { why: String(err?.message ?? err) })), { soft: true }); } };
+    tidy(() => dropOwned(this, [...(this._owned?.values() ?? [])]));   // owned.js keeps a page-wide list for allowOwned
     for (const m of [...this.modules.values()].reverse()) {
       this._modState.set(m.name, 'disposed');
       this._dropTracked(m.name);   // its listeners / timers go first, so nothing calls into the module while its dispose tears it down
@@ -66,27 +70,25 @@ export const lifecycleMethods = {
       try { m.dispose(this); } catch (err) { reportError(this, err, coded('module-dispose', fmt(STRINGS.failed, { name: m.name })), { soft: true }); }
     }
     this._abort.abort();
-    this._untrackValidate();
-    this._wraps?.dispose();   // engine.wrap: every wrapped method back on its object (a game object or api may outlive the engine)
-    this._picture?.dispose();   // dev tool: its scene watchers go with the engine
-    this.debug.dispose();   // before the scene is disposed: undoes every diagnostic override and view (puts swapped materials back)
-    for (const part of [this.saves, this.audio, this.time, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) part.dispose();
+    tidy(() => this._untrackValidate());
+    tidy(() => this._wraps?.dispose());   // engine.wrap: every wrapped method back on its object (a game object or api may outlive the engine)
+    tidy(() => this._picture?.dispose());   // dev tool: its scene watchers go with the engine
+    tidy(() => this.debug.dispose());   // before the scene is disposed: undoes every diagnostic override and view (puts swapped materials back)
+    for (const part of [this.saves, this.audio, this.time, this.commits, this.jobs, this.threads, this.stream, this.batching, this.rays, this.events]) tidy(() => part.dispose());
     clearHooks(this); this._afterTick = null;
-    this.scene.traverse(disposeObject);
+    this.scene.traverse(o => disposeObject(o, tidy));
     // scene.environment is never disposed here: the engine's own maps (sky PMREM targets, the baseline room map) were freed above by their
     // owners, and anything else is the game's texture (a direct scene.environment write), which stays the game's to free
     this.scene.environment = null;
-    if (this.scene.background?.isTexture) this.scene.background.dispose();
-    this.assets.dispose();
-    this.occlusion.dispose();
-    this.post.dispose();
-    this._webglOnlyView?.remove(); this._webglOnlyView = null;
-    this._gpu?.dispose();
-    this.renderer.dispose();
-    if (this._ownsRenderer && !opts.keepContext) { releaseContext(this.renderer); released.add(this.renderer.domElement); }
-    this.ui._dispose();
-    this._materials.remove();
-    this._uiStyle.remove();
+    tidy(() => { if (this.scene.background?.isTexture) this.scene.background.dispose(); });
+    for (const part of [this.assets, this.occlusion, this.post]) tidy(() => part.dispose());
+    tidy(() => this._webglOnlyView?.remove()); this._webglOnlyView = null;
+    tidy(() => this._gpu?.dispose());
+    tidy(() => this.renderer.dispose());
+    tidy(() => { if (this._ownsRenderer && !opts.keepContext) { releaseContext(this.renderer); released.add(this.renderer.domElement); } });
+    tidy(() => this.ui._dispose());
+    tidy(() => this._materials.remove());
+    tidy(() => this._uiStyle.remove());
     this.uiRoot.remove();
   },
 

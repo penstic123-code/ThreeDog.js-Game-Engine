@@ -20,7 +20,6 @@
 // that did nothing (a weather name the game lacks, a key no module handles) must not read as done. A hook refuses with { refused: { key: reason } }; it names the
 // keys it handles in its module's stateKeys (a hook without stateKeys counts for every key, so a game's own hook is never refused for it).
 import { warnMissing, warnOnce, DEV } from '../base/validate.js';
-import { readParams, keysSchema } from '../base/params.js';
 import { xzOf, yOf } from '../base/math.js';
 import { unsettled } from '../engine/headlessLoad.js';
 import { codedError } from '../base/errorHints.js';
@@ -30,7 +29,8 @@ const FRESH_ON = [true, 1, '1', ''], FRESH_OFF = [false, 0, '0', 'false'];
 const freshOn = v => FRESH_ON.includes(v);
 // met without a module: play has its own core path, and skipping a cutscene in a game without any has nothing left to do
 const NOTHING_NEEDED = ['play', 'cutscene'];
-const KEYS = ['state', 'time', 'season', 'weather', 'pos', 'at', 'save', 'wait', 'cutscene', 'view', 'play', 'fresh'];
+// the keys core itself reads. Every other key is a module's, named in its stateKeys: core keeps no list of what modules exist
+const KEYS = ['state', 'pos', 'at', 'save', 'wait', 'cutscene', 'view', 'play', 'fresh'];
 
 export class UrlState {
   constructor(engine, { fromUrl = false, dev = DEV } = {}) {
@@ -58,7 +58,6 @@ export class UrlState {
       p = { ...s, ...p };
       delete p.state;
     }
-    readParams('applyState()', keysSchema(KEYS), p);
     if (p.fresh != null && !freshOn(p.fresh) && !FRESH_OFF.includes(p.fresh)) throw codedError('state-value', `applyState({ fresh: ${JSON.stringify(p.fresh)} }): fresh takes true or 1 (delete the saves), false or 0 (keep them)`);
     if (typeof p.pos === 'string') { const [x, z] = p.pos.split(',').map(Number); p.pos = { x, z }; }
     if (p.wait != null) p.wait = +p.wait;
@@ -71,6 +70,8 @@ export class UrlState {
     if (!Object.keys(part).length) return [];
     return [...this.engine.modules.values()].filter(m => m.applyState).map(m => m.applyState(this.engine, part));
   }
+  /** The keys of these params that a module answers @param {Record<string, any>} p */
+  _moduleKeys(p) { return Object.keys(p).filter(k => !KEYS.includes(k)); }
   _refuse(p, key, reason) { this._refused.set(key, { key, value: p[key], reason }); }
   /** Run the hooks for these keys and keep what they refused; a key no installed module handles is refused here, since nothing else would ever say so */
   async _ask(p, keys) {
@@ -108,9 +109,9 @@ export class UrlState {
   async _early(p) {
     const e = this.engine;
     if (freshOn(p.fresh)) await this._fresh();
-    if (p.save != null) await e.saves.load(String(p.save));
+    if (p.save != null && !await e.saves.load(String(p.save))) this._refuse(p, 'save', e.saves.check(String(p.save)) ?? 'the load failed, so the game went back to how it was');
     if (p.pos) this._place(p.pos);
-    await this._ask(p, ['time', 'season', 'weather']);
+    await this._ask(p, this._moduleKeys(p));
   }
   async _late(p) {
     const e = this.engine;
@@ -120,10 +121,12 @@ export class UrlState {
     if (p.play != null) {
       // ended: without a title part quit leaves nothing open to press Start on, and a run that ended must still start again (session:start)
       const started = ended || e.ui.isOpen('title');
-      if (started) { await e.session.newGame(); e.ui.close('title'); }
+      const fresh = started && await e.session.newGame();
+      if (fresh) e.ui.close('title');
       await this._ask(p, ['play']);
+      if (started && !fresh) this._refuse(p, 'play', 'the new game failed, so the game went back to how it was');   // after _ask, which clears the keys it is given
       // a new run puts the player at the start, which undid the pos of _early while `state` still printed Set
-      if (started && p.pos && p.at == null) { this._place(p.pos); await this._settle(); }
+      if (fresh && p.pos && p.at == null) { this._place(p.pos); await this._settle(); }
     }
     if (p.at != null) {
       const where = (await this._ask(p, ['at'])).find(r => r && !r.refused);
@@ -131,18 +134,19 @@ export class UrlState {
       if (where) { this._place(where); await this._settle(); }   // the ground and models around the place, before wait and the picture
       else if (!this._refused.has('at')) this._refuse(p, 'at', 'no installed module knows place names: install content(), or use pos=x,z');
     }
-    await this._ask(p, ['cutscene', 'weather']);   // set weather once more: the opening auto-weather or settings in engine:ready may have changed it
+    await this._ask(p, ['cutscene', ...this._moduleKeys(p)]);   // once more: an opening's own weather or time, or settings in engine:ready, may have changed them
     if (p.wait > 0) for (let s = p.wait; s > 1e-6; s -= 0.5) {   // advance in small slices so Promises (the next cutscene segment) and background threads continue between them
       e.step(Math.min(0.5, s), { render: false, describe: false });
       await new Promise(r => setTimeout(r, 0));   // main-loop: yield to the browser (background threads, Promise continuations) without advancing game time
     }
-    await this._ask(p, ['time', 'season']);         // advancing moves time and the day, so align them last
+    await this._ask(p, this._moduleKeys(p));        // advancing moves time and the day, so align them last
     if (p.view && e.views.list().length && e.views.show(p.view)) {   // a page with its own ?view= (no engine.views declared) handles it itself
       if (e.headless) e._frameHooks(0, true);   // one loading frame: the modules see the new focus, so _settle has something to wait for
       await this._settle();                     // a picture of the view must not be taken before the world around it has loaded
     }
     this.applied = true;
     e.events.emit('state:applied', p);
+    e.events.emit('state:replaced', { undone: false });   // a scenario is a door like a load: time, weather and position moved without a step
   }
 
   /** What the last applyState or the URL could not do: applyState hands this back, but a URL has no caller, so a tool that built one reads it here @returns {{ key: string, value: any, reason: string }[]} */
@@ -164,7 +168,7 @@ export class UrlState {
   early() {
     if (!this.fromUrl) return;
     const q = new URLSearchParams(location.search), raw = {};
-    for (const k of KEYS) if (q.has(k)) raw[k] = q.get(k);
+    for (const k of [...KEYS, ...[...this.engine.modules.values()].flatMap(m => m.stateKeys ?? [])]) if (q.has(k)) raw[k] = q.get(k);
     if (!Object.keys(raw).length) return;
     this.pending = this._expand(raw);
     if (!this.dev && this.pending.fresh != null) {   // after _expand: a named ?state= can carry fresh too

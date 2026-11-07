@@ -107,13 +107,13 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(() => {
         const THREE = __threedogThree, o = engine.occlusion, m = new THREE.Mesh(), it = { meshes: [m] };
-        const round = write => { m.layers.set(0); o._hide(it); write?.(); o._show(it); return m.layers.mask; };
+        const round = write => { m.layers.set(0); o._hide(it); write?.(); o._show(it); return Object.hasOwn(m.layers, 'test') ? -1 : m.layers.mask; };
         return { plain: round(), set: round(() => m.layers.set(3)), enable: round(() => m.layers.enable(2)) };
       });
       const J = JSON.stringify(r);
       check('nothing written: the mask comes back', r.plain === 1, J);
       check('layers.set while hidden is the game taking the mask', r.set === 1 << 3, J);
-      check('layers.enable while hidden keeps the old layers too, and the hidden layer goes', r.enable === (1 | 1 << 2), J);
+      check('layers.enable while hidden keeps the old layers too', r.enable === (1 | 1 << 2), J);
     },
   },
   {

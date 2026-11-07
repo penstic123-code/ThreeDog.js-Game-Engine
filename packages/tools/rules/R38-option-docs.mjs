@@ -1,12 +1,10 @@
 // R38 module options without a JSDoc description (warning count; `threedog catalog <id>` shows "(no doc)" for them)
-// The catalog takes each option's type and sentence from the generated api page (docs/api/<module>.md "Options" lines), which comes from the
+// The catalog takes each option's type and sentence from the metadata (metadata.mjs reads the generated api page's "Options" lines), which come from the
 // options typedef's JSDoc, so the description is written once. A module whose factory takes options and declares `params` should have an
 // Options section on its page, and every option line there should carry a sentence.
 // Fix: add the options typedef (`@typedef {{ key?: type }}` with a `/** sentence */` per key, or an interface in types/*.d.ts), then `npm run map`.
-import { ts, parse, visit, engineFiles, lineOf, abs, hasProp, OPT_NAMES, factoryOf } from './_lib.mjs';
-import { existsSync, readFileSync } from 'node:fs';
-import { API_DIR_REL } from '../paths.mjs';
-
+import { metadata } from 'threedog/metadata';
+import { ts, parse, visit, engineFiles, lineOf, hasProp, OPT_NAMES, factoryOf } from './_lib.mjs';
 
 export default {
   id: 'R38', title: 'module options without a description',
@@ -21,19 +19,13 @@ export default {
         if (!nameProp || !ts.isPropertyAssignment(nameProp) || !ts.isStringLiteralLike(nameProp.initializer)) return;
         const fn = factoryOf(n);
         if (!fn || !fn.parameters.some(p => ts.isIdentifier(p.name) && OPT_NAMES.has(p.name.text))) return;
-        const name = nameProp.initializer.text, page = abs(`${API_DIR_REL}/${name}.md`);
-        const lines = existsSync(page) ? readFileSync(page, 'utf8').split(/\r?\n/) : [];
-        const at = lines.findIndex(l => /^- Options\b/.test(l));
-        if (at < 0) {
+        const m = metadata.modules[nameProp.initializer.text], name = nameProp.initializer.text;
+        if (!m?.documented) {
           out.push({ level: 'warn', file: f, line: lineOf(n), msg: `module ${name}: no documented options (no "Options" section on its api page)`,
             fix: 'give the factory a typed @param {XOptions} opts whose keys have /** sentence */ comments, then npm run map' });
           return;
         }
-        const bare = [];
-        for (let i = at + 1; i < lines.length && /^\s+-\s/.test(lines[i]); i++) {
-          const m = /^\s+-\s+`([\w$]+)\??:[^`]*`\s*$/.exec(lines[i]);
-          if (m) bare.push(m[1]);
-        }
+        const bare = Object.keys(m.params ?? {}).filter(k => !m.params[k].desc);
         if (bare.length) out.push({ level: 'warn', file: f, line: lineOf(n), msg: `module ${name}: ${bare.length} option(s) without a description: ${bare.join(', ')}`,
           fix: 'add a /** sentence */ above each key of the options typedef, then npm run map' });
         else ok++;

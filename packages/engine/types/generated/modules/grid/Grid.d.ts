@@ -2,6 +2,7 @@
 /** The default occupancy layer of an item that names none */
 export const MAIN: "main";
 export function occKey(occupy: any, level: any, i: any, j: any): string;
+export function planar(v: any): any[];
 /**
  * A placement grid. Several can exist at once (a yard outdoors, a room indoors); each has its own cell size, origin and bounds.
  * @example

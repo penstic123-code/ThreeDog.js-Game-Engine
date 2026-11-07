@@ -43,7 +43,7 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         engine.haltLoop();
-        const read = () => ({ kind: engine.cameraRig.kind, distance: engine.cameraRig.distance, pitch: engine.cameraRig.pitch, size: engine.cameraRig.size, ortho: !!engine.camera.orthoSize });
+        const read = () => ({ kind: engine.cameraRig.kind, distance: engine.cameraRig.distance, pitch: engine.cameraRig.pitch, size: engine.cameraRig.size, ortho: !!engine.camera.isOrthographicCamera });
         await engine.session.newGame();
         engine.step(0.1);
         const out = { play: read() };
@@ -161,12 +161,14 @@ export const specs = [
       const r = await ev(async () => {
         engine.haltLoop();
         const errs = []; const oe = console.error; console.error = (...a) => { errs.push(a.join(' ')); oe(...a); };
-        const cam = engine.camera, V = cam.position.constructor, out = {};
+        const home = engine.camera, V = home.position.constructor, out = {};
+        let cam = home;
         const ndc = (x, y, z) => { cam.updateMatrixWorld(); return new V(x, y, z).applyMatrix4(cam.matrixWorldInverse).applyMatrix4(cam.projectionMatrix); };
         engine.setCamera('fixed', { position: [0, 10, 10], lookAt: [0, 0, 0], projection: 'orthographic', size: 10 });
         engine.step(0.1);
-        out.ortho = cam.isOrthographicCamera === true && cam.isPerspectiveCamera === false;
-        const a = cam.aspect, p = ndc(2, 0, 0), up = ndc(0, 0, -3);
+        cam = engine.camera;
+        out.ortho = cam.isOrthographicCamera === true && cam !== home;
+        const a = (cam.right - cam.left) / (cam.top - cam.bottom), p = ndc(2, 0, 0), up = ndc(0, 0, -3);
         out.x = +p.x.toFixed(3); out.wantX = +(2 / (5 * a)).toFixed(3);
         out.centre = Math.abs(ndc(0, 0, 0).x) < 1e-6 && Math.abs(ndc(0, 0, 0).y) < 1e-6;
         out.upY = +up.y.toFixed(3);   // 3 m farther from the camera along the ground is 3 * sin(45deg) up the screen: 2.12 / 5
@@ -175,7 +177,7 @@ export const specs = [
         out.desc = engine.describe().camera.type;
         engine.setCamera('follow');
         engine.step(0.1);
-        out.back = cam.isPerspectiveCamera === true && !cam.orthoSize;
+        out.back = engine.camera === home && home.isPerspectiveCamera === true;
         console.error = oe; out.errs = errs.length;
         return out;
       });
@@ -215,7 +217,7 @@ export const specs = [
           a: { position: [0, 5, 5], lookAt: [0, 0, 0] }, b: { position: [500, 5, 5], lookAt: [500, 0, 0], projection: 'orthographic', size: 10 } } });
         fixed.target = { position: new V(500, 0, 0) };
         fixed.update(1, engine.input);
-        out.shot = fixed.current; out.size = engine.camera.orthoSize;
+        out.shot = fixed.current; out.size = engine.camera.top - engine.camera.bottom;
         let done = false;
         fixed.blend('a', { seconds: 5 }).then(() => { done = true; });
         engine.setCamera('follow');

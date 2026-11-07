@@ -16,7 +16,7 @@ export const occKey = (occupy, level, i, j) => `${occupy}|${level}|${i},${j}`;
 const cap = s => s[0].toUpperCase() + s.slice(1);
 const FLAT_SAMPLES = [[0, 0], [-1, -1], [1, -1], [-1, 1], [1, 1]];
 // [x, z] here (a grid is flat), [x, y, z] / Vector3 / Object3D / { x, z } as everywhere else
-const planar = v => (Array.isArray(v) && v.length === 2 ? v : xzOf(v));
+export const planar = v => (Array.isArray(v) && v.length === 2 ? v : xzOf(v));
 
 /**
  * A placement grid. Several can exist at once (a yard outdoors, a room indoors); each has its own cell size, origin and bounds.

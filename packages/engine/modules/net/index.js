@@ -72,7 +72,7 @@ export function net(opts = {}) {
   };
   let n = null;
   return {
-    name: 'net', type: 'net', params: NET_PARAMS, options: opts, label: 'Multiplayer', stage: 'late', optional: ['world', 'inventory'],
+    name: 'net', skipKind: 'none', type: 'net', params: NET_PARAMS, options: opts, label: 'Multiplayer', stage: 'late', optional: ['world', 'inventory'],
     // ctx.control: the holds on remote characters are the module's, so removing net hands them back
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.net': '联机' }, en: { 'module.net': 'multiplayer' } }); o.control = ctx.control; return (n = new Net(e, o)); },
     fixed(dt) { n._fixed(dt); },

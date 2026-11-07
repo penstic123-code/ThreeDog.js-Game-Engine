@@ -63,7 +63,7 @@ engine.onFrame(() => {
 
 // ---------- 4. Views: an op, so the URL, the dev bridge and tests switch the same way ----------
 const state = { view: params.view };
-engine.ops.define('perf-island.view', {
+engine.ops.define('island.view', {
   desc: 'Move the camera to a named view: overview, flock, field, river, rim', args: { name: 'string' },
   can: (e, { name }) => VIEW_NAMES.includes(name) ? true : 'unknownView',
   run: (e, { name }) => {
@@ -75,7 +75,7 @@ engine.ops.define('perf-island.view', {
   reasons: { unknownView: 'View names: overview, flock, field, river, rim' },
 });
 engine.describe.add('perf-island', () => ({ view: state.view, season: engine.calendar.season, weather: engine.weather?.name }));
-engine.events.on('engine:ready', () => engine.ops.run('perf-island.view', { name: params.view }));
+engine.events.on('engine:ready', () => engine.ops.run('island.view', { name: params.view }));
 if (params.badView) console.warn(`perf-island: unknown view '${params.badView}', showing overview. Views: ${VIEW_NAMES.join(', ')}`);
 
 engine.start();

@@ -12,7 +12,7 @@ const RUNTIME_FN = () => {
   let run = null;
   try { run = e.runState ?? null; } catch { /* runState can throw before start() finishes */ }
   const lv = e.loading?.view?.();
-  return { attached: true, ready: !!e.stateApplied, halted: !!e.halted, frozen: !!e.frozen, headless: !!e.headless, tick: e.time?.tick ?? null, blockedBy: run?.blockedBy ?? [], run,
+  return { attached: true, ready: !!e.stateApplied, halted: !!e.halted, frozen: !!e.frozen, headless: !!e.headless, tick: e.time?.tick ?? null, blockedModules: Object.entries(e.moduleStates ?? {}).filter(([, s]) => s === 'blocked').map(([n]) => n), blockedBy: run?.blockedBy ?? [], run,
     loading: lv ? { done: lv.done, waiting: lv.waiting, failed: lv.failed.length, blocked: !!lv.blocked } : null, page: location.pathname + location.search };
 };
 
@@ -60,6 +60,6 @@ export function trailer(rt) {
  */
 export const TIME = {
   advances: ['step', 'press', 'hold', 'skip', 'scenario', 'verify'],
-  frozenTimeSafe: ['op', 'state', 'eval', 'js', 'resume', 'reload'],
+  frozenTimeSafe: ['op', 'state', 'js', 'resume', 'reload'],
   observes: ['describe', 'catalog', 'ops', 'inspect', 'scene', 'pick', 'thing', 'explain', 'loading', 'errors', 'snap', 'snap-describe', 'status', 'picture-palette', 'picture-compare'],
 };

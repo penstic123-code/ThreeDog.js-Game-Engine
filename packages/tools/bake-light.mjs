@@ -5,7 +5,7 @@
 // on some of three's shaders with only a console error. Why this stops instead of falling back: a software bake takes minutes and proves nothing about the GPU path.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { cli, rel, viteOptions } from './paths.mjs';
+import { cli, rel } from './paths.mjs';
 
 const { dir: ROOT, opt } = cli(process.argv.slice(2), { values: ['out', 'size', 'samples', 'page'], positional: true });
 const size = Number(opt.size ?? 1024), samples = Number(opt.samples ?? 128);
@@ -13,10 +13,8 @@ if (!Number.isInteger(Math.log2(size)) || size < 64 || size > 4096) { console.er
 if (!Number.isInteger(samples) || samples < 8 || samples > 2048) { console.error(`✗ --samples ${opt.samples}: rays per texel, a whole number from 8 to 2048`); process.exit(1); }
 const OUT = resolve(ROOT, opt.out ?? 'public/light/level.lightmap');
 
-const [{ createServer }, { launchRealGPU, injectTool }, { waitEngine }] = await Promise.all([import('vite'), import('./browser.mjs'), import('./wait-engine.mjs')]);
-const server = await createServer(await viteOptions(ROOT, { logLevel: 'error', cacheDir: resolve(ROOT, '.threedog/vite-bake'), server: { port: 0, strictPort: false, fs: { strict: false } } }));
-await server.listen();
-const base = server.resolvedUrls.local[0].replace(/\/$/, '');
+const [{ launchRealGPU, injectTool, devServer }, { waitEngine }] = await Promise.all([import('./browser.mjs'), import('./wait-engine.mjs')]);
+const { base, close } = await devServer(ROOT, { cacheDir: '.threedog/vite-bake', fs: { strict: false } });
 let code = 0, browser;
 try {
   browser = await launchRealGPU();
@@ -44,5 +42,5 @@ try {
   }
 } catch (e) { console.error('✗ ' + String(e?.message ?? e).split('\n')[0]); code = 1; }
 await browser?.close();
-await server.close();
+await close();
 process.exit(code);

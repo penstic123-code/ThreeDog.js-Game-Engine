@@ -6,7 +6,8 @@
 // What it cannot see: a value set through a helper, a module named differently from its factory, what a composite such as openWorld() installs.
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { backendsOf, cardOf, noComments, sizeNotes } from './lib-card.mjs';
+import { backendsOf, cardOf, sizeNotes } from './lib-card.mjs';
+import { noComments } from './text.mjs';
 import { readRecords } from './lib-records.mjs';
 import { gameCodeFiles } from './text.mjs';
 

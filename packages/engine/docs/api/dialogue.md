@@ -6,12 +6,13 @@ Dialogue (dialogue() module). Ops: `dialogue.advance` (finish typing the line, e
   - `charsPerSecond?: number` Typing speed (characters/second, game time: advanced by engine.step), default 40
   - `advanceActions?: string[]` Actions that advance the dialogue, default ['confirm'] (a basic key); e.g. ['confirm', 'interact'] to also advance on the game's interact key. Choices: the cursor, clicks, and the actions choice1..choice9 (context 'dialog', no keys of their own: presets.bindings.dialogNumbers binds 1-9)
   - `holdSeconds?: number` A bubble line stays this many seconds plus its reading time (about 15 characters a second) unless say() gives seconds, default 2
+  - `bubbleChoice?: 'end' | 'ask'` A bubble script reaching a node with choices: 'end' (default: warn, the script ends there) or 'ask' (the line stays with its choices until engine.ops.run('dialogue.choose', { index, run }); run is in dialogue.bubbles())
 
 ## Methods and properties
 - `dialogue.define(speaker: string, nodes: DialogueScript)` — Define a dialogue (the name is usually the speaker)
 - `dialogue.start(speaker: string, nodeId?: string, onEnd?: (() => void) | null, opts?: { channel?, at?, onCancel? })` — Start a dialogue: from node nodeId (default 'start'), onEnd is called when it ends. Main channel (default): locks game input and takes Esc; its choices take the UI choice cursor. onCancel: what the back key (Esc) does while it is on top of the UI focus stack (default: nothing). channel: 'bubble' plays the script as bubble lines over at (no lock, no choices; a running conversation is untouched). Ending the playthrough (engine.session newGame / load / quit) closes it without calling onEnd. Example: `engine.dialogue.start('guard', 'start', null, { channel: 'bubble', at: guard.root })`
 - `dialogue.say(text: string | DialogueScript, opts?: { speaker?, node?, channel?, onCancel? } & BubbleOptions) → SayPromise` — Say a one-off line (no need to define first); the Promise resolves when it is done. channel: 'bubble' = over at while the player keeps playing (barks, shop chatter, radio); several speakers at once, queued per speaker. When the playthrough ends (engine.session) the line is dropped and the Promise never resolves, so code awaiting it does not run in the next playthrough. Example: `await engine.dialogue.say('Reloading!', { speaker: 'Mira', channel: 'bubble', at: mira.root })`
-- `dialogue.bubbles() → { speaker, text, queued }[]` — Lines on the bubble channel now
+- `dialogue.bubbles() → { speaker, text, queued, run?, choices? }[]` — Lines on the bubble channel now
 - `dialogue.end()` — End the main dialogue
 - Properties:
   - `state: DialogueState` Story state: state.flags is engine.vars.flags (autosaved)

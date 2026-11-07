@@ -12,7 +12,7 @@ import { isOptions, isObject } from './util.js';
 export const OP_TYPES = ['string', 'number', 'int', 'bool', 'position', 'id', 'any'];
 // 'color': 0xRRGGBB or '#rrggbb' (a model generator's params, shown as a color picker in the dev panel); not an op arg type
 const TYPES = ['string', 'number', 'int', 'bool', 'position', 'id', 'any', 'object', 'array', 'function', 'color'];
-const SPEC_KEYS = ['type', 'default', 'min', 'max', 'values', 'desc', 'optional'];
+const SPEC_KEYS = ['type', 'default', 'min', 'max', 'values', 'desc', 'optional', 'label', 'rare'];   // label, rare: how a panel shows the field
 const isPos = v => Array.isArray(v) && (v.length === 2 || v.length === 3) && v.every(Number.isFinite);
 /** type name -> value check (op args use the first seven: plain data only) */
 const CHECK = {
@@ -90,7 +90,7 @@ export function schemaInfo(shape) {
   for (const key in shape) {
     const s = shape[key], o = /** @type {Record<string, any>} */ ({ type: s.type });
     if (s.optional) o.optional = true;
-    for (const f of ['default', 'min', 'max', 'values', 'desc']) if (s[f] !== undefined && typeof s[f] !== 'function') o[f] = s[f];
+    for (const f of ['default', 'min', 'max', 'values', 'desc', 'label', 'rare']) if (s[f] !== undefined && typeof s[f] !== 'function') o[f] = s[f];
     out[key] = o;
   }
   return out;

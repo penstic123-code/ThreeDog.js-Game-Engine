@@ -20,6 +20,7 @@ import { stateOf, detach, registry, placeAtHeight } from './movers/support.js';
 import { loadAssetModel, buildNow } from './assetModel.js';
 import { NO_CHARACTER, capsule, useRig, animateRig, rigFromObject, tintParts } from './proceduralRig.js';
 import { walkTo } from './walkTo.js';
+import { seatsOf } from './seat.js';
 import { useModel } from './useModel.js';
 import { codedError, coded } from '../../core/base/errorHints.js';
 import { isModelName } from '../../core/base/util.js';
@@ -27,7 +28,7 @@ import { isModelName } from '../../core/base/util.js';
 // A record whose jump / safe is the wrong kind of thing (a damaged or hand-edited save) is repaired so the game keeps running, but said out loud once: bad data is reported, not quietly fixed
 function badField(v, name, want) { if (v != null) warnOnce(`[threedog] character motion: the world record's '${name}' is ${JSON.stringify(v)} but should be ${want}; it was replaced with a fresh one. Check the save or the code that writes the record`); return undefined; }
 const STRINGS = { noClip: 'character has no skeletal animation; playAction(\'{name}\') skipped (the model needs this action)' };
-const MOVERS = { simple: simpleMover, rapier: rapierMover, manual: manualMover };
+const BUILT_IN = { simple: simpleMover, rapier: rapierMover, manual: manualMover };
 
 // Options Character understands (shared by player and NPC)
 export const CHARACTER_KEYS = ['colors', 'speed', 'runSpeed', 'radius', 'water', 'states', 'swimDepth', 'swimSpeed', 'turnSpeed', 'acceleration', 'gravity',
@@ -52,13 +53,14 @@ export class Character {
    *                      coyoteTime how long after leaving a ledge a jump is still allowed, canJump, jumpBuffer how long a jump() pressed early
    *                      waits for the ground (s), maxJumps jumps before landing again (2 = double jump), airJumpSpeed takeoff speed of an air jump
    *                      (default jumpSpeed). These are the base values and belong to the game; modules change them with engine.mod('move.<stat>').
-   *           fall: { belowY } a height (or (character) => boolean): below it character:fall fires and, unless a listener calls preventDefault(),
-   *                 the character goes back to safeGround. false (default) = off
+   *           fall: { belowY } a height (or (character) => boolean): below it character:fall fires and the rule 'fall' decides (no rule: nothing happens;
+   *                 engine.mod('fall', { owner: 'game', set: 'rescue' }) goes back to safeGround). false (default) = off
    *           channel: the time channel its movement and animation follow when the engine drives it (player 'player', others 'world')
    *           model + clips: optional glTF model and action-name map { idle, walk, run, swim, jump, fall, drive } (shorthand for animation)
    *           animation: animation state machine config (see core/assets/Animator.js), state names are character state names;
    *                      without walk/run, move (blend tree, param speed) is used
-   *           mover: 'simple' (default) | 'rapier' (Rapier character controller, needs the rigid module) | 'manual' (the game writes the position;
+   *           mover: (character, engine) => ({ name, move(x, z, run, dt, y) }) your own (flight, wall running: mover.contract.js, recipe 57) |
+   *                  'simple' (default) | 'rapier' (Rapier character controller, needs the rigid module) | 'manual' (the game writes the position;
    *                  move() only updates grounded / support / safeGround / fall, movers/manual.js); assign at any time: player.mover = 'manual'
    *           faceMode which way it turns each move: 'move' (default, toward its velocity) | 'camera' (along cameraRig.forward(), over-the-shoulder aiming)
    *                    | 'target' (toward faceTarget: Object3D / Vector3 / { x, z }, lock-on strafing) | 'manual' (only face() turns it);
@@ -89,6 +91,7 @@ export class Character {
     // toward the input, vy falls with gravity). Nobody owns them and nothing auto-yields: a knockback that should last is push(), a jump pad is
     // launch(), full control is mover 'manual'.
     this.vy = 0; this.grounded = true; this._push = 0;
+    this.limp = null; this.disposed = false;   // limp: the ragdoll that has the body (rigid/ragdoll.js)
     this.root = new THREE.Group();
     engine._poses.add(this.root);
     this.velocity = new THREE.Vector2();
@@ -96,19 +99,22 @@ export class Character {
     this.swimming = false;
     /** Action state the animation plays: 'idle' | 'walk' | 'run' | 'jump' | 'fall' | 'swim' | 'drive' | 'ragdoll', or what the states option returned. Read it freely;
      *  the engine mover recomputes it every step, so a direct write warns once (states option for own states, character.playAction(name) for one-shot
-     *  actions, mover 'manual' to own it). _stateMark: the engine's last write @type {string} */
-    this.state = this._stateMark = 'idle';
+     *  actions, mover 'manual' to own it). stateMark: the engine's last write @type {string} */
+    this.state = this.stateMark = 'idle';
     /** The vehicle it sits in (null on foot) and its seat there (0 = driver, null on foot) */
-    this.vehicle = null; this.seat = null; this.anim = null;
+    /** @internal the seat relation (seat.js), null on foot */ this._ride = null; this.anim = null;
     /** false while a model named by asset loads (placeholder shows); await whenReady */
     this.ready = true;
     /**
      * id of the world record ('player' for the player); once set, position, facing and motion state are written back to it.
-     * Do not world.move this record directly; use placeAt
+     * A write to that record's position (world.move, world.set, thing.set) is a placeAt
      * @type {string | null}
      */
     this.recordId = null;
-    /** @internal each mover built once, kept while switching (rapier keeps its native body) */ this._movers = { simple: simpleMover(this) };
+    /** @internal where a write to its record's position goes (world.move): placeAt; an NPC's model goes through npc.placeAt, which drops its path too */ this.placeRecord = p => this.placeAt(p);
+    /** @internal where a turn written to its record goes; an NPC's facing is saved in its motion */ this._turnRecord = yaw => { this.face(yaw); this._store(); };
+    /** @internal each mover built once, kept while switching (rapier keeps its native body), by name or by the game's function */ this._movers = new Map([['simple', simpleMover(this)]]);
+    /** @internal the rule character.mover: an entry there wins over this character's own mover and ends with its owner, so a ladder puts back what was there */ this._moverRule = engine.stacks.rule('character.mover', null);
     this.mover = mover;
     this._colors = colors;
     // one path for every body: an object, a procedural builder built now (joints exist at once), or a file asset loaded behind a capsule
@@ -193,25 +199,76 @@ export class Character {
   /** Settles (never rejects) once a model named by asset is swapped in or failed; already settled otherwise */
   get whenReady() { return this._whenReady ?? Promise.resolve(); }
   get position() { return this.root.position; }
+  /** What it rides now (the vehicle contract object), null on foot */
+  get vehicle() { return this._ride?.vehicle ?? null; }
+  /** @internal Something other than a holder has the body: a ragdoll (rigid/ragdoll.js) or a seat (seat.js). Nothing may move or place it meanwhile */
+  get bodyHeld() { return !!(this.limp || this._ride); }
+  /** Its seat in that vehicle (0 = driver), null on foot */
+  get seat() { return this._ride?.seat ?? null; }
   // Why write-only accessors: these were plain slots until 0.8. A game still assigning one got no error and no sound, because the plain write just
   // made a property nothing reads. The write stays harmless (no throw), only the silence goes. No getter: the old names still read as undefined.
   /**
    * Place at a position (Vector3 / Object3D / [x, y, z] / { x, z }). With a y it stands on what a character at that height stands on: the floor there, or a
    * registered support within step height above it, so a place under a deck stays under it. With { x, z } it stands on the highest support there, else the ground.
+   * A rider gets out first (exit: vehicle:exit fires, the vehicle brakes): the seat would otherwise pull it back on the next step.
+   * A ragdoll goes there whole, at rest, and stays limp. A walk ends: the game said where it is, so the old order no longer applies.
    */
   placeAt(position) {
-    const [x, z] = xzOf(position), at = placeAtHeight(this.engine, 'character.placeAt()', x, z, yOf(position), this.stepHeight, this.root.position.y);
+    this.engine.control?.endTasks(this, 'placed');
+    if (this.vehicle) this.exit({ force: true });
+    else if (this.recordId && this.engine.world?.get(this.recordId)?.vehicle != null) this._writeSeat(null, null);   // its record waited for a vehicle not built yet: the game put it elsewhere
+    return this._place(position);
+  }
+  /** @internal Put it there with no ending of its own: a link crossing, a step out of a vehicle */
+  _place(position) {
+    const [x, z] = xzOf(position), at = placeAtHeight(this.engine, 'character.placeAt()', x, z, yOf(position), this.stepHeight, this.root.position.y), was = this.root.position;
+    this.limp?.shift(x - was.x, at.y - was.y, z - was.z);   // limp, root follows the body: the body goes first, or the next step puts root back on it
     this.root.position.set(x, at.y, z);
     detach(this);
     // ground is a safe spot. A support may be unsafe or moving, which only a step can tell: the next mover step applies the rule in endMove
     if (!at.on) (this.safeGround ??= new THREE.Vector3()).copy(this.root.position);
     this._store(); return this;
   }
-  /** How it walks now: the mover object ({ name, move, controller? }). Assign a name to switch at any time: c.mover = 'manual' ... c.mover = 'simple' */
-  get mover() { return this._mover; }
-  set mover(name) {
-    if (!MOVERS[name]) { warnMissing('mover', name, Object.keys(MOVERS)); name = 'simple'; }
-    this._mover = this._movers[name] ??= MOVERS[name](this, this._movers.simple);
+  /** @internal Why it could not keep this rot, or null: facing is about Y only, and a seat turns its rider every step. thing.set answers with it, world.set throws it */
+  poseProblem({ rot, scale }) {
+    const bad = v => v !== undefined && !Number.isFinite(v) && !(Array.isArray(v) && v.length === 3 && v.every(Number.isFinite));
+    if (bad(rot) || bad(scale)) return `character '${this.id}': rot and scale on its record are the character's turn and size, a number or [x, y, z]; got ${JSON.stringify({ rot, scale })}`;
+    if (rot === undefined) return null;
+    if (Array.isArray(rot) && (rot[0] || rot[2])) return `rot ${JSON.stringify(rot)} on character '${this.id}': a character stays upright and turns about Y only, so a tilt about x or z cannot apply. Write a number or [0, yaw, 0]; to lean its picture, turn a child of root`;
+    return this.vehicle ? `rot on character '${this.id}': it sits in a vehicle and the seat turns it. Turn the vehicle, or exit() first` : null;
+  }
+  /** @internal A write to its record's rot / scale (world.set, thing.set): the character owns both, as it owns its position. scale is the picture: radius and height stay */
+  takePose(pose) {
+    const problem = this.poseProblem(pose), { rot, scale } = pose;
+    if (problem) throw codedError('character-option', problem);
+    if (rot !== undefined) this._turnRecord(Array.isArray(rot) ? rot[1] : rot);
+    if (scale !== undefined) { if (Array.isArray(scale)) this.root.scale.fromArray(scale); else this.root.scale.setScalar(scale); this._scaled = true; }
+  }
+  /** @internal Built or loaded from its record: scale stays there; rot is a write made while it had no character, taken once. A record without scale takes back one written before */
+  _fromRecord(rec) {
+    const { rot } = rec, scale = rec.scale ?? (this._scaled ? 1 : undefined);
+    delete rec.rot;
+    this.takePose({ rot, scale });
+  }
+  /**
+   * How it walks now: the mover object ({ name, move, controller? }). Assign a built-in name or (character, engine) => mover to switch for good: c.mover = 'manual'.
+   * For a while, use the rule: engine.mod('character.mover', { owner: 'ladder', id: c.id, set: 'manual' }) and remove the handle after. false in the rule means 'manual'
+   */
+  get mover() { return this._moverOf(this._moverRule.value(this.id) ?? this._ownMover); }
+  set mover(v) { this._moverOf(v); this._ownMover = v; }
+  /** @internal the mover for a rule value or an assignment, built the first time */
+  _moverOf(v) {
+    const key = v === false ? 'manual' : v;
+    let m = this._movers.get(key);
+    if (m) return m;
+    if (typeof key === 'function') {
+      m = key(this, this.engine);
+      if (typeof m === 'string' || m === false) return this._movers.set(key, this._moverOf(m)).get(key);   // the function chose a built-in, once for this character
+      if (typeof m?.move !== 'function') throw codedError('character-option', `the mover function for '${this.id}' must return { name, move(x, z, run, dt, y) } (mover.contract.js) or a built-in name, got ${JSON.stringify(m)}`);
+    } else if (BUILT_IN[key]) m = BUILT_IN[key](this, this._movers.get('simple'));
+    else throw codedError('character-option', `mover ${JSON.stringify(key)}: use 'simple', 'rapier', 'manual' or your own (character, engine) => ({ name, move(x, z, run, dt, y) }). Recipe 57`);
+    this._movers.set(key, m);
+    return m;
   }
   _store() { const id = this.recordId; if (id) { const W = this.engine.world; this.saveMotion(W.get(id)); W.move(id, this.root.position); } }
   /** After moving root yourself (a cutscene path, a scripted pose): write position and motion back to the world record, so a save right after has it */
@@ -219,22 +276,17 @@ export class Character {
 
   /**
    * Move along a direction (call once per fixed step). dirX/dirZ is a world-space direction (length 0-1), run toggles running.
-   * How it walks is decided by this.mover ('simple' default / 'rapier'); while driving it follows the seat. dt is used as given (the engine's own
+   * How it walks is decided by this.mover ('simple' default / 'rapier'); on a seat nothing moves it here (seat.js holds it). dt is used as given (the engine's own
    * drivers pass the character's channel dt); speed comes from the stats (character.stat, engine.mod('move.speed')), the direction's length scales it.
    */
-  move(dirX, dirZ, run, dt) {
+  move(dirX, dirZ, run, dt, dirY = 0) {
     // a held character moves only through its holder (core/ops/control.js): a second driver calling move() in the same step is the bug where keys,
     // a walk and a cutscene all pushed the player and the last one won
     if (DEV) this.engine.control?.checkMove(this);
-    if (this._limp) return;   // a ragdoll (rigid/ragdoll.js) has the body: release builds skip the check above, so nothing may move it here either
-    if (this.vehicle) {
-      const v = this.vehicle;
-      this.root.position.copy(v.seatPosition(this.seat));
-      // a visible rider turns with the vehicle (a hidden one only needs the position: saves, interactions, trigger zones measure from it)
-      if (this.root.visible) { v.object.getWorldQuaternion(this.root.quaternion); this.facing = this.root.rotation.y; }
-      this.moveAmount = Math.abs(v.speed); this.state = this._stateMark = 'drive';
-    }
-    else this.mover.move(dirX, dirZ, run, dt);
+    if (this.bodyHeld) return;   // release builds skip the check above, so nothing may move it here either
+    const m = this.mover;
+    if (m !== this._moving) { this._moving?.leave?.(); this._moving = m; }   // once per change: what the last mover left standing in the world must not block this one
+    m.move(dirX, dirZ, run, dt, dirY);
     this._store();
   }
 
@@ -245,48 +297,89 @@ export class Character {
    * follows vehicle.object. No-op when every seat is taken
    */
   enter(vehicle) {
-    if (this.vehicle || this._limp) return;
-    const e = this.engine, ride = vehicle.passengers ??= [];
+    if (this.vehicle || this.limp) return;
+    const ride = vehicle.passengers ??= [];
     let seat = 0;
     if (vehicle.driver) {
       const taken = new Set(ride.map(c => c.seat));
       for (seat = 1; seat < (vehicle.seats ?? 1) && taken.has(seat); seat++);
       if (seat >= (vehicle.seats ?? 1)) return;
     }
-    this.vehicle = vehicle; this.seat = seat;
-    if (seat === 0) vehicle.driver = this; else ride.push(this);
+    this._sit(vehicle, seat);
+  }
+  /** @internal Why it cannot go back to this seat, or null (it may be there already). Undo of a placement that ended a ride asks this first */
+  seatProblem({ vehicle, seat }) {
+    if (this.vehicle === vehicle && this.seat === seat) return null;
+    if (vehicle.gone || !vehicle.object.parent) return `character '${this.id}': the vehicle it sat in is gone, so it cannot go back to its seat`;
+    if (this.vehicle) return `character '${this.id}': it sits in another vehicle now. exit() first`;
+    if (this.limp) return `character '${this.id}': it is a ragdoll now. remove() it first`;
+    return (seat === 0 ? vehicle.driver : vehicle.passengers.some(c => c.seat === seat)) ? `character '${this.id}': seat ${seat} is taken now` : null;
+  }
+  /** @internal Back on the seat a placement took it from; seatProblem said it can */
+  backInSeat({ vehicle, seat }) {
+    if (this.vehicle) return;
+    this._sit(vehicle, seat);
+  }
+  /** @internal Take this seat: enter chose it, or an undo names it */
+  _sit(vehicle, seat) {
+    const e = this.engine;
+    e.control?.endTasks(this, 'seated');
+    this._ride = { rider: this, vehicle, id: vehicle.id ?? null, seat, pedal: false };
+    const book = seatsOf(e); book.rides.add(this._ride); if (vehicle.id != null) book.vehicles.add(vehicle);
+    this.root.position.copy(vehicle.seatPosition(seat));   // the record says the seat at once, not on the next step
+    this._writeSeat(this._ride.id, seat);
+    if (seat === 0) vehicle.driver = this; else vehicle.passengers.push(this);
     if (e.player === this) this._driveCtx = e.input.push('vehicle', { pass: true });   // driving: brake lives in this context, walking-only keys are shadowed
     if (e.player === this && !e.input.keysOf('brake').length) warnOnce(coded('input-keys', "the player drives without a brake key: no module binds one by itself. engine.input.bind(presets.bindings.brake) (B / gamepad LT) or engine.input.bind('brake', ['KeyX'])"));
-    this.root.visible = vehicle.hideDriver === false; this.velocity.set(0, 0); this.vy = 0; this.swimming = false; this.state = this._stateMark = 'drive'; this._store();
+    this.root.visible = vehicle.hideDriver === false; this.velocity.set(0, 0); this.vy = 0; this.swimming = false; this.state = this.stateMark = 'drive'; this._store();
     // only when the game asked the camera to follow the player (createPlayer({ cameraFollow }))
     if (e.player === this && this.cameraFollow) e.cameraRig?.follow(vehicle.object, vehicle.camera);
     e.events.emit('vehicle:enter', { character: this, vehicle });
   }
-  /** Exit: step out beside the door, camera returns to the character */
-  exit() {
+  /** @internal The relation's half in the record, saved with it. A load writes nothing: recordId is null while it places */
+  _writeSeat(vehicle, seat) { const id = this.recordId; if (id) this.engine.ops.allow(() => this.engine.world.set(id, { vehicle, seat })); }
+  /** @internal The first exit the vehicle offers that a body of this size can stand on, or null. Without collision nothing can say no */
+  _exitSpot(v, seat) {
+    for (let n = 0; n < 8; n++) {   // bounded: a vehicle with one exit answers the same point for every n
+      const p = v.exitPosition(seat, n);
+      if (!p) return null;
+      if (this.engine.collision?.walkableAt(p.x, p.z, this.radius, p.y) ?? true) return p;
+    }
+    return null;
+  }
+  /**
+   * Exit: step out at the first exit the vehicle offers that is walkable, camera returns to the character. With none it refuses and the rider stays seated.
+   * force: true gets out anyway, at the first exit: the vehicle is going, or the rider is being placed elsewhere.
+   * @param {{ force?: boolean }} [o]
+   * @returns {boolean} whether it got out
+   */
+  exit({ force = false } = {}) {
     const v = this.vehicle, e = this.engine;
-    if (!v) return;
-    const seat = this.seat;
+    if (!v) return false;
+    const seat = this.seat, at = this._exitSpot(v, seat) ?? (force ? v.exitPosition(seat) : null);
+    if (!at) return false;
     if (seat === 0) { v.drive(0, 0, 1); v.driver = null; } else v.passengers.splice(v.passengers.indexOf(this), 1);
-    this.vehicle = null; this.seat = null;
+    seatsOf(e).rides.delete(this._ride); this._ride = null;
+    this._writeSeat(null, null);
     this._driveCtx?.remove(); this._driveCtx = null;
     this.root.quaternion.identity(); this.root.rotation.y = this.facing;
-    this.placeAt(v.exitPosition(seat)); this.root.visible = true; this.grounded = true; this.state = this._stateMark = 'idle';
+    this._place(at); this.root.visible = true; this.grounded = true; this.state = this.stateMark = 'idle';
     if (e.player === this && this.cameraFollow) e.cameraRig?.follow(this.root);
     e.events.emit('vehicle:exit', { character: this, vehicle: v });
+    return true;
   }
   /** Dispose this character completely: exit the vehicle first, release animation and mover, remove from the scene and dispose geometries and materials */
   dispose() {
-    this._disposed = true;   // a model still loading by asset name is dropped on arrival
-    this._walk?.remove();    // a walk in progress ends 'cancelled' (walkTo.js)
+    this.disposed = true;   // a model still loading by asset name is dropped on arrival
+    this.engine.control?.endTasks(this, 'gone');
     // a character without a world record or NPC id has nothing to come back as: its control slot goes with it (records drop theirs on world:remove,
     // an NPC model torn down when far keeps its slot, the NPC lives on)
     if (!this.recordId && !this.npcModel) this.engine.control?.forget(this.id);
-    this.exit();
+    this.exit({ force: true });
     detach(this);   // a disposed rider must leave the platform's rider list, or it is carried and kept alive for as long as the platform lives
     this.engine._poses.remove(this.root);
     this.anim?.dispose();
-    for (const m of Object.values(this._movers)) m.dispose?.();
+    for (const m of new Set(this._movers.values())) m.dispose?.();
     this.engine.characters?._capsules.delete(this._rig?.capsule);
     this.engine.remove(this.root);
   }
@@ -328,7 +421,7 @@ export class Character {
   groundType() {
     if (this.swimming) return 'water';
     const p = this.root.position;
-    return this.engine.groundType(p.x, p.z);
+    return this.engine.groundType(p.x, p.z, p.y);
   }
 
   /**
@@ -355,7 +448,7 @@ export class Character {
   /** @internal Call every frame: play animation, at the speed of the character's time channel (bullet time on 'enemies' slows their walk cycle too) */
   animate(dt) {
     dt *= this.engine.still ? 0 : this.engine.time.scale(this.channel, this.id);
-    if (!this._limp) this._animate(dt);
+    if (!this.limp) this._animate(dt);
     if (!this.anim) this._firePose(dt);
   }
   /** @internal */

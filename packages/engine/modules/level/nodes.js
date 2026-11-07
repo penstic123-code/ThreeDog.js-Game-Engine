@@ -1,5 +1,5 @@
 // Level nodes that become world records: nodes tagged with the custom property template or id (Blender -> glTF extras -> userData) leave the level root
-// and are placed as authored records `<level>/<node>` once the level is processed. Created per level module by levelNodes(e, getRoot, getCurrent).
+// and are placed as authored records `<level>/<node>` once the level is processed. Created per level module by levelNodes(e, ctx, getRoot, getCurrent).
 import * as THREE from 'three';
 import { warnOnce, fmt } from '../../core/base/validate.js';
 import { codedError } from '../../core/base/errorHints.js';
@@ -13,16 +13,17 @@ const STRINGS_DEV = {
 
 export const MARKER_RE = /^(spawn|spawn_.*|npc_.*|trigger_.*|marker_.*)$/i;
 
-/** @param {any} e engine  @param {() => any} getRoot current level root  @param {() => string | null} getCurrent current level path / name */
-export function levelNodes(e, getRoot, getCurrent) {
-  const taken = [], nodes = new Map();   // record nodes waiting to be placed; record id -> node object (levelNode records)
+/** @param {any} e engine  @param {any} ctx the level module's ctx  @param {() => any} getRoot current level root  @param {() => string | null} getCurrent current level path / name */
+export function levelNodes(e, ctx, getRoot, getCurrent) {
+  const nodes = new Map();   // record id -> node object (levelNode records)
+  const homes = new WeakMap();   // taken node -> the parent it left
   let presented = null;
   /**
    * Nodes tagged with the custom property template or id (Blender custom property -> glTF extras -> userData): taken out of the level root, world transform
-   * kept
+   * kept. Returns them: the level being prepared holds its own list, the live one is untouched
    */
   function take(root) {
-    taken.length = 0;
+    const taken = [];
     const walk = o => {
       for (const c of [...o.children]) {
         if ((c.userData?.template == null && c.userData?.id == null) || MARKER_RE.test(c.name)) { walk(c); continue; }
@@ -31,26 +32,43 @@ export function levelNodes(e, getRoot, getCurrent) {
         if (!e.world) { warnOnce(STRINGS_DEV.noWorld); continue; }
         const p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
         c.matrixWorld.decompose(p, q, s);
+        homes.set(c, c.parent);
         c.removeFromParent(); c.position.copy(p); c.quaternion.copy(q); c.scale.copy(s);
         c.userData.hlod = false;   // its model comes and goes with the record: never part of a merged far proxy
         taken.push(c);
       }
     };
     walk(root);
+    return taken;
   }
+  /** Undo take, for a code-built scene that will not become the level: it is the caller's, and may be loaded again */
+  const giveBack = taken => { for (const o of taken) homes.get(o).attach(o); };
   /** The name in node ids `<level>/<node>`: the level file name without folders and extension; a code-built scene uses its root name */
-  const levelName = () => {
-    const current = getCurrent();
-    if (!current) return getRoot()?.name || 'level';
+  const levelName = (current, root) => {
+    if (!current) return root?.name || 'level';
     const f = String(current), base = f.slice(Math.max(f.lastIndexOf('/'), f.lastIndexOf('\\')) + 1), dot = base.lastIndexOf('.');
     return dot > 0 ? base.slice(0, dot) : base;
   };
   const OWN = ['template', 'id', 'name', 'hlod'];   // userData keys that are not record fields (three's glTF loader keeps the node name in userData.name)
+  /** What place would refuse, asked before the commit so a level that cannot place its records never replaces the old one */
+  function check(taken, current, root) {
+    const level = levelName(current, root);
+    for (const o of taken) {
+      const id = `${level}/${o.name}`, tpl = o.userData.template;
+      if (tpl != null) {
+        if (!e.content) throw codedError('level-node', fmt(STRINGS_DEV.noContent, { id }));
+        e.content.template(tpl);   // throws, naming the templates there are
+      } else {
+        const kind = e.world.get(id)?.kind;
+        if (kind && kind !== 'levelNode') throw codedError('level-node', fmt(STRINGS_DEV.clash, { id, kind }));
+      }
+    }
+  }
   /** Taken nodes -> authored world records, id `<level>/<node>`: a template instance (custom property template) or the node itself (custom property id) */
-  function place() {
+  function place(taken) {
     if (!taken.length) return;   // also without world(): take left the nodes in the level
-    const level = levelName(), zone = e.world.zone;
-    for (const o of taken.splice(0)) {
+    const level = levelName(getCurrent(), getRoot()), zone = e.world.zone;
+    for (const o of taken) {
       const id = `${level}/${o.name}`, ud = o.userData, node = o.name, { x, y, z } = o.position;
       const fields = Object.fromEntries(Object.entries(ud).filter(([k, v]) => !OWN.includes(k) && (v == null || typeof v !== 'object' || Array.isArray(v) || v.constructor === Object)));
       if (ud.template != null) {
@@ -70,15 +88,15 @@ export function levelNodes(e, getRoot, getCurrent) {
   /** How a level node record looks: the node itself (detached while far or on another level, rebuilt from the same object) */
   function presentNodes() {
     if (presented) return;
-    presented = e.world.present('levelNode', {
+    presented = ctx.track(e.world.present('levelNode', {
       build(rec) {
         const o = nodes.get(rec.id);
         if (!o) throw codedError('level-node', fmt(STRINGS_DEV.notLoaded, { id: rec.id }));
         o.userData.unstatic = e.rays.addStatic(o);
         return o;
       },
-      dispose(rec, o) { o.userData.unstatic?.remove(); e.detach(o); },
-    });
+      dispose(rec, o) { o.userData.unstatic?.remove(); o.removeFromParent(); },
+    }));
   }
-  return { take, place };
+  return { take, giveBack, check, place };
 }

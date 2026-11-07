@@ -8,8 +8,9 @@
 // Why one "moved outside the mover" check here: a teleport guess from distance ("collider more than 0.3 m from the position") is inexact; a
 // platform carry, placeAt and a load all move the position outside the mover, so the mover compares with where it left the character (exact).
 import * as THREE from 'three';
-import { codedError } from '../../../core/base/errorHints.js';
-import { placeY } from '../../../core/scene/ground.js';
+import { codedError, coded } from '../../../core/base/errorHints.js';
+import { DEV, warnOnce } from '../../../core/base/validate.js';
+import { placeY, FALL_Y } from '../../../core/scene/ground.js';
 
 const REG = new WeakMap();     // engine -> { list: Map<id, entry>, riders: Set<character> }
 const STATE = new WeakMap();   // character -> per-character support state (private: games read character.support / safeGround)
@@ -154,17 +155,27 @@ export function endMove(c, dt, hit, ground = 'ground') {
   (s.last ??= new THREE.Vector3()).copy(p);
 }
 
-/** belowY: a height or (character) => boolean. character:fall once per fall; unless a listener calls preventDefault(), back to safeGround */
+/** Dev, once: a player gone past the void with nobody deciding stays gone, which reads as a bug in the game unless something names the choice */
+function tellNoFallRule(c) {
+  const e = c.engine;
+  if (c !== e.player || c.root.position.y >= Math.max(e.ground.voidY?.() ?? -Infinity, FALL_Y)) return;
+  const point = e.stacks.get('fall');
+  if (point.holders().length + point.holders(c.id).length) return;
+  warnOnce(coded('character-option', `the player fell past the void and no rule 'fall' is set, so nothing brings it back. Decide what a fall is: engine.mod('fall', { owner: 'game', set: 'rescue' }) with createPlayer({ fall: { belowY } }) returns it to safeGround, a function is your own rule, and set: false says the game handles it`), 'fall-no-rule');
+}
+
+/** belowY: a height or (character) => boolean. character:fall once per fall, then the rule 'fall' decides: 'rescue' goes back to safeGround, nothing or false leaves it to the game */
 function fallCheck(c, s) {
+  if (DEV) tellNoFallRule(c);
   const f = c.fall;
   if (!f) return;
   const out = typeof f.belowY === 'function' ? !!f.belowY(c) : c.root.position.y < f.belowY;
   if (!out) { s.fell = false; return; }
-  if (s.fell) return;   // a listener kept it out there (preventDefault): say it once, not every step
+  if (s.fell) return;   // the rule kept it out there: say it once, not every step
   s.fell = true;
-  const ev = { character: c, safe: c.safeGround ? c.safeGround.clone() : null, prevented: false, preventDefault() { this.prevented = true; } };
-  c.engine.events.emit('character:fall', ev);
-  if (ev.prevented) return;
+  const safe = c.safeGround ? c.safeGround.clone() : null;
+  c.engine.events.emit('character:fall', { character: c, safe });
+  if (c.engine.stacks.rule('fall', false, ['rescue']).decide(c.id, { kind: 'character', who: c, position: c.root.position.clone(), safe }) !== 'rescue') return;
   // the exact spot, not placeAt: a platform that was under this spot may have moved away, and placeAt would land on the ground below it
   if (c.safeGround) c.root.position.copy(c.safeGround);
   detach(c); c.velocity.set(0, 0); c.vy = 0; c._push = 0; c.grounded = true;

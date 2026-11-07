@@ -48,6 +48,7 @@ export const specs = [
   {
     name: 'A: raycast (BVH acceleration)',
     url: '/tests/city/index.html',
+    serial: true,   // judges by a measured time (R56)
     async run({ check, ev }) {
       const r = await ev(() => {
         const cam = engine.camera, b = engine.level.root.getObjectByName('building_1_1');

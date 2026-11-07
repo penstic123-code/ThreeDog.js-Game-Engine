@@ -55,13 +55,13 @@ async function parts(renderer) {
     if (hit) E.vegetation.restoreInstance(hit.species, hit.cx, hit.cz, hit.id);
     // 2. density change: the ground keeps its collision token (no rebuild), trees still collide afterwards
     const tok = col?.token, treeTok = E.ground.chunkCollision(0, 0)?.treeToken;   // read again: felling and restoring above made a new one
-    E.terrain.setDensity(0.5);
+    E.terrain.density = 0.5;
     // the new placement comes back from the chunk lane between tasks, so yield between steps
     for (let i = 0; i < 100 && E.ground.chunkCollision(0, 0)?.treeToken === treeTok; i++) { E.step(1 / 60, { describe: false }); await new Promise(res => setTimeout(res, 0)); }
     const col2 = E.ground.chunkCollision(0, 0);
     let trees2 = 0; E.ground.forEachCollider(16, 16, 40, () => trees2++);
     out.trees2 = trees2;
-    out.densityKeeps = !!col2 && col2.token === tok && col2.treeToken !== treeTok && trees2 > 0 && trees2 < trees;
+    out.densityKeeps = !!col2 && col2.token === tok && col2.treeToken !== treeTok && trees2 === trees;
     E.dispose();
     // 3. hlod: a building the game hides (its parent group) is not drawn far away by the merged proxy
     const H = mk('terrain-split-h');
@@ -95,7 +95,7 @@ function checks(check, r, tag) {
   check(`${tag} 换掉外观：内置外观模块走了，游戏的外观画出了块（用自己的材质）`, r.lookGone && r.drawn, s);
   check(`${tag} 换掉外观：碰撞、高度、树的碰撞圈照旧`, r.collision && r.surface && r.trees > 0, s);
   check(`${tag} 换掉植被外观：游戏的外观收到每块的摆放、引擎不画；砍树照样藏起来并去掉树干碰撞`, r.plants?.gone && r.plants.told > 0 && r.plants.engineMeshes === 0 && r.plants.felled && r.plants.trunk, s);
-  check(`${tag} 改密度：地面碰撞不重建，树重新摆放且仍有碰撞`, r.densityKeeps, s);
+  check(`${tag} 改密度：地面碰撞不重建，挡路的树重新摆放、棵数不变`, r.densityKeeps, s);
   check(`${tag} hlod：游戏藏起来的楼不会被远处代理画出来，显示回来后恢复合批`, r.hlod && r.hlodBack && r.hlodRemoved && r.hlodMirror, s);
 }
 

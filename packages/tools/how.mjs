@@ -1,4 +1,4 @@
-// threedog how "<effect or task>": which API / recipe answers a task, from the docs alone (works offline) plus the live catalog when a dev page runs.
+// The search behind threedog how (how-answer.mjs turns its hits into the one answer): which API / recipe answers a task, from the docs alone, offline.
 // Why plain token scoring and no fuzzy library: the result must be the same every run and explainable ("matched rain in the AI.md row"); an AI reads
 // the top few hits. Sources: the AI.md entry table (one row per task: the best hit), the CONVENTIONS.md "One task, which entry" table (the owner of
 // "which of several entries"), recipe headings with their first sentence, and the plain three.js answers: THREE.md (tables and numbered conventions)
@@ -13,11 +13,11 @@
 // English only: the docs are English, and an AI asked in another language translates the task into English words first.
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { pathToFileURL } from 'node:url';
-import { ENGINE, command } from './paths.mjs';
-import { devServerInfo } from './devinfo.mjs';
-import { walk } from './lib/text.mjs';
+import { metadata } from 'threedog/metadata';
+import { ENGINE, rel } from './paths.mjs';
+import { walk, esc, slug } from './lib/text.mjs';
 import { STOP as STOP_WORDS, SYNONYMS } from './how-words.mjs';
+import { MODULES, FACTORIES, GROUPS, RECIPES } from './how-tasks.mjs';
 
 /** Lower-case word / number tokens of a text */
 export function tokens(s) {
@@ -26,6 +26,8 @@ export function tokens(s) {
   return out.filter(t => t.length >= 2);
 }
 const STOP = new Set(STOP_WORDS);
+/** The engine's docs, and a doc as the user can open it: packages/engine/docs in this repo, node_modules/threedog/docs in a game */
+export const DOCS = join(ENGINE, 'docs'), docPath = f => rel(join(DOCS, f));
 // synonym groups, looked up in lower case: each word points at the one group it belongs to (a word belongs to one group only; how-words.mjs says why)
 const GROUP = new Map();
 for (const g of SYNONYMS) for (const w of g) GROUP.set(w.toLowerCase(), g.map(x => x.toLowerCase()));
@@ -39,7 +41,9 @@ function concept(w) {
   for (const suf of ['ation', 'ate', 'ment']) if (w.length > suf.length + 3 && w.endsWith(suf)) { const s = w.slice(0, -suf.length); deriv.add(s); if (suf === 'ment') deriv.add(s + 'e'); }
   for (const suf of ['ing', 'ed']) if (w.length > suf.length + 2 && w.endsWith(suf)) {   // jumping -> jump, running -> runn -> run
     const s = w.slice(0, -suf.length); own.add(s); if (/([b-df-hj-np-tv-z])\1$/.test(s)) own.add(s.slice(0, -1));
+    else if (/[b-df-hj-np-tv-z]$/.test(s)) own.add(s + 'e');   // losing -> lose, moved -> move
   }
+  if (w.length > 4 && /ie[sd]$/.test(w)) own.add(w.slice(0, -3) + 'y');   // enemies -> enemy, carried -> carry
   const syn = new Set();
   for (const x of own) for (const s of GROUP.get(x) ?? []) if (!own.has(s)) syn.add(s);
   // weights: a typed word 1, its stem without the plural 0.9 (a line with "seasons" as typed ranks above one that only says season), a synonym 0.8
@@ -47,7 +51,7 @@ function concept(w) {
 }
 
 /** { main: the distinct tokens typed, stop words dropped; concepts: each with its stem and synonyms } */
-function queryTokens(q) {
+export function queryTokens(q) {
   const main = [...new Set(tokens(q).filter(t => !STOP.has(t)))], concepts = main.map(concept);
   // each typed word counts on its own: fps no longer lists slow among its synonyms (slow is a word of its own), or one slow in a text counts twice,
   // and a networking recipe that mentions slow in passing would beat the performance line that says both slow and fps
@@ -56,7 +60,6 @@ function queryTokens(q) {
   return { main, concepts };
 }
 
-const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const reCache = new Map();
 /** How well word w hits text t: 1 = a whole word ("save", "saves", "saving", camelCase "openWorld"), 0.4 = only the start of a longer word
  *  ("save" in "saveable"), 0 = no hit. Why the split: word-start matching keeps "rain" out of "terrain", and the whole-word check keeps
@@ -90,8 +93,16 @@ const conceptHit = (text, c) => {
 const matched = (text, qt) => qt.concepts.filter(c => conceptHit(text, c) > 0).length;
 /** Weighted hit: each concept counts by how rare it is in the docs (qt.w, set in search) times how well it hits */
 const score = (text, qt) => qt.concepts.reduce((s, c, i) => s + conceptHit(text, c) * qt.w[i], 0);
-const clip = (s, n = 110) => { s = s.replace(/`/g, '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
+export const clip = (s, n = 110) => { s = s.replace(/`/g, '').replace(/\s+/g, ' ').trim(); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
+/** The recipe whose ## sections are the complete answers to the most asked tasks: one rank above the rows, and how-answer.mjs prints them whole */
+const TASKS_RECIPE = '66-common-tasks.md';
+/** A task section that holds only the lines to add. The words of this prefix do not rank: "game" would pull all of them into any query */
+const SKELETON = 'In an existing game: ';
+/** The test that runs its sections, as a card names it */
+export const TASKS_TEST = 'recipe 66';
+/** The sentence of a section that names the next route */
+const NOFIT = /\*\*When it does not fit:\*\*\s*(.+?)(?=\s{2,}|$)/;
 const isRule = l => /^\|[\s|:-]+\|?$/.test(l);
 /** A sentence of a table cell that ends by pointing at a recipe */
 const POINTER = /[^.|]*\(recipes? \d+[^)]*\)\.?/g;
@@ -126,7 +137,6 @@ function plainRows(file, where, out) {
 }
 
 /** GitHub-style heading anchor: "4b. Third-person action" -> "4b-third-person-action" */
-const slug = h => h.toLowerCase().replace(/`/g, '').replace(/[^\p{L}\p{N} _-]/gu, '').trim().replace(/ /g, '-');
 /** The first prose paragraph from line i (code, tables and the next heading end it), at most ~480 chars */
 function paragraph(lines, i) {
   const out = [];
@@ -138,11 +148,24 @@ function paragraph(lines, i) {
   const t = out.join(' ');
   return t.length > 480 ? t.slice(0, 479) + '…' : t;
 }
+/** The ```js blocks of a section, in order (a heading ends the section; a # inside a block is code) */
+function sectionBlocks(lines, i) {
+  const out = [];
+  for (let buf = null; i < lines.length; i++) {
+    const l = lines[i];
+    if (buf) { if (l.startsWith('```')) { out.push(buf.join('\n')); buf = null; } else buf.push(l); }
+    else if (/^```js\s*$/.test(l)) buf = [];
+    else if (/^#/.test(l)) break;
+  }
+  return out;
+}
 /** A section's own text (to score which section of a recipe an AI.md row should open) */
 function sectionText(lines, i) { let t = ''; for (; i < lines.length && !/^#/.test(lines[i]); i++) t += lines[i] + ' '; return t; }
 
 /** All candidates from the docs: AI.md rows, recipe sections, THREE.md rows (plain three.js, or engine + three.js) */
-function docEntries(docsDir) {
+const entriesCache = new Map();
+export function docEntries(docsDir) {
+  if (entriesCache.has(docsDir)) return entriesCache.get(docsDir);   // a run reads the docs once: rule R64 searches about 140 times
   const out = [], ai = join(docsDir, 'AI.md');
   if (existsSync(ai)) {
     for (const line of readFileSync(ai, 'utf8').split('\n')) {
@@ -164,7 +187,7 @@ function docEntries(docsDir) {
       if (!line.startsWith('|') || isRule(line) || isRule(L[i + 1] ?? '')) continue;
       const c = line.split(/(?<!\\)\|/).slice(1, -1).map(x => x.trim());
       if (c.length < 3) continue;
-      out.push({ src: 'entry', title: c[0], use: `${c[1]}; else ${c[2]}`, where: 'CONVENTIONS.md#one-task-which-entry', text: c.join(' ') });
+      out.push({ src: 'entry', title: c[0], use: `${c[1]}; else ${c[2]}`, where: 'CONVENTIONS.md#one-task-which-entry', text: c.join(' '), nofit: c[2] });
     }
   }
   const rdir = join(docsDir, 'recipes');
@@ -179,9 +202,13 @@ function docEntries(docsDir) {
       const sec = /^(\d+)\./.exec(m[2]);
       // snip is shown but only some of it ranks: an "In this recipe" list names every section, so the top of a recipe would outrank the section that
       // answers; a bullet speaks for one item of a list, so one word in an example ("one street lamp shot out") would decide for the whole section
-      const ranks = !/^\*\*In this recipe\*\*|^\s*[-*] /.test(snip);
-      out.push({ src: 'recipe', title: m[2], h1, where: `recipes/${f}${m[1] === '#' ? '' : sec ? ` §${sec[1]}` : ` "${m[2]}"`}`, snip, name: m[2].replace(/^\d+\.\s*/, ''), text: ranks ? m[2] + ' ' + snip : m[2], head: m[1] === '#' ? '' : h1,
-        at: `recipes/${f}${m[1] === '#' ? '' : '#' + slug(m[2])}`, para: paragraph(lines, i + 1), body: sectionText(lines, i + 1) });
+      // a task section opens with its code: only its heading ranks and speaks for it (an import line naming five modules would answer for each of them)
+      const task = f === TASKS_RECIPE && m[1] === '##', skeleton = task && m[2].startsWith(SKELETON);
+      if (task) snip = 'a whole example, run by a test';
+      const ranks = !task && !/^\*\*In this recipe\*\*|^\s*[-*] /.test(snip);
+      out.push({ src: 'recipe', title: m[2], h1, where: `recipes/${f}${m[1] === '#' ? '' : sec ? ` §${sec[1]}` : ` "${m[2]}"`}`, snip, name: m[2].replace(/^\d+\.\s*/, ''), text: ranks ? m[2] + ' ' + snip : m[2].replace(SKELETON, ''), head: m[1] === '#' ? '' : h1,
+        at: `recipes/${f}${m[1] === '#' ? '' : '#' + slug(m[2])}`, para: paragraph(lines, i + 1), body: sectionText(lines, i + 1), blocks: sectionBlocks(lines, i + 1),
+        task, skeleton, nofit: NOFIT.exec(sectionText(lines, i + 1))?.[1] });
     });
   }
   // api/*.md: one entry per documented name (the "- `music.stinger(...)` — what it does" lines). Why: these pages are the only place that names helpers like
@@ -194,6 +221,7 @@ function docEntries(docsDir) {
     });
   }
   plainRows(join(docsDir, 'THREE.md'), 'THREE.md', out);
+  entriesCache.set(docsDir, out);
   return out;
 }
 
@@ -217,7 +245,7 @@ function docLines(docsDir) {
 }
 
 /** Which renderer the game at `dir` writes shaders for: 'webgpu' (TSL), 'webgl' (GLSL) or null when unknown. Read from main.js: that is where the game says `renderer: 'webgpu'`. */
-function gameRenderer(dir) {
+export function gameRenderer(dir) {
   for (const f of ['main.js', 'src/main.js']) {
     const p = join(dir, f);
     if (!existsSync(p)) continue;
@@ -248,8 +276,9 @@ export function search(docsDir, q, max = 5, opts = {}) {
   const entriesWith = c => base.reduce((n, e) => n + (conceptHit(e.text, c) > 0 ? 1 : 0), 0);
   qt.w = qt.concepts.map(c => Math.log(1 + N / (1 + (entriesWith(own(c)) || entriesWith(c)))));
   const total = qt.w.reduce((a, b) => a + b, 0) || 1;
-  const lineHits = [];
+  const lineHits = [], anyWord = new RegExp(qt.concepts.flatMap(c => c.alts.map(x => esc(x.a))).join('|'), 'i');
   all.concat(floor).forEach((e, order) => {
+    if (!anyWord.test(e.text) && !anyWord.test(e.head ?? '')) return;   // one test per line: most lines hold no word of the query, and scoring them word by word took nearly all the time
     // the other renderer's text (GLSL in a TSL game) counts at 0.5: still listed when it is the only answer, but not first
     const wrong = otherRenderer(e.text + ' ' + (e.snip ?? ''), opts.renderer) ? 0.5 : 1;
     const s = score(e.text, qt) * (e.src === 'AI.md' || e.src === 'entry' ? 1.2 : 1) * wrong + (e.head ? score(e.head, qt) * 0.5 : 0);
@@ -263,14 +292,15 @@ export function search(docsDir, q, max = 5, opts = {}) {
   // and only for a typed word that none of the top rows holds as itself (a stem or synonym does not count) and that the line holds as typed: that is the case the floor is for.
   // A variant in the line is not enough: "the resolution climbs back" is no answer to "climb", and a row with the synonym (ladder) is
   const topRows = [...hits].sort((a, b) => b.cov - a.cov).slice(0, 5), missing = qt.concepts.map(c => !topRows.some(h => conceptHit(h.e.text, c) >= 0.9));
-  for (const h of lineHits) if (h.cov >= Math.max(0.5, bestRow + (h.e.src === 'api' ? 0.1 : 0.3)) && qt.concepts.reduce((a, c, i) => a + (missing[i] && conceptHit(h.e.text, c) === 1 ? qt.w[i] : 0), 0) / total >= 0.6) hits.push(h);   // the missing word(s) carry 60% of the query's weight
-  const entry = e => e.src === 'AI.md' || e.src === 'entry' ? 1 : e.src === 'api' ? -1 : e.src === 'line' ? -2 : 0, band = h => Math.round(h.cov * 20);
-  hits.sort((a, b) => band(b) - band(a) || (b.e.plain ? 1 : 0) - (a.e.plain ? 1 : 0) || entry(b.e) - entry(a.e) || b.s - a.s || a.order - b.order);
+  const upgrade = h => +h.e.title.startsWith('MIGRATING-');   // read once when upgrading: the answer only when nothing else holds the words (how setAuto)
+  for (const h of lineHits) if (!upgrade(h) && h.cov >= Math.max(0.5, bestRow + (h.e.src === 'api' ? 0.1 : 0.3)) && qt.concepts.reduce((a, c, i) => a + (missing[i] && conceptHit(h.e.text, c) === 1 ? qt.w[i] : 0), 0) / total >= 0.6) hits.push(h);   // the missing word(s) carry 60% of the query's weight
+  const entry = e => e.task ? 2 : e.src === 'AI.md' || e.src === 'entry' ? 1 : e.src === 'api' ? -1 : e.src === 'line' ? -2 : 0, band = h => Math.round(h.cov * 20);
+  hits.sort((a, b) => band(b) - band(a) || (b.e.task ? 1 : 0) - (a.e.task ? 1 : 0) || (b.e.plain ? 1 : 0) - (a.e.plain ? 1 : 0) || entry(b.e) - entry(a.e) || b.s - a.s || a.order - b.order);
   // at most 3 plain three.js hits, so the engine route for the same task (coordination: time, weather, saves...) stays in the list
   const seen = new Set(), out = [], plainMax = Math.max(1, max - 2);
   let plain = 0;
   for (const { s, e } of hits) {
-    const open = e.src === 'AI.md' ? openSection(sections, e.where, qt) : e.src === 'recipe' ? e : null;
+    const open = e.src === 'AI.md' ? openSection(sections, e.where, qt) : e.src === 'recipe' ? e : e.src === 'entry' ? entrySection(sections, e, qt) : null;
     if (e.src === 'line') { const lk = 'line' + e.title; if (seen.has(lk + 2)) continue; seen.add(seen.has(lk) ? lk + 2 : lk); }   // two text lines per file: five lines of one recipe are not five answers
     if (seen.has(e.where + e.title) || (e.plain && plain >= plainMax)) continue;
     seen.add(e.where + e.title); if (e.plain) plain++;
@@ -282,7 +312,8 @@ export function search(docsDir, q, max = 5, opts = {}) {
       : e.src === 'three' ? `engine + three.js · ${clip(e.title, 60)} → ${clip(e.use, 100)} → ${e.where}` : `${e.where} · ${clip(e.name, 60)} — ${clip(e.snip)}`,
       at: e.src === 'line' ? e.where : open?.at ?? e.where.replace(/ (§\d+\w*|".*")$/, ''),
       // the row may serve both renderers while the paragraph printed under it shows one: a GLSL sample under a row in a WebGPU game reads as the answer
-      para: otherRenderer(open?.para ?? '', opts.renderer) ? '' : open?.para ?? '' });
+      para: otherRenderer(open?.para ?? '', opts.renderer) ? '' : open?.para ?? '',
+      blocks: open?.blocks ?? [], nofit: e.nofit ?? open?.nofit ?? '', task: !!e.task, skeleton: !!e.skeleton, plain: !!e.plain, text: e.text });
     if (out.length >= max) break;
   }
   // say so when the match is weak: when the listed hits together cover less than a third of the query's weight (a long query has ten words, covering half is hard, and a half threshold calls right answers 'not found'), mark it weak; the CLI then says no good match before listing the closest, so an AI does not take a filler result as the answer
@@ -294,7 +325,7 @@ export function search(docsDir, q, max = 5, opts = {}) {
   out.unknown = qt.concepts.filter((c, i) => !used[i]).map(c => c.word);
   if (!out.length || out.weak) {   // the floor: the best text lines (two per file) after what the rows gave
     const seenFile = new Map(out.map(h => [h.at.replace(/[#:].*$/, ''), 1]));
-    for (const h of lineHits.filter(h => h.cov >= 0.5).sort((a, b) => b.cov - a.cov || a.order - b.order)) {
+    for (const h of lineHits.filter(h => h.cov >= 0.5).sort((a, b) => upgrade(a) - upgrade(b) || b.cov - a.cov || a.order - b.order)) {
       if (out.length >= max) break;
       if ((seenFile.get(h.e.title) ?? 0) >= 1) continue;
       seenFile.set(h.e.title, 1);
@@ -322,6 +353,14 @@ function openSection(sections, where, qt) {
   return best;
 }
 
+/** The recipe section an entry row points at ("(recipe 20)"): a heading there that answers the query, else the first short example that calls the row's entry. The row stays the answer, the section gives its example */
+function entrySection(sections, e, qt) {
+  const n = /\brecipes? (\d+)/.exec(e.use)?.[1], file = n && sections.find(x => x.at.startsWith(`recipes/${n.padStart(2, '0')}-`))?.at.split('#')[0];
+  const s = file && openSection(sections, file, qt);
+  const name = /`([\w.]+)/.exec(e.use)?.[1];
+  return s?.at.includes('#') ? s : name ? sections.find(x => x.at.startsWith(file + '#') && x.blocks[0]?.includes(name) && x.blocks[0].split('\n').length <= 12) ?? null : null;
+}
+
 /** One hit as printed: the line, then where to read (path#section) and that paragraph */
 export function format(h, i) {
   return `${i + 1}. ${h.line}` + (h.at ? `\n   read: ${h.at}` : '') + (h.para ? `\n   ${h.para}` : '');
@@ -331,7 +370,7 @@ export function format(h, i) {
 export function tryNext(res) {
   const drop = res.unknown?.length ? `The docs never use: ${res.unknown.map(w => `"${w}"`).join(', ')}. ` : '';
   const row = res.closestRow ? `the closest is "${res.closestRow}"` : 'one row per task';
-  return `${drop}Try 2-4 English task words (e.g. "perf", "save game", "rigid push", "2d lights"), or read the table in packages/engine/docs/AI.md ("One thing, one entry point"; ${row}).`;
+  return `${drop}Try 2-4 English task words (e.g. "perf", "save game", "rigid push", "2d lights"), or threedog how --browse to pick by category, or read the table in ${docPath('AI.md')} ("What exists: look here first"; ${row}).`;
 }
 
 /**
@@ -352,34 +391,15 @@ export function libraryHits(list, q, max = 3) {
   return out.slice(0, max).map(({ e }) => `library · ${e.name} (${e.kind ?? 'other'}) — ${clip(e.summary ?? '', 90)} → threedog lib pull ${e.name}`);
 }
 
-/** CLI body: threedog how "<task>" [-w game] */
-export async function main(argv) {
-  let dir, rest;
-  try { ({ dir, rest } = command(argv, { positional: true })); } catch (e) { console.log('✗ ' + e.message); return 1; }
-  const q = rest.join(' ').trim();
-  if (!q) { console.log('Usage: threedog how "<effect or task>"   (e.g. how "rain", how "save game")'); return 1; }
-  const res = search(join(ENGINE, 'docs'), q, 5, { renderer: gameRenderer(dir) });
-  // live catalog (modules / ops whose name matches a typed word) when a dev page is running; any failure just means "no page", docs answer alone
-  let live = [];
-  // only when a page is already attached: execute() would otherwise make the dev server open a headless Chromium just to answer a docs search
-  const dev = devServerInfo(dir), attached = dev.state === 'live' && await fetch(`http://localhost:${dev.port}/__threedog/cmd`, { method: 'POST',
-    headers: { 'x-threedog-token': dev.token }, body: '{"op":"ping"}', signal: AbortSignal.timeout(1500) }).then(r => r.json()).then(j => j.value?.live || j.value?.headless, () => false);
-  if (attached) {
-    try {
-      const { execute } = await import('./threedog/dispatch.mjs'), word = queryTokens(q).main.find(w => /^[a-z]/.test(w));
-      const r = word && await Promise.race([execute(dir, 'catalog', ['--find', word]), new Promise(res2 => setTimeout(res2, 4000, null))]);
-      if (r?.ok && Array.isArray(r.data)) live = r.data.slice(0, 3).map(m => `live catalog · ${m.id} (${m.kind}${m.ops?.length ? ', ops: ' + m.ops.slice(0, 4).map(o => o.name ?? o).join(', ') : ''}) → threedog catalog ${m.id}`);
-    } catch { /* no page */ }
+/**
+ * Engine modules a typed word names exactly: the module, one of its options, or a content field. Works with no page running; what only a running game has
+ * (its own modules) is the live lines' job. Exact words only: a docs search already covers near hits, and three loose lines above it would be noise.
+ */
+export function metadataHits(q) {
+  const words = new Set(queryTokens(q).main), lower = k => k.toLowerCase(), out = [];
+  for (const [id, m] of Object.entries(metadata.modules)) {
+    const opts = Object.keys(m.params ?? {}).filter(k => words.has(lower(k)) && k.length > 3), own = [id, m.call, ...m.provides, ...m.sections].some(k => words.has(lower(k)));
+    if (own || opts.length) out.push(`module · ${m.call}()${m.label ? ` (${m.label})` : ''}${opts.length ? `, option ${opts.join(', ')}` : ''} → threedog catalog ${id}`);
   }
-  // the user's library, read last: a missing or broken library is no reason to fail a docs search
-  let lib = [];
-  try { const L = await import('./lib.mjs'); lib = libraryHits(L.entries(L.libraryDir()), q); } catch { /* no library */ }
-  if (!res.length && !live.length && !lib.length) { console.log(`No match for "${q}". ${tryNext(res)}`); return 0; }
-  if (res.weak) console.log(`No good match for "${q}": the closest hits below cover less than a third of it. ${tryNext(res)}\n`);
-  live.forEach((l, i) => console.log(`${i + 1}. ${l}`));
-  res.forEach((h, i) => console.log(format(h, live.length + i)));
-  lib.forEach((l, i) => console.log(`${live.length + res.length + i + 1}. ${l}`));
-  return 0;
+  return out.slice(0, 3);
 }
-
-if (import.meta.url === pathToFileURL(process.argv[1] || '').href) process.exit(await main(process.argv.slice(2)));

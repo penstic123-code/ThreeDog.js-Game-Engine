@@ -17,12 +17,13 @@ const engine = createEngine({ __RENDERER__bindings: { ...presets.bindings.walk, 
 // world() stores what content/ places (props, pickups) and saves their changes; content() loads content/. Modules you can add (interactions, inventory, pickups for items on the ground, dialogue, quests, hud...): node_modules/threedog/docs/api/<module>.md
 engine.use(world(), content(), settings({ freezeWorld: true }));   // settings: Esc pauses and opens the menu (graphics quality, audio, keys, language, saves)
 engine.saves.autosave(0.5);   // minutes of play; Continue on the start screen loads it. The game's own state joins with engine.saves.register('game', { version: 1, save, load }), recipe 20
-const picture = createPicture(engine);   // picture.materials: the game's materials by name
+engine.use(createPicture());   // a picture module; to switch looks: engine.use(another(), { replaces: 'picture' })
+const { picture } = engine;   // picture.materials: the game's materials by name
 engine.assets.manifest(packs);   // assets.js: the models / sounds / textures content names (empty for now)
 
 // ---- Ready lines, all commented: uncomment what the design needs (and its names in the import above). They save writing; they limit nothing: the picture and
 // every object stay plain three.js, and you may mix both freely. Rules and the full set: recipe 63 and node_modules/threedog/docs/recipes/.
-// engine.use(collision(), characters(), followCamera({ pointerLock: true }), hud(), interactions({ ...presets.interactions.nearest }), dialogue(), quests());
+// engine.use(collision(), characters({ fall: 'rescue' }), followCamera({ pointerLock: true }), hud(), interactions({ ...presets.interactions.nearest }), dialogue(), quests());
 // engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: [0, 0, 0] });   // walks (WASD / stick), camera behind it; Shift runs, Space jumps (presets.bindings.walk above)
 // engine.collision.addBlocked((x, z) => Math.abs(x) > 20 || Math.abs(z) > 20);            // the walkable shape (here a 40 m square); engine.collision.addObject(mesh) makes a mesh solid
 // const guide = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1, 4, 8), new THREE.MeshStandardMaterial({ color: 0xc89a5a })); guide.position.set(4, 0.9, -3); engine.scene.add(guide);   // any three.js object

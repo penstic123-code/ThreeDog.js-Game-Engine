@@ -14,13 +14,15 @@
 //   shape      'sphere' | 'box' (can rotate) | 'cylinder' (vertical, default)
 //   position   center { x, y, z } / Vector3 / Object3D / [x, y, z]. For box and cylinder, y is the bottom height; if y is omitted, the ground height there is used
 //   radius     sphere/cylinder radius (default 1.5); size [width, height, depth] (box, default [2,2,2]); height cylinder height (default 3)
+//   volume     your own region instead of shape: { contains({x,y,z}) -> boolean, bounds?: { min, max } } (the same plain volume addWaterBody takes); bounds
+//              (Box3-like) lets the zone be indexed and drawn by the debug view, without it the zone is checked every step
 //   rotation   box rotation around the Y axis in radians (default 0)
 //   onEnter(t, who, id) / onExit(t, who, id) / onStay(dt, t, who, id)   callbacks; who is the position that entered, id the world record id of who it is
 //              (engine.actor for the default who, the id for an id in a custom who, object.userData.id for an Object3D, null for a bare position)
 //   once       fire on the first enter only (default false; exit follows at once); t.used is true afterwards, and a new playthrough (engine.session) re-arms it
 //   enabled    false pauses detection (handle.enabled can be changed any time)
 //   tag        name carried in events, for shared handling
-//   who        what can trigger: default is engine.actor (engine.actorPosition(): the player, or what engine.actor names; engine.focus without a player); or an
+//   who        what can trigger: default is engine.actor and every seat's actor (engine.actorPosition(): the player, or what engine.actor names; engine.focus without a player); or an
 //              actor id, a Vector3 / Object3D, or a function returning an array of those () => [e.actor, ...peerIds] (several actors)
 //              (a zone with a function / object `who` is checked every step; zones with the default `who` cost nothing while the actor is far away)
 //   cooldown   seconds after leaving during which enter will not fire again (stops edge jitter from re-triggering), default 0
@@ -40,6 +42,7 @@ import { engineOwned } from '../../core/scene/things.js';
 import * as THREE from 'three';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { Cells } from '../../core/stream/cells.js';
+import { codedError } from '../../core/base/errorHints.js';
 import { placeY } from '../../core/scene/ground.js';
 
 // Zones are indexed (core/stream/cells.js, the shared xz index) by the cells their bounding box covers, so a step looks at the zones near the actor instead of every
@@ -48,7 +51,7 @@ const CELL = 16, MAX_CELLS = 64, PAD = 0.01;   // PAD: contains() is inclusive, 
 const DEBUG_GRAY = 0x9a9a9a;
 const bySeqDesc = (a, b) => b._seq - a._seq;   // the order zones have always run in: newest first
 
-const ADD_KEYS = ['shape', 'position', 'radius', 'size', 'height', 'rotation', 'onEnter', 'onExit', 'onStay', 'once', 'enabled', 'tag', 'who', 'cooldown', 'userData'];
+const ADD_KEYS = ['shape', 'position', 'radius', 'size', 'height', 'rotation', 'onEnter', 'onExit', 'onStay', 'once', 'enabled', 'tag', 'who', 'cooldown', 'userData', 'occupancy', 'volume'];
 
 const STRINGS = {
   'zh-CN': { 'module.triggers': '触发区', 'triggers.debug': '显示触发区' },
@@ -79,13 +82,18 @@ export class Triggers {
   add(opts = {}) {
     readParams('triggers.add()', keysSchema(ADD_KEYS), opts);
     const { shape = 'cylinder', position: at = {}, radius = 1.5, size = [2, 2, 2], height = 3, rotation = 0, onEnter = null, onExit = null, onStay = null,
-      once = false, enabled = true, tag = '', who = null, cooldown = 0, userData = {} } = opts;
+      once = false, enabled = true, tag = '', who = null, cooldown = 0, userData = {}, occupancy = 'zone', volume = null } = opts;
+    if (volume && typeof volume.contains !== 'function') throw codedError('module-params', 'triggers.add({ volume }): needs volume.contains({ x, y, z }) -> boolean and optionally bounds { min, max }');
+    if (occupancy !== 'zone' && occupancy !== 'each') throw codedError('module-params', `triggers.add({ occupancy }): 'zone' (default: one enter when the first actor arrives, one exit when the last leaves) or 'each' (an enter and an exit per actor); got ${JSON.stringify(occupancy)}`);
+    if (!(radius >= 0 && Number.isFinite(radius))) throw codedError('module-params', `triggers.add({ radius }): must be a finite number >= 0, got ${radius}`);   // NaN never matched and sat in the cell index
     const position = at.isObject3D ? at.position : Array.isArray(at) ? { x: at[0], y: at[1], z: at[2] } : at;
     const e = this.engine, x = position.x ?? 0, z = position.z ?? 0;
-    const y = position.y ?? placeY(e, 'triggers.add()', x, z);
+    const y = position.y ?? (volume ? 0 : placeY(e, 'triggers.add()', x, z));   // a volume carries its own place
+    // a volume with bounds is indexed and drawn as its bounding box (the shape of a box with rotation 0); contains() stays the volume's own
+    const bb = volume?.bounds, box = bb ? { x: (bb.min.x + bb.max.x) / 2, y: bb.min.y, z: (bb.min.z + bb.max.z) / 2, size: [bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z] } : null;
     const t = {
-      shape, x, y, z, radius, hx: size[0] / 2, hy: size[1] / 2, hz: size[2] / 2, sy: size[1], height, rotation,
-      c: Math.cos(rotation), s: Math.sin(rotation), onEnter, onExit, onStay, once, enabled, tag, who, cooldown, userData,
+      shape: volume ? 'volume' : shape, volume, x: box?.x ?? x, y: box?.y ?? y, z: box?.z ?? z, radius, hx: (box?.size ?? size)[0] / 2, hy: (box?.size ?? size)[1] / 2, hz: (box?.size ?? size)[2] / 2, sy: (box?.size ?? size)[1], height, rotation,
+      c: Math.cos(rotation), s: Math.sin(rotation), onEnter, onExit, onStay, once, enabled, tag, who, cooldown, userData, occupancy, _in: null,
       inside: false, used: false, _cool: 0, _mesh: null, _gone: false,
       remove: () => this._remove(t),
       contains: p => this._contains(t, p),
@@ -97,21 +105,23 @@ export class Triggers {
   }
 
   _remove(t) {   // remove only through the handle t.remove(); zones still occupied send exit first (so music areas and content onExit can clean up)
-    const i = this._list.indexOf(t); if (i < 0) return;
-    if (t.inside) this._exit(t, null);
-    this._list.splice(i, 1); this._unregister(t); this._busy.delete(t);
+    if (t._gone) return;
+    // leave the books first: onExit may call t.remove() again or add / remove other zones, so no index taken before the callback is used after it (M08)
     t._gone = true;
+    const i = this._list.indexOf(t); if (i >= 0) this._list.splice(i, 1);
+    this._unregister(t); this._busy.delete(t);
+    if (t.inside) this._exit(t, null);
     if (t._mesh) { t._mesh.parent?.remove(t._mesh); t._mesh.geometry.dispose(); t._mesh = null; }
   }
   _register(t) {
-    if (t.who) { this._global.push(t); return; }
-    const ex = (t.shape === 'box' ? t.hx * Math.abs(t.c) + t.hz * Math.abs(t.s) : t.radius) + PAD;
-    const ez = (t.shape === 'box' ? t.hx * Math.abs(t.s) + t.hz * Math.abs(t.c) : t.radius) + PAD;
+    if (t.who || (t.volume && !t.volume.bounds)) { this._global.push(t); return; }
+    const ex = (t.shape === 'box' || t.volume ? t.hx * Math.abs(t.c) + t.hz * Math.abs(t.s) : t.radius) + PAD;
+    const ez = (t.shape === 'box' || t.volume ? t.hx * Math.abs(t.s) + t.hz * Math.abs(t.c) : t.radius) + PAD;
     t._span = this._cells.cover(t, t.x - ex, t.z - ez, t.x + ex, t.z + ez, MAX_CELLS);
     if (!t._span) this._global.push(t);
   }
   _unregister(t) {
-    if (t._span) this._cells.uncover(t); else this._global.splice(this._global.indexOf(t), 1);
+    if (t._span) this._cells.uncover(t); else { const i = this._global.indexOf(t); if (i >= 0) this._global.splice(i, 1); }
   }
   /** All trigger zones (a new array) */
   list() { return [...this._list]; }
@@ -147,6 +157,7 @@ export class Triggers {
   }
 
   _contains(t, p) {
+    if (t.volume) return !!t.volume.contains(p);
     const dx = p.x - t.x, dy = p.y - t.y, dz = p.z - t.z;
     if (t.shape === 'sphere') return dx * dx + dy * dy + dz * dz <= t.radius * t.radius;
     if (t.shape === 'box') {
@@ -160,7 +171,8 @@ export class Triggers {
   _defaultWho() {
     const e = this.engine;
     this._one[0] = e.actorPosition();   // engine.actor: the player by default, or the vehicle / squad member the game handed control to
-    this._ids.length = 1; this._ids[0] = e.actor;
+    this._one.length = this._ids.length = 1; this._ids[0] = e.actor;
+    for (const s of e.input.seats) if (s.actor && s.actor !== e.actor) { this._one.push(e.actorPosition(s.actor)); this._ids.push(s.actor); }   // every local player, as interactions and pickups
     return this._one;
   }
 
@@ -201,6 +213,7 @@ export class Triggers {
         else { ps.push(x); ids.push(null); }
       }
     }
+    if (t.occupancy === 'each') return this._visitEach(t, dt, ps, ids);
     let hit = null, id = null;
     if (ps) for (let k = 0; k < ps.length; k++) { const p = ps[k]; if (p && this._contains(t, p)) { hit = p; id = ids[k] ?? null; break; } }
     if (hit && !t.inside) {
@@ -211,6 +224,27 @@ export class Triggers {
       if (t.once) { t.used = true; this._exit(t, null); }
     } else if (!hit && t.inside) this._exit(t, null);
     else if (hit && t.inside) t.onStay?.(dt, t, hit, id);
+  }
+  /** @internal occupancy 'each': every actor in the zone enters, stays and exits on its own; t.inside is true while anyone is in. Cooldown runs from when the zone empties */
+  _visitEach(t, dt, ps, ids) {
+    const e = this.engine, inn = t._in ??= new Map(), now = new Map();
+    if (ps) for (let k = 0; k < ps.length; k++) { const p = ps[k]; if (p && this._contains(t, p)) now.set(ids[k] ?? p, { p, id: ids[k] ?? null }); }
+    for (const [key, o] of inn) if (!now.has(key)) { inn.delete(key); this._left(t, null, o.id); if (t._gone) return; }
+    if (t.inside && !inn.size) { t.inside = false; t._cool = t.cooldown; }
+    for (const [key, o] of now) {
+      if (inn.has(key)) { t.onStay?.(dt, t, o.p, o.id); if (t._gone) return; continue; }
+      if (t._cool > 0 && !inn.size) return;
+      inn.set(key, o); t.inside = true;
+      t.onEnter?.(t, o.p, o.id);
+      e.events.emit('trigger:enter', { tag: t.tag, trigger: t, who: o.p, id: o.id });
+      if (t._gone) return;
+      if (t.once) { t.used = true; this._exit(t, null); return; }
+    }
+  }
+  /** @internal one actor left: the callback and the event */
+  _left(t, who, id) {
+    t.onExit?.(t, who, id);
+    this.engine.events.emit('trigger:exit', { tag: t.tag, trigger: t, who, id });
   }
   /** @internal each zone's save key: tag (or '(shape)') plus its order among zones with that label, so code that adds the same zones gets the same keys */
   _keys() {
@@ -235,10 +269,10 @@ export class Triggers {
   }
   _exit(t, who) {
     // id: who was inside (remembered at enter), so an exit says who left even though the position that left is gone
-    const id = t._id ?? null;
+    const id = t._id ?? null, all = t._in ? [...t._in.values()] : null;
     t.inside = false; t._cool = t.cooldown; t._id = null;
-    t.onExit?.(t, who, id);
-    this.engine.events.emit('trigger:exit', { tag: t.tag, trigger: t, who, id });
+    if (all) { t._in.clear(); for (const o of all) this._left(t, who, o.id); return; }   // occupancy 'each': everyone leaves
+    this._left(t, who, id);
   }
 
   // ---------- debug view 'triggers' ----------
@@ -260,9 +294,10 @@ export class Triggers {
     };
   }
   _addDebugMesh(t) {
+    if (t.volume && !t.volume.bounds) return;   // nothing to draw without bounds
     let geo;
     if (t.shape === 'sphere') geo = new THREE.SphereGeometry(t.radius, 12, 8);
-    else if (t.shape === 'box') geo = new THREE.BoxGeometry(t.hx * 2, t.sy, t.hz * 2).translate(0, t.sy / 2, 0);
+    else if (t.shape === 'box' || t.volume) geo = new THREE.BoxGeometry(t.hx * 2, t.sy, t.hz * 2).translate(0, t.sy / 2, 0);
     else geo = new THREE.CylinderGeometry(t.radius, t.radius, t.height, 16, 1, true).translate(0, t.height / 2, 0);
     const lines = new THREE.LineSegments(new THREE.WireframeGeometry(geo), this._mat);
     geo.dispose();
@@ -278,17 +313,47 @@ const TRIGGER_PARAMS = {
   debugOpacity: { type: 'number', default: 0.8, desc: "line opacity of the debug view 'triggers'" },
 };
 
+/**
+ * The triggers section of content data: fromLevel = the level's trigger_<tag> marker, otherwise placed by position. Enter / exit effects look up the merged table,
+ * and the listener is attached only once. They act for whoever crossed the zone (a { give } lands in that actor's bag); a zone emptied by removal has no id: engine.actor
+ */
+function triggerContent() {
+  const table = {};
+  let subs = null;
+  return {
+    desc: 'trigger zones (tag -> position / from level, enter/exit effects)',
+    undo(d, { engine: e }) {
+      const had = new Set(e.triggers._list), was = { ...table };
+      return () => {
+        for (const t of [...e.triggers._list]) if (!had.has(t)) t.remove();
+        for (const tag of Object.keys(table)) delete table[tag];
+        Object.assign(table, was);
+      };
+    },
+    commit(d, { engine: e, content, where, bind, track }) {
+      Object.assign(table, d);
+      if (Object.values(d).some(t => t.fromLevel)) e.triggers.fromMarkers();
+      for (const [tag, t] of Object.entries(d)) if (!t.fromLevel) bind(e.triggers.add({ ...t, tag, position: where(t.position), onEnter: null, onExit: null }), t.position);
+      subs ??= [
+        track(e.events.on('trigger:enter', ({ tag, id }) => content.run(table[tag]?.onEnter, { actor: id ?? e.actor }))),
+        track(e.events.on('trigger:exit', ({ tag, id }) => content.run(table[tag]?.onExit, { actor: id ?? e.actor }))),
+      ];
+    },
+  };
+}
+
 /** Trigger zone module. Provides engine.triggers once installed. Optional dependency: level (used by fromMarkers) */
 export function triggers(opts = {}) {
   const o = readParams('triggers', TRIGGER_PARAMS, opts);
   let tr = null;
   return {
-    name: 'triggers', type: 'rules', label: 'Triggers', params: TRIGGER_PARAMS, options: o, noSkip: 'zone enter/exit is re-evaluated on the next fixed step', optional: ['level'], stage: 'gameplay', after: ['interactions'],
+    content: { triggers: triggerContent() },
+    name: 'triggers', skipKind: 'none', type: 'rules', label: 'Triggers', params: TRIGGER_PARAMS, options: o, noSkip: 'zone enter/exit is re-evaluated on the next fixed step', optional: ['level'], stage: 'gameplay', after: ['interactions'],
     install(e, ctx) {
       tr = new Triggers(e, o, ctx.track);
       // audio rule condition { zone: 'cave' | ['cave', 'mine'] }: some trigger zone with that tag is occupied
       ctx.track(e.audio.condition('zone', v => [].concat(v).some(tag => tr.byTag(tag).some(t => t.inside))));
-      e.saves.register('triggers', { save: () => tr._save(), load: d => tr._load(d) });
+      ctx.saves.register('triggers', { notAtomic: 'bodies crossing a zone change it in the step, and its load fires exits', save: () => tr._save(), load: d => tr._load(d) });
       return tr;
     },
     fixed(dt) { tr.update(dt); },
@@ -301,3 +366,5 @@ export function triggers(opts = {}) {
     },
   };
 }
+
+export const handRolled = 'none: a zone check by hand is the same maths as any distance or box test';

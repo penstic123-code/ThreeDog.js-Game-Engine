@@ -1,6 +1,6 @@
 // R11 detaching a self-built mesh without releasing it (should be engine.remove) (warning, heuristic)
 // API convention (see "Removing objects" in packages/engine/docs/AI.md): engine.remove(obj) = delete completely (detach, cancel the raycast registration, free geometry and material; shared assets are skipped);
-// engine.detach(obj) / obj.removeFromParent() / group.remove(obj) only take it off, leaving geometry and material in video memory and the raycast registration in place.
+// obj.removeFromParent() / group.remove(obj) only take it off, leaving geometry and material in video memory and the raycast registration in place.
 // Criteria (in packages/engine/modules):
 //   1. Find detach calls: <engine>.detach(X) (e / engine / this.engine / xx.engine), X.removeFromParent(), <scene|group|parent|object|root>.remove(X)
 //      (<engine>.remove(X) is the right form and is not reported)
@@ -9,6 +9,7 @@
 //      or the file assigns that name from new / a function call; or X is a parameter of the enclosing function (e.g. dispose: o => … of stream).
 // Limitation: a purely textual heuristic with no data-flow tracking: if X is an object handed in by the game (the game releases it), it is a false positive (use the allowlist);
 //      releasing in another function (e.g. a separate dispose() method after detaching) is also a false positive.
+import { esc } from '../lib/text.mjs';
 import { ts, parse, visit, engineFiles, lineOf, read, E, P } from './_lib.mjs';
 
 // Allowlist: [file, removed expression, reason]
@@ -22,7 +23,6 @@ const OBJ_RECV = /(scene|group|Group|parent|object|root)\??$/;
 
 function enclosingFn(n) { for (let p = n.parent; p; p = p.parent) if (ts.isFunctionLike(p) && p.body && !ts.isArrowFunction(p)) return p; return n.getSourceFile(); }
 function isParam(n, name) { for (let p = n.parent; p; p = p.parent) if (ts.isFunctionLike(p) && p.parameters.some(x => x.name.getText() === name)) return true; return false; }
-const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 export default {
   id: 'R11', title: 'Detaching a self-built mesh without releasing it (should be engine.remove)',
@@ -35,7 +35,6 @@ export default {
         const m = n.expression.name.text, recv = n.expression.expression.getText();
         let X = null, how = '';
         if (m === 'removeFromParent' && n.arguments.length === 0) { X = recv; how = `${X}.removeFromParent()`; }
-        else if (m === 'detach' && n.arguments.length === 1 && ENGINE_RECV.test(recv)) { X = n.arguments[0].getText(); how = `${recv}.detach(${X})`; }
         else if (m === 'remove' && n.arguments.length === 1 && !ts.isStringLiteral(n.arguments[0]) && !ts.isNumericLiteral(n.arguments[0])) {
           if (!ENGINE_RECV.test(recv) && OBJ_RECV.test(recv)) { X = n.arguments[0].getText(); how = `${recv}.remove(${X})`; }
         }

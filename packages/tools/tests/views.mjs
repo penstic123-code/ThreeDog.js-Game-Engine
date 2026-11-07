@@ -6,7 +6,7 @@ import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
 
 const { Views } = await import(pathToFileURL(join(ENGINE, 'core/scene/Views.js')).href);
-const { holdMethods } = await import(pathToFileURL(join(ENGINE, 'core/ops/holds.js')).href);
+const { holdMethods, defineHoldStacks } = await import(pathToFileURL(join(ENGINE, 'core/ops/holds.js')).href);
 const { Stacks } = await import(pathToFileURL(join(ENGINE, 'core/ops/stacks.js')).href);
 const { Events } = await import(pathToFileURL(join(ENGINE, 'core/base/Events.js')).href);
 
@@ -15,9 +15,9 @@ export const name = 'named camera views: define / show / release';
 export async function run({ check }) {
   // a minimal engine with the real camera takeover (holds.js), so views cannot bypass it
   const engine = Object.defineProperties({ camera: new THREE.PerspectiveCamera(60), focus: new THREE.Vector3() }, Object.getOwnPropertyDescriptors(holdMethods));
-  engine.stacks = new Stacks(engine); engine.stacks.define('camera', { kind: 'top', save: false });
+  engine.stacks = new Stacks(engine); defineHoldStacks(engine);
   engine.events = new Events();
-  engine._oFov = { drive(v) { engine.camera.fov = v; } };   // the fov owner (core/scene/view.js): views write through it
+  engine._oFov = { check() {}, mark() {} };   // the fov owner (core/scene/view.js): a held view writes through holdFov
   const cuts = []; engine.events.on('camera:shot', c => cuts.push(c.name));
   const v = new Views(engine);
   const def = v.define('gate', { position: [0, 2, 10], target: [0, 2, 0], fov: 35 });

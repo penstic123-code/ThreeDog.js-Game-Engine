@@ -22,26 +22,28 @@ import { holdMethods } from '../ops/holds.js';
 import { startupMethods } from './startup.js';
 import { groundMethods, flatGround } from '../scene/ground.js';
 import { actorMethods } from '../ops/actor.js';
-import { forcedTier, defaultPixelRatio } from '../scene/tier.js';
+import { forcedTier, storedMsaa } from '../scene/tier.js';
 import { tier as detectTier, tierBeforeRenderer, ownMsaa, timerContext, isWebGPU, webgpuPart, watchNodePrograms } from '../../render/backend.js';
 import { recordSweep } from '../../render/recordSweep.js';
 import { dressNodeTwins } from '../../render/patches.js';
 import { lifecycleMethods, clearHooks, checkCanvasUsable } from './lifecycle.js';
 import { createAdaptive, GpuTimer } from '../scene/adaptive.js';
+import { firstRatio, noteDeviceBox, pixelSizeOn } from '../scene/pixelRatio.js';
 import { watchRejections } from '../base/errors.js';
 import { createMovement } from '../scene/movement.js';
 import { moduleMethods } from './modules.js';
 import { skipMethods } from '../time/skip.js';
 import { checkMethods } from '../inspect/checks.js';
+import { toolDoor } from '../inspect/toolDoor.js';
 import { canvasBox, placeUI, resizeMethods } from '../scene/canvasBox.js';
 import { sceneMethods } from '../scene/sceneMethods.js';
-import { EngineCamera } from '../scene/engineCamera.js';
+import { movedOwned } from '../ops/owned.js';
 import { recordRender } from '../inspect/describeRender.js';
 import { installPictureWriters } from '../inspect/pictureWriters.js';
 import { ownHook } from './moduleTypes.js';
 import { defineShadows } from '../../render/shadows.js';
 import { defineTerms } from '../../render/terms.js';
-import { defineView } from '../scene/view.js';
+import { defineView, checkCamera } from '../scene/view.js';
 import { nameShaderErrors } from '../../render/shaderErrors.js';
 import { probeMethods } from '../../render/probes.js';
 import { lightmapMethods } from '../../render/lightmap.js';
@@ -55,7 +57,7 @@ const FALLBACKS = ['webgl2', 'webgl', 'error'];
 export const ENGINE_PARAMS = {
   canvas: 'object?', renderer: { type: 'string|object', optional: true, desc: "'webgl' (default), 'webgpu', or a renderer the game built" },
   fallback: { type: 'string', optional: true, values: FALLBACKS }, antialias: 'bool?',
-  pixelRatio: 'number?', adaptiveResolution: { type: 'bool', default: true }, targetFps: { type: 'number', default: 55, min: 1 },
+  pixelRatio: 'number?', pixelSize: { type: 'int', optional: true, min: 1, desc: 'real screen pixels per art pixel' }, adaptiveResolution: { type: 'bool', default: true }, targetFps: { type: 'number', default: 55, min: 1 },
   ui: 'object?', audio: 'object?', fov: { type: 'number', default: 55, min: 1, max: 179 }, near: { type: 'number', default: 0.3, min: 0 },
   locale: { type: 'string', default: 'auto' }, strings: 'object?', bindings: 'object?', saveKey: { type: 'string', default: 'game' },
   joystick: { type: 'string|bool', default: 'auto' }, headless: 'bool?', validate: { type: 'bool', default: true }, decoders: 'string?',
@@ -90,6 +92,12 @@ function rendererWant(r, rendererIn, fallback) {
 }
 
 
+/** pixelSize decides the ratio, so an option asking for something else about it is an error that names which to keep */
+function checkPixelSizeOptions(pixelSize, pixelRatio, adaptiveResolution) {
+  if (pixelRatio != null) throw codedError('pixel-conflict', `createEngine({ pixelRatio: ${pixelRatio}, pixelSize: ${pixelSize} }): both decide the render resolution. Keep pixelSize for art pixels of one exact size, or pixelRatio for a plain render scale`);
+  if (adaptiveResolution === true) throw codedError('pixel-conflict', `createEngine({ adaptiveResolution: true, pixelSize: ${pixelSize} }): adaptive resolution would change the art pixels' size. Keep pixelSize and drop adaptiveResolution`);
+}
+
 // Dev note once when createEngine keeps the engine's placeholder lights; lights: false says the game writes its own picture
 const NO_PICTURE = 'createEngine(): the placeholder picture is on: a still white sun and hemisphere light with soft shadows, no tone curve, no environment map (see describe().render.defaults), ' +
   'gray background, ground, capsule characters and box props. Not an error, but the game has no picture yet: making the art is part of building the game. ' +
@@ -108,10 +116,11 @@ export class Engine {
     /** @internal */ this._untrackValidate = trackValidate(opts.validate);
     const o = readParams('createEngine()', ENGINE_PARAMS, opts);
     /** @internal createEngine options as read (engine.catalog('core').params shows them with the schema) */ this._createParams = o;
-    const { canvas: canvasIn, renderer: rendererName, antialias, pixelRatio, adaptiveResolution, targetFps, ui = {}, audio = {},
+    const { canvas: canvasIn, renderer: rendererName, antialias, pixelRatio, pixelSize, adaptiveResolution, targetFps, ui = {}, audio = {},
       fov, near, locale, strings = {}, bindings = {}, saveKey, joystick,
       headless = new URLSearchParams(location.search).has('threedog-headless'), validate,
       decoders = null, budget = null, urlState = DEV, seed, movement, threads, pauseOnBlur, batching = {}, lights, fallback } = o;
+    if (pixelSize != null) checkPixelSizeOptions(pixelSize, pixelRatio, opts.adaptiveResolution);
     // 'webgl' names the default (a WebGLRenderer the engine builds), so it reads like leaving the option out
     const rendererIn = rendererName === 'webgl' ? undefined : rendererName;
     // 'webgpu' is the same road as a game's own WebGPURenderer: built here, then handed on like one (start() inits it, core/engine/startup.js)
@@ -128,7 +137,10 @@ export class Engine {
     // every headless browser low tier and drop the game's costly post from shots. An engine-built renderer needs it before it exists: MSAA defaults
     // from the tier and is the canvas's own (antialias, fixed when the context is made), so an effect-free frame skips the post chain
     const tierFirst = (headless && forcedTier()) || (owned ? tierBeforeRenderer() : null);
-    const aa = antialias ?? (owned ? tierFirst !== 'low' : null);
+    // pixelSize: hard art pixels are the point, so the default is off
+    const authoredAA = antialias ?? (owned ? tierFirst !== 'low' && pixelSize == null : null);
+    // the player's choice from the last launch comes here because here is the last moment it can reach the canvas; art pixels stay as they are
+    const aa = (owned && pixelSize == null ? storedMsaa(saveKey) : null) ?? authoredAA;
     const r = this.renderer = gpuWanted ? newWebGPURenderer(canvas, aa) : rendererIn ?? new THREE.WebGLRenderer({ canvas, antialias: aa, powerPreference: 'high-performance' });
     /** @internal what the game asked for and what to do without WebGPU; start() fills describe().renderer from it */
     this._backendWant = rendererWant(r, rendererIn, fallback);
@@ -136,8 +148,9 @@ export class Engine {
     this._records = recordSweep(r);            // WebGPU: meshes that left the scene free their records (render/recordSweep.js)
     if (isWebGPU(r)) dressNodeTwins(r);        // WebGPU: classic materials get their patches as nodes (render/patches.js)
     nameShaderErrors(r);                       // compile errors name the patch and slot (render/shaderErrors.js); a game's own handler stays
-    this.tier = tierFirst || detectTier(r);
-    if (owned || pixelRatio != null) r.setPixelRatio(pixelRatio ?? defaultPixelRatio(devicePixelRatio || 1, this.tier));
+    this._deviceTier = tierFirst || detectTier(r);
+    /** @internal real screen pixels per art pixel, null when off (core/scene/pixelRatio.js) @type {number | null} */ this._pixelSize = null;
+    if (owned || pixelRatio != null) firstRatio(r, this._deviceTier, pixelRatio);
     this._autoSize = undefined;                // decided once the canvas is in the page (sizeMode): true = no CSS size, the engine sizes it to the window
     const box = canvasBox(this);
     if (owned) r.setSize(box.w, box.h, !!this._autoSize);
@@ -147,18 +160,19 @@ export class Engine {
     /** @internal the neutral background a scene starts with: describe().render.defaults, and the reference a sky compares with @type {any} */ this.baseBackground = new THREE.Color(0x8c8c8c);
     /** @internal */ this.baseBackgroundHex = this.baseBackground.getHex();
     this.scene.background = this.baseBackground;
+    this.stacks = new Stacks(this);   // shared points: before the lights, whose shadow size reads engine.tier, and the first engine.shadows / engine.post point
     /** Placeholder lights { sun: DirectionalLight, hemi: HemisphereLight }: neutral and still; createEngine({ lights: false }) leaves them out of the scene @type {{ sun: any, hemi: any }} */
     this.lights = createDefaultLights(this, { add: lights !== false });
     // the engine's own renderer gets soft shadows by default; tone curve and environment stay three.js's defaults
-    this.stacks = new Stacks(this);   // shared points: the registry exists before the first engine.shadows / engine.post point
     defineShadows(this, { owned });   // engine.shadows: master switch, cascades, box, budget on the lights a game hands in (render/shadows.js)
     recordRender(this, { owned });   // baseline for describe().render (after the shadow defaults are written): which values the engine set
     // Dev server only. A bundled build (npm test, threedog shot, release) is one minified file, so a stack there names assets/index-x.js:1 for every value: a
     // wrong answer. Written as the literal, not DEV_SERVER: only the literal folds at build time, so the tracker leaves a release bundle altogether
     // @ts-ignore Vite's import.meta.env (undefined outside Vite)
     if (import.meta.env?.DEV) installPictureWriters(this);
-    this.camera = new EngineCamera(fov, box.w / box.h, near, 1500);   // a PerspectiveCamera that camera rigs can switch to orthographic (core/scene/engineCamera.js)
-    this.camera.position.set(0, 10, 20);
+    this._camera = new THREE.PerspectiveCamera(fov, box.w / box.h, near, 1500);
+    /** @internal { camera, home }: the orthographic camera a rig's projection swapped in, and the camera it stands in for (setProjection, core/scene/view.js) */ this._ortho = null;
+    this._camera.position.set(0, 10, 20);
     this.focus = new THREE.Vector3();          // camera focus (updated by the camera module): the view loads around it; simulation follows world.anchor
     this.ground = flatGround;
     this.player = null;
@@ -175,6 +189,7 @@ export class Engine {
      */
     this.phase = 'constructed';
     /** @internal module name -> handles its install / init passed to ctx.track (removed with the module: modules.js) */ this._modTracked = new Map();
+    /** @internal object -> property -> its one ctx.borrow holder (modules.js) */ this._borrowed = new WeakMap();
     /** @internal module name -> the token of its current install: ctx and async init check it (modules.js, a stale init must not act on a newcomer) */ this._modInst = new Map();
     this._abort = new AbortController();
     // attach DOM listeners to it: addEventListener(type, fn, { signal: engine.signal }); dispose cancels them together
@@ -190,16 +205,18 @@ export class Engine {
     /** How far the drawn frame is from the last fixed step to the next, 0-1 (real loop); 1 after step(). Holds still while frozen. For drawing fixed-step state smoothly: prev + (now - prev) * stepBlend */
     this.stepBlend = 1;
     /** @internal the picture check is rendering (tools/picture/check.mjs): what it changes and puts back is not the game's */ this._probing = false;
+    /** @internal the tools' one way in (rule R68) */ this._tools = toolDoor(this);
     /** @internal */ this._cpuMs = 0;                            // main-thread ms of the last real-time frame; _cpuPhases splits it (loop.js); read through engine.inspect.perf() and engine.budget
     /** @internal */ this._cpuPhases = { fixed: 0, frame: 0, render: 0, afterRender: 0 };
     this._openWindows = new Set();              // ids of open windows (for describe)
     this.modules = new Map();
     this._modState = new Map();                // module name -> registered | initializing | running | failed | disposed (modules.js)
+    /** @internal module name -> what it waits for: [{ requires, module, state }], derived from _modState (modules.js) */ this._modBlocked = new Map();
+    /** @internal installs (engine._modInst tokens) whose critical block was already reported */ this._modFatal = new WeakSet();
     this.waterBodies = [];
     clearHooks(this);
     this._hookErrors = new Set();              // places that already reported an error (once per place, see errors.js)
     this.error = null;                         // gameplay error in dev/test: { where, message, cause?, docs? }; gameplay is frozen (see errors.js)
-    this.disabledModules = new Set();          // picture / ui modules disabled after they threw
     /**
      * This engine's shader uniforms (uTime, uWind, uWeatherCloud, season tints...); share these objects in your own ShaderMaterial or patch @type
      * {import('../../types/core').EngineUniforms}
@@ -217,29 +234,54 @@ export class Engine {
     this._prof = null;                         // module hook timing (profile(true) turns it on)
     this._afterTick = null;                    // at startup, checked once at the end of each frame for readiness
     // a game's own renderer keeps its own MSAA choice by default (used as is, like its pixel ratio)
-    this.post = new PostFX(this, { antialias: aa ?? ownMsaa(r) });
+    this.post = new PostFX(this, { antialias: aa ?? ownMsaa(r), authored: authoredAA ?? ownMsaa(r) });
     this.occlusion = new Occlusion(this);      // off until the game turns it on (render/occlusion.js)
     this._uiStyle = applyUITheme(this, ui);    // theme variables and the game's CSS; removed on dispose
     this.ui = new UIParts(this, ui);           // UI parts: every piece of screen UI is replaceable or off (ui/Parts.js)
     defineCoreParts(this);
     this.ui.get('loading')?.show({});
-    this.adaptive = createAdaptive({ on: adaptiveResolution && !headless, target: targetFps, max: r.getPixelRatio() });
-    this._gpu = this.adaptive.on ? new GpuTimer(timerContext(r)) : null;   // GPU frame time for adaptive resolution where the browser offers the timer query
+    const adaptiveOn = adaptiveResolution && !headless;
+    this.adaptive = createAdaptive({ on: adaptiveOn, target: targetFps, max: r.getPixelRatio(), held: () => pixelSizeOn(this) });
+    this._gpu = adaptiveOn ? new GpuTimer(timerContext(r)) : null;   // GPU frame time for adaptive resolution where the browser offers the timer query
     // follow the canvas's own CSS box, not the window: a canvas in a page section or editor panel renders at its own size.
     // The window event stays for a canvas outside the page (no box, falls back to the window) and for moves that do not resize the canvas
     addEventListener('resize', () => this._resize(), { signal: this.signal });
     this._unhandled = null; watchRejections(this);
     if (typeof ResizeObserver === 'function') {
-      const ro = new ResizeObserver(() => this._resize());
-      ro.observe(r.domElement);
+      const ro = new ResizeObserver(([entry]) => { noteDeviceBox(this, entry); this._resize(); });
+      try { ro.observe(r.domElement, { box: 'device-pixel-content-box' }); } catch { ro.observe(r.domElement); }   // Safari rejects the box name
       this.signal.addEventListener('abort', () => ro.disconnect());
     }
     placeUI(this);
+    if (pixelSize != null) this.setPixelSize(pixelSize);
     this.page = new Page(this, { pauseOnBlur });   // window focus, tab visibility, mouse lock, WebGL context: handled only there
     this._born.built = performance.now();   // measure
   }
 
+  /**
+   * The camera the engine draws with. Assign a real THREE.PerspectiveCamera or THREE.OrthographicCamera to draw through it: rendering, post, picking, shadows, audio and an
+   * installed rig all go on with it. Its aspect follows the canvas unless the game took engine.autoView 'aspect'. Keep the first value to swap back. Any other class is refused.
+   * @example const own = engine.camera; engine.camera = new THREE.OrthographicCamera(-16, 16, 9, -9, 0.1, 500); engine.camera = own;
+   * @type {import('three').PerspectiveCamera | import('three').OrthographicCamera}
+   */
+  get camera() { return this._camera; }
+  set camera(cam) {
+    const old = this._camera;
+    if (cam === old) return;
+    checkCamera(cam);
+    cam.coordinateSystem = old.coordinateSystem;   // the renderer's depth range: three sets it at the first draw, and a pick before that needs it too
+    cam.updateProjectionMatrix(); cam.updateMatrixWorld();
+    this._camera = cam;
+    movedOwned(this, new Map([[old, cam], [old.position, cam.position], [old.quaternion, cam.quaternion]]));
+    const c = this.renderer.domElement;
+    this._oAspect.drive(c.width / c.height);   // the buffer, as a resize leaves it: with pixelSize it is not the canvas box
+  }
+
   get waterLevel() { return this.ground.waterLevel; }
+  /** The one quality value, 'low' | 'high', what everything that scales by quality reads: the device's tier, unless the player's preset says otherwise (shared point 'tier') @type {'low' | 'high'} */
+  get tier() { return this.stacks.has('tier') ? this.stacks.get('tier').value() : this._deviceTier; }
+  /** The device's tier, the base under a player's preset */
+  set tier(t) { this._deviceTier = t; if (this.stacks.has('tier')) this.stacks.get('tier').base = t; }
   /** True once the world is built (phase 'ready' or 'running'): fixed steps, ops and rendering run from here on @type {boolean} */
   get ready() { return this.phase === 'ready' || this.phase === 'running'; }
   /** @internal start() is on its way: no game time passes */
@@ -293,7 +335,8 @@ export class Engine {
   /**
    * Around the main render, after the camera update and batching: fn({ renderer, scene, camera, dt }). when 'before' (default) runs just before the
    * engine's frame render: render to your own target there (mirror, minimap, portal, picking); the render target is reset afterwards. 'after' runs
-   * right after it (read pixels, overlays). The main frame render stays the engine's. Returns a handle { remove() }
+   * right after it (read pixels, overlays). The main frame render stays the engine's. A hook that throws has what it borrowed put back (target, viewport, scissor,
+   * autoClear, scene.overrideMaterial, camera.layers). Returns a handle { remove() }
    * @param {(ctx: { renderer: any, scene: any, camera: any, dt: number }) => void} fn @param {{ when?: 'before' | 'after' }} [opts]
    */
   onRender(fn, { when = 'before' } = {}) {

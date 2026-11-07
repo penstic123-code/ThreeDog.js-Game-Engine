@@ -44,14 +44,20 @@ export const specs = [
     url: '/',
     async run({ check, ev }) {
       const r = await ev(() => {
-        const E = engine, out = {};
-        E.stream._dirty = false; E.stream.radius = 77; out.radius = [E.stream.radius, E.stream._dirty];
+        const E = engine, out = {}, S = E.stream, was = S.radius, at = E.focus;
+        let built = 0;
+        S.radius = 1;
+        const h = S.add({ position: [at.x + 40, 0, at.z], radius: 1, build: () => { built++; return null; } });
+        for (let i = 0; i < 5; i++) E.step(1 / 60);
+        const before = built; S.radius = 77;
+        for (let i = 0; i < 30 && !built; i++) E.step(1 / 60);
+        out.radius = [S.radius, before, built]; h.remove(); S.radius = was;
         if (E.weather) { E.weather.autoTimer = 5; E.weather.auto = true; out.auto = [E.weather.auto, E.weather.autoTimer]; E.weather.auto = false; }
         const aa = E.post.antialias; E.post.antialias = !aa; out.aa = E.post.antialias === !aa; E.post.antialias = aa;
         if (E.terrain) { const v = E.terrain.vgen; E.terrain.density = 0.5; out.density = [E.terrain.density, E.terrain.vgen - v]; E.terrain.viewChunks = E.terrain.viewChunks; }
         return out;
       });
-      check('stream.radius marks the stream dirty', r.radius[0] === 77 && r.radius[1] === true, JSON.stringify(r.radius));
+      check('a new stream.radius reaches an entry with nothing moving', r.radius[0] === 77 && r.radius[1] === 0 && r.radius[2] === 1, JSON.stringify(r.radius));
       check('weather.auto restarts the timer', !r.auto || (r.auto[0] === true && r.auto[1] === 0), JSON.stringify(r.auto));
       check('post.antialias switches', r.aa === true);
       check('terrain.density places plants again', !r.density || (r.density[0] === 0.5 && r.density[1] === 1), JSON.stringify(r.density));

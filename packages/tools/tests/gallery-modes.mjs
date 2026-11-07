@@ -32,7 +32,7 @@ export async function run({ check }) {
   check('asset names are escaped in the page', escapeHtml('<b>&"x"</b>') === '&lt;b&gt;&amp;&quot;x&quot;&lt;/b&gt;');
 
   const cli = readFileSync(new URL('../gallery.mjs', import.meta.url), 'utf8');
-  check('[guard] --shots sets THREEDOG_TEST before the server starts: the vite preset reads it there, set later it does nothing', cli.indexOf('THREEDOG_TEST') > 0 && cli.indexOf('THREEDOG_TEST') < cli.indexOf('createServer('));
+  check('[guard] --shots sets THREEDOG_TEST before the server starts: the vite preset reads it there, set later it does nothing', cli.indexOf('THREEDOG_TEST') > 0 && cli.indexOf('THREEDOG_TEST') < cli.indexOf('devServer('));
 
   // ── silhouette facts: a 20×10 block in a 100×100 frame ──
   const sil = picture(100, 100, [10, 30, 30, 40]);

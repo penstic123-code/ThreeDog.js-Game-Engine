@@ -17,7 +17,8 @@ const engine = createEngine({ canvas: document.getElementById('view'), renderer:
   ui: { loading: { title: 'Pier' }, title: { title: 'Pier' } }, saveKey: 'pier' });                                       // start screen: Continue (once a save exists), Start, Settings
 engine.use(world(), content(), collision(), characters(), followCamera({ pointerLock: true }), hud(), settings({ freezeWorld: true }));
 engine.saves.autosave(0.5);                                                         // every 30 s of play
-const picture = createPicture(engine);
+engine.use(createPicture());
+const { picture } = engine;
 engine.collision.addBlocked((x, z) => Math.abs(x) > 3 || Math.abs(z) > 20);         // the walkable shape: here a pier 6 m by 40 m
 engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: [0, 0, 0] });
 engine.content.load(data);

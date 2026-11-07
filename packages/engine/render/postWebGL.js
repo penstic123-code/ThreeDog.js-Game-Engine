@@ -6,8 +6,8 @@
 //
 // MSAA: with no effect on, the canvas's own (the engine makes the context with the default antialias), and the scene renders straight to the
 // canvas with nothing allocated (direct: Color, clear-color and sRGB texture backgrounds are drawn tone-mapped there too, as the composer does).
-// With an effect on, or antialias switched away from the canvas's at runtime (a context's MSAA is fixed when it is made), it lives in the
-// composer's render targets, so it survives any effect and can be switched at runtime.
+// With an effect on it lives in the composer's render targets, so it survives any effect and can be switched at runtime. Writing antialias with no effect
+// on does not start the chain: a context's MSAA is fixed when it is made, and a chain run only to differ from it cost more than the picture was worth.
 // Why the state stays on the PostFX object (post.composer, post._fused ...): tests and post.object() read it there; splitting the file changed no behavior.
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
@@ -133,6 +133,7 @@ export const webglPost = {
       post._scenePass = new RenderPass(scene, camera);
       post._output = new OutputPass();
     }
+    post._scenePass.camera = camera;
     const c = post.composer, on = post._sorted().filter(e => e.enabled);
     for (const e of on) if (!e._impl && !e._def.fuse) {
       if (typeof e._def.create !== 'function') throw codedError('post-effect', `post effect '${e.name}' has only node() (a TSL node, WebGPURenderer only) and this game chose WebGLRenderer: use createEngine({ renderer: 'webgpu' }), or give it create: (ctx) => pass (a three.js postprocessing Pass)`);
@@ -150,7 +151,7 @@ export const webglPost = {
     c.passes = named.map(e => e._impl);
     holdAfterScene(post, c.passes[0]);
     for (const p of c.passes) p.setSize(size.x, size.y);
-    // nothing on and the canvas's own MSAA in use: the frame draws straight to the canvas, so the targets give their memory back (over 200 MB at 1080p with MSAA); three allocates them again on the next use
+    // nothing on: the frame draws straight to the canvas, so the targets give their memory back (over 200 MB at 1080p with MSAA); three allocates them again on the next use
     if (!post.active) for (const rt of [c.renderTarget1, c.renderTarget2]) rt.dispose();
   },
   dispose(post) {

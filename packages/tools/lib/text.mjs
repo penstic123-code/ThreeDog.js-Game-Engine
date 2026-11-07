@@ -3,6 +3,8 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { SKIP_DIRS, notGameSource } from '../paths.mjs';
+import { distance, closest } from 'threedog/spelling';
+export { closest };
 
 // Line endings normalized to \n: a file checked out or saved with CRLF (Windows editors, git autocrlf) must give the same map as one with LF.
 // In JS regex '.' does not match \r, so '// summary\r' missed the comment pattern and '# Title\r\n' was not stripped; the map then flipped
@@ -97,29 +99,27 @@ export function splitTop(src) {
   return out;
 }
 
-/** Damerau-Levenshtein distance (adjacent swaps count as one edit) */
-export function distance(a, b) {
-  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
-  for (let j = 1; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
-    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
-  }
-  return d[a.length][b.length];
-}
-
-/** The entry of list closest to name; null if too far (the limit scales with length unless maxDist is given) */
-export function closest(name, list, maxDist) {
-  name = String(name);
-  const limit = maxDist ?? (name.length <= 4 ? 1 : name.length <= 8 ? 2 : 3);
-  let best = null, bd = Infinity;
-  for (const c of list) { if (c === name) continue; const dd = distance(name, String(c)); if (dd < bd) { bd = dd; best = c; } }
-  return bd <= limit ? best : null;
-}
-
 /** The n entries of list nearest to name, nearest first (substring matches rank first); for "close:" hints where nothing matched */
 export function nearest(name, list, n = 3) {
   const q = String(name).toLowerCase();
   const score = c => { const s = String(c).toLowerCase(); return s.includes(q) || q.includes(s) ? 0 : distance(q, s.slice(0, Math.max(q.length, 1) + 4)); };
   return uniq(list).map(c => [c, score(c)]).sort((a, b) => a[1] - b[1]).slice(0, n).map(x => x[0]);
+}
+
+/** A string as literal regex source */
+export const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/** Bytes as "12.3 KB" */
+export const kb = n => (n / 1024).toFixed(1) + ' KB';
+/** A heading as its markdown anchor (what GitHub links to): lower case, code ticks and punctuation gone, each whitespace a hyphen */
+export const slug = h => h.trim().toLowerCase().replace(/[`*]/g, '').replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
+/** A value with object keys sorted at every depth, so two JSON texts compare without key order */
+export const sorted = v => Array.isArray(v) ? v.map(sorted) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])])) : v;
+/** Equal ignoring object key order */
+export const same = (a, b) => JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
+
+/** Comments blanked, line numbers kept: a name in a comment is not a use. Strings go first so a '//' inside a URL survives.
+ *  shortcut: a regex literal holding a quote and // on one line can blank too much of that line; upgrade to a real parser if a game shows it */
+export function noComments(text) {
+  return text.replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`|\/\/.*$|\/\*[\s\S]*?\*\//gm,
+    m => m[0] === '/' ? m.replace(/[^\n]/g, ' ') : m);
 }

@@ -168,7 +168,7 @@ if (want('stream')) {
 async function sampleFrames(n) {
   await new Promise(res => setTimeout(res, 500));   // let start-up streaming settle a little before sampling
   const gaps = [], js = []; let last = performance.now();
-  await new Promise(res => { let k = 0; const tick = () => { const t = performance.now(); gaps.push(t - last); last = t; js.push(engine._cpuMs ?? 0); if (++k < n) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); });
+  await new Promise(res => { let k = 0; const tick = () => { const t = performance.now(); gaps.push(t - last); last = t; js.push(engine._tools.cpuMs); if (++k < n) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); });
   const mid = a => [...a].sort((x, y) => x - y)[a.length >> 1], r1 = v => Math.round(v * 10) / 10;
   const p = engine.inspect.perf(), rd = engine.renderer;
   // WebGPU keeps no program list in renderer.info: count the distinct fragment programs three's pipeline cache holds instead

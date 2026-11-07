@@ -43,7 +43,7 @@ const engine = createEngine({ canvas, budget: { drawCalls: 250, fps: 55, low1: 3
 const r = engine.budget.report();   // { ok, over: [{ category, value, limit, top }] }; going over also prints one console hint
 ```
 `top` lists the biggest draw-call users grouped by an object's `userData.budgetTag`. Tag your own things to see who it is:
-```js
+```js fragment
 house.userData.budgetTag = 'houses';        // children inherit the parent's tag; untagged ones count as 'other'
 engine.budget.byTag();                      // [{ tag, drawCalls, triangles }...], largest first
 engine.budget.metric('fishCount', () => fish.length, { limit: 50 });   // a module's own category
@@ -89,7 +89,7 @@ Four tools lower the cost of distant things, and each owns a different case. Pic
 | A static level seen from far off | `engine.hlod` | Draw calls, by merging per cell | Same triangles unless a node `xxx_LOD1` exists |
 | Plants by the thousand | `engine.vegetation` with `lodGeometry` | Both, per chunk ring | Plants only |
 
-```js
+```js fragment
 // 1. once: writes public/optimized/tower.lod1.glb, .lod2.glb and lists them in assets.optimized.js
 // threedog assets optimize --lod            (--lod-shares 0.5,0.2 sets the triangle share of each level)
 // 2. one line in the game; without it no level is ever downloaded
@@ -120,8 +120,8 @@ tower.levels[1].object;   // a plain THREE.LOD: read, replace, tower.addLevel(..
   refresh). The first 3 s after ready and frames that compile shaders are not judged, and a display or power mode locked at 30 Hz is not overload. The first
   time it lowers, dev builds warn once: `render scale X -> Y because frames cost N ms ...; turn off with adaptiveResolution: false`. It is the only thing
   lowered automatically (shadows and post are never traded first). `engine.setPixelRatio(p)` sets the top it climbs back to, so a ratio the game chose stays; a direct
-  `renderer.setPixelRatio` stops it altogether.
-- `describe().render.scale`: `{ current, devicePixelRatio, upscaled, autoLowered, adaptive, floor, max }`. `upscaled: true` means current < devicePixelRatio, the picture
+  `renderer.setPixelRatio` stops it altogether, and so does `pixelSize` (recipe 62 section 4b).
+- `describe().render.scale`: `{ current, devicePixelRatio, upscaled, pixelSize, autoLowered, adaptive, floor, max }`. `upscaled: true` means current < devicePixelRatio, the picture
   is softer than the screen: if that looks wrong in a screenshot, check this before the style. Fixed quality: `pixelRatio: n` plus `adaptiveResolution: false`.
 
 ## 5. Verify (once before and once after, under the same conditions)

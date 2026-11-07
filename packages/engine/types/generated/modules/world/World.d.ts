@@ -108,7 +108,9 @@ export class World {
     set(id: string, patch: Record<string, any>): WorldRecord;
     /**
      * Move a record (no event; use it in simulate for things that move every step); still saved (saves diff against content).
-     * The model of a positionFrom 'record' (default) record follows this frame; to do something else with the position in presentation, compare in update
+     * The model of a positionFrom 'record' (default) record follows this frame; to do something else with the position in presentation, compare in update.
+     * On a live character (the player, an NPC with a model) this is its placeAt: the character owns its position, so it goes there and the record says where it stands.
+     * A seated rider gets out to go there (placeAt ends a ride); a write equal to where it sits only follows the seat
      * @example engine.world.move(rec.id, { x: rec.position.x + 1, z: rec.position.z })
      * @param {string} id
      * @param {any} position  Vector3 / object / [x, y, z] / { x, z } (y stays unchanged if omitted)
@@ -158,7 +160,7 @@ export class World {
      * radius: meters, or a function (for distances that change, like terrain view distance); defaults to world.radius. Registering the same kind again: old
      * models are torn down with the old dispose and rebuilt with the new one.
      * positionFrom: 'record' (default, the model follows the record every frame) or 'view' (the model moves itself, e.g. driven by a character mover; model
-     * position is copied back to the record at the end of each fixed step).
+     * position is copied back to the record at the end of each fixed step, and a write to the record moves the model and a rigid body on it).
      * @example engine.world.present('chest', { build: rec => new THREE.Mesh(boxGeo, new THREE.MeshStandardMaterial()), dispose: (rec, obj) => engine.remove(obj), show: rec
      * => !rec.looted })
      * @param {string} kind
@@ -204,8 +206,8 @@ export class World {
      * far → near step, far runs first to pay back the owed time.
      * With only far (crops), near also advances via far; with only near, far records are not simulated and owed time is not made up.
      * Both dt are accumulated real (fixed-step) seconds (not multiplied by clock.rate). For things measured in game clock (grows over days) store engine.clock.now
-     * and compare. channel: a time channel name (or rec => name) the kind lives on; then both dt are multiplied by that channel's speed (and the record's
-     * engine.time.local stack), so bullet time on 'enemies' slows near and far records alike (NPCs use it with their own channel).
+     * and compare. channel: a time channel name (or rec => name) the kind lives on; then both dt are the channel time the record lived through (its
+     * engine.time.local stack too), whatever the speed when far settles, so bullet time on 'enemies' slows near and far records alike (NPCs use it with their own channel).
      * radius defaults to the present radius ('view' widened by 1.25), or world.radius without present; may also be a function.
      * fullRadius + nearEvery (tiers, for crowds): records within fullRadius m (number or function) run near every step; the rest of the near zone runs near
      * once every nearEvery seconds, dt being the seconds since its last turn (deterministic: turns go by hashed id and step count, saved).

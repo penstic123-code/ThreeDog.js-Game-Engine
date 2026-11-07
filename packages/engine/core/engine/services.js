@@ -6,6 +6,7 @@
 //   saves.register calls set the order parts save and load: stacks, time, vars, random, scene, then the modules.
 //   Made in Engine.js: stacks before this function (drawing parts define points); post, ui and page after it, so a constructor here must not touch those three.
 //   Input binds keys before time exists, so an entry taken then is stamped 0 (Stacks._nowOf), which is what the calendar reads at that moment anyway.
+// A new service goes below everything its constructor reads, and its line is added here; tests/specs/services-order.mjs fails when a constructor reads a service made after it.
 // Splitting this into "construct all, then connect" would give some ten constructors a second method and the connect step would still keep the save order, so it stays one list.
 import { Events } from '../base/Events.js';
 import { Wraps } from '../ops/wrap.js';
@@ -80,6 +81,8 @@ export function createServices(engine, { canvas, validate, locale, strings, save
   engine._urlState = new UrlState(engine, { fromUrl: urlState });
   // who holds the engine still: three named stacks (stacks.js: same owner rules as every shared quantity, holders in describe); haltLoop / freeze / takeCamera in holds.js
   defineHoldStacks(engine);
+  // the one quality value (engine.tier): the device gives the base, the player's preset sets over it. settingsSet: on this point the player's choice is a choice, not a restriction
+  engine.stacks.define('tier', { kind: 'value', base: engine._deviceTier, save: false, settingsSet: true, onChange: () => engine.post?._sync() });   // effects held by tier follow it
   engine.commits = new Commits(engine);          // background results that affect gameplay take effect on a fixed tick (see Commits.js)
   engine.ops = new Ops(engine);                  // one entry point for actions (define / run / can / list / recent), see Ops.js
   engine.views = new Views(engine);              // named fixed camera views for repeatable screenshots (Views.js)

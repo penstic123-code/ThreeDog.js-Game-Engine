@@ -1,6 +1,6 @@
 // Props (each item of content/props.js): data is a plain record in engine.world with kind 'prop'; model and collision are "presentation that exists only when
 // near".
-//   record: { id, kind: 'prop', position: {x,y,z}, model, rot?, scale?, collide?, occluder?, offsetY?, static?, batch?, source?, zone? } (plain values only)
+//   record: { id, kind: 'prop', position: {x,y,z}, model, rot?, scale?, ground?, collide?, occluder?, offsetY?, static?, batch?, source?, zone? } (plain values only)
 //   rot = the entry's rot plus its place's. source names the arrangement an entry was copied from: a tag for world.query, nothing at runtime reads it.
 // Initial world data (initial: true on add): the save records only moves / removals, independent of content.load running before or after loading a save;
 // positions using level markers carry a zone (data is kept across level changes).
@@ -17,6 +17,7 @@ import { buildModel, settle, fits, unbuildModel } from './models.js';
 import { placeTemplate } from './templates.js';
 import { srcOf } from './ids.js';
 import { placeY } from '../../core/scene/ground.js';
+import { isTilted, tiltError } from './models.js';
 import { PLACEMENT_FIELDS, collideProblem } from './rules.js';
 import { list } from '../../core/base/util.js';
 import { DEV, fmt, closest } from '../../core/base/validate.js';
@@ -38,14 +39,15 @@ export function addProps(e, api, props, st, zoneOf, ids) {
     if (p.grid) return placeGridItem(e, p, i, zoneOf(p), ids, at);               // a pre-placed grid item (grid module)
     const collide = collideProblem(p.collide);
     if (collide) throw codedError('content-misuse', `props[${i}] (model ${JSON.stringify(p.model)}): collide ${collide}`);
-    const id = propId(p, i), { x, y, z } = api.where(p), zone = zoneOf(p), floor = api._floorOf(p);
+    if (p.collide && isTilted(p) && !e.collider3d) throw tiltError({ ...p, id: p.id });
+    const id = propId(p, i), free = p.ground === false, { x, y, z } = api.where(free ? { ...p, y: undefined, floor: undefined } : p), zone = zoneOf(p), floor = api._floorOf(p);
     if (p.id != null) ids.claim(p.id, `props[${i}] (model ${JSON.stringify(p.model)})`);
     // compute y from the ground now (same as when the model is built): unmoved props equal the content and stay out of the save
-    const def = { id, kind: 'prop', position: { x, y: y ?? placeY(e, `props[${i}] (model ${JSON.stringify(p.model)})`, x, z), z }, model: p.model };
-    for (const k of ['scale', 'collide', 'occluder', 'static', 'batch', 'lod', 'source']) if (p[k] !== undefined) def[k] = p[k];
+    const def = { id, kind: 'prop', position: { x, y: free ? p.y ?? 0 : y ?? (placeY(e, `props[${i}] (model ${JSON.stringify(p.model)})`, x, z)), z }, model: p.model };
+    for (const k of ['scale', 'ground', 'collide', 'occluder', 'static', 'batch', 'lod', 'source']) if (p[k] !== undefined) def[k] = p[k];
     const rot = api._facingOf(p);
     if (rot !== undefined) def.rot = rot;
-    if (p.y) def.offsetY = p.y;
+    if (p.y && !free) def.offsetY = p.y;
     if (floor !== undefined) def.floor = floor;   // kept so a moved prop lands on the same storey
     if (zone != null) def.zone = zone;
     const rec = world.add(def, { initial: true });
@@ -95,7 +97,7 @@ function presentProps(e, api, world, st) {
     radius: () => Math.max(world.radius, e.stream.activeRadius),
     build: rec => buildModel(e, api, rec, rec.model, rec),   // a failed model generation is reported by world (does not block loading), retried when near again
     // moved / rot or scale changed (world.move sends no event, so compare here): world already put the model at the new position; collision and rays follow
-    update(rec, o) { if (!fits(o, rec)) settle(e, rec, o, rec); },
+    update(rec, o) { if (!fits(e, o, rec)) settle(e, rec, o, rec); },
     dispose: (rec, o) => unbuildModel(e, o),
   }));
 }

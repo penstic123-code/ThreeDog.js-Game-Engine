@@ -197,6 +197,7 @@ export function openEditor(engine) {
 
   const measure = new T.Box3(), size = new T.Vector3();
   engine.onRender(({ renderer, camera }) => {
+    orbit.object = handles.camera = camera;   // a game may assign engine.camera
     orbit.update();
     const model = entry && modelOf(engine, entry);
     if (model) {

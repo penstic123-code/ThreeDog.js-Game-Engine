@@ -37,6 +37,9 @@ function shapeOf(v) {
 /** The post chain name of a plugin's post value: an effect keeps its own name, a bare Pass is named by its file ('<file>/<i>' with several) */
 const postName = (p, v, i) => (v.isPass || 'needsSwap' in v ? (p.values.length > 1 ? `${p.name}/${i}` : p.name) : v.name);
 
+/** The module values of a plugin file */
+const modulesOf = values => values.filter(v => shapeOf(v) === 'module');
+
 /** File name without folder and extension: './plugins/10-crate.js' -> '10-crate' */
 const baseOf = path => path.split('/').pop().replace(/\.[cm]?[jt]s$/, '');
 
@@ -94,8 +97,10 @@ export class Plugins {
   _plug(p) {
     const e = this._e;
     let at = null;   // the value being plugged, so a clash can name the other plugin
-    for (const r of p.replaces) { const q = this._list.get(r); q.replacedBy = p.name; this._unplug(q); }
     try {
+      // the whole change first: what the replaced plugins lose and what this one adds, judged together before anything is unplugged
+      e._planChange(modulesOf(p.values), new Set(p.replaces.flatMap(r => this._pluggedModules(this._list.get(r)))), this._refusal(`engine.plugins.on('${p.name}')`));
+      for (const r of p.replaces) { const q = this._list.get(r); q.replacedBy = p.name; this._unplug(q); }
       for (const v of p.values) {
         at = v;
         const slot = shapeOf(v);
@@ -119,6 +124,10 @@ export class Plugins {
   }
   /** @internal */
   _unplug(p) { for (const x of p.plugged.splice(0).reverse()) x.remove(); }
+  /** @internal module names this plugin has installed now */
+  _pluggedModules(p) { return p.plugged.filter(x => x.slot === 'module' && this._e.modules.get(x.value.name) === x.value).map(x => x.value.name); }
+  /** @internal what _planChange throws when this switch would leave a module without its provider */
+  _refusal(call) { return { code: 'module-unuse', text: `${call}: this unloads {gone}, and module {name} requires '{dep}', which nothing else provides. Fix: unload {name} first, or keep the plugin on` }; }
   /** @internal p is out: the plugins it replaced plug again (when they are on) */
   _giveBack(p) {
     for (const q of this._list.values()) if (q.replacedBy === p.name) { q.replacedBy = null; if (q.on && this._e._initsDone && !q.plugged.length) this._plug(q); }
@@ -126,13 +135,16 @@ export class Plugins {
 
   /**
    * Switch a plugin off: everything it plugged is taken out again (the object leaves the scene, the pass the chain,
-   * the module is unloaded). No code change: plugins.json "off" does the same at start.
+   * the module is unloaded). No code change: plugins.json "off" does the same at start. Throws module-unuse, changing nothing, when a module outside the plugin still requires what it gives.
    * To pause a post effect and keep everything else, engine.post.get('<effect>').enabled = false is lighter: off unloads.
    * @param {string} name file name without .js
    * @returns {{ off: string[], note: string }}
    */
   off(name) {
-    const p = this._get(name);
+    const p = this._get(name), e = this._e;
+    // as one set: the plugin's own consumers leave with it, and a plugin it held out comes back in the same change
+    const back = [...this._list.values()].filter(q => q.replacedBy === p.name && q.on && e._initsDone && !q.plugged.length);
+    e._planChange(back.flatMap(q => modulesOf(q.values)), new Set(this._pluggedModules(p)), this._refusal(`engine.plugins.off('${name}')`));
     p.on = false; this._unplug(p);
     this._giveBack(p);
     return this._result('off', p);

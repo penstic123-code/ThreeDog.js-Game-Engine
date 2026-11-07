@@ -17,6 +17,7 @@ export const specs = [
   {
     name: '[guard] physics leftovers: statics only through collision.mirror, one rigid rebuild per newGame, insertion-ordered O(1) removal, assets.useTexture, weather.set options',
     url: '/?threedog-headless',
+    serial: true,   // judges by a measured time (R56)
     async run({ check, ev }) {
       // static half (node side): what the browser half cannot see
       const src = ['core', 'render', 'modules', 'ui'].flatMap(d => walk(join(ENGINE, d)));

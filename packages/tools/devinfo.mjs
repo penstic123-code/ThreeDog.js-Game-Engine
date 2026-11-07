@@ -22,6 +22,13 @@ export function devServerInfo(dir) {
   return { state: dev.pid && !pidAlive(dev.pid) ? 'stale' : 'live', ...dev, file };
 }
 
+/** Is a page attached right now? Asked before a command that only wants to read one: a bridge call would make the dev server open a headless Chromium */
+export async function pageAttached(dir) {
+  const dev = devServerInfo(dir);
+  return dev.state === 'live' && await fetch(`http://localhost:${dev.port}/__threedog/cmd`, { method: 'POST', headers: { 'x-threedog-token': dev.token }, body: '{"op":"ping"}',
+    signal: AbortSignal.timeout(1500) }).then(r => r.json()).then(j => j.value?.live || j.value?.headless, () => false);
+}
+
 /** Is a process with this pid running (EPERM counts: it exists, it is just not ours) */
 export function pidAlive(pid) {
   try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }

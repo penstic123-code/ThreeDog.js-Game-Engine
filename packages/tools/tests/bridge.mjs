@@ -21,6 +21,7 @@ const threedog = (...args) => new Promise(res => execFile(process.execPath, [CLI
   { cwd: ROOT, encoding: 'utf8' }, (err, out) => res({ out: out.trim(), code: err ? err.code : 0 })));
 export async function run({ check, browser }) {
   const dir = ENGINE;
+  const reportScenario = join(dir, 'tests/scenarios/report.json');
   // 1. No dev server: tell the user to start it first (skipped when someone is running dev on the engine right now)
   if (!existsSync(join(dir, '.threedog/dev.json'))) {
     const r = spawnSync(process.execPath, [CLI, 'describe', '-w', 'engine'], { cwd: ROOT, encoding: 'utf8' });
@@ -45,15 +46,15 @@ export async function run({ check, browser }) {
     const d = (await threedog('describe'));
     const startClock = (await threedog('describe', 'time.clock')).out.replace(/"/g, '');
     // toasts on the headless page live on the stepped time (r4 G10): shown, step past their time, then snap -> gone (after startClock: reload must find the initial clock)
-    const toastCount = async () => +(await threedog('eval', "document.querySelectorAll('.threedog-toast').length")).out.replace(/[^\d]/g, '');
-    await threedog('eval', "engine.ui.get('toast').show({ text: 'r4 toast', kind: 'info', ms: 2000 }); 1");
+    const toastCount = async () => +(await threedog('js', "document.querySelectorAll('.threedog-toast').length")).out.replace(/[^\d]/g, '');
+    await threedog('js', "engine.ui.get('toast').show({ text: 'r4 toast', kind: 'info', ms: 2000 }); 1");
     const t1 = await toastCount(); await threedog('step', '3'); const snapT = await threedog('snap', 'toast-step'), t2 = await toastCount();
     check('a toast expires with threedog step (stepped time) before snap', t1 >= 1 && t2 === 0 && snapT.code === 0, JSON.stringify({ t1, t2 }));
     check('describe: compact plus the state line', d.code === 0 && d.out.includes('Player') && d.out.split('\n').length <= 4 && d.out.length < 600
       && /Headless page, tick \d+/.test(d.out), d.out);
     check('describe --full: the full text', (await threedog('describe', '--full')).out.includes('[Game state]'));
     check('describe path: one item', /^\d\d:\d\d$/.test(startClock), startClock);
-    const clockOf = async () => (await threedog('eval', 'engine.describe().time.real')).out.replace('✓ ', '');
+    const clockOf = async () => (await threedog('js', 'engine.describe().time.real')).out.replace('✓ ', '');
     const t0 = +await clockOf(), s = (await threedog('step', '2'));
     check('step 2: advances 2 seconds', s.out.startsWith('✓ Stepped 2 s') && Math.abs(+await clockOf() - t0 - 2) < 0.1, s.out);
     await threedog('state', 'cutscene=skip');   // the game's opening camera (5 s) takes Esc as "skip" while it plays
@@ -66,7 +67,7 @@ export async function run({ check, browser }) {
     const before = await where(), h = (await threedog('hold', 'moveForward', '1')), after = await where();
     check('hold: the player position changes', h.out.startsWith('✓ Held moveForward') && Math.hypot(after.x - before.x, after.z - before.z) > 0.3,
       `${h.out} ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
-    const tickOf = async () => +(await threedog('eval', 'engine.time.tick')).out.replace(/[^\d]/g, '');
+    const tickOf = async () => +(await threedog('js', 'engine.time.tick')).out.replace(/[^\d]/g, '');
     const tick0 = await tickOf();
     check('state: change time and weather', (await threedog('state', 'time=12:00', 'weather=rain')).out.includes('12:00'));
     // [guard] state and snap only set up and look: game time moves on step, press, hold, skip (docs/COMMANDS.md), never as a side effect
@@ -81,14 +82,14 @@ export async function run({ check, browser }) {
     check('op: a value that does not fit the shape is refused before the op', badBool.code !== 0 && /visible=yes is not true or false/.test(badBool.out), badBool.out);
     const help = await threedog('step', '--help');
     check('--help on a bridge command answers and exits 0', help.code === 0 && help.out.includes('advance N real seconds'), help.out);
-    check('eval: expression / statements / error', (await threedog('eval', '1 + 1')).out === '✓ 2' && (await threedog('eval',
-      'const a = 3; return a * 2')).out === '✓ 6' && (await threedog('eval', 'engine.nope.x')).code === 1);
-    check('eval: await works (expression and multi-line statements)', (await threedog('eval',
-      'await Promise.resolve(7)')).out === '✓ 7' && (await threedog('eval', 'const a = await Promise.resolve(4); return a + 1')).out === '✓ 5');
+    check('eval: expression / statements / error', (await threedog('js', '1 + 1')).out === '✓ 2' && (await threedog('js',
+      'const a = 3; return a * 2')).out === '✓ 6' && (await threedog('js', 'engine.nope.x')).code === 1);
+    check('eval: await works (expression and multi-line statements)', (await threedog('js',
+      'await Promise.resolve(7)')).out === '✓ 7' && (await threedog('js', 'const a = await Promise.resolve(4); return a + 1')).out === '✓ 5');
     const script = join(tmpdir(), 'threedog-bridge-js-test.js');
     writeFileSync(script, 'const a = 20;\nconst b = await Promise.resolve(1);\nreturn a + b;\n');
     check('js alias / --file: reads a multi-line script from a file', (await threedog('js', '1 + 2')).out === '✓ 3' && (await threedog('js',
-      '--file', script)).out === '✓ 21' && (await threedog('eval', '--file', 'nope.js')).out.includes('Script file not found'));
+      '--file', script)).out === '✓ 21' && (await threedog('js', '--file', 'nope.js')).out.includes('Script file not found'));
     // plain js and checks scripts get the same globals (step / log / assert / expect); a failed expect shows its message in both forms
     writeFileSync(script, 'const t = engine.time.now("real");\nstep(0.5);\nlog("stepped");\nreturn +(engine.time.now("real") - t).toFixed(1) > 0.4;\n');
     const plainJs = await threedog('js', '--file', script);
@@ -106,7 +107,7 @@ export async function run({ check, browser }) {
     check('[guard] expect.toBeCloseTo: a message may stand where the tolerance goes', close.code !== 0 && /1 of 3 checks failed/.test(close.out) && /two is not one/.test(close.out) && !/one is one/.test(close.out), close.out);
     check('js: a script may declare its own log, step or engine', (await threedog('js', 'const log = 2; const step = 3; return log + step')).out === '✓ 5');
     rmSync(script, { force: true });
-    const rawClock = async () => +(await threedog('eval', 'engine.time.now("real")')).out.replace('✓ ', ''),
+    const rawClock = async () => +(await threedog('js', 'engine.time.now("real")')).out.replace('✓ ', ''),
       tp0 = await rawClock(); await threedog('press', 'KeyJ', '--for', '0.02'); const tp1 = await rawClock();
     check('press --for 0.02: advances only about 0.04 s (default 0.117 s)', tp1 - tp0 > 0.03 && tp1 - tp0 < 0.06, `${tp0} ${tp1}`);
     // op / ops: run a game op from the command line; values are converted by the op's args shape
@@ -194,13 +195,13 @@ export async function run({ check, browser }) {
       && existsSync(relShot) && !existsSync(relShot + '.png') && !/undefined/.test(sa.out), sa.out + ' | ' + sr.out);
     for (const f of [absShot, relShot]) rmSync(f, { force: true });
     (await threedog('errors'));   // move the cursor to now first
-    (await threedog('eval', "setTimeout(() => { throw new Error('bridge test deliberate error'); }, 0)"));
+    (await threedog('js', "setTimeout(() => { throw new Error('bridge test deliberate error'); }, 0)"));
     const er = await until(async () => { const r = await threedog('errors'); return r.out.includes('deliberate') && r; })
       || { out: '(no error arrived)', code: 0 };
     check('errors: reads the new error, the next read is empty',
       er.code === 1 && er.out.includes('bridge test deliberate error') && (await threedog('errors')).out.includes('No new errors'), er.out);
     // 引擎自己的错误都带 "[code]" 标签（W4 起一种失败形状），提示按标签查 ERROR_CODES，不再靠猜消息文字；这里照引擎的写法带上 [world-plain]
-    (await threedog('eval', "setTimeout(() => { throw new Error('world data must be plain values (number, string): x is a function [world-plain]'); }, 0)"));
+    (await threedog('js', "setTimeout(() => { throw new Error('world data must be plain values (number, string): x is a function [world-plain]'); }, 0)"));
     const er2 = await until(async () => { const r = await threedog('errors'); return r.out.includes('plain values') && r; }) || { out: '(no error arrived)' };
     const lt1 = await threedog('errors', 'latest'), lt2 = await threedog('errors', 'latest'), cur = /Cursor E(\d+)/.exec(lt1.out)?.[1];
     const sn0 = await threedog('errors', '--since', String(Math.max(0, +cur - 2))), sn1 = await threedog('errors', '--since', cur ?? '0');
@@ -226,12 +227,22 @@ export async function run({ check, browser }) {
     check('reload: after reloading the scenario is back to its initial state',
       (await threedog('reload')).code === 0 && (await threedog('describe')).out.includes(startClock), startClock);
 
+    // report round trip: a refused op on a clean page, the file, and verify runs the scenario it derived
+    await threedog('reload');
+    await threedog('op', 'thing.set', 'id=no-such-thing', 'visible=true');
+    const rep = await threedog('report', '--scenario', '--out', '.threedog/reports/bridge.json'), file = readFileSync(join(dir, '.threedog/reports/bridge.json'), 'utf8'), body = JSON.parse(file);
+    check('[guard] report: the file has the seed, the tick, the op and the modules, and no token or user path', rep.code === 0 && Number.isInteger(body.page.seed) && body.page.tick >= 0 && body.ops.some(o => o.name === 'thing.set') && body.modules.length > 0
+      && !file.includes(dev.token) && !/[A-Za-z]:[\\/]+Users/.test(file), rep.out);
+    const again = await threedog('verify', 'report');
+    rmSync(reportScenario, { force: true });
+    check('[guard] verify runs the scenario report derived', again.code === 0 && /PASS/.test(again.out), again.out.slice(0, 400));
+
     // 3. A real browser page (over the HMR WebSocket)
     const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
     await page.goto(`http://localhost:${dev.port}/`);
     await page.waitForFunction(() => window.engine?.stateApplied, null, { timeout: 90000 });
     // commands go to the real page once its hello arrived (the headless page has ?threedog-headless in its URL)
-    await until(async () => !(await threedog('eval', 'location.search')).out.includes('threedog-headless'));
+    await until(async () => !(await threedog('js', 'location.search')).out.includes('threedog-headless'));
     const live = (await threedog('step', '1'));
     check('real page: step pauses first and says to resume', live.out.includes('threedog resume') && await page.evaluate(() => engine.halted), live.out);
     check('real page: the command takes effect on this page', (await page.evaluate(() => engine.describe().time.real)) > 0);
@@ -247,7 +258,7 @@ export async function run({ check, browser }) {
     const rl = await threedog('reload'), back = await fetch(`http://localhost:${dev.port}/__threedog/cmd`, { method: 'POST', headers: { 'x-threedog-token': dev.token }, body: '{"op":"ping"}' }).then(r => r.json());
     check('[guard] real page: reload answers once the page is connected again', rl.code === 0 && back.value.live && !back.value.headless, JSON.stringify(back));
     // a command still running when its page reloads fails at once, not after the 2-minute timeout
-    const tr = Date.now(), hang = threedog('eval', 'window.__hang = true; return new Promise(() => {})');
+    const tr = Date.now(), hang = threedog('js', 'window.__hang = true; return new Promise(() => {})');
     await until(() => page.evaluate(() => window.__hang));
     await page.reload();
     const hung = await hang;

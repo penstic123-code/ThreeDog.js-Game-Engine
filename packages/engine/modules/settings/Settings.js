@@ -33,19 +33,24 @@ import { makeWindow, injectUICSS, uiFocus } from '../../ui/UI.js';
 import { BUILTIN_SECTIONS } from './sections.js';
 import { STRINGS, CSS } from './strings.js';
 import { SettingsView } from './view.js';
-import { applySetting, allowed, checkLimits } from './apply.js';
+import { applySetting, allowed, checkLimits, releaseLimits, releaseRow } from './apply.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
-import { codedError } from '../../core/base/errorHints.js';
+import { codedError, coded } from '../../core/base/errorHints.js';
 import { warnOnce } from '../../core/base/validate.js';
+import { pixelSizeOn } from '../../core/scene/pixelRatio.js';
+import { trackForModule } from '../../core/engine/moduleTypes.js';
 
-// Graphics presets. Values are performance tiers, not art; a game can override with settings({ presets: { low: {...} } })
-// pixelRatio here is a share (0 to 1) of the ratio the engine picked for this device. A fixed number is wrong on one screen or the other: 1 is an upscaled
-// picture on a 2x screen (core/scene/tier.js), 1.5 is wasted work on a 1x one
+// Graphics presets. Values are performance steps, not art; a game can override with settings({ presets: { low: {...} } })
+// A preset never states a look. A switch is a permission (true lets the game's choice through), and pixelRatio, viewChunks and density are shares (0 to 1) of what this device and
+// this game start with, so the top preset lets everything through and no preset raises anything. A fixed number is wrong on one game or the other: 5 chunks cuts a game built for 8,
+// and a ratio of 1 is an upscaled picture on a 2x screen (core/scene/tier.js). tier: what engine.tier reads under this preset; null leaves it to the device
 const PRESETS = {
-  low: { pixelRatio: 0.75, shadows: false, antialias: false, bloom: false, ao: false, viewChunks: 3, density: 0.5 },
-  medium: { pixelRatio: 1, shadows: true, antialias: true, bloom: false, ao: false, viewChunks: 4, density: 0.75 },
-  high: { pixelRatio: 1, shadows: true, antialias: true, bloom: true, ao: false, viewChunks: 5, density: 1 },
+  low: { pixelRatio: 0.75, shadows: false, antialias: false, bloom: false, ao: false, viewChunks: 0.6, density: 0.5, tier: 'low' },
+  medium: { pixelRatio: 1, shadows: true, antialias: true, bloom: false, ao: false, viewChunks: 0.8, density: 0.75, tier: null },
+  high: { pixelRatio: 1, shadows: true, antialias: true, bloom: true, ao: true, viewChunks: 1, density: 1, tier: 'high' },
 };
+// Preset rows that are shares, and how each share lands on its whole
+const SHARES = { pixelRatio: n => +n.toFixed(2), viewChunks: n => Math.max(1, Math.round(n)), density: n => +n.toFixed(2) };
 // Settings keys that switch a post effect of the same name; a key whose effect the game did not add is hidden and ignored
 const POST_KEYS = ['bloom', 'ao'];
 
@@ -79,17 +84,19 @@ export class Settings extends SettingsView {
     /** @internal the module's ctx.track: listeners the settings and its sections add leave with the module */ this._track = track;
     this.engine = engine;
     this.action = action;
-    /** @internal */ this._omit = omittedRows(sections);
+    /** @internal */ this._leftOut = omittedRows(sections);
     this.presets = { ...PRESETS };
     for (const k in presets) {
-      // loud, because a game's old fixed ratio (2) would otherwise multiply the device's own
+      // loud, because a game's old fixed number (a ratio of 2, 5 chunks) would otherwise multiply the device's or the game's own
+      for (const row of ['viewChunks', 'density']) if (presets[k][row] > 1) throw codedError('module-params', `settings({ presets: { ${k}: { ${row}: ${presets[k][row]} } } }): a preset's ${row} is a share from 0 to 1 of the game's own value`);
       if (presets[k].pixelRatio > 1) throw codedError('module-params', `settings({ presets: { ${k}: { pixelRatio: ${presets[k].pixelRatio} } } }): a preset's pixelRatio is a share from 0 to 1 of the ratio the engine picked for this device. For a fixed ratio call engine.setPixelRatio`);
       this.presets[k] = { ...(this.presets[k] || {}), ...presets[k] };
     }
     this.storageKey = storageKey || engine.saves.storageKey('settings');
     this.sections = new Map();
     this.custom = new Map();         // game's custom settings: key -> { def, apply }
-    this.capturing = null;           // action name waiting for a key press
+    /** @internal keys set before start() with no row yet: init() reports the ones no row came for */ this._early = new Set();
+    /** @internal the action waiting for a key press, and its focus entry: the menu cursor rests above it, or Space and Enter would press a control instead of being bound */ this._capturing = null;
     this.current = null;             // current tab
     this.freezeWorld = freezeWorld;
 
@@ -137,11 +144,25 @@ export class Settings extends SettingsView {
 
   // ---------- reading and writing settings ----------
   /** Every setting's value, read only. The render scale comes from the renderer: adaptive resolution and the game move it, and a stored copy was a second answer to describe().render.scale */
+  /**
+   * @internal Rows out of play now: the game's, and under pixelSize the two that would change the ratio, so no preset, stored value or slider reaches it
+   * while it is on, and they come back with setPixelSize(null).
+   */
+  get _omit() { return pixelSizeOn(this.engine) ? new Set([...this._leftOut, 'pixelRatio', 'adaptive']) : this._leftOut; }
   get values() { return { ...this._values, pixelRatio: +this.engine.renderer.getPixelRatio().toFixed(2) }; }
   get(key) { return this.values[key]; }
-  /** Change a setting: applies at once and saves. Changing a graphics setting turns the preset into "custom" */
+  /** @internal Someone answers for this key: a built-in row, a defined one, or a bus's slider @param {string} key */
+  _hasRow(key) { return key in this._defaults || this.custom.has(key) || (key.startsWith('vol.') && key.slice(4) in this.engine.audio.levels); }
+  /**
+   * Change a setting: applies at once and saves. Changing a graphics setting turns the preset into "custom". A key no row owns throws: storing it would read back a value nothing
+   * applied. Before start() a module's row may still come, so an unknown key waits and init() reports it.
+   */
   set(key, value, { save = true } = {}) {
     if (key === 'quality') return this.preset(value);
+    if (!this._hasRow(key)) {
+      if (this._ready) throw codedError('settings-row', `settings.set('${key}'): no setting has this key. Known: ${Object.keys(this._values).join(', ')}. Add the row with settings.define('${key}', ...) or the tab that has it (settings({ sections }))`);
+      this._early.add(key);
+    }
     this._values[key] = value; this._changed[key] = value;
     this._apply(key, value);
     if (key in (this.presets.low || {})) this._values.quality = this._matchPreset();
@@ -161,6 +182,7 @@ export class Settings extends SettingsView {
    * A game's custom setting: default value + apply function (called at once with the saved value), or { apply, limits }. limits names the shared
    * value(s) the row restricts on the settings layer, the same way the built-in shadows row does: off holds the value off (a cutscene or the
    * scene cannot turn it back on), on allows what the scene chose; a number row from 0 to 1 is a factor on a number value.
+   * A row a module defines from its install, init or a hook leaves with that module and gives its limits back; the player's choice waits for its return.
    * @param {string} key @param {any} def
    * @param {((value: any, engine: any) => void) | { apply?: (value: any, engine: any) => void, limits?: string | string[] }} [apply]
    * @example engine.settings.define('volfog', true, { limits: 'post.volfog.enabled' });   // after engine.post.add(volFog)
@@ -169,21 +191,43 @@ export class Settings extends SettingsView {
     const o = typeof apply === 'function' || apply == null ? { apply } : apply;
     const limits = o.limits == null ? null : [].concat(o.limits);
     if (limits) checkLimits(this, key, def, limits);
-    this.custom.set(key, { def, apply: o.apply, limits });
-    if (!(key in this._values)) this._values[key] = def;
+    const row = { def, apply: o.apply, limits };
+    this.custom.set(key, row);
+    const picked = this._picked();   // a preset's share of this row is only known now that the row says what it is a share of
+    if (key in picked) this._values[key] = picked[key];
+    else if (!(key in this._values)) this._values[key] = def;
     this._apply(key, this._values[key]);
+    if (this._ready) this._values.quality = this._matchPreset();
+    this._leavesWithModule(() => {
+      if (this.custom.get(key) !== row) return;   // the name was defined again: that row is someone else's
+      this.custom.delete(key);
+      if (limits) releaseRow(this.engine, limits);
+      if (!(key in this._changed)) delete this._values[key];
+    });
     return this;
   }
+  /**
+   * @internal A row or tab made while a module runs leaves with that module (trackForModule); one the game made, or an async callback, stays
+   */
+  _leavesWithModule(drop) { trackForModule(this.engine, { remove: () => { drop(); this.win?.refresh(); } }); }
   /** Add a tab */
   addSection(id, def) {
     if (def === undefined) { this._builtin(id); this.win.refresh(); return this; }
     const { title, render, bind, when, order = 100 } = def;
-    this.sections.set(id, { title: typeof title === 'function' ? title : () => title, render, bind, when, order });
+    const section = { title: typeof title === 'function' ? title : () => title, render, bind, when, order };
+    this.sections.set(id, section);
+    this._leavesWithModule(() => { if (this.sections.get(id) === section) this.sections.delete(id); });
     this.win.refresh();
     return this;
   }
 
   get isOpen() { return this.win.open; }
+  /** Action name waiting for a key press, or null @type {string | null} */
+  get capturing() { return this._capturing?.action ?? null; }
+  set capturing(action) {
+    this._capturing?.hold.remove();
+    this._capturing = action ? { action, hold: this.focus.push('settings-key', { cancel: () => this._cancel() }) } : null;
+  }
   open() { if (!this.win.open) this.win.toggle(true); }
   close() { this.capturing = null; if (this.win.open) this.win.toggle(false); }
   toggle(on = !this.win.open) { on ? this.open() : this.close(); }
@@ -252,26 +296,24 @@ export class Settings extends SettingsView {
   }
 
   // ---------- applying ----------
-  /**
-   * @internal The chunk table that "view distance" and "vegetation density" drive: the terrain's, or vegetation's own over a level / code-built ground; null
-   * without either
-   */
-  chunkHost() { return this.engine.terrain ?? this.engine.vegetation?.host ?? null; }
   _currentValues() {
-    const e = this.engine, v = { pixelRatio: +e.adaptive.base.toFixed(2), shadows: allowed(e, 'shadows.enabled') };
-    v.antialias = e.post.antialias;
-    for (const k of POST_KEYS) if (e.post.get(k)) v[k] = allowed(e, `post.${k}.enabled`);
+    const e = this.engine, v = { pixelRatio: +e.adaptive.base.toFixed(2), shadows: allowed(e, 'shadows.enabled'), tier: null };
+    v.antialias = e.post.authoredAA;   // the default, not what this launch runs with: a choice stored for this launch is the player's, and reset() must get past it
+    for (const k of POST_KEYS) v[k] = allowed(e, `post.${k}.enabled`);   // a permission, known before the effect exists: this runs at install, the game adds its effects after
     v.adaptive = !!e.adaptive.on;
-    const H = this.chunkHost();
-    if (H) { v.viewChunks = H.viewChunks; v.density = H.density; }
     for (const [bus, level] of Object.entries(e.audio.levels)) v['vol.' + bus] = level;   // one slider per bus, the game's own buses too
     return v;
   }
-  /** A preset's values on this device: its pixelRatio share made a ratio. Nothing for 'custom' or no preset @param {string} [name] */
+  /** A preset's values in this game on this device: each share made a value. A share of a row nobody offered is left out. Nothing for 'custom' or no preset @param {string} [name] */
   _presetValues(name) {
-    if (!this.presets[name]) return {};
-    const p = Object.fromEntries(Object.entries(this.presets[name]).filter(([k]) => !this._omit.has(k)));
-    return 'pixelRatio' in p ? { ...p, pixelRatio: +(p.pixelRatio * this.engine.adaptive.base).toFixed(2) } : p;
+    const out = {};
+    for (const [k, v] of Object.entries(this.presets[name] ?? {})) {
+      if (this._omit.has(k)) continue;
+      if (!(k in SHARES)) { out[k] = v; continue; }
+      const whole = k === 'pixelRatio' ? this.engine.adaptive.base : this.custom.get(k)?.def;
+      if (whole != null) out[k] = SHARES[k](v * whole);
+    }
+    return out;
   }
   /** What the player chose: the preset, then the rows moved after it */
   _picked() {
@@ -284,8 +326,7 @@ export class Settings extends SettingsView {
     const v = this._values, e = this.engine;
     for (const name of Object.keys(this.presets)) {
       const ok = Object.entries(this._presetValues(name)).every(([k, val]) => {
-        if ((k === 'viewChunks' || k === 'density') && !this.chunkHost()) return true;
-        if (POST_KEYS.includes(k) && !e.post.get(k)) return true;
+        if (k === 'tier' || (POST_KEYS.includes(k) && !e.post.get(k))) return true;   // nothing the menu shows: no reason to call the picture custom
         return v[k] === val;
       });
       if (ok) return name;
@@ -296,13 +337,10 @@ export class Settings extends SettingsView {
 
   // ---------- module hooks ----------
   init() {
-    // At start() every module is installed: terrain settings and key bindings can only be applied fully now
+    // At start() every module is installed, and the modules before this one have offered their rows (the view distance and density rows are the ground's)
     this._ready = true;
     const picked = this._picked(), e = this.engine;
-    for (const k of ['viewChunks', 'density']) {
-      const H = this.chunkHost(); if (!H) continue;
-      if (k in picked) this._apply(k, this._values[k] = picked[k]); else this._values[k] = H[k];
-    }
+    for (const k of this._early) if (!this._hasRow(k)) warnOnce(coded('settings-row', `settings.set('${k}') before start: no row came for this key, so nothing applied it`));
     // start() may have learned the real device on the WebGPU route and written its default ratio over the player's
     this._defaults.pixelRatio = +e.adaptive.base.toFixed(2);
     this._values.pixelRatio = picked.pixelRatio ?? this._defaults.pixelRatio;
@@ -312,6 +350,8 @@ export class Settings extends SettingsView {
   frame() {
     const inp = this.engine.input;
     if (this.capturing) {
+      if (!this.win.open) { this.capturing = null; return; }   // closed by its close button: a focus entry left here would hold the back key
+      if (this._capturing.hold.fresh) return;                  // the confirm press that opened it is not the new key
       const code = [...inp.justPressed][0];
       // The back key is routed to _cancel by the UI focus stack (cancels rebinding); nothing to do here
       if (code && !inp.keysOf('cancel').includes(code)) { const a = this.capturing; this.capturing = null; this.rebind(a, code); }
@@ -357,7 +397,7 @@ export function settings(opts = {}) {
   readParams('settings', SETTINGS_PARAMS, opts);
   let s = null;
   return {
-    name: 'settings', type: 'ui', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['terrain', 'vegetation', 'flow', 'cameraRig'], stage: 'effects',
+    name: 'settings', skipKind: 'none', type: 'ui', params: SETTINGS_PARAMS, options: opts, label: 'Settings', optional: ['flow', 'cameraRig'], stage: 'effects',
     install(e, ctx) {
       s = new Settings(e, opts, ctx.track);
       ctx.track(e.ui.titleItem('settings', { label: x => x.t('title.settings'), run: () => s.open() }));   // the title screen's Settings button
@@ -365,7 +405,14 @@ export function settings(opts = {}) {
     },
     init() { s.init(); },
     frame() { s.frame(); },
+    // the tracked ui:close listener went first, so what an open menu holds is given back here
+    dispose() { s.capturing = null; s._pause(false); releaseLimits(s); },
     // the values the player chose (quality preset, volumes, ...) explain a picture or a sound level; open / tab / capturing say the menu holds the input
     describe() { return { open: s.isOpen, tab: s.current, capturing: s.capturing, values: { ...s.values } }; },
   };
 }
+
+export const handRolled = [
+  { kind: 'pause', seen: 'a pause or Esc handler of its own', use: 'settings({ freezeWorld: true }): Esc stops every system and opens the menu (recipe 63); engine.freeze(why) for a pause with no menu', quiet: /\bsettings\(|\bengine\.(freeze|flow|settings)\b|\buiFocus\(/, code: /\b(?:let|var)\s+(?:is|game)?paused\s*=/i, orRaw: /(?:\.key|\.code)\s*===?\s*['"]Escape['"]/, tags: false },
+  { kind: 'settings', seen: 'a settings menu of its own', use: 'the settings module: volume, keys, quality and language in one menu that remembers itself; settings.define adds your own (recipe 26)', quiet: /\bsettings\(|\bengine\.settings\b/, code: /\b(createElement|innerHTML|className|classList|getElementById|querySelector|\.id)\b/, raw: /(?:createElement|innerHTML|className|classList|getElementById|querySelector|\.id\b)[^,;{}]*(?:settings|options-?(?:menu|panel|screen)|pause-?menu)|(?:settings|options|pause)-?(?:menu|panel|screen)[^,;{}]*(?:createElement|innerHTML|className|classList|getElementById|querySelector|\.id\b)/i },
+];

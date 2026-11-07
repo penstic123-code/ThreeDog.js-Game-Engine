@@ -8,11 +8,12 @@ import { uniforms } from 'threedog/tsl';
 import { blotch, cut } from './paint.js';
 import { palette } from './palette.js';
 
-/** @param {any} engine */
-export function createSky(engine) {
+/** @param {any} engine @param {any} ctx the picture module's ctx: what is added here leaves with it */
+export function createSky(engine, ctx) {
   const { sky: S, fog: F } = palette, { scene } = engine;
   const top = new THREE.Color(), horizon = new THREE.Color(), c = new THREE.Color(), cloudLight = uniform(1);
-  const fog = scene.fog = new THREE.Fog(S.horizon, F.near, F.far);
+  const fog = new THREE.Fog(S.horizon, F.near, F.far);
+  ctx.borrow(scene, { fog });
 
   const d = normalize(positionLocal), up = d.y.max(0);
   // flatten the dome into a ceiling, so clouds shrink toward the horizon instead of wrapping round it
@@ -30,7 +31,8 @@ export function createSky(engine) {
   const dome = new THREE.Mesh(new THREE.SphereGeometry(400, 32, 16), mat);
   dome.name = 'sky'; dome.renderOrder = -1; dome.frustumCulled = false;
   scene.add(dome);
-  if (engine.sky) engine.sky.dome.visible = false;
+  ctx.track({ remove() { scene.remove(dome); dome.geometry.dispose(); mat.dispose(); } });
+  if (engine.sky) ctx.borrow(engine.sky.dome, { visible: false });
 
   return {
     dome,

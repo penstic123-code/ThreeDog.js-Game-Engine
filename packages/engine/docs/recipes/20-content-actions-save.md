@@ -13,6 +13,7 @@ ops, used from content as `{ op: ['noun.verb', { args }] }` / `{ can: [...] }` (
 - Conditions are used in: quest step `done`, dialogue choice `if`, line variant `if`. Several entries in one object = all must hold; an array = every
   item must hold.
 - Effects are used in: dialogue `do`, quest `reward`, trigger zone `onEnter / onExit`. Several entries in one object, or an array, run in order.
+- Every word runs even when one fails. `content.run` answers `{ ok: true }` or a failure with `facts.failed` (`{ word, code, facts }`); an op returning it fails with it. Dialogue `do` and triggers: listen to `content:failed`.
 - Content validation (content-check inside `threedog check` / `threedog map`) checks the word names and how the values are written.
 
 ### A game's own data kinds (enemies, recipes, loot tables, waves…)
@@ -53,9 +54,18 @@ imports itself, or `engine.i18n.add()` when it is text the UI fetches with `engi
 against its table (a misspelled `scael` names `scale`), and `engine.content.fields(name)` returns the same table for tools such as an editor panel.
 
 ## 1b. Content packs: several data sets in one load
+A pack with a `level` commits when its file is here. If a newer `level.load`, save load or unload comes first, the newest level stands and only the pack's `level` gives way: the rest goes in once that load has ended, on the level that won. A place only the pack's level had fails with `content-place`, as any unknown place does, and the pack goes back whole.
+
+`content.load` answers for its own load. Bad data throws on the line. The Promise it returns resolves once the pack committed, and rejects when it failed, after the old level and registrations are back; saves and loads asked meanwhile wait for that. If the old level could not come back, `err.notRestored` lists why. A load nobody awaits is reported all the same.
+
+```js fragment
+try { await engine.content.load(dlc); }
+catch (err) { showError(err.notRestored ? 'reload the game' : 'this pack is broken'); }
+```
+
 A content pack is the same object `content/index.js` exports (`{ items, templates, props, quests, ... }`, optional `name` for messages), shipped as a
 folder or an npm package: data only, assets by name (never a path or a function; `npm run check` and a dev warning report both). Load several together:
-```js
+```js fragment
 import base from './content/index.js';
 import forest from 'forest-content';                        // its props name templates from base and models from the forest asset pack
 import packs from './assets.js';                            // export default [forestAssets, ...]: the asset packs ({ name, base, models, textures, sounds, fonts })
@@ -112,7 +122,7 @@ engine.interactions.pickMode = 'aim';                // switch at runtime (enter
 ```
 One object with two verbs = two interactions with different key actions; each key picks among its own action, and `engine.interactions.options` lists
 one `{ action, id, label }` per key for a prompt that shows both:
-```js
+```js fragment
 engine.input.action('take', { label: 'Take', keys: ['KeyF'] });
 engine.interactions.add(thing, { label: 'Inspect', onUse: inspect });                                // E
 engine.interactions.add(thing, { label: 'Take', action: 'take', enabled: () => ready, onUse: take });   // F
@@ -123,7 +133,7 @@ when the key is released, the actor leaves the radius, `enabled()` turns false o
 `approach: true` walks the player there first (`walkTo`, stops 1.2 m away) and uses it on arrival; with `radius: Infinity` it is usable from anywhere
 (point-and-click, "talk to the clerk across the shop"). The op `interaction.use` is the completed use in both cases (tests and the dev bridge
 skip the hold; an approach returns `{ approaching }`, a promise of onUse's result).
-```js
+```js fragment
 engine.interactions.add(well, { label: 'Pump', hold: 1.5, onUse: fill });
 engine.interactions.add(shell, { id: 'shell-1', label: 'Pick up', once: true, counter: 'shells' });   // mesh gone after E, counted: recipe 03 "Pick and count"
 engine.interactions.add(clerk, { label: 'Talk', radius: Infinity, approach: true, onUse: talk });
@@ -136,7 +146,7 @@ The actor is handed down, never assumed: `label / enabled / onUse` get `(object,
 peer, an NPC); trigger callbacks get `(t, who, id)` and the events carry `id` (`who` may list actor ids: `who: () => [e.actor, ...peerIds]`); content
 `has / lacks / give / take` use the bag of the running op's actor (else `engine.actor`), and `engine.content.run(effect, { actor })` /
 `content.test(cond, { actor })` name one explicitly; trigger `onEnter / onExit` effects act for whoever crossed the zone.
-```js
+```js fragment
 engine.interactions.add(door, { label: (o, { actor }) => keyOf(actor) ? 'Open' : 'Locked', onUse: (o, { actor }) => engine.ops.run('door.open', { id: o.name }, { actor }) });
 engine.triggers.add({ position: gate, who: () => [engine.actor, ...guards], onEnter: (t, who, id) => engine.ops.run('gate.alarm', { by: id }) });
 ```
@@ -150,6 +160,8 @@ if (engine.saves.check('auto') === null) await engine.session.load('auto');   //
 - `engine.session.load(slot)` and `engine.session.newGame()` both return `Promise<boolean>`: always `await`. `session.load` starts from the new-game
   state and puts the save on top, so a part the save lacks (a module added in a later version) starts fresh instead of keeping the current run's
   state. `engine.saves.load(slot)` is a quick load onto the running playthrough; never build Continue from it.
+- A running cutscene and an open conversation are not saved: any load ends them without their remaining steps. Save at a point the game can continue from: a save taken inside a
+  cutscene whose last step sets the flag a quest waits for comes back without that flag.
 - Loading restores the player, the view (the camera rig's yaw and pitch: a first-person game needs no save code for it), world data (world changes and deletions), inventory, quests, clock and random state; initial data in content files
   (`initial`) is the same whether it is loaded before or after the save, so ignore the order.
 - A load rebuilds the props and other world records: an Object3D your code kept from before (a door mesh, a lamp) is gone afterwards. Keep the
@@ -176,6 +188,14 @@ const addLap = time => { const r = records(); r.laps.push(time); localStorage.se
 - A part whose `save()` throws makes the whole save fail (`false`, the slot keeps its previous save); a part whose `load()` throws rolls the game back
   to how it was before the load (`false`). So does a listener of an event the load emits (`world:load`) or a module's `afterLoad` that throws. Both go
   through the error tiers (`engine.error` in dev, code `save-part-threw` / `save-load-threw`).
+- One replacement at a time: `saves.apply`, `saves.load` and `session.newGame` / `load` / `quit` wait their turn in the order asked, so the end state is
+  always one whole save, and a load that fails rolls back to the whole state before it. Idle, a save with only synchronous parts applies at once. While
+  a replacement runs ops return `'loading'`.
+- A `load()` or `afterLoad` may change level or load a pack, before or after an await. It is handed the turn of its replacement; pass it on, and the call goes at once:
+  `async load(d, turn) { await fetchRoute(d); await engine.level.load(d.level, { turn }); }`. Without the turn the call counts as an outside request and waits for this load to end, so awaiting
+  it would wait for itself (dev says so after 3 s, `save-nested`). A new `saves.apply` / `load` / `save` or `session.*` starts after the running one: ask for it without awaiting it, or from a
+  `save:loaded` or `session:start` listener.
+- A part registered while a load runs gets its data right after that load, whole, unless a newer load replaced the state first; idle it gets it before `register` returns.
 - A save edited by hand or damaged: a `null` part makes it `'corrupt'` (a `save()` returning `null` is simply left out); a world record whose
   position is not three finite numbers is refused and rolled back (`save-bad-record`, no gameplay error); a bad number of the clock, time
   channels, random state or item counts is clamped or dropped with one `save-value` warning per part, and the rest loads.
@@ -194,8 +214,8 @@ A save is one envelope; `engine.saves.collect()` returns it and `export` / `expo
   parts: { world: {...}, quests: {...}, clock: {...}, vars: {...} } }   // each saves.register part's data, by key
 ```
 - **Parts and versions**: each `engine.saves.register(key, { version, migrate, save, load })` owns one part. `load` takes one argument, the data: `load: data => …`, never `load(engine, data)`, the shape of a module hook (`npm run check` warns, rule R33). When `save()` changes shape, raise
-  `version` by 1 and add `migrate[oldVersion] = data => newData`; load runs the steps in order on a copy, so `load` only sees the current shape. A
-  part from a newer build, or a missing step, refuses the whole load before anything changes. This is how a game's own saved data migrates across its releases (there is no other system): keep one saved file per released game version, never edit it, and load each in a test with `engine.saves.apply(sample)` (the engine does the same for its own parts in `tests/specs/save-compat.mjs`).
+  `version` by 1 and add `migrate[oldVersion] = data => newData`; load runs the steps in order on a copy, so `load` only sees the current shape.
+  This is how a game's own saved data migrates across its releases (there is no other system): keep one saved file per released game version, never edit it, and load each in a test with `engine.saves.apply(sample)` (the engine does the same for its own parts in `tests/specs/save-compat.mjs`).
 - **Parts nobody owns are kept**: a part in the loaded save whose module is not installed in this run (a feature turned off for a version) is written
   back unchanged on every save, and handed to the module if it registers later. Only a new game drops it.
 - **Authored baseline + per-id diff**: everything placed in a level comes from content (props, template instances, pickups, NPCs, grid items in

@@ -21,12 +21,13 @@
 // A placement may override only rot / scale / y / items and the state fields; a different look or behaviour is a different template.
 // Recipe: docs/recipes/30-templates.md.
 // body: { shape: 'box' | 'ball' | 'hull', mass?, friction?, restitution?, damping?, angularDamping? } makes each copy a rigid body (needs rigid()):
-//   it can be pushed, the model moves itself and its position is copied back to the record, so a pushed crate's place is saved like any other change.
+//   it can be pushed, the model moves itself and its position is copied back to the record, so a pushed crate's place is saved like any other change,
+//   and its whole state (turn, speed, asleep) with it in the save part 'rigid'. A copy nothing moved stays out of the save.
 // Ids: an instance with state (state / container / interact / body) should have a written id (ids.js); without one dev warns.
 import { checkOptions, freezeDef, missingText, fmt, DEV } from '../../core/base/validate.js';
 import { xzOf } from '../../core/base/math.js';
 import { placeY } from '../../core/scene/ground.js';
-import { buildModel, settle, fits, unbuildModel } from './models.js';
+import { buildModel, settle, fits, fitsShape, unbuildModel, scaleOf } from './models.js';
 import { srcOf, stateful, templateId } from './ids.js';
 import { PLACEMENT_FIELDS, collideProblem } from './rules.js';
 import { fieldsShape } from './fields.js';
@@ -145,8 +146,8 @@ function instanceFields(name, d, p, keys, shape) {
   const state = Object.keys(d.state ?? {});
   for (const key of Object.keys(p)) if (DEF_KEYS.includes(key) && !state.includes(key)) throw codedError('content-template', fmt(STRINGS.defKey, { name, key }));
   checkOptions(`template '${name}' instance`, p, [...keys, ...state]);
-  // dev: a state value outside the template's fields (range, values, type) fails here, for engine.content.spawn as well as for content
-  if (DEV) for (const k of state) { const why = p[k] !== undefined && whyBad(shape[k], p[k]); if (why) throw codedError('content-template', `template '${name}' instance: ${k} ${why}`); }
+  // a state value outside the template's fields (range, values, type) fails here, for engine.content.spawn as well as for content
+  for (const k of state) { const why = p[k] !== undefined && whyBad(shape[k], p[k]); if (why) throw codedError('content-template', `template '${name}' instance: ${k} ${why}`); }
   if (p.items && !d.container) throw codedError('content-template', fmt(STRINGS.noBox, { name }));
   const own = structuredClone(d.state ?? {});
   for (const k of state) if (p[k] !== undefined) own[k] = structuredClone(p[k]);
@@ -169,20 +170,21 @@ function limitContainers(e, st, name) {
 
 /** How a template's instances look: shared prototype model, collision, interaction; built near, torn down far (once per template name). */
 function present(e, api, st, name) {
-  if (st.templateViews.has(name)) return;
-  if (e.world.presents(name)) throw codedError('content-template', fmt(STRINGS.taken, { name }));
-  st.templateViews.add(name);
   const def = () => st.templates.get(name);   // a later load may replace the definition: always read the current one
-  const body = !!def().body;   // a physics body moves the model itself: the record follows the model (positionFrom 'view'), so a pushed position is saved
-  st.track(e.world.present(name, {   // tracked: without content there is no definition to build from, and a new content() must be able to present the kind
+  const body = !!def().body, was = st.templateViews.get(name);   // a physics body moves the model itself: the record follows the model (positionFrom 'view'), so a pushed position is saved
+  if (was?.body === body) return;
+  was?.remove();   // a reload that adds or takes out `body`: who places the model changes, and world reads that once per presenter. Every copy rebuilds, from the record
+  if (e.world.presents(name)) throw codedError('content-template', fmt(STRINGS.taken, { name }));
+  st.templateViews.set(name, st.track(e.world.present(name, {   // tracked: without content there is no definition to build from, and a new content() must be able to present the kind
     radius: () => Math.max(e.world.radius, e.stream.activeRadius),   // same build distance as props
     positionFrom: body ? 'view' : 'record',
     async build(rec) {
-      const d = def(), model = modelOf(d, rec), id = rec.id;
+      const d = def(), model = modelOf(d, rec), id = rec.id, mine = e.world.building(id);
       const o = await buildModel(e, api, rec, model, d.body ? { ...d, static: false, collide: false } : d, stageScale(d, rec));
       o.userData.model = JSON.stringify(model);   // the built model, as text (describe / tests read it); serialized once per build, never per frame
       o.userData.modelFrom = modelSource(d, rec);      // update compares this cheap key every frame: a stage with another model rebuilds the copy
-      if (d.body) addBody(e, rec, o, d.body);
+      if (d.body && e.world.building(id) === mine) addBody(e, rec, o, d);   // a build a load or rebuild replaced meanwhile is dropped: its body would take the id, and the saved state, from the real one
+      o.userData.useFrom = e.interactions;
       if (d.interact && e.interactions) o.userData.use = e.interactions.add(o, {
         id, radius: d.interact.radius ?? 2.5, height: d.interact.height, action: d.interact.action,
         label: () => label(e, def().interact?.label, e.world.get(id)) ?? name,
@@ -195,40 +197,70 @@ function present(e, api, st, name) {
       const d = def();
       // a stage that names another model: tear this copy down, world builds the new one next frame (the record, and so the save, is untouched)
       if (d.stages && !sameModel(o.userData, d, rec)) { e.world.rebuild(rec.id); return; }
+      if (d.interact && o.userData.useFrom !== e.interactions) { e.world.rebuild(rec.id); return; }   // its use lives in the interactions module it was built with: another one starts empty
       const mul = stageScale(d, rec);
-      if (!d.body && !fits(o, rec, mul)) settle(e, rec, o, d, mul);   // a body places itself; a stage scale re-aligns collision too
-      else if (d.body) restBody(e, rec, o);
+      if (d.body) {   // a body places itself. Its turn and size were built into the solver: a new one needs a new body, built where the record stands
+        if (!fitsShape(o, rec, mul) || !sameBody(e, o.userData, d)) { e.world.rebuild(rec.id); return; }
+        restBody(e, rec, o);
+      } else if (!fits(e, o, rec, mul)) settle(e, rec, o, d, mul);   // a stage scale re-aligns collision too
       d.animate?.(rec, o, dt);
     },
     dispose(rec, o) { o.userData.use?.remove(); o.userData.body?.remove(); unbuildModel(e, o); },
-  }));
+  })));
+  st.templateViews.get(name).body = body;
 }
 
-/**
- * A rigid body for one built copy, never batched (it moves). It rests on the ground at the record's place: the collider is centred on the model's origin,
- * so the copy is lifted by half its height, and that resting place counts as the authored one (world.rest), so an untouched crate stays out of the save.
- * The body starts asleep: it stays exactly there until something hits it; then its moves are copied to the record (positionFrom 'view') and saved.
- */
-function addBody(e, rec, o, b) {
-  const { shape, ...opts } = b, s = o.userData.proto.size, scale = rec.scale ?? 1;
-  o.userData.batch = false;
-  const ground = e.surface(rec.position.x, rec.position.z, rec.floor), y = Math.max(rec.position.y, ground + s.y * scale / 2);
-  e.world.rest(rec.id, { x: rec.position.x, y, z: rec.position.z });
-  o.position.y = rec.position.y;
-  o.updateMatrixWorld(true);
-  const add = shape === 'ball' ? 'addBall' : shape === 'hull' && o.isMesh ? 'addHull' : 'addBox';   // a hull needs one mesh; a group gets a box
-  o.userData.body = e.rigid[add](o, opts);
-  o.userData.body?.body.sleep();
-}
 const SETTLE = 0.05;   // meters: a body that only settled (contact with uneven ground) moves less than this; a push moves it more
-/** While an authored body only settles where content put it, that settled pose is its authored rest (it stays out of the save); once pushed, the record keeps the change */
+/**
+ * A rigid body for one built copy, never batched (it moves). The body owns the pose and the record follows it (positionFrom 'view'), so one thing decides a copy's place:
+ * - A copy still where content put it stands on the ground: the collider is centred on the model's origin, so it is lifted by half its height, and that place counts
+ *   as the authored one (world.rest). It starts asleep and atRest, which keeps it out of the save: content rebuilds it.
+ * - A copy with state in the save (the 'rigid' part, keyed by record id): that state is the pose, speed and sleep, and the record takes it, since no step runs before the next read.
+ * - A copy moved with no state (rebuilt by a new holder, a save without it, or a record moved after that state: rigid drops it): it starts awake at the record, so one left in the air comes down.
+ */
+function addBody(e, rec, o, d) {
+  const { shape, ...opts } = d.body, s = o.userData.proto.size, ud = o.userData, p = rec.position;
+  ud.batch = false; ud.bodyFrom = d.body; ud.holder = bodyHolder(e);
+  const half = s.y * scaleOf(rec)[1] / 2, floor = e.surface(p.x, p.z, rec.floor) + half;
+  // a state from the save decides this copy's place, even when the record reads as unmoved (put back by an undo): resting it would rewrite the baseline to a place it is not at
+  const unmoved = !e.rigid?.stateFor?.(rec.id) && e.world.rest(rec.id, { x: p.x, y: rec.ground === false ? Math.max(p.y, floor) : floor, z: p.z });
+  o.position.y = p.y;
+  o.updateMatrixWorld(true);
+  if (!ud.holder) return;   // the copy stands as a plain model; sameBody builds its body when a holder is ready
+  const add = shape === 'ball' ? 'addBall' : shape === 'hull' && o.isMesh ? 'addHull' : 'addBox';   // a hull needs one mesh; a group gets a box
+  const b = ud.body = ud.holder[add](o, { ...opts, id: rec.id });
+  if (!b) return;
+  // a place written with no height (thing.set [x, 0, z]) means on the ground: a body put inside it goes through a thin floor and falls for good
+  b.place = at => { const y = e.surface(at.x, at.z, rec.floor) + half; return at.y < y - SETTLE ? { x: at.x, y, z: at.z } : at; };
+  if (b.atRest === false) { const t = b.body.translation(); p.x = t.x; p.y = t.y; p.z = t.z; return; }
+  b.atRest = true;
+  if (unmoved) b.body.sleep();
+  else { const at = b.place(p); if (at !== p) { p.y = at.y; ud.holder.setPosition(b, at); } }
+}
+/** Who can hold a body now: a rigid still loading its solver is not one yet, so a copy built meanwhile waits instead of throwing */
+const bodyHolder = e => e.rigid?.ready ? e.rigid : null;
+/**
+ * Does the copy carry what the template asks for now, in the holder installed now? A body is a handle into one solver: another holder has none of it, and a hot reload
+ * that changes `body` cannot reach a built one. Same definition is a yes without serializing; a reloaded equal one is adopted, as sameModel does.
+ */
+function sameBody(e, ud, d) {
+  if (ud.holder !== bodyHolder(e)) return false;
+  if (ud.bodyFrom === d.body) return true;
+  if (JSON.stringify(ud.bodyFrom) !== JSON.stringify(d.body)) return false;
+  ud.bodyFrom = d.body;
+  return true;
+}
+/**
+ * While a body only settles where content put it, the settled pose is its authored rest and it stays out of the save. Settling ends when it first sleeps:
+ * from then on anything that wakes it is play, however small the move, and the body's state goes in the save, so nothing a player did is lost to a tolerance.
+ */
 function restBody(e, rec, o) {
-  const ud = o.userData, b = ud.body?.body;
-  if (ud.pushed || !b) return;
+  const ud = o.userData, entry = ud.body;
+  if (!entry?.atRest) return;
   ud.restAt ??= { ...rec.position };
-  const p = rec.position, r = ud.restAt;
-  if (Math.abs(p.x - r.x) > SETTLE || Math.abs(p.y - r.y) > SETTLE || Math.abs(p.z - r.z) > SETTLE) { ud.pushed = true; return; }
-  if (b.isSleeping()) e.world.rest(rec.id, p, SETTLE);
+  const p = rec.position, r = ud.restAt, asleep = entry.body.isSleeping();
+  if ((ud.settled && !asleep) || Math.abs(p.x - r.x) > SETTLE || Math.abs(p.y - r.y) > SETTLE || Math.abs(p.z - r.z) > SETTLE) { entry.atRest = false; return; }
+  if (asleep) { e.world.rest(rec.id, p, SETTLE); ud.settled = true; }
 }
 
 /**
@@ -258,7 +290,6 @@ const stageScale = (d, rec) => d.stages?.[rec.stage ?? 0]?.scale ?? 1;
  */
 function simulate(e, st, name) {
   if (st.templateSims.has(name)) return;
-  st.templateSims.add(name);
   const grow = rec => {
     const d = st.templates.get(name);
     if (!d?.stages) return;
@@ -267,10 +298,10 @@ function simulate(e, st, name) {
     e.world.set(rec.id, next);   // through world.set: world:change fires and the save keeps it, like any other gameplay change
     e.events.emit('template:stage', { id: rec.id, template: name, stage: next.stage, name: d.stages[next.stage].name });
   };
-  st.track(e.world.simulate(name, {
+  st.templateSims.set(name, st.track(e.world.simulate(name, {
     near: (rec, dt) => { grow(rec); st.templates.get(name)?.update?.(rec, dt, e); },
     far: rec => grow(rec),
-  }));
+  })));
 }
 
 const label = (e, l, rec) => typeof l === 'function' ? l(rec, e) : l && e.i18n.has(l) ? e.t(l) : l;

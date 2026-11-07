@@ -29,7 +29,7 @@ const DEV = {
 export function checkPartVersion(key, version, migrate) {
   if (!Number.isInteger(version) || version < 1) throw codedError('save-version', fmt(DEV.badVersion, { k: key, v: version }));
   for (const [m, fn] of Object.entries(migrate)) {
-    if (!(Number(m) >= 1 && Number(m) < version) || typeof fn !== 'function') throw codedError('save-version', fmt(DEV.badMigrate, { k: key, m, v: version }));
+    if (!/^[1-9]\d*$/.test(m) || Number(m) >= version || typeof fn !== 'function') throw codedError('save-version', fmt(DEV.badMigrate, { k: key, m, v: version }));
   }
 }
 
@@ -43,6 +43,15 @@ const clean = (k, v) => (k === '__proto__' ? undefined : v);
  * @internal
  */
 export function parseSave(json) { return JSON.parse(typeof json === 'string' ? json : JSON.stringify(json), clean); }
+
+/**
+ * A part's saved version; one the table does not have is version 1. Part names are the game's: 'constructor' finds Object's own in a plain lookup, as `in` does on parts.
+ * @param {Record<string, number> | undefined} versions
+ * @param {string} k
+ * @returns {number}
+ * @internal
+ */
+export function partVersion(versions, k) { return versions && Object.hasOwn(versions, k) ? versions[k] : 1; }
 
 /**
  * Upgrade one part's data from its saved version to the current one, step by step (on a copy: the caller's save stays as it was).
@@ -90,12 +99,17 @@ export function readSave(json, providers, slot) {
   // (collectParts leaves out a part whose save() returns null / undefined), so only a hand edit or a broken file has it
   const nul = Object.keys(data.parts).filter(k => data.parts[k] === null);
   if (nul.length) return { reason: 'corrupt', dev: fmt(DEV.corrupt, { slot, why: `part${nul.length > 1 ? 's' : ''} ${nul.map(k => `'${k}'`).join(', ')} is null` }) };
-  const versions = data.versions ||= {};
-  const list = [...providers].filter(([k]) => k in data.parts).sort((a, b) => (b[1].first ? 1 : 0) - (a[1].first ? 1 : 0));
-  const newer = list.filter(([k, p]) => (versions[k] ?? 1) > p.version).map(([k, p]) => `part '${k}' is version ${versions[k]}, this build reads up to ${p.version}`);
+  // versions decide which migrate steps run: a value that is no whole number passes every comparison, so no step ran and load() got the old shape. Parts nobody owns here
+  // count too: a part registered later reads its version from this table. Only a missing table means version 1
+  const versions = data.versions === undefined ? (data.versions = {}) : data.versions;
+  if (!versions || typeof versions !== 'object' || Array.isArray(versions)) return { reason: 'corrupt', dev: fmt(DEV.corrupt, { slot, why: `versions ${JSON.stringify(versions)}` }) };
+  const odd = Object.keys(versions).filter(k => !Number.isInteger(versions[k]) || versions[k] < 1);
+  if (odd.length) return { reason: 'corrupt', dev: fmt(DEV.corrupt, { slot, why: `version of ${odd.map(k => `'${k}'`).join(', ')}` }) };
+  const list = [...providers].filter(([k]) => Object.hasOwn(data.parts, k)).sort((a, b) => (b[1].first ? 1 : 0) - (a[1].first ? 1 : 0));
+  const newer = list.filter(([k, p]) => partVersion(versions, k) > p.version).map(([k, p]) => `part '${k}' is version ${versions[k]}, this build reads up to ${p.version}`);
   if (newer.length) return { reason: 'tooNew', dev: fmt(DEV.tooNew, { list: newer.join('; ') }) };
   // whole: the save as read, for migrate steps that need another part (upgradePart); kept on foreign so a part registered later (adoptPart) sees it too
   const whole = { parts: data.parts, versions }, foreign = { parts: {}, versions: {}, whole };
-  for (const k of Object.keys(data.parts)) if (!providers.has(k)) { foreign.parts[k] = data.parts[k]; foreign.versions[k] = versions[k] ?? 1; }
-  try { return { data, foreign, list: list.map(([k, p]) => [k, p, upgradePart(k, p, data.parts[k], versions[k] ?? 1, whole)]) }; } catch (e) { return { reason: 'migrate', dev: e.message }; }
+  for (const k of Object.keys(data.parts)) if (!providers.has(k)) { foreign.parts[k] = data.parts[k]; foreign.versions[k] = partVersion(versions, k); }
+  try { return { data, foreign, list: list.map(([k, p]) => [k, p, upgradePart(k, p, data.parts[k], partVersion(versions, k), whole)]) }; } catch (e) { return { reason: 'migrate', dev: e.message }; }
 }

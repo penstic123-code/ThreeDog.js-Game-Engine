@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import * as TG from 'three/webgpu';
 import 'threedog/tsl';   // what a WebGPU game imports first: it brings three/webgpu for renderer: 'webgpu'
 import { createEngine, applyEffects, world, terrain, hlod } from '../../index.js';
-import { renderOnce, stats } from '../../render/backend.js';
+import { renderOnce, stats, whyNoWebGPU } from '../../render/backend.js';
 import { watchGeometries } from '../../core/inspect/geometryWatch.js';
 
 const W = 160, H = 120;
@@ -48,6 +48,18 @@ async function shot(e, cam) {
 const mean = a => { let s = 0; for (let i = 0; i < a.length; i += 4) s += a[i] + a[i + 1] + a[i + 2]; return +(s / (W * H * 3)).toFixed(2); };
 const changed = (a, b) => { let d = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 24) d++; return +(100 * d / (W * H)).toFixed(2); };
 
+// The startup probe: a yes costs one device per page, and a stand-in that fails or a missing navigator.gpu still gets its own answer
+window.probeCases = async () => {
+  let devices = 0, adapters = 0;
+  const gpu = { requestAdapter: async () => { adapters++; return { requestDevice: async () => { devices++; return { destroy() {} }; } }; } };
+  const first = await withGpu(gpu, () => whyNoWebGPU().then(why => ({ why })));
+  const again = await withGpu(gpu, () => whyNoWebGPU().then(why => ({ why })));
+  const failing = await withGpu(failingDevice, () => whyNoWebGPU().then(why => ({ why })));
+  const none = await withGpu({ requestAdapter: async () => null }, () => whyNoWebGPU().then(why => ({ why })));
+  const missing = await withGpu(undefined, () => whyNoWebGPU().then(why => ({ why })));
+  return { first: first.why, again: again.why, failing: failing.why, none: none.why, missing: missing.why, devices, adapters };
+};
+
 // A KTX2 asset asked for before start() on WebGPU: the decoder's setup needs the renderer's init, which the engine waits for itself
 window.ktxBeforeStart = async () => {
   const e = make({ renderer: 'webgpu' });
@@ -86,7 +98,7 @@ window.backendCases = async () => {
   });
   // a game's own WebGPURenderer asking for WebGL2 itself: not a fallback, no loud line
   out.own = await withGpu(undefined, async () => {
-    const r0 = new TG.WebGPURenderer({ canvas: canvas(), antialias: false, forceWebGL: true });
+    const r0 = new TG.WebGPURenderer({ canvas: canvas(), antialias: false, forceWebGL: true /* kept */ });
     const e = make({ renderer: r0 }); await e.start();
     const r = { renderer: e.describe().renderer, same: e.renderer === r0, initialized: r0.initialized }; e.dispose(); return r;
   });

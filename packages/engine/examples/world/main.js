@@ -136,8 +136,8 @@ engine.onFrame(() => {
 // ---------- 7. Chop trees (world-change record: chopped trees are saved and regrow after 2 minutes) ----------
 // An op, so the key, the dev bridge and tests share it and the wood lands in a fixed step, not a frame callback
 const nearTree = (e, ctx) => {
-  const p = e.world?.get(ctx.actor)?.position ?? e.player.position;
-  return e.vegetation.instanceAt(p, { radius: 2.5, species: '松树' }) || e.vegetation.instanceAt(p, { radius: 2.5, species: '圆树' });
+  const p = e.actorPosition(ctx.actor);
+  return p && (e.vegetation.instanceAt(p, { radius: 2.5, species: '松树' }) || e.vegetation.instanceAt(p, { radius: 2.5, species: '圆树' }));
 };
 engine.ops.define('tree.chop', {
   desc: 'Chop the nearest tree for wood',
@@ -146,7 +146,7 @@ engine.ops.define('tree.chop', {
     const tree = nearTree(e, ctx);
     e.vegetation.removeInstance(tree.species, tree.cx, tree.cz, tree.id, { regrowSeconds: 120 });
     e.particles.emit('leaves', { x: tree.position.x, y: tree.position.y + 3, z: tree.position.z }, { count: 30 });
-    e.inventory.add('wood', 2);
+    e.inventory.of(ctx.actor).add('wood', 2);
   },
   reasons: { noTree: 'No tree within 2.5 m' },
 });

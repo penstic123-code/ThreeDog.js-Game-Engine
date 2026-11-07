@@ -8,10 +8,12 @@
 // default below; replace it with engine.ui.set('dialogue.bubble', ...)). Events: dialogue:bubble { speaker, text, at } when a line shows.
 import * as THREE from 'three';
 import { injectUICSS, worldToScreen, placeAt, esc } from '../../ui/UI.js';
+import { vec3 } from '../../core/base/math.js';
 /** @import { Engine, UIPart } from '../../types/core' */
 
 const CSS = `
 .threedog-bubble{position:absolute;left:0;top:0;transform:translate(-50%,-100%);max-width:240px;padding:6px 10px;border-radius:var(--threedog-radius-small);background:var(--threedog-bg);color:var(--threedog-fg);font:14px/1.35 var(--threedog-font);pointer-events:none;box-shadow:var(--threedog-shadow-small)}
+.threedog-bubble button{display:block;pointer-events:auto;margin-top:4px;font:inherit;cursor:pointer}
 .threedog-bubble b{display:block;font-size:12px;opacity:.75}
 .threedog-bubbles-screen{position:absolute;left:50%;bottom:22%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
 .threedog-bubbles-screen .threedog-bubble{position:static;transform:none}
@@ -27,7 +29,8 @@ const _v = new THREE.Vector3();
 export function bubblePart(e) {
   injectUICSS(CSS);
   const el = document.createElement('div'); el.className = 'threedog-ui threedog-bubble'; el.hidden = true;
-  let html = null, parent = null;
+  let html = null, parent = null, pick = null;
+  el.addEventListener('click', ev => { const i = ev.target.closest?.('button')?.dataset.i; if (i != null) pick?.(+i); });   // a choice asked by a bubble line
   return {
     el,
     update(d) {
@@ -35,7 +38,8 @@ export function bubblePart(e) {
       if (parent !== want) { parent = want; want.appendChild(el); }
       el.hidden = !d.onScreen;
       if (!d.screen) placeAt(el, d.x, d.y);
-      const h = `${d.speaker ? `<b>${esc(d.speaker)}</b>` : ''}${esc(d.text)}`;
+      pick = d.choose ?? null;
+      const h = `${d.speaker ? `<b>${esc(d.speaker)}</b>` : ''}${esc(d.text)}${(d.choices ?? []).map((c, i) => `<button data-i="${i}">${esc(c)}</button>`).join('')}`;
       if (h !== html) { html = h; el.innerHTML = h; }   // called every frame: rebuild only when the line changed
     },
     hide() { el.hidden = true; },
@@ -62,23 +66,23 @@ export class Bubbles {
     if (at == null) return { x: 0, y: 0, onScreen: true, screen: true };
     if (at.isObject3D) at.getWorldPosition(_v);
     else if (typeof at === 'string') { const q = e.actorPosition?.(at); if (!q) return { x: 0, y: 0, onScreen: false, screen: false }; _v.set(q.x, q.y ?? 0, q.z); }
-    else _v.set(at.x, at.y ?? 0, at.z);
+    else vec3(at, _v);   // every position form the engine takes: [x, y, z] here read as no position at all
     _v.y += height;
     const s = worldToScreen(e, _v);
     return { x: s.x, y: s.y, onScreen: s.onScreen, screen: false };
   }
   /**
    * Queue one line on a speaker. Returns a Promise (resolves when the line has been shown for its seconds) with remove() (drop it now; resolves too).
-   * @param {any} at @param {string} text @param {{ speaker?: string, seconds?: number, queue?: boolean, height?: number }} o
+   * @param {any} at @param {string} text @param {{ speaker?: string, seconds?: number, queue?: boolean, height?: number, run?: number | null, choices?: string[] | null }} o
    */
-  say(at, text, { speaker = '', seconds, queue = true, height = 2.2 } = {}) {
+  say(at, text, { speaker = '', seconds, queue = true, height = 2.2, run = null, choices = null } = {}) {
     const key = at ?? 'screen:' + speaker;
     let s = this.lines.get(key);
     if (!s) { s = { at, part: this.engine.ui.create('dialogue.bubble'), cur: null, queue: [] }; this.lines.set(key, s); }
     let line;
     const p = new Promise(res => {
       // reading time: holdSeconds plus about 15 characters a second, so a long line stays longer than a shout
-      line = { speaker, text: String(text ?? ''), left: seconds ?? this.d.holdSeconds + String(text ?? '').length / 15, height, done: res };
+      line = { speaker, text: String(text ?? ''), left: seconds ?? this.d.holdSeconds + String(text ?? '').length / 15, height, run, choices, done: res };
     });
     p.remove = () => this._drop(key, line);
     if (!queue && s.cur) { s.cur.done(); s.cur = null; s.queue.forEach(l => l.done()); s.queue = []; }
@@ -105,11 +109,12 @@ export class Bubbles {
     for (const [key, s] of this.lines) {
       if (!s.cur) continue;
       if ((s.cur.left -= dt) <= 0) { this._next(key, s); if (!this.lines.has(key)) continue; }
-      s.part?.update?.({ speaker: s.cur.speaker, text: s.cur.text, ...this._place(s.at, s.cur.height) });
+      const c = s.cur, ops = this.engine.ops;
+      s.part?.update?.({ speaker: c.speaker, text: c.text, ...(c.choices && { choices: c.choices, run: c.run, choose: index => ops.run('dialogue.choose', { index, run: c.run }, { source: 'player', actor: this.d._asks.get(c.run)?.actor }) }), ...this._place(s.at, c.height) });
     }
   }
-  /** Lines showing now: [{ speaker, text, queued }] */
-  list() { return [...this.lines.values()].filter(s => s.cur).map(s => ({ speaker: s.cur.speaker, text: s.cur.text, queued: s.queue.length })); }
+  /** Lines showing now: [{ speaker, text, queued }], plus run and choices on a line waiting for a choice (dialogue({ bubbleChoice: 'ask' })) */
+  list() { return [...this.lines.values()].filter(s => s.cur).map(s => ({ speaker: s.cur.speaker, text: s.cur.text, queued: s.queue.length, ...(s.cur.choices && { run: s.cur.run, choices: s.cur.choices }) })); }
   /** session:end: drop every line without resolving (awaiting code belonged to the old playthrough) @internal */
   clear() { for (const s of this.lines.values()) s.part?.dispose?.(); this.lines.clear(); }
 }

@@ -43,15 +43,15 @@ export function listedNames(dir) {
 }
 
 /**
- * Read all content files of a game: { data: { items, … }, files: { items: path }, parts: { items: [{ path, from, count }] }, errors, warnings }
+ * Read all content files of a game: { data: { items, … }, files: { items: path }, parts: { items: [{ path, from, count }] }, unread: [path], errors, warnings }
  * A kind is one file (content/props.js) or a folder (content/props/forest.js, town.js…: arrays joined, objects merged, in file-name order, the
  * order the runtime contentParts() joins them). files[kind] is the file or the folder; parts says which file holds which entries (from = index of
- * its first entry in the joined array), so a tool can go from "props[731]" to "content/props/town.js[31]".
+ * its first entry in the joined array), so a tool can go from "props[731]" to "content/props/town.js[31]". unread: the files that failed to load, which parts leaves out.
  */
 export async function loadGame(dir) {
-  const data = {}, files = {}, parts = {}, errors = [], warnings = [], listed = listedNames(dir);
+  const data = {}, files = {}, parts = {}, unread = [], errors = [], warnings = [], listed = listedNames(dir);
   const cdir = join(dir, 'content');
-  if (!existsSync(cdir)) return { data, files, parts, errors, warnings };
+  if (!existsSync(cdir)) return { data, files, parts, unread, errors, warnings };
   // arrangements/ is read by `content stamp` only, never at runtime, so it is no content kind. rules.js first: its kinds decide which other names are known (the same contentFiles() the engine loader uses)
   const names = readdirSync(cdir).filter(f => f !== 'index.js' && (f.endsWith('.js') || statSync(join(cdir, f)).isDirectory()))
     .map(f => f.replace(/\.js$/, '')).filter((f, i, a) => a.indexOf(f) === i && f !== 'arrangements').sort((a, b) => (b === 'rules') - (a === 'rules'));
@@ -68,7 +68,7 @@ export async function loadGame(dir) {
     const list = [];
     for (const path of kindParts(cdir, name)) {
       try { list.push({ path, mod: await importFresh(path) }); }
-      catch (err) { errors.push(`${rel(path)}: the file cannot be loaded (most likely a syntax error, such as a missing comma or bracket): ${err.message}`); }
+      catch (err) { unread.push(path); errors.push(`${rel(path)}: the file cannot be loaded (most likely a syntax error, such as a missing comma or bracket): ${err.message}`); }
     }
     if (!list.length) continue;
     files[name] = isFolder ? folder : list[0].path;
@@ -96,7 +96,7 @@ export async function loadGame(dir) {
     }
     data[name] = joined;
   }
-  return { data, files, parts, errors, warnings };
+  return { data, files, parts, unread, errors, warnings };
 }
 
 /** Which file holds entry `index` of a joined array kind: { path, index (in that file) } or null */
@@ -155,6 +155,24 @@ export async function gameAssets(dir) {
     + '(runs on first use in the browser)' : ''); return out; }
   out.packs = [packs].flat();
   for (const pack of out.packs) for (const kind of ['models', 'textures', 'sounds']) for (const k of Object.keys(pack?.[kind] || {})) out[kind].add(k);
+  return out;
+}
+
+/**
+ * Files the asset packs name that the project does not have. Why check says so: a pack naming a missing file passes the build too, and the game shows "load failed" to the player.
+ * A local path is what the dev server and the build serve from public/; a remote url or inline data has a scheme, and a generator is no path: neither is ours to find.
+ * Only the entry the game will load counts: the later pack wins a name, as in the engine, so an original replaced by the optimized pack needs no file.
+ * @param {string} dir @param {{ packs: any[] }} assets @returns {string[]}
+ */
+export function missingAssetFiles(dir, assets) {
+  const out = [], winners = new Map();
+  for (const pack of assets.packs) for (const kind of ['models', 'textures', 'sounds']) for (const [name, entry] of Object.entries(pack?.[kind] || {})) winners.set(`${kind}/${name}`, { kind, name, entry, base: pack.base });
+  for (const { kind, name, entry, base } of winners.values()) {
+    const url = typeof entry === 'string' ? entry : entry?.url;
+    if (typeof url !== 'string' || /^([a-z][a-z\d+.-]*:|\/\/)/i.test(url)) continue;
+    const path = (url.startsWith('/') ? url : (base ?? '/') + url).split(/[?#]/)[0];
+    if (!existsSync(join(dir, 'public', path))) out.push(`assets.js: ${kind} "${name}" names ${path}, which is not in public/: put the file there or fix the path`);
+  }
   return out;
 }
 

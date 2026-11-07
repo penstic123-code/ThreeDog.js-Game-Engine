@@ -22,11 +22,11 @@ async function probePicture(e, { time = 'auto', size = [240, 135], hot = { chann
   // a built page holds no three.js for the tools (vite/vite-threedog-three.js): what needs a three class says so, the rest runs
   if (!c.T) out.unread = ['shaders in view', 'transparent draw order', 'camera inside a mesh', 'glowing materials'];
   // the light watch runs in dev and test builds; without it nothing is claimed either way
-  const lw = e._lightWatch;
+  const lw = e._tools.lightWatch;
   if (lw) out.lightLayout = { changes: [...lw.changes], last: lw.lights, now: lw.setup() };
   // what the check changes and puts back is not the game's: the "who wrote it" record and the light watch skip it (core/inspect/pictureWriters.js, core/inspect/lightWatch.js).
   // Set here, next to the finally that clears it: what runs above only reads, and a throw there must not leave it on
-  e._probing = true;
+  e._tools.probing = true;
   try {
     c.base = grab(); c.baseClip = clipped(c.base);
     // the numbers come from this canvas-only copy (no HTML UI on top), so they measure the 3D look, at one fixed size whatever the shot size
@@ -41,7 +41,7 @@ async function probePicture(e, { time = 'auto', size = [240, 135], hot = { chann
     if (c.T) probeCameraInside(c);
     probeLights(c);
     probeTime(c, time);
-  } catch (err) { out.error = String(err?.message ?? err); } finally { e._probing = false; }
+  } catch (err) { out.error = String(err?.message ?? err); } finally { e._tools.probing = false; }
   out.ms = Math.round(performance.now() - t0);
   return out;
 }

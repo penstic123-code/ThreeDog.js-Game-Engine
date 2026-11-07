@@ -173,11 +173,12 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const S = engine.saves; let got = null, other = null;
-        S.register('s1ver', { save: () => ({ n: 1 }), load: d => { got = d; } });
+        const firstVer = S.register('s1ver', { save: () => ({ n: 1 }), load: d => { got = d; } });
         S.register('s1other', { save: () => ({ o: 1 }), load: d => { other = d; } });
         await S.save('s1-v1');
         const savedVersions = JSON.parse(JSON.stringify(S.collect().versions));
         // the format changed: version 2 renames n -> count
+        firstVer.remove();
         S.register('s1ver', { version: 2, migrate: { 1: d => ({ count: d.n }) }, save: () => ({ count: 1 }), load: d => { got = d; } });
         const upOk = await S.load('s1-v1'), upgraded = got;
         // a save written by a newer build (version 9) is refused before any part loads
@@ -195,6 +196,30 @@ export const specs = [
       check('a part newer than this build: load returns false, no part loaded, message names the part and versions',
         r.newOk === false && r.got === null && r.other === null && r.errs.some(e => /s1ver/.test(e) && /9/.test(e) && /newer/.test(e)), JSON.stringify(r));
       check('register checks version and migrate keys', /version must be a whole number/.test(r.badReg) && /migrate/.test(r.badMig), r.badReg + ' | ' + r.badMig);
+    },
+  },
+  {
+    name: 'S1 saves: register gives a handle: remove twice is safe, an old handle leaves a newer part alone, ctx.track ends it with the module',
+    url: '/tests/city/index.html',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const S = engine.saves, part = v => ({ save: () => v, load: () => {} });
+        const old = S.register('s1h', part('old'));
+        old.remove();
+        const mine = S.register('s1h', part('new'));
+        old.remove();
+        const kept = S.providers.has('s1h');
+        mine.remove(); mine.remove();
+        const gone = !S.providers.has('s1h');
+        engine.use({ name: 's1hMod', type: 'rules', install(e, ctx) { ctx.track(e.saves.register('s1hTracked', part(1))); } });
+        await engine.loading.settled();
+        const held = S.providers.has('s1hTracked');
+        engine.unuse('s1hMod');
+        return { kept, gone, held, after: S.providers.has('s1hTracked') };
+      });
+      check('an old handle removes nothing of the part that has the key now', r.kept, JSON.stringify(r));
+      check('remove ends the part, and a second remove is safe', r.gone, JSON.stringify(r));
+      check('ctx.track ends a raw saves.register with the module', r.held && !r.after, JSON.stringify(r));
     },
   },
 ];

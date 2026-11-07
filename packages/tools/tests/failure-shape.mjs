@@ -28,6 +28,24 @@ export async function run({ check }) {
   const found = R45.run();
   check('R45 passes on the engine as it is (0 findings)', found.length === 0, found.slice(0, 5).map(r => `${r.file}:${r.line} ${r.msg}`).join('; '));
 
+  // [guard] data edges hold in release (design.md section 11). Node has no Vite env, so DEV is off here and these are the release branches
+  const { DEV } = await eng('core/base/validate.js'), { putPos } = await eng('modules/world/pos.js'), { setRecord } = await eng('modules/world/records.js');
+  const { interactions } = await eng('modules/gameplay/Interactions.js'), { contractEngine, contractCtx } = await import('@threedog/tools/contract');
+  const code = fn => { try { fn(); return null; } catch (x) { return x.code; } };
+  const at = { x: 1, y: 2, z: 3 }, nan = code(() => putPos('t', { x: NaN, z: 0 }, at)), short = code(() => putPos('t', [1, 2], at));
+  check('[guard] release: a bad position is refused and writes nothing', !DEV && nan === 'bad-position' && short === 'bad-position' && at.x === 1 && at.z === 3, `${DEV} ${nan} ${short}`);
+  const rec = { id: 'a', kind: 'k' }, idPatch = code(() => setRecord({ engine: { ops: {} }, _need: () => rec }, 'a', { id: 'b' }));
+  check('[guard] release: world.set cannot change a record\'s id', idPatch === 'world-add' && rec.id === 'a', String(idPatch));
+  const re = contractEngine(); let ran = 0;
+  re.ops.define('edge.run', { args: { who: 'id', n: { type: 'int', min: 0 } }, run: () => { ran++; } });
+  re._things = { sources: [1], source: id => id === 'known' ? {} : null };
+  const refusal = a => { const r = re.ops.run('edge.run', a); return `${r.code}:${r.facts?.[0]?.field}`; };
+  const refused = [refusal({ who: 'known' }), refusal({ who: 'gone', n: 1 }), refusal({ who: 'known', n: -1 }), refusal({ who: 'known', n: 1.5 })].join();
+  check('[guard] release: an op refuses a missing arg, an id with no record and a number out of range before run', refused === 'badArgs:n,badArgs:who,badArgs:n,badArgs:n' && !ran, refused);
+  check('[guard] release: good args still run', re.ops.run('edge.run', { who: 'known', n: 1 }).ok && ran === 1);
+  const im = interactions({ pick: 'nearest' }), I = im.install(re, contractCtx(re, im.name));
+  check('[guard] release: a once interaction needs a stable id of its own', code(() => I.add([0, 0, 0], { once: true })) === 'interaction-option', 'no id');
+
   // an engine misuse error carries its code, fix and docs; the fix is in ERROR_CODES, not guessed from the text
   let err = null;
   try { sampleGrid([1, 2, 3], { width: 2, height: 2, cellSize: 1 }); } catch (e) { err = e; }

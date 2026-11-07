@@ -4,10 +4,10 @@ Content loading (content() module)
 
 
 ## Methods and properties
-- `content.load(data: ContentPack | ContentPack[], opts?: ContentLoadOptions)` — Load content (items, pickups, vegetation, NPCs, dialogue, quests, keys, trigger zones, props, the game vocabulary rules): one pack, or a list of packs loaded together in order; an id defined by two packs of one call is an error naming both (a later separate load overrides by name instead). Example: `engine.content.load([baseContent, forestDlc], { places: { home } })`
+- `content.load(data: ContentPack | ContentPack[], opts?: ContentLoadOptions) → Promise<void>` — Load content (items, pickups, vegetation, NPCs, dialogue, quests, keys, trigger zones, props, the game vocabulary rules): one pack, or a list of packs loaded together in order; an id defined by two packs of one call is an error naming both (a later separate load overrides by name instead). Bad data throws on the line. The Promise answers for this load: it resolves when the pack committed, and rejects when it failed, after the old level and registrations are back (err.notRestored lists what could not be). A load nobody awaits is reported all the same. Example: `await engine.content.load([baseContent, forestDlc], { places: { home } })`
 - `content.condition(name: string, def: ContentConditionDef)` — Register a custom condition, e.g. condition('timeAfter', { ref: 'clock', test: (e, t) => e.calendar.timeOfDay >= t })
 - `content.test(cond: any, opts?: { actor?: string }) → boolean` — Whether a condition holds (object, array or function (e, { actor })); actor = whose bag has / lacks look in (default the running op's actor, else engine.actor)
-- `content.run(effect: any, opts?: { actor?: string }) → any` — Run an effect (object, array or function (e, { actor })); actor = whose bag give / take change (default the running op's actor, else engine.actor)
+- `content.run(effect: any, opts?: { actor?: string }) → { ok: true } | { ok, code, facts, nextActions }` — Run an effect (object, array or function (e, { actor })); actor = whose bag give / take change (default the running op's actor, else engine.actor)
 - `content.place(name: string) → XZ | null` — Place name -> position (load's places first, then level markers), null if none
 - `content.where(p: { place?, x?, z? }) → XZ` — Position form in content { place?, x?, z? } -> world coordinates
 - `content.template(name: string) → Readonly<ContentTemplate>` — The shared, frozen definition of a content template (content/templates.js); instance state lives on the world record. e.g. template('chest').container.capacity
@@ -38,29 +38,30 @@ Conditions are used in quest step done, dialogue option if and line variant if; 
   - `give` value is { itemId: count }, e.g. { berry: 3 }: give items
   - `take` value is { itemId: count }, e.g. { berry: 3 }: take items
   - `bump` value is a counter name, e.g. 'sunsetPhotos': counter +1
-  - `startQuest` value is a quest id: start a quest
   - `toast` value is text: show a toast
   - `particles` value is { name, at: [x, y, z], count }: play particles
   - `marker` value is a place name, or { place, x, z } / { x, z }: add an objective marker (hud module)
   - `clearMarker` value is a place name, or { place, x, z } / { x, z }: remove an objective marker
   - `op` value is ['noun.verb', { args }], e.g. ['shop.buy', { shop: 'bakery', item: 'bread' }]: run a game op (engine.ops.run); the game's own actions are ops
+  - `startQuest` value is a quest id: start a quest
 - Files content/ recognizes:
-  - `items.js` items (id -> name, icon, description); also export startItems for starting items
-  - `pickups.js` pickups on the ground (list)
-  - `containers.js` chests / shelves (container id -> { capacity, items: starting goods }; starting goods are placed only the first time, then saved)
-  - `npcs.js` NPCs (id -> name, schedule, interact)
-  - `dialogues.js` dialogues (id -> speaker, nodes)
-  - `quests.js` quests (id -> title, steps, reward; a step can have a target position)
   - `actions.js` own key actions of the game (action name -> default key, label)
-  - `places.js` place names (name -> { x, z, y?, rot? }; rot turns everything placed there about Y; coordinates may be computed at runtime in main.js)
-  - `triggers.js` trigger zones (tag -> position / from level, enter/exit effects)
-  - `level.js` level markers (spawn point, NPCs, trigger zones) of a code-built level: for the tools (content checks, GAMEMAP); load() accepts the file and does not read it
-  - `vegetation.js` vegetation (name -> model, growth rule)
-  - `props.js` props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand
-  - `templates.js` reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions
   - `audio.js` sounds by asset name, ambience and music rules as data, footsteps (sounds, ambience, music: { tracks, rules }, footsteps)
-  - `views.js` named fixed camera views (name -> { position: [x, y, z], target?: [x, y, z], fov? }); engine.views.show(name), ?view=name, npm run shot -- -w game --view name
+  - `containers.js` chests / shelves (container id -> { capacity, items: starting goods }; starting goods are placed only the first time, then saved)
+  - `dialogues.js` dialogues (id -> speaker, nodes)
   - `grids.js` placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved
+  - `items.js` items (id -> name, icon, description); also export startItems for starting items
+  - `level.js` level markers (spawn point, NPCs, trigger zones) of a code-built level: for the tools (content checks, GAMEMAP); load() reads no markers from it. A file or asset name here switches level, as engine.level.load does
+  - `npcs.js` NPCs (id -> name, schedule, interact)
+  - `pickups.js` pickups on the ground (list)
+  - `places.js` place names (name -> { x, z, y?, rot? }; rot turns everything placed there about Y; coordinates may be computed at runtime in main.js)
+  - `props.js` props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand
+  - `quests.js` quests (id -> title, steps, reward; a step can have a target position)
   - `renames.js` renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id
   - `rules.js` condition words and data kinds added by the game ({ conditions, kinds }); actions are ops, not effect words
+  - `startItems.js` starting items (exported from items.js)
+  - `templates.js` reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions
+  - `triggers.js` trigger zones (tag -> position / from level, enter/exit effects)
+  - `vegetation.js` vegetation (name -> model, growth rule)
+  - `views.js` named fixed camera views (name -> { position: [x, y, z], target?: [x, y, z], fov? }); engine.views.show(name), ?view=name, npm run shot -- -w game --view name
   - any other `<name>.js` the game registers in content/rules.js as kinds: { name: { desc, load?(e, data), check?, map? } } (enemies, recipes, loot tables…)

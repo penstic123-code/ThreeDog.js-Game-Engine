@@ -134,8 +134,7 @@ Build it with three's TSL as in three's own compute examples (an `instancedArray
 import 'threedog/tsl';                                // before createEngine
 const gpu = /** @type {any} */ (engine.renderer);     // a WebGPURenderer: the engine's type also covers WebGL
 await gpu.computeAsync(seed);                         // once, to fill the buffer
-engine.onFrame(d => { dt.value = engine.frozen ? 0 : d; });   // time as a uniform set here, so a freeze stops the snow
+engine.onFrame(d => { uDt.value = engine.frozen ? 0 : d; });   // time as a uniform set here, so a freeze stops the snow
 engine.onRender(() => { gpu.compute(fall); });        // the shader here, so it runs once per drawn frame
 snow.frustumCulled = false;                           // the sprite's own bounds know nothing of the flakes
 ```
-A full page: `tests/compute-snow` in the engine repository.

@@ -18,8 +18,13 @@ export class StepPoses {
     /** objects whose matrix is held for this draw */ this.held = [];
     engine.time.onMove(() => this.end());
   }
-  add(o) { this.map.set(o, { o, last: o.position.clone(), lastRot: o.quaternion.clone(), pos: o.position.clone(), rot: o.quaternion.clone(), moved: false }); }
+  /** place(at): how to move o if a solver owns its pose (a rigid body); gone(): what that solver does when o leaves for good. Core names no module, so the solver says both here */
+  add(o, place = null, gone = null) { this.map.set(o, { o, place, gone, last: o.position.clone(), lastRot: o.quaternion.clone(), pos: o.position.clone(), rot: o.quaternion.clone(), moved: false }); }
   remove(o) { this.map.delete(o); }
+  /** o and all under it left for good (engine.remove): a level's root takes the crates placed in it along, and a solver must not keep them solid and unseen */
+  forget(o) { if (this.map.size) o.traverse(c => this.map.get(c)?.gone?.()); }
+  /** A write moves o outside any step: the object goes there, and whatever solves it too, or the solver's next pose would undo the write */
+  place(o, at) { o.position.copy(at); this.map.get(o)?.place?.(at); }
   /** End of a fixed step: the latest pose becomes the start of the blend */
   end() {
     for (const p of this.map.values()) {

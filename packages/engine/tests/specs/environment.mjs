@@ -36,7 +36,7 @@ export const specs = [
       const r = await ev(() => {
         const s = engine.sky, cal = engine.calendar, sc = engine.scene, THREE = __threedogThree, out = {};
         cal.dayLength = Infinity;                     // the time is the calendar's: hold it, only the test moves it
-        engine.weather.setAuto(false); engine.weather.set('clear', { seconds: 0.01 });   // cloud cover follows the weather, hold it too
+        engine.weather.auto = false; engine.weather.set('clear', { seconds: 0.01 });   // cloud cover follows the weather, hold it too
         engine.step(1, { render: false });
         const h = s.environment({ interval: 1 });
         out.bare = [!!h.texture, sc.environment];

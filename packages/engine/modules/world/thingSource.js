@@ -1,4 +1,4 @@
-// What the world module tells core about its records: engine._things.addSource(...) at install. Core knows only this shape (has / get / set / remove /
+// What the world module tells core about its records: engine._things.addSource(...) at install. Core knows only this shape (has / get / set / refuses / refusesUndo / remove /
 // explain, plus idOf / view / ids / restore for the model link and undo), never the World class, so engine.thing, thing.set and the shared id space
 // work the same whether or not this module is installed.
 import { fmt } from '../../core/base/validate.js';
@@ -32,10 +32,23 @@ export function recordSource(w) {
     idOf: obj => w.idOf(obj),
     view: id => w.view(id),
     explain: id => describeRecord(w, id),
+    /** Why its owner cannot apply this change, or null: thing.set answers with it in can, because a throw inside an op freezes gameplay */
+    refuses: (id, patch) => w.engine.control?.characterOf(id)?.poseProblem(patch) ?? null,
+    /** The same for an undo: a placement that ended a ride goes back to that seat, which may be gone or taken by now */
+    refusesUndo(id, before) {
+      if (!before.ride) return null;
+      const ch = w.engine.control?.characterOf(id);
+      return ch ? ch.seatProblem(before.ride) : `'${id}' has no model now, so nothing can sit in that seat`;
+    },
     /** Change a record (position / rot / scale); returns the values it replaced (set(id, thatValue) is the undo) */
     set(id, patch) {
-      // rot / scale are the template instance fields (templates.js); a record without them reads as rot 0, scale 1
-      const rec = w.get(id), before = { position: { ...rec.position }, ...(patch.rot != null && { rot: rec.rot ?? 0 }), ...(patch.scale != null && { scale: rec.scale ?? 1 }) };
+      // rot / scale are the template instance fields (templates.js); a record without them reads as rot 0, scale 1, and a live character's turn is its facing.
+      // Only what the patch writes: the undo of a turn must not place a rider who rode on since
+      const rec = w.get(id), live = w.engine.control?.characterOf(id);
+      if (patch.ride) { const { position, ...rest } = patch; w.set(id, rest); live.backInSeat(patch.ride); w.move(id, live.root.position); return null; }   // the undo of a placement that ended a ride
+      const before = { ...(patch.position && { position: { ...rec.position } }), ...(patch.rot != null && { rot: live ? live.facing : rec.rot ?? 0 }), ...(patch.scale != null && { scale: rec.scale ?? 1 }) };
+      // not enumerable: the op's value stays plain, and a vehicle is no record field. The undo reads it back from this object
+      if (patch.position && live?.vehicle) Object.defineProperty(before, 'ride', { value: { vehicle: live.vehicle, seat: live.seat } });
       w.set(id, patch);
       return before;
     },

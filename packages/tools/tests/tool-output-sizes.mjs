@@ -18,7 +18,7 @@ export const name = 'tool output sizes: each AI-facing command\'s default output
 // that grows to 30 is caught too. The MCP result (text + structuredContent after shortData) gets text + DATA_MAX + a little for the envelope.
 const BUDGET = {
   'describe': 800, 'describe --full': 4000, 'inspect': 800, 'inspect materials': 2600, 'inspect perf': 1500, 'ops': 1000,
-  'errors latest 20': 4000, 'loading': 600, 'scene': 4000, 'pick 480,270': 800, 'catalog': 2000, 'thing player': 1000,
+  'errors latest 20': 4000, 'loading': 600, 'scene': 4000, 'pick 480,270': 800, 'catalog': 2000, 'explain thing player': 1000,
   'explain quest first-light': 800, 'catalog inventory': 4000, 'snap size-guard --no-picture': 800,
   'status': 600,   // last: before the first page command the headless page may not be open yet
 };
@@ -48,7 +48,7 @@ export async function run({ check }) {
     check(`[guard] every command's default text and MCP result are within budget (${Object.keys(BUDGET).length} commands)`, !over.length, over.join(' · ') || sizes.join(' · '));
     // describeText on the world page (its 30-line summary is full: some module lines are cut): a describe.add section survives the cut, the cut
     // modules are named, the engine tables are one count line
-    const dt = await execute(ENGINE, 'eval', ['const h = engine.describe.add("sizeGuard", () => ({ points: 7 })); const t = engine.describeText(); h.remove(); return t', '--max', '9000']);
+    const dt = await execute(ENGINE, 'js', ['const h = engine.describe.add("sizeGuard", () => ({ points: 7 })); const t = engine.describeText(); h.remove(); return t', '--max', '9000']);
     const txt = String(JSON.parse(dt.text.replace(/^✓ /, ''))), tl = txt.split('\n');
     check('[guard] describeText summary: a describe.add section is kept (before module lines), cut modules are named, engine tables are one count line',
       tl.length <= 30 && tl.includes('sizeGuard: points=7') && /more modules: /.test(txt) && /Engine tables .*shared \d+/.test(txt) && !/^shared:/m.test(txt), txt);
@@ -57,18 +57,18 @@ export async function run({ check }) {
     const cat = await execute(ENGINE, 'catalog', ['--full']), catShort = await execute(ENGINE, 'catalog', []);
     check('catalog --full keeps one line per module; the default names the rest on one line per kind', cat.text.split('\n').length > catShort.text.split('\n').length
       && /modules without ops: |capabilities: /.test(catShort.text), catShort.text.slice(0, 300));
-    const only = await execute(ENGINE, 'eval', ['JSON.stringify([Object.keys(engine.describe("picture")), Object.keys(engine.describe({ only: ["time", "nope"] }))])']);
+    const only = await execute(ENGINE, 'js', ['JSON.stringify([Object.keys(engine.describe("picture")), Object.keys(engine.describe({ only: ["time", "nope"] }))])']);
     check('describe(name) / describe({ only }) return just those sections; an unknown name is reported, not dropped silently',
       /\[\["picture"\],\["time","unknownSections","sections"\]\]/.test(only.text.replace(/\\"/g, '"')), only.text);
     // describe({ only }) builds just those sections: each one equals the same section of the whole object (one synchronous eval: same tick).
     // A module's own section, a section hooks write into (time, player, camera, nearby) and engine tables (picture, shared: hooks skipped)
-    const same = await execute(ENGINE, 'eval', ['const all = engine.describe(), mod = [...engine.modules.values()].find(m => m.describe && all[m.name] !== undefined)?.name; '
+    const same = await execute(ENGINE, 'js', ['const all = engine.describe(), mod = [...engine.modules.values()].find(m => m.describe && all[m.name] !== undefined)?.name; '
       + 'const ks = ["picture", "shared", "slots", "time", "player", "camera", "nearby", "ui", mod]; '
       + 'return JSON.stringify({ mod, diff: ks.filter(k => JSON.stringify(engine.describe(k)[k]) !== JSON.stringify(all[k])), '
       + 'pair: JSON.stringify(engine.describe({ only: ["picture", "time"] })) === JSON.stringify({ picture: all.picture, time: all.time }) })']);
     const sm = JSON.parse(JSON.parse(same.text.replace(/^✓ /, '')));
     check('describe({ only }): every asked section equals the same section of the full describe()', sm.mod && !sm.diff.length && sm.pair, same.text);
-    const mat = await execute(ENGINE, 'eval', ['const r = engine.inspect.materials(), lines = r.text.split("\\n").slice(1 + r.issues.length).filter(l => !l.startsWith("…")); '
+    const mat = await execute(ENGINE, 'js', ['const r = engine.inspect.materials(), lines = r.text.split("\\n").slice(1 + r.issues.length).filter(l => !l.startsWith("…")); '
       + 'return JSON.stringify({ n: r.count, lines: lines.length, alike: lines.filter(l => / · ×\\d+ materials alike$/.test(l)).length, dup: lines.length - new Set(lines).size, '
       + 'sum: lines.reduce((s, l) => s + Number(/×(\\d+) materials alike$/.exec(l)?.[1] ?? 1), 0) + Number(/^… (\\d+) more/m.exec(r.text)?.[1] ?? 0) })']);
     const mr = JSON.parse(JSON.parse(mat.text.replace(/^✓ /, '')));

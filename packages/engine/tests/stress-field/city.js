@@ -112,7 +112,7 @@ export function cityMethods({ mkEngine, ready, heap, gc, r2 }) {
       }
       if (!shadows) e.renderer.shadowMap.enabled = false;
       e.camera.far = far; e.camera.updateProjectionMatrix();
-      e.stream.setRadius(radius);
+      e.stream.radius = radius;
       const K = kit(), N = blocks, mid = N * P / 2;
       const road = new THREE.Mesh(new THREE.PlaneGeometry(N * P + P, N * P + P).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3a3a3c, roughness: 0.95 })); road.position.y = -0.05; road.receiveShadow = true; e.add(road);
       let entries = 0; const handles = [];

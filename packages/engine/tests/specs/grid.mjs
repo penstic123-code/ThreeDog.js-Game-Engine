@@ -236,4 +236,17 @@ export const specs = [
       check('defining the item again brings its cell back', r.back, JSON.stringify(r));
     },
   },
+  {
+    name: '[guard] a layer save row whose data is not an object is refused, the layer keeps its cells',
+    url: URL,
+    async run({ check, ev }) {
+      const r = await ev(async (src) => {
+        const G = await (0, eval)(src)(), L = G.get('farm').layer('save-shape');
+        L.set([1, 1], { a: 1 });
+        const bad = d => { try { L.fromJSON(d); return 'loaded'; } catch (err) { return err.code ?? String(err.message); } };
+        return { str: bad({ set: [[2, 2, 'x']] }), arr: bad({ set: [[2, 2, [1]]] }), none: bad({ set: [[2, 2]] }), count: L.count };
+      }, setup.toString());
+      check('payload string / array / missing -> save-bad-record, cells unchanged', r.str === 'save-bad-record' && r.arr === 'save-bad-record' && r.none === 'save-bad-record' && r.count === 1, JSON.stringify(r));
+    },
+  },
 ];

@@ -17,7 +17,8 @@ const engine = createEngine({ __RENDERER__bindings: { ...presets.bindings.walk, 
 engine.use(openWorld({ camera: followCamera({ pointerLock: true }), seed: 42, terrain: terrainPreset(), time: 0.3, weather: presets.weather.temperate, calendar: presets.calendar.cycle,
   settings: { freezeWorld: true } }), content());   // the sky gives the signals and draws its dome; lights and fog are picture/'s; settings: Esc pauses and opens the menu
 engine.saves.autosave(0.5);   // minutes of play; Continue on the start screen loads it. The game's own state joins with engine.saves.register('game', { version: 1, save, load }), recipe 20
-const picture = createPicture(engine);   // picture.materials: the game's materials by name
+engine.use(createPicture());   // a picture module; to switch looks: engine.use(another(), { replaces: 'picture' })
+const { picture } = engine;   // picture.materials: the game's materials by name
 engine.assets.manifest(packs);   // assets.js: the models / sounds / textures content names (the marker example for now)
 // Camera: click the view once to capture the mouse, then the mouse turns the view (Esc releases it). For drag-to-turn instead: followCamera({ pointerLock: false }).
 

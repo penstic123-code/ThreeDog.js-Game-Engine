@@ -100,13 +100,13 @@ export class FirstPersonCamera {
     cam.rotation.set(this.pitch, this.yaw, Math.sin(this._bob * 0.5) * this._bobAmp * 0.15, 'YXZ');
   }
 
-  /** Release the mouse lock when a cutscene takes over */
+  /** Someone else's view shows while the camera is held: the mouse goes free and the body is back, since the eye it would block is no longer where the camera is */
   onOverride(on) {
-    if (on) releaseLock(this, true);
+    if (on) { releaseLock(this, true); this._unhide(); } else this._hide();
   }
 
   // also on every child added to the target (a held item, a swapped model): hide what is new
-  _hide() { if (this.hideTarget && this.target) this._hideTarget(); }
+  _hide() { if (this.hideTarget && this.target && !this.engine.cameraOverride) this._hideTarget(); }
 }
 
 Object.assign(FirstPersonCamera.prototype, YAW_RIG, HIDE_RIG);   // forward / right / focusPoint; _hideTarget / _unhide / _shadowLayers

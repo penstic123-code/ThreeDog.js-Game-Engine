@@ -40,6 +40,18 @@ export async function run({ check }) {
         check(`${label}: the notes name TSL and where to read the backend`, /describe\(\)\.renderer/.test(notes) && /slot, node \}/.test(notes) && !/\bslot, create \}/.test(notes));
       }
     }
+    // --pixel: the third starting point (templates/pixel). One overlay at a time; it wires the engine's own pieces and keeps the start screen, autosave and the module hint
+    check('--pixel is read, and not together with --open-world', parseArgs(['g', '--pixel'], {}).pixel === true && !!parseArgs(['g', '--pixel', '--open-world'], {}).error);
+    for (const webgl of [false, true]) {
+      const dir = join(tmp, `pixel-${webgl}`);
+      copyTemplates(dir, { name: 'pixelcheck', pixel: true, webgl });
+      const left = textFiles(dir).filter(f => /__[A-Z_]+__/.test(readFileSync(f, 'utf8')));
+      const main = readFileSync(join(dir, 'main.js'), 'utf8');
+      check(`pixel ${webgl ? '--webgl' : 'default'}: every placeholder filled`, left.length === 0, left.join(', '));
+      check(`pixel ${webgl ? '--webgl' : 'default'}: engine path (pixelSize, pixelSnap, pixelSprite, input, interactions, dialogue, saves, start screen)`,
+        ['pixelSize: 3', 'pixelSnap', 'pixelSprite', 'presets.bindings', 'interactions(', 'dialogue(', 'saves.autosave', 'ui: {'].every(w => main.includes(w)));
+      check(`pixel ${webgl ? '--webgl' : 'default'}: the notes say it is a pixel start`, /--pixel/.test(readFileSync(join(dir, 'CLAUDE.md'), 'utf8')));
+    }
     const tpl = f => readFileSync(join(TOOLS, 'templates/game', f), 'utf8');
     check('[guard] the game\'s own notes name threedog play, and STATUS.md does not contradict "build it, no confirmation round"',
       tpl('CLAUDE.md').includes('`threedog play`') && !/three minimal versions/i.test(tpl('STATUS.md')) && /build it, no confirmation round/.test(tpl('CLAUDE.md')));

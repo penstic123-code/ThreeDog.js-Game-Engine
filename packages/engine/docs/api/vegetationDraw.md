@@ -1,4 +1,4 @@
-# engine.vegetationDraw — vegetationDraw()
+# engine.vegetationDraw — vegetation(opts?: VegetationModuleOptions)
 
 (experimental) Draws the plants (vegetation()'s drawing module, slot 'vegetation-draw'; undefined when a game replaced it)
 

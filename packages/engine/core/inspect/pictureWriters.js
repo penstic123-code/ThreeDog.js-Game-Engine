@@ -1,5 +1,11 @@
-// "Who wrote this picture value": the last file:line that changed a light, the fog, tone, environment, background or a material color, and one warning
-// when two places fight over a value inside one frame. Dev server only (npm run dev, threedog snap): see ON below. It observes; every write goes through.
+// "Who wrote this value": the file:line and frame that changed it, a short history, and a one-line hint when two places fight over it. Dev server only (npm run dev,
+// threedog snap): the install line in Engine.js is the one test a bundler drops, so a release build has none of this. It observes; every write goes through.
+//
+// What is watched, and why these: picture values (a light, the fog, tone, environment, background, a material color), because nothing else stands between two picture
+// files; values the engine writes on its own (core/ops/owned.js), because the engine yields quietly and "who took it" was the missing fact; shared points, which
+// keep their owner and line anyway, so they need no hook at all; and whatever the game names with engine.debug.watch.
+// What is not, on purpose: every other three.js property. An accessor on each would be the wrapper this engine promises not to be (docs/design.md 5.5), so
+// an unwatched value says "not tracked", and no answer here ever says two writers do not exist (valueHistory.js LIMIT).
 //
 // Why accessors and a stack, not per-hook attribution: picture/index.js calls all its parts from one engine.onRender, so "which hook was running" names the
 // wiring file for every value. Only the call stack of the write tells parts apart. Why own accessors on r / g / b and x / y / z: Color and Vector3 are
@@ -9,7 +15,11 @@
 // changes nothing is ignored, and a value written every frame is looked at every EVERY frames (staggered). What still gets a stack at once: the first
 // frames, a value that was not written last frame (a one-shot write), and a frame with more writes to a value than its last looked-at frame had (a
 // new writer). So `framesAgo` says how old the answer is, and `writtenSince` says the value moved after that, unseen. An answer is never presented as
-// fresher than it is.
+// fresher than it is. A close record (owned and game-named values) also looks at the first write of every frame: an owned value moves every frame by the engine's own
+// hand, so a single outside write would otherwise pass as usual, and the yield would have no line to give. That costs one stack per frame per moving value, not one per write.
+//
+// Why also "taking turns": two writers that never share a frame (one on even frames, one in a timer) overwrite each other just the same. But one state handing a value to
+// another is normal, so it takes TURNS changes of writer within WINDOW frames. Each change seen also asks for a look next frame, or sampling would rarely see the next one.
 //
 // Why two places in one function are not a fight: fog.color.copy(a) then fog.color.lerp(b, t) is a value computed in steps. A place is a file plus a
 // function name, plus the part running it. shortcut: outside parts, two anonymous functions or two same-named methods in one file count as one place, so a fight between them goes unwarned;
@@ -29,15 +39,18 @@ import { notePatch } from '../scene/threePatches.js';
 import { sceneVisitor, onSceneRoot } from '../scene/sceneDelta.js';
 import { stackFrames, frameText, callerAt, engineFile } from '../ops/stackFrames.js';
 import { slotOfValue, slotHolder } from '../scene/pictureSlots.js';
+import { LIMIT, remember, historyText, partsOf, sharedAnswer } from './valueHistory.js';
 
 const EVERY = 30;   // frames between two looks at a value written every frame: a stale answer is at most half a second old
 const DEPTH = 10;   // three's own frames above the writer: setter, Color.copy, lerpColors ... always fewer
+const TURNS = 6, WINDOW = 240;   // changes of writer within 4 seconds at 60 frames: a state change makes one or two, a fight makes one per frame
 const NOT = {
   before: 'not tracked: set before it entered the scene',
   start: 'not tracked: three.js default or set before the engine was made',
   own: 'not tracked: this object defines the property with its own accessor',
   none: 'not tracked: never written since tracking began',
   noFile: 'not tracked: the last write had no source file (console, eval or the picture check)',
+  hidden: 'not tracked: it is no plain property a hook can sit on, so its writers cannot be seen',
 };
 // three.js and pre-bundled libraries are never "the writer": the line that called them is
 const SKIP = /\/deps\/|\/node_modules\/|\/three(?:\.[a-z]+)*\.js$/;
@@ -46,12 +59,15 @@ const CORE = /\/(?:core|render)\/(?:[^/]+\/)?[^/]+$/;   // with engineFile: core
 const MATERIALS_MAX = 40;   // describe() stays small on a big scene; explain still answers any one of them
 const SHARED_FIX = "make it a shared value: the owner defines it with engine.stacks.define(name, { base: 1 }) and reads it where it writes three.js, the others change it with ctx.mod(name, { mul: 0.5 }); for an amount that moves, take it once, const h = ctx.mod(name, { mul: 1 }), and call h.change(x) each frame (recipes/62-picture-code.md)";
 const STRINGS = {
-  conflict: '{value} was written twice in one frame with different results: {first}, then {second}. The later write is what is drawn. Fix, one of: (1) one place keeps the write, delete the other{claim}; (2) if both need a say, ' + SHARED_FIX,
+  conflict: "{value}: two writers {how}, {first} and {second}; the last write stands. engine.explain({ value: '{value}' }) has the history and the fix",
+  fix: 'Fix, one of: (1) one place keeps the write, delete the other{claim}; (2) if both need a say, ' + SHARED_FIX,
   claim: ", and that part declares it with provides: ['{slot}']",
   held: "{value} is held by part '{holder}' (provides: ['{slot}'], {place}), but {at} ({who}) wrote it too. The later write is what is drawn, so one of them never shows. Fix, one of: (1) delete the write at {at}; " +
     "(2) if that code should own it, give it provides: ['{slot}'] and install it with engine.use(thatPart(), { replaces: '{slot}' }), which unloads '{holder}'; (3) if both need a say, " + SHARED_FIX,
   leftover: "part '{name}' is gone, but what it added is still there: {list}. Fix: in its install, hand each one to ctx.track, e.g. ctx.track({ remove() { e.scene.remove(obj); obj.geometry.dispose(); } }), or undo it in the part's dispose()",
 };
+
+const HOW = { frame: 'in one frame', turns: 'taking turns across frames' };
 
 const page = { off: false, nextId: 0 };   // off: threePatches.off('picture-writers'), page-wide like the list
 
@@ -67,8 +83,12 @@ function writerNow() {
   return { at: frameText(f), key: `${f.file}|${f.fn}`, file: f.file, frames: all.slice(i), engine: all.slice(0, i + 1).some(x => CORE.test(x.file) && engineFile(x.file)) };
 }
 
-// name: the value's writers name while it can be in a slot (null: a material); ownBy / ownAt: the holder's last write; last: the slot and whether its holder wrote last
-const newRec = (why, name = null) => ({ id: page.nextId++, at: null, why, seen: 0, wrote: -1, f: -1, n: 0, usual: 0, next: 0, sample: true, placeKey: null, placeAt: null, placeBy: null, fought: false, name, ownBy: null, ownAt: null, last: null });
+// name: the value's writers name while it can be in a slot (null: a material); ownBy / ownAt: the holder's last write; last: the slot and whether its holder wrote last;
+// same: another record already hooks this property and answers for this one; close: see the header; owned: the engine's modules write it, so they are no party to a fight;
+// game: named by engine.debug.watch; turn*: the writer last seen, across frames
+const newRec = (why, name = null) => ({ id: page.nextId++, at: null, why, seen: 0, wrote: -1, f: -1, n: 0, usual: 0, next: 0, sample: true, placeKey: null, placeAt: null, placeBy: null, fought: false, fight: null, name, ownBy: null, ownAt: null, last: null,
+  history: [], same: null, close: false, owned: false, game: false, turnKey: null, turnAt: null, turnBy: null, turns: 0, turnFrom: -Infinity });
+const real = r => r.same ?? r;
 const who = name => name ? `part '${name}'` : 'code outside any part';
 
 class Writers {
@@ -87,7 +107,8 @@ class Writers {
     this.addedBy = new WeakMap();   // thing -> part
     this.top = new Map();    // 'fog.far' -> record (scene, fog and renderer values)
     this.parts = new WeakMap();   // light or material -> { intensity: record, ... }
-    this.done = new WeakSet();    // a Color or Vector3 already watched (a color shared by two objects answers for the first)
+    this.hooked = new WeakMap();  // object -> Map(key -> record): one accessor per property, so a second record of it (a color two objects share, an owned value that is also a picture value) answers through the first
+    this.shared = new Map();      // shared point -> its history (no record: nothing is hooked)
     const s = e.scene, r = e.renderer;
     this.number(r, 'toneMapping', this.named('renderer.toneMapping', NOT.start));
     this.number(r, 'toneMappingExposure', this.named('renderer.toneMappingExposure', NOT.start));
@@ -105,14 +126,20 @@ class Writers {
       const m = /** @type {any} */ (o).material;
       if (m) for (const x of [].concat(m)) this.material(x);
     } });
+    for (const o of e._owned?.values() ?? []) this.owned(o);   // the view's values exist before this tool does
   }
 
   named(label, why) { const r = newRec(why, () => label); this.top.set(label, r); return r; }
 
   /** Own accessor for one plain value; false when the object has none to replace. Reads and writes pass straight through */
   slot(o, key, rec, after) {
+    let mine = this.hooked.get(o);
+    const had = mine?.get(key);
+    if (had) { if (had !== rec) rec.same = real(had); return true; }
     const d = Object.getOwnPropertyDescriptor(o, key);
     if (!d || !('value' in d) || !d.configurable) { if (rec.why !== NOT.none || !d) rec.why = NOT.own; return false; }
+    if (!mine) this.hooked.set(o, mine = new Map());
+    mine.set(key, rec);
     let v = d.value;
     const t = this;
     Object.defineProperty(o, key, { configurable: true, enumerable: d.enumerable, get: () => v,
@@ -121,10 +148,46 @@ class Writers {
   }
   number(o, key, rec) { this.slot(o, key, rec); }
   /** The components of a Color or Vector3, all reporting to one record: to the game it is one value */
-  watch(c, keys, rec) {
-    if (this.done.has(c)) return;
-    this.done.add(c);
-    for (const k of keys) this.slot(c, k, rec);
+  watch(c, keys, rec) { for (const k of keys) this.slot(c, k, rec); }
+  /** A value changed in place, or a plain property; false when there is nothing to hook */
+  hook(rec, o, key) {
+    const c = partsOf(o) ? o : key != null && partsOf(o?.[key]) ? o[key] : null;
+    if (c) { this.watch(c, partsOf(c), rec); return true; }
+    return key != null && !!o && this.slot(o, key, rec);
+  }
+
+  /** An engine-written value (core/ops/owned.js): spec.objects names what it lives on, and its key is the property where there is one (view.pixelRatio has none: the renderer keeps it private) */
+  owned(o) {
+    if (page.off) return;
+    const rec = this.top.get(o.id) ?? this.named(o.id, NOT.start);   // a module reinstalled: same name, maybe new objects, and the history goes on
+    let any = false;
+    for (const x of o.objects) any = this.hook(rec, x, o.key) || any;
+    if (!rec.at) rec.why = any ? NOT.start : NOT.hidden;
+    real(rec).close = real(rec).owned = true;
+  }
+  /** The last line outside the engine that wrote this owned value, for the yield warning and describe().owned. Null when no look saw it @param {string} id */
+  outside(id) {
+    const r = this.top.get(id);
+    return r ? real(r).history.findLast(x => !x.engine)?.at ?? null : null;
+  }
+  /** A take on a shared point (sharedPoint.js). No stack: the entry already holds its line @param {string} name @param {{ owner: string, where: string | null }} ent */
+  sharedTook(name, ent) {
+    if (page.off) return;
+    let h = this.shared.get(name);
+    if (!h) this.shared.set(name, h = []);
+    remember(h, { at: ent.where, frame: this.frame, owner: ent.owner });
+  }
+  /** engine.debug.watch: a game's own value, the same record as any other. A name in use is refused: it would hide what that name answers @param {string} label @param {any} o @param {string} [key] */
+  watchNamed(label, o, key) {
+    const old = this.top.get(label);
+    if (page.off || (old && !old.game)) return { watching: false, remove() {} };
+    const rec = this.named(label, NOT.none);
+    rec.game = true;
+    const watching = this.hook(rec, o, key);
+    if (!watching) rec.why = NOT.hidden;
+    real(rec).close = true;
+    // the accessors stay, like threePatches.off: they pass values through, and another record may be answering through them
+    return { watching, remove: () => { if (this.top.get(label) === rec) this.top.delete(label); real(rec).close = false; } };
   }
   /** A color held in a property: the components, and the property itself (light.color = other replaces the object the components were on) */
   color(o, key, rec) {
@@ -164,9 +227,9 @@ class Writers {
   }
 
   /** The hot path: runs on every write that changed a value. No stack unless the header's rules ask for one */
-  wrote(rec) {
+  wrote(hit) {
     if (page.off || this.drawing || this.e._probing) return;
-    const fr = this.frame;
+    const rec = real(hit), fr = this.frame;
     rec.wrote = fr;
     if (rec.f !== fr) {
       const cold = fr - rec.f > 1;
@@ -176,19 +239,35 @@ class Writers {
     }
     rec.n++;
     if (!rec.sample) {
-      if (rec.n <= rec.usual) return;
-      rec.sample = true; rec.next = fr + 1;   // more writes than usual: this one may be a new writer; next frame sees all of them from the first
+      const more = rec.n > rec.usual;
+      if (!more && !(rec.close && rec.n === 1)) return;
+      if (more) { rec.sample = true; rec.next = fr + 1; }   // more writes than usual: this one may be a new writer; next frame sees all of them from the first
     }
-    rec.usual = rec.n;
+    rec.usual = Math.max(rec.usual, rec.n);
     this.stacks++;
     const w = writerNow();
     rec.seen = fr;
     if (!w) { rec.at = null; rec.why = NOT.noFile; rec.placeKey = null; return; }
+    if (rec.owned && engineFile(w.file)) w.engine = true;   // a module's write to an engine-owned value is the engine's: yielding is the rule there, not a fight
     const by = this.partsOf(w);
     this.claim(rec, w, by);
+    remember(rec.history, { at: w.at, frame: fr, part: by[0], engine: w.engine });
+    rec.at = w.at; rec.why = null;
+    if (w.engine) return;   // the engine is no party to a fight: it yields, or it is a debug view
     const place = `${w.key}|${by[0] ?? ''}`;   // the part too: two parts' anonymous hooks in one file are two places
-    if (!w.engine && fr > 0 && rec.placeKey && rec.placeKey !== place && !rec.fought) this.fight(rec, rec.placeAt, rec.placeBy, w.at, by[0]);
-    rec.at = w.at; rec.why = null; rec.placeKey = place; rec.placeAt = w.at; rec.placeBy = by[0] ?? null;
+    if (fr > 0 && rec.placeKey && rec.placeKey !== place && !rec.fought) this.fight(rec, rec.placeAt, rec.placeBy, w.at, by[0], 'frame');
+    this.turn(rec, place, w.at, by[0] ?? null, fr);
+    rec.placeKey = place; rec.placeAt = w.at; rec.placeBy = by[0] ?? null;
+  }
+
+  /** The writer seen changed since the last look: often enough, in a short enough time, and it is a fight that never shares a frame */
+  turn(rec, place, at, by, fr) {
+    const was = rec.turnKey, wasAt = rec.turnAt, wasBy = rec.turnBy;
+    rec.turnKey = place; rec.turnAt = at; rec.turnBy = by;
+    if (rec.fought || fr === 0 || !was || was === place) return;
+    rec.next = fr + 1;
+    if (fr - rec.turnFrom > WINDOW) { rec.turnFrom = fr; rec.turns = 0; }
+    if (++rec.turns >= TURNS) this.fight(rec, wasAt, wasBy, at, by, 'turns');
   }
 
   /** The parts this write can be from: the running module alone, else every part that ran from a file on the stack, nearest first */
@@ -271,12 +350,12 @@ class Writers {
     warnOnce(coded('picture-leftover', fmt(STRINGS.leftover, { name: m.name, list })), `picture-leftover\0${m.name}\0${list}`);
   }
 
-  fight(rec, first, firstBy, second, secondBy) {
+  fight(rec, first, firstBy, second, secondBy, how) {
     rec.fought = true;
-    const label = this.labelOf(rec) ?? 'a picture value', slot = slotOfValue(label);
+    const label = this.labelOf(rec) ?? 'a watched value';
     const said = (at, by) => by ? `${at} (part '${by}')` : at;
-    this.fights.push({ value: label, first, second, ...(firstBy ? { firstBy } : {}), ...(secondBy ? { secondBy } : {}) });
-    warnOnce(coded('picture-conflict', fmt(STRINGS.conflict, { value: label, first: said(first, firstBy), second: said(second, secondBy), claim: slot ? fmt(STRINGS.claim, { slot }) : '' })), `picture-conflict\0${rec.id}`);
+    this.fights.push(rec.fight = { value: label, how, first, second, ...(firstBy ? { firstBy } : {}), ...(secondBy ? { secondBy } : {}) });
+    warnOnce(coded('picture-conflict', fmt(STRINGS.conflict, { value: label, how: HOW[how], first: said(first, firstBy), second: said(second, secondBy) })), `picture-conflict\0${rec.id}`);
   }
 
   /** Every value with a name, in one pass: lights and materials are found through the scene, so their names are the current ones */
@@ -300,9 +379,10 @@ class Writers {
     for (const m of mats) add('material', m, m.name || `${m.type}-${m.uuid.slice(0, 6)}`);
     return out;
   }
-  labelOf(rec) { for (const [k, r] of this.everyValue()) if (r === rec) return k; return null; }
+  labelOf(rec) { for (const [k, r] of this.everyValue()) if (real(r) === rec) return k; return null; }
 
-  answer(r) {
+  answer(hit) {
+    const r = real(hit);
     if (!r.at) return { at: null, note: r.why };
     return { at: r.at, framesAgo: this.frame - r.seen, ...(r.wrote > r.seen ? { writtenSince: true } : {}), ...(r.last ?? {}) };
   }
@@ -311,19 +391,23 @@ class Writers {
     const values = {};
     let mats = 0, more = 0;
     for (const [k, r] of this.everyValue()) {
-      if (k.startsWith('material:')) { if (!r.at) continue; if (++mats > MATERIALS_MAX) { more++; continue; } }
+      if (k.startsWith('material:')) { if (!real(r).at) continue; if (++mats > MATERIALS_MAX) { more++; continue; } }
       values[k] = this.answer(r);
     }
-    return { tracked: true, frame: this.frame, stacks: this.stacks, values, conflicts: this.fights, held: this.held.map(({ key, ...h }) => h), leftovers: this.leftovers, ...(more ? { moreMaterials: more } : {}) };
+    return { tracked: true, limit: LIMIT, frame: this.frame, stacks: this.stacks, values, conflicts: this.fights, held: this.held.map(({ key, ...h }) => h), leftovers: this.leftovers, ...(more ? { moreMaterials: more } : {}) };
   }
-  /** One value by its describe name @param {string} label */
+  /** One value by its describe name, a shared point's name or a name given to engine.debug.watch @param {string} label */
   why(label) {
-    const all = this.everyValue(), r = all.get(label);
-    if (!r) return { ok: false, text: `${label}: not tracked. Tracked names (describe('picture').writers): ${[...all.keys()].filter(k => !k.startsWith('material:')).join(', ')}, material:<name>.color / emissive / opacity / emissiveIntensity`, detail: null };
-    const a = this.answer(r), fight = this.fights.find(f => f.value === label);
+    if (page.off) return { ok: false, text: `${label}: not tracked: threePatches.off('picture-writers') turned this off`, detail: null };
+    const hit = this.everyValue().get(label);
+    if (!hit && this.e.stacks.has(label)) return sharedAnswer(this.e, label, this.shared.get(label) ?? []);
+    if (!hit) return { ok: false, text: `${label}: not tracked, so nothing is known about its writers. Names: describe('picture').picture.writers; any value: engine.debug.watch('${label}', object, 'key')`, detail: null };
+    const r = real(hit), a = this.answer(hit), fight = r.fight, slot = slotOfValue(label);
     const owner = !a.slot ? '' : a.writer === 'holder' ? `, by part '${a.holder}', which holds ${a.slot}` : `, by ${who(a.by)}, a stray write: part '${a.holder}' holds ${a.slot}`;
     const age = a.framesAgo ? `, looked at ${a.framesAgo} frames ago${a.writtenSince ? ' (written since, not looked at)' : ''}` : '';
-    return { ok: !!a.at, text: `${label}: ${a.at ? `last changed at ${a.at}${owner}${age}` : a.note}${fight ? `. Two writers in one frame: ${fight.first}, then ${fight.second}` : ''}`, detail: { ...a, ...(fight ? { conflict: fight } : {}) } };
+    const end = fight ? `Two writers ${HOW[fight.how]}: ${fight.first} and ${fight.second}. ${fmt(STRINGS.fix, { claim: slot ? fmt(STRINGS.claim, { slot }) : '' })}` : `No fight seen; ${LIMIT}`;
+    const text = [`${label}: ${a.at ? `last changed at ${a.at}${owner}${age}` : a.note}`, historyText(r.history), end].filter(Boolean).join('. ');
+    return { ok: !!a.at, text, detail: { ...a, history: r.history, ...(fight ? { conflict: fight } : {}) } };
   }
 
   /** Top of a frame's hooks. Two frame hooks with no draw between (engine.step many frames, one draw) are two frames: a state change between them is no fight */
@@ -335,8 +419,8 @@ class Writers {
 
 /** @param {any} e */
 export function installPictureWriters(e) {
-  notePatch('picture-writers', 'dev server only: intensity, color, position of lights, scene.fog and its values, renderer.toneMapping / toneMappingExposure, scene.environment / background and their intensities, material color / emissive / opacity: an own get / set on each, and on the r g b / x y z of the Color or Vector3 (core/inspect/pictureWriters.js)',
+  notePatch('picture-writers', 'dev server only: intensity, color, position of lights, scene.fog and its values, renderer.toneMapping / toneMappingExposure, scene.environment / background and their intensities, material color / emissive / opacity, the camera and other values the engine writes on its own (describe().owned), and values named with engine.debug.watch: an own get / set on each, and on the components of a Color, Vector or rotation (core/inspect/pictureWriters.js)',
     () => { page.off = true; },   // accessors already placed stay and only pass values through; new objects get none
-    { scope: 'objects in the scene', lost: "describe('picture').writers stops answering, and two writers in one frame are no longer warned about" });
+    { scope: 'objects in the scene', lost: "describe('picture').writers and explain({ value }) stop answering, engine.debug.watch watches nothing, and two writers are no longer warned about" });
   e._picture = new Writers(e);
 }

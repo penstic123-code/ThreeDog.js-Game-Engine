@@ -13,7 +13,7 @@ player planted, the player itself) is one **plain data record** in `engine.world
 just how it looks when the camera is near; unloading a chunk / level tears down only the model and never loses the data; a save stores only data; far
 away, with no model, the data is still simulated.
 A decorative rock is a props entry in `content/props.js` (an authored record, saved only if play moves or removes it); `engine.add(mesh)` is for
-transient effects. Everything placed in a level comes from content, so a new game equals the content (in dev, start warns about records code created before it).
+transient effects. Everything placed in a level comes from content, so a new game equals the content.
 Many copies of one interactive object (chests, beds, campfires) with the same model, interaction and container: define it once as a content template
 and place instances (recipe 30-templates.md); the template is the shared read-only definition, the record holds only the instance state.
 
@@ -49,8 +49,8 @@ W.simulate('zombie', {
 - Both ways are saved (a save compares contents, it does not rely on events). `move` emits no event: if the picture needs to follow position, compare in
   `update`.
 - Don't hold a rec object for long: loading a save replaces it with a new object. Keep the id and call `W.get(id)` when you need it.
-- Position forms: Vector3 / object / `[x, y, z]` / `{ x, z }` (a missing y keeps the old one). In development NaN or an array with only two numbers
-  throws immediately.
+- Position forms: Vector3 / object / `[x, y, z]` / `{ x, z }` (a missing y keeps the old one). NaN or an array with only two numbers
+  throws immediately, in release too, and writes nothing.
 
 ## 3. Example: a crop grows on the calendar, press E to harvest when ripe
 The key idea: **don't accumulate every step; record the time it was planted, `plantedAt = clock.now`, and growth = now - planted time**. Whether the
@@ -164,8 +164,12 @@ function wander(rec, dt) {
   on the camera. For a top-down strategy game centered on a base, set `W.anchor = baseObject`; set it back to `null` to restore the default.
 - **The player is a record too**: the id and kind added by `createPlayer` are both `'player'`; position, facing, motion state (vx, vz, vy, facing,
   grounded...) and which vehicle it is on (vehicle) live in the record and are saved, and it is never torn down by walking away. Only the character's
-  mover changes the position and then writes it back to the record; **move the player with `player.placeAt(position)`, not `world.move('player')`**
-  (the mover would overwrite it on the next step). On load the player is put back from the record.
+  mover changes the position and then writes it back to the record. `world.move`, `world.set` and `thing.set` on a live character (the player, an NPC with
+  a model) are its `placeAt`: it goes there, standing on what is there, and the record says where it stands. A seated rider gets out to go there; undo of that `thing.set`
+  seats it again, and answers `ownerRefuses` with the reason if the seat is gone or taken or it sits elsewhere. A ragdoll goes there whole and at rest, still limp. `rot` and `scale` on its record (`world.set`, `thing.set` `rotation` / `scale`) go to the character too: `rot` is its
+  facing, kept in its motion (written with no model, it waits for the model), `scale` sizes `root` and stays on the record, so a rebuild and a load keep it. It
+  is the picture: radius and height stay. A tilt about x or z, or a turn while seated (the seat turns its rider), is refused by name. On load the player is
+  put back from the record.
 - **Models are built around the stream sources** (`33-stream-sources.md`): by default the player (`engine.stream.player`, follows
   `world.anchor`) and the camera
   focus (`engine.stream.camera`). Built inside the radius of any source, torn down beyond 1.25x of all of them, with an error of at most 8 meters; at
@@ -173,11 +177,15 @@ function wander(rec, dt) {
   never touches its record.
 - `positionFrom: 'view'` (the model moves itself, for example an NPC driven by the character mover): near simulation builds the model on the spot and
   copies the model position back to the data at the end of every fixed step; when not simulated near, the data decides and the model follows the data.
+  A write to the record (`world.move`, `world.set`, `thing.set`, or `rec.position` itself, seen at the end of the step) moves the model, and a rigid body on
+  that model goes along at rest, however the body was made. `rot` and `scale` on a template with a `body` build a new body where the record stands; with your
+  own `present` they are your fields, so read them there.
   A model moved by a physics body saves its position, not the physics solver state: after a load, resting bodies settle again and can differ by ~0.01
   mm, so replays that must match exactly should not depend on physics props.
 - Radius: present / simulate each take their own `radius` (meters or a function); without it they follow `world.radius` (default 60).
 
 ## 7. Time and ordering rules (nothing lost, nothing doubled, loading a save is bit-identical)
+- A kind on a channel owes what it lived through: a far `dt` that spans a slowdown is the sum of each stretch at its own speed, and it survives a save.
 - The dt of both near and far is accumulated fixed-step seconds (real seconds: not multiplied by `clock.rate`; with `simulate(kind, { channel: 'enemies' })` both are multiplied by that time channel's speed). For one record, whether near, far, or
   alternating, the dts add up to the elapsed time: on the step going from far to near, `far` first catches up the owed time, then `near` runs.
 - **Kinds that only define far** (crops) are not split into near and far; even when you stand next to them they advance at the far pace. **Kinds that

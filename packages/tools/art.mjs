@@ -21,11 +21,11 @@ import { join, resolve, dirname, relative, extname, basename, isAbsolute, sep } 
 import { pathToFileURL } from 'node:url';
 import { parseOptions } from './lib/cli-args.mjs';
 import { walk } from './lib/text.mjs';
+import { posix } from './paths.mjs';
 
 const CODE = ['.js', '.mjs'];
 const ASSET = /\.(png|jpe?g|webp|avif|gif|ktx2|basis|glb|gltf|bin|hdr|exr|svg|wav|mp3|ogg|m4a|woff2?|ttf|otf|json)$/i;
 const MODEL = /\.(glb|gltf)$/i, TEXTURE = /\.(png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr|svg)$/i, SOUND = /\.(wav|mp3|ogg|m4a)$/i;
-const posix = p => p.split(sep).join('/');
 const isPathArg = s => /^\.{1,2}([\\/]|$)/.test(s) || isAbsolute(s) || /^[A-Za-z]:[\\/]/.test(s);
 const dotRel = (from, to) => { const r = posix(relative(from, to)); return r.startsWith('.') ? r : './' + r; };
 

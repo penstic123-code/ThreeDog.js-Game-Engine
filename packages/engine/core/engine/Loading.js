@@ -19,7 +19,7 @@ class Task {
     this.source = { manifest, url, version: null, bytes: null, animations: null };
   }
   /** @param {string} p queued | download | decode | upload | build | done | failed @param {number} [progress] */
-  phase(p, progress = 0) { this.state = p; this.progress = progress; }
+  phase(p, progress = 0) { this.state = p; this.progress = progress; this.at = performance.now(); }   // measure: at, the last sign of life the load limit reads
   toJSON() {
     const o = { name: this.name, kind: this.kind, phase: this.state, progress: Math.round(this.progress * 100) / 100, critical: this.critical };
     if (this.error) o.error = this.error;
@@ -35,7 +35,7 @@ export class Loading {
   constructor(engine) {
     this.engine = engine; this.tasks = new Map();
     this._inits = new Set();   // init() of modules installed after start(), in flight
-    /** How long start() waits for modules whose isReady stays false before it rejects naming them (ms) @type {number} */
+    /** The one limit on every wait for a load (ms): a file that gives no sign of life, a module's init or a settle that does not end fail by name after it @type {number} */
     this.timeoutMs = 120000;
   }
 
@@ -45,9 +45,34 @@ export class Loading {
    * Resolves when every module installed after start() has finished its init() (also when one failed: its state is then 'failed' in engine.moduleStates and the error went through the error tiers).
    * engine.use() returns the engine, so await this to know a late module is running.
    * @returns {Promise<void>}
-   * @example engine.use(shop()); await engine.loading.settled(); engine.moduleStates.shop   // 'running'
+   * @example engine.use(shop()); await engine.loading.settled(); engine.explain({ module: 'shop' }).ok   // true
    */
   async settled() { while (this._inits.size) await Promise.allSettled([...this._inits]); }
+
+  /**
+   * @internal The one limit: p, or fail()'s error once lastSign() (the time of the last sign of life, null: stop watching) is older than timeoutMs. It only answers the waiter; p goes on unless fail ends it.
+   * @template T
+   * @param {Promise<T>} p
+   * @param {() => number | null} lastSign
+   * @param {() => any} fail
+   * @returns {Promise<T>}
+   */
+  _limit(p, lastSign, fail) {
+    let timer;
+    const over = new Promise((_, rej) => {
+      const look = () => {
+        const last = lastSign();
+        if (last == null || this.engine.disposed) return;
+        const left = this.timeoutMs - (performance.now() - last);   // measure
+        if (left > 0) timer = setTimeout(look, Math.min(left, 2 ** 31 - 1));   // main-loop: a wall clock, because what it guards may be why no frame runs
+        else rej(fail());
+      };
+      look();
+    });
+    const end = () => clearTimeout(timer);
+    p.then(end, end);
+    return Promise.race([p, over]);
+  }
 
   /** Start (or restart) a task; engine-internal callers keep the returned task and move its phase */
   _begin(name, kind, opts) { const t = new Task(name, kind, opts); this.tasks.set(kind + ':' + name, t); return t; }   // keyed by kind too: a module and a model may share a name
@@ -150,3 +175,5 @@ export function failureText(t) {
   const where = [err.url && err.url !== s.url ? `missing ${err.url}` : null, s.manifest ? `manifest "${s.manifest}"` : null].filter(Boolean);
   return `${j.kind} "${j.name}" <- ${s.url ?? j.name}: ${err.message}${where.length ? ` [${where.join(', ')}]` : ''}`;
 }
+
+export const handRolled = [{ kind: 'loading', seen: 'a loading screen of its own', use: 'engine.loading: tracks what is loading, shows progress and has a view you can replace (recipe 07)', quiet: /\bengine\.loading\b/, code: /\b(createElement|innerHTML|className|classList|getElementById|querySelector|\.id)\b/, raw: /(?:createElement|innerHTML|className|classList|getElementById|querySelector|\.id\b)[^,;{}]*(?:loading|loader|load-?bar|progress-?bar)|(?:loading|loader|load-?bar|progress-?bar)[^,;{}]*(?:createElement|innerHTML|className|classList|getElementById|querySelector|\.id\b)/i }];

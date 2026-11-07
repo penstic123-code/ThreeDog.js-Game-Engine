@@ -30,7 +30,7 @@ export function sky(opts = {}) {
   readParams('sky', SKY_PARAMS, opts);
   let s = null, own = () => {};
   return {
-    name: 'sky', type: 'picture', label: 'Sky', params: SKY_PARAMS, options: opts, stage: 'environment',
+    name: 'sky', skipKind: 'none', type: 'picture', label: 'Sky', params: SKY_PARAMS, options: opts, stage: 'environment',
     // the one sky: a game's own sky module takes over with engine.use(mySky(), { replaces: 'sky' }) (this one unloads with its picture changes)
     provides: ['sky'],
     // weather: only its name for the picture context; calendar: the time drawn (without it one fixed time, sky({ time }))
@@ -60,3 +60,5 @@ export function sky(opts = {}) {
     describe(e, ctx) { if (!e.calendar) Object.assign(ctx.out.time, { timeOfDay: Math.round(s.fixedTime * 1000) / 1000, fixed: true }); },
   };
 }
+
+export const handRolled = 'none: a sky of its own is plain three.js, used on purpose';

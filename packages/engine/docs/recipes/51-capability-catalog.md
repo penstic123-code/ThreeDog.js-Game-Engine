@@ -19,7 +19,7 @@ same data and adds the files: `source` (where `name: 'shop'` or `define('shop.bu
 A module entry has: `state`, `stage`, `runIndex` (place in `engine.moduleOrder`), `critical`, `requires`, `optional` (`{ name, installed, lost }`),
 `params` (schema, default and the value in use), `ops` (`{ name, desc, args, failures }`), `saves` (`{ key, version, migrates }`),
 `time` (`hooks`, `step: 'fixed' | 'frame' | 'none'`, `skip`), `queries` (`describe().<id>`, names added with `describe.add`, the api's public names) and
-`problems`, such as "fixed hook but no skip hook" or an `optional` module that is missing.
+`problems`, such as "no skipKind" (the module does not say how `engine.skip` advances it) or an `optional` module that is missing.
 
 `threedog catalog <id>` lists each param as `key:type=default — sentence`: the type (for `any` params) and sentence are read from the module's api page (its options typedef JSDoc), so the schema keeps only names, defaults and checks; a param with no sentence shows `(no doc)` and counts as a problem (rule R38 lists the modules).
 
@@ -30,13 +30,18 @@ Who owns what: an op, save part or describe name registered while a module's `in
 An op arg is `'int?'` or the full schema `{ type, default, min, max, values, desc, optional }`. The same object validates the call in dev, fills the
 default before `can` and `run`, and is what the catalog and `threedog catalog` show, so the code never needs `n = 1` in two places.
 ```js
+const PRICE = { bread: 2 };
 engine.ops.define('shop.buy', {
+  atomic: true,
   args: { item: 'string', n: { type: 'int', default: 1, min: 1, max: 99, desc: 'how many' } },
   can: (e, { item, n }) => e.inventory.count('gold') >= n * PRICE[item] ? true : 'noMoney',
-  run: (e, { item, n }) => e.inventory.add(item, n),
-  reasons: { noMoney: 'Not enough gold' },   // the failure codes the catalog lists
+  run(e, { item, n }) {
+    e.inventory.remove('gold', n * PRICE[item]);
+    return e.inventory.add(item, n).added === n ? n : { ok: false, code: 'bagFull' };
+  },
+  reasons: { noMoney: 'Not enough gold', bagFull: 'No room in the bag' },   // the failure codes the catalog lists
 });
-engine.ops.run('shop.buy', { item: 'bread', n: 0 });   // dev: throws "n must be >= 1"; release: returns { ok: false, code: 'badArgs' } (run never starts)
+engine.ops.run('shop.buy', { item: 'bread' });   // n: 1; with n: 0, dev throws "n must be >= 1" and release returns { ok: false, code: 'badArgs' } (run never starts)
 ```
 
 ## 3. Declare module options once (`readParams`)
@@ -57,7 +62,8 @@ The schema types are those of op args plus `object`, `array` and `function` (opt
 time hooks; a `fixed` hook without `skip` is listed under problems (recipe 49).
 
 ## 5. "How do I get this effect": `threedog how`
-`threedog how "rain"` scores the words of the task against the AI.md task rows and the recipe headings with their first sentence, and prints the
-top five: the API in the row, the recipe path with section (`recipes/08-weather-sky.md §1`) and a one-line snippet. It reads the docs only, so it works with no page
-and prints the same list every run. When a dev page runs it adds up to three live catalog modules whose name matches the first English word. Words match at a word
-start (`rain` does not hit `terrain`). No hit means rephrase, or read AI.md.
+`threedog how "rain"` (the MCP tool `how` is the same answer) scores the words of the task against the AI.md task rows and the recipe headings, then leads with one
+recommended route. That is a first read, never the only allowed way. Under it: whether the route is installed in this game (the game's `engine.use` calls, or the page's catalog when
+one is attached), which dependency is missing, a minimal example, and the next route when it does not fit. `--full` lists the other routes with their paragraphs, your library's
+entries and this game's own modules. It works with no page and answers the same every run. Words match at a word start (`rain` does not hit `terrain`). A weak match
+recommends nothing and lists the closest hits; rephrase, or read AI.md.

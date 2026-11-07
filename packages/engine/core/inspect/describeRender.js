@@ -10,6 +10,7 @@ import { defineOwned } from '../ops/owned.js';
 import { slotHolders } from '../scene/pictureSlots.js';
 import { isShown } from '../base/util.js';
 import { backendFacts } from '../../render/backend.js';
+import { pixelSizeOn } from '../scene/pixelRatio.js';
 
 const shadowName = v => Object.keys(SHADOW_TYPES).find(k => SHADOW_TYPES[k].three === v) ?? String(v);
 const TONE_NAMES = { [NoToneMapping]: 'none', [LinearToneMapping]: 'linear', [ReinhardToneMapping]: 'reinhard', [CineonToneMapping]: 'cineon',
@@ -119,10 +120,10 @@ probes: ${probes.map(p => `${p.count} (${p.counts.join('x')}, step ${p.step.join
 ` + text;
   // render scale: the canvas resolution against the display. auto: the adaptive resolution lowered it at some point (it raises it back when frames are fast)
   const dpr = (typeof devicePixelRatio === 'number' && devicePixelRatio) || 1, cur = r.getPixelRatio(), ad = e.adaptive;
-  const scale = { current: Math.round(cur * 100) / 100, devicePixelRatio: dpr, upscaled: cur < dpr - 0.01, autoLowered: !!ad?.lowered && cur < (ad.max ?? cur) - 0.01,
+  const scale = { current: Math.round(cur * 100) / 100, devicePixelRatio: dpr, upscaled: cur < dpr - 0.01 && !pixelSizeOn(e), pixelSize: e._pixelSize, autoLowered: !!ad?.lowered && cur < (ad.max ?? cur) - 0.01,
     adaptive: !!ad?.on, floor: ad?.min ?? null, max: ad?.max ?? null };
   text += `
-render scale: ${scale.current} of device pixel ratio ${dpr}${scale.upscaled ? ' (picture is upscaled, softer than the screen)' : ''}${scale.autoLowered ? ` (auto-lowered by adaptive resolution, floor ${scale.floor}; adaptiveResolution: false turns it off)` : ''}`;
+render scale: ${scale.current} of device pixel ratio ${dpr}${scale.pixelSize ? ` (pixelSize ${scale.pixelSize}: one art pixel is ${scale.pixelSize} screen pixels)` : ''}${scale.upscaled ? ' (picture is upscaled, softer than the screen)' : ''}${scale.autoLowered ? ` (auto-lowered by adaptive resolution, floor ${scale.floor}; adaptiveResolution: false turns it off)` : ''}`;
   // the lightmap (render/lightmap.js): what is baked, and what no longer matches the bake
   const lightmap = e._lightmap?.info() ?? null;
   if (lightmap) text += `\nlightmap: ${lightmap.meshes} mesh(es), ${lightmap.size} map from ${lightmap.file}`

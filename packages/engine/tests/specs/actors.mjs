@@ -182,4 +182,23 @@ export const specs = [
       check('a client\'s pickup.take is a request: the host runs it as the peer and the item lands in the peer\'s bag', r.press.ok && r.press.pending && r.bread.host === 1 && r.bread.a === 1 && r.bread.b === 0 && r.hist.some(h => h === `net/${r.ga}/true`), JSON.stringify([r.press, r.bread, r.hist]));
     },
   },
+  {
+    name: '[guard] content words { op } and { can } run as the actor of the script, like give / take: a non-current actor entering a trigger',
+    url: '/?cutscene=skip',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const seen = [], H = 'ctx-helper';
+        if (!engine.world.get(H)) engine.ops.allow(() => engine.npcs.add({ id: H, name: 'Helper', position: [engine.player.position.x + 3, 0, engine.player.position.z] }));
+        engine.ops.define('ctx.probe', { can: (e, a, ctx) => { seen.push('can:' + ctx.actor); return true; }, run: (e, a, ctx) => { seen.push('run:' + ctx.actor); } });
+        engine.content.run({ op: ['ctx.probe', {}] }, { actor: H });
+        const ok = engine.content.test({ can: ['ctx.probe', {}] }, { actor: H });
+        const h = engine.world.get(H).position;
+        const z = engine.triggers.add({ position: { x: h.x, y: h.y - 1, z: h.z }, radius: 2, who: () => [H], onEnter: (t, who, id) => engine.content.run({ op: ['ctx.probe', {}] }, { actor: id }) });
+        engine.step(0.1, { render: false });
+        z.remove();
+        return { seen, ok };
+      });
+      check('{ op } and { can } carry the actor given to content.run / test, also from a trigger entered by a non-current actor', r.ok && r.seen.filter(x => x.endsWith('ctx-helper')).length >= 5 && !r.seen.some(x => x === 'run:player'), JSON.stringify(r));
+    },
+  },
 ];

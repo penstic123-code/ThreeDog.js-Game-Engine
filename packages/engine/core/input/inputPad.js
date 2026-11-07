@@ -1,11 +1,32 @@
 // Gamepad buttons. Standard layout names; like keyboard key names they can go into action bindings
+import { owns, padSeated } from './inputKeyboard.js';
+
 const PAD_BUTTONS = ['PadA', 'PadB', 'PadX', 'PadY', 'PadLB', 'PadRB', 'PadLT', 'PadRT', 'PadSelect', 'PadStart', 'PadL3', 'PadR3', 'PadUp', 'PadDown', 'PadLeft', 'PadRight'];
 
-/** Read the first connected gamepad into the input's keys, stick and look (every frame, allocates nothing) @internal */
+/** The pads seats own, each into its seat's keys ('PadA@1') and stick. No look: a shared screen has one camera */
+function pollSeats(input, pads) {
+  const z = input.padDeadzone, cut = v => Math.abs(v) < z ? 0 : v;
+  for (const s of input.seats) {
+    if (s.pad === undefined) continue;
+    const gp = pads?.[s.pad];
+    if (!gp?.connected) {
+      s.padStick.x = s.padStick.y = 0;
+      if (s._padOn) { s._padOn = false; for (const b of PAD_BUTTONS) input._keyUp(`${b}@${s.pad}`); }
+      continue;
+    }
+    s._padOn = true;
+    const btns = gp.buttons;
+    for (let i = 0; i < btns.length && i < PAD_BUTTONS.length; i++) { const k = `${PAD_BUTTONS[i]}@${s.pad}`; if (btns[i].pressed) input._keyDown(k, 'pad'); else input._keyUp(k); }
+    s.padStick.x = cut(gp.axes[0] || 0); s.padStick.y = -cut(gp.axes[1] || 0);
+  }
+}
+
+/** Read the first connected gamepad no seat owns into the input's keys, stick and look (every frame; without seats it allocates nothing). An engine that does not own the input reads no unbound pad, which releases what it held @internal */
 export function pollPad(input, dt) {
   const pads = navigator.getGamepads?.();
+  if (input.seats.length) pollSeats(input, pads);
   let gp = null;
-  if (pads) for (let i = 0; i < pads.length && !gp; i++) if (pads[i]?.connected) gp = pads[i];
+  if (pads && owns(input)) for (let i = 0; i < pads.length && !gp; i++) if (pads[i]?.connected && !padSeated(i)) gp = pads[i];
   if (!gp) {
     input.padStick.x = input.padStick.y = 0;
     if (input._padOn) { input._padOn = false; for (const b of PAD_BUTTONS) input._keyUp(b); }   // disconnected (battery died): release what it held, once

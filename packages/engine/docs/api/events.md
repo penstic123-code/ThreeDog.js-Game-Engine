@@ -38,7 +38,7 @@
 - `character:launch` [{ character: Character; speed: number; owner: string }] 
 - `link:enter` [{ id: string; character: Character; crossing: LinkCrossing }] (experimental) A walker reached a nav link. Set crossing.seconds here to say how long it takes
 - `link:exit` [{ id: string; character: Character | null; crossing: LinkCrossing }] (experimental) A crossing ended: landed, or cut short (npc.placeAt, walk.remove()). character is null for an NPC that went out of range mid-crossing
-- `character:fall` [{ character: Character; safe: Vector3 | null; preventDefault(): void… 
+- `character:fall` [{ character: Character; safe: Vector3 | null }] 
 - `character:model` [{ character: Character; model: Object3D }] A character's model named by asset finished loading and replaced the placeholder body (same root; anim is now set)
 - `character:step` [{ character: Character }] A foot of a walking character came down; character.groundType() is what it stepped on
 - `character:land` [{ character: Character; impact: number }] A character landed; impact is the landing speed (m/s), the larger the harder the fall
@@ -58,13 +58,19 @@
 - `quest:done` [{ id: string }] A quest completed
 - `quest:part` [{ id: string; step: number; part: number }] A part of a parallel quest step was met; step and part are indexes (starting at 0)
 - `quest:fail` [{ id: string }] A quest failed (its fail condition held); quests.start(id) may begin it again
+- `quest:unpaid` [{ id: string; code: string; failed: { word: string; code: string; fa… A finished quest's reward was not given. failed: each word that failed; owed: the items the quest still owes, null when none or when onUnpaid took it
+- `content:failed` [{ code: string; failed: { word: string; code: string; facts: any }[]… A content effect word failed ({ give } in a full bag, { op } refused), wherever it ran: a dialogue do, a trigger, a reward, content.run. actor: whose effect it was
 - `photo:taken` [PhotoShot] A photo was taken
 - `photo:denied` [{ reason: string }] The photo key was pressed but the op photo.take was refused (reason from photo.canTake(), 'denied' when it returned false)
 - `trigger:enter` [TriggerEvent] Entered a trigger zone
 - `trigger:exit` [TriggerEvent] Left a trigger zone
-- `level:loaded` [LevelLoadedEvent] Level finished loading
+- `level:loading` [LevelLoadingEvent] Level finished loading
+- `level:loaded` [LevelLoadedEvent] 
+- `level:unloaded` [LevelUnloadedEvent] 
+- `level:playable` [LevelPlayableEvent] 
+- `level:failed` [LevelFailedEvent] 
 - `timeline:start` [{ id: number }] A cutscene started
-- `timeline:end` [{ id: number; skipped: boolean }] A cutscene ended; skipped tells whether it was skipped
+- `timeline:end` [{ id: number; ending: 'finished' | 'skipped' | 'dropped' | 'failed';… A cutscene ended; ending says how, error why it failed
 - `template:stage` [TemplateStageEvent] A content template instance entered a new stage by growing (templates with stages)
 - `ground:change` [{ x0: number; z0: number; x1: number; z1: number }] The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale
 - `rigid:rebuilt` [{ world: any; player: any; bodies: Record<string, any> }] rigid: newGame / a load rebuilt the physics world (a fresh page for physics) and the engine's bodies are back (entry.body is the rebuilt Rapier body; bodies maps the ids given to addBox / addBall / addHull / addWheeled). The old world's joints were freed with it: re-create the game's joints here (recipes/11-vehicles.md, Joints). Not emitted while a vehicle exists (the world is kept then, joints included)
@@ -89,13 +95,15 @@
 - `net:result` [{ seq: number; name: string; ok: boolean; code: string | null; value… Client (net): the host's answer to an op request (seq from ops.run's return value; tick is the host's), sent after the state it caused
 - `engine:error` [EngineError] A gameplay error in development / testing; gameplay is frozen (error severity levels, see engine.error)
 - `module:disabled` [{ name: string; message: string }] A picture or ui module errored and was disabled (the game continues)
+- `module:restored` [{ modules: any[] }] 
+- `state:replaced` [{ undone: boolean }] 
 - `vehicle:enter` [{ character: Character; vehicle: Rideable }] A character boarded a vehicle
 - `vehicle:exit` [{ character: Character; vehicle: Rideable }] A character exited a vehicle
 - `flow:change` [{ from: string; to: string }] Game flow state changed
 - `flow:transition` [{ phase: 'start' | 'end' }] Scene transition: phase 'start' begins fading to black, 'end' finishes fading back in
 - `session:end` [] A playthrough ends (engine.session.newGame / load / quit), before the reset
 - `session:start` [{ kind: 'new' | 'load'; slot?: string }] A playthrough started from a clean slate: kind 'new' (newGame) or 'load' (session.load, with the slot)
-- `session:failed` [{ kind: 'new' | 'load'; slot?: string }] newGame / session.load failed (a save part's load() threw) and the game was rolled back: the old playthrough goes on, no session:start
+- `session:failed` [{ kind: 'new' | 'load' | 'quit'; slot?: string }] newGame / session.load failed (a save part's load() threw) and the game was rolled back: the old playthrough goes on, no session:start
 - `page:blur` [{ focused: boolean; visible: boolean }] The page went away: the window lost focus or the tab was hidden (engine.page)
 - `page:focus` [{ focused: boolean; visible: boolean }] The page came back: focused and visible again
 - `page:pointerlock` [{ locked: boolean }] The mouse lock on the canvas started or ended (Esc, alt-tab); cameras with pointerLock lock again on the next click

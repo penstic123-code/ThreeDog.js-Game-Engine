@@ -67,7 +67,7 @@ recompile). In dev the console warns (code `light-recompile`) when programs were
 For many torches, street lamps, campfires, muzzle flashes or neon signs use the light pool: a fixed number of real lights, created once at install,
 moves to the sources that matter most (near the camera, bright, high `priority`) and fades with intensity, so the light setup never changes. Install
 it before `engine.start()` so the startup compile covers its lights:
-```js
+```js fragment
 import { lightPool } from 'threedog';
 engine.use(lightPool({ point: 8 }));          // 8 PointLights; lightPool({ spot: 2, shadows: 1 }) adds spots / lets one point light cast
 for (const t of torches) engine.lightPool.add(t, {   // an Object3D is followed; a position stays put
@@ -120,7 +120,7 @@ rules, `fonts` lists font asset names to load at start (the files sit in an asse
 ## 2. Using your own models instead of procedural ones
 Models are assets: content names them, an asset pack maps the names to files or generators. Register a later manifest with the same
 name to swap one:
-```js
+```js fragment
 engine.assets.manifest(yourAssets);   // assets from an asset pack you have: trees, rocks, flowers... built in code
 engine.assets.manifest({ name: 'mine', models: { pine: () => myPineGeometry(), well: '/models/well.glb' } });   // replaces pine, adds well
 ```
@@ -147,7 +147,7 @@ GLB files from Blender are copied the same way and checked with recipe 46 sectio
 
 ## 2b. Wind, cloud shadows and season tint on your own materials
 The engine's shader effects are named patches that work on any material that has the usual three.js chunks (WebGL only):
-```js
+```js fragment
 import { applyEffects } from 'threedog';
 const leaves = applyEffects(new THREE.MeshToonMaterial({ color: 0x5a8a3a }), { wind: 0.03, season: 'foliage' });   // clouds default on
 engine.vegetation.define('bush', { geometry, material: leaves });   // vegetation adds them itself; effects: false keeps the material untouched

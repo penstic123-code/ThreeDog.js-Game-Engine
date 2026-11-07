@@ -84,7 +84,7 @@ const sun = new THREE.DirectionalLight('#fff', 3);
 sun.position.set(40, 80, 30); sun.castShadow = true;
 engine.scene.add(sun);
 
-const box = engine.shadows.box(sun, { follow: player, extent: 40, snap: 'texel' });
+const box = engine.shadows.box(sun, { follow: engine.player.root, extent: 40, snap: 'texel' });
 box.set({ extent: 60 });   // a wider view
 box.remove();              // position, target and the shadow camera come back
 ```
@@ -96,14 +96,13 @@ box.remove();              // position, target and the shadow camera come back
 | `snap` | 0.5 | center snap grid in meters, or `'texel'`: one shadow pixel, no shimmer on a moving camera |
 | `ahead` | 0 | meters the center is shifted in front of the view |
 
-- A game light gets no box unless you call this. The light keeps its direction, which is its position minus its target, so aim it as usual; a `light.target` you assigned
-  (your player, say) is never moved. It works like cascades here: `position` and `target` hold the placement while the box is on, and writes to `light.position` or a new `light.target` set the direction.
+- A game light gets no box unless you call this. The light keeps its direction, which is its position minus its target, so aim it as usual. `position`, `target` and a `light.target` you assigned work as under cascades above.
 - The engine's placeholder sun under `sky()` has a box already, following `engine.focus`, 30 m each way. `engine.shadows.box(engine.lights.sun, { follow: false, extent: 9 })` changes that one
   box and `remove()` restores it. Writing `engine.lights.sun.target.position` yourself takes the box's center over, with one warning; `{ follow: 'focus' }` gives it back.
 
 ## Keep what does not move
 
-```js
+```js fragment
 const kept = engine.shadows.cache(sun, { static: mesh => mesh !== cars.mesh });   // a test on each mesh; or an Object3D, or a list of them
 kept.redraw();                  // a static object moved, hid or left
 kept.set({ static: town });     // say again what is static

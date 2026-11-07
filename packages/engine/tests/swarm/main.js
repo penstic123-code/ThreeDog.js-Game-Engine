@@ -174,8 +174,12 @@ async function saveCases(e) {
   out.rows = [keep.count, keep.row(a) >= 0, d.hp[keep.row(a)], d.x[keep.row(b)], d.hp[keep.row(b)], d.r[keep.row(a)]];
   out.staleDead = keep.row(gone);
   const damaged = e.swarm({ name: 'damaged', capacity: 4, save: true });
-  damaged._load({ serial: 9, id: [-5, 2 ** 20], cols: {} });
-  out.damagedId = [damaged.count, damaged._slot[0]];   // a negative id is left out; the good one keeps its slot
+  damaged._load({ serial: 9, id: [2 ** 20], cols: {} });
+  // a damaged part (negative or fractional id, two ids in one slot, a short column) is refused as a whole and the swarm keeps what it had
+  const refused = bad => { try { damaged._load(bad); return 'loaded'; } catch (err) { return /save-bad-record/.test(err.message) ? 'refused' : err.message; } };
+  out.damagedId = [damaged.count, damaged._slot[0], refused({ serial: 9, id: [-5, 2 ** 20], cols: {} }), refused({ serial: 9, id: [2 ** 20 + 0.5], cols: {} }),
+    refused({ serial: 9, id: [2 ** 20, 2 * 2 ** 20], cols: {} }), refused({ serial: 9, id: [2 ** 21], cols: { x: [] } }), damaged.count];
+  out.fractionalCapacity = code(() => e.swarm({ name: 'frac', capacity: 1.5 }));
   damaged.dispose();
   out.shotsCleared = shots.count;
   const next = keep.spawn({ x: 9 });

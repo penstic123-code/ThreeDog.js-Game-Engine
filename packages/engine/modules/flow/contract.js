@@ -3,6 +3,7 @@
 export default {
   name: 'flow',
   api: ['define', 'go', 'transition'],
+  fields: ['state'],   // the settings menu reads what to go back to
   ops: [],
   events: ['flow:change', 'flow:transition'],
   saves: {},

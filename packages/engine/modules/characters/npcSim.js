@@ -7,7 +7,7 @@
 // See the top of NPC.js for record fields.
 
 import { standAt } from './movers/support.js';
-import { nextPoint, startLink, stepLink, landLink, leaveLink, linkAhead, LINK_REACH } from './moveHelpers.js';
+import { nextPoint, sameLevel, climbTo, startLink, stepLink, landLink, leaveLink, linkAhead, LINK_REACH } from './moveHelpers.js';
 
 /** Fixed steps an NPC waits for a findPathAsync answer before asking again (answers normally land 4 steps later; a long queue adds perStep batches) */
 const PATH_WAIT = 300;
@@ -65,7 +65,8 @@ export function advance(e, W, rec, seconds) {
   }
   const idx = stopIndex(s, timeOfDay(e)), g = s[idx];
   rec.nav.stop = idx;
-  settle(e, W, rec, x, z, Math.hypot(g.x - x, g.z - z) > rec.arriveDistance);
+  const moving = Math.hypot(g.x - x, g.z - z) > rec.arriveDistance;
+  settle(e, W, rec, x, z, moving, moving ? p.y : g.y ?? p.y);   // at the stop, the stop's floor; on the way, the one it walks on
 }
 
 /** Set rec.state; with events.traceSize > 0 a change is noted as an `npc:state` trace entry (from, to), so "why did it stop" has a cause chain */
@@ -76,9 +77,9 @@ function noteState(e, rec, next) {
 
 /**
  * Settle without a model: write the computed x, z back to data (position, facing, animation state); shared by every behaviour's far. The path is for the model,
- * so it is re-found at the new position after the model is built
+ * so it is re-found at the new position after the model is built. refY: the height the ground is looked up from, default where it stood
  */
-export function settle(e, W, rec, x, z, moving) {
+export function settle(e, W, rec, x, z, moving, refY = rec.position.y) {
   const nav = rec.nav;
   if (nav.link) { ({ x, z } = nav.link.to); W.move(rec.id, nav.link.to); leaveLink(e, rec.id, null, nav.link); nav.link = null; }   // no model to cross with: it has crossed
   const p = rec.position; nav.path = null; nav.repath = 0;
@@ -89,7 +90,7 @@ export function settle(e, W, rec, x, z, moving) {
   // NPC of another level: this level's ground height is meaningless for it, keep its y
   const here = W.inZone(rec);
   // the same rule the model uses (support.js standAt), from the height it is at: without it an NPC on a deck or an upper floor dropped to the ground in the data
-  const y = here ? standAt(e, x, z, p.y, rec.look?.stepHeight ?? e.movement.stepHeight).y : p.y;
+  const y = here ? standAt(e, x, z, refY, rec.look?.stepHeight ?? e.movement.stepHeight).y : p.y;
   W.move(rec.id, { x, y: y === -Infinity ? p.y : y, z });
 }
 
@@ -111,7 +112,7 @@ export function nearStep(e, W, rec, ch, dt) {
 }
 
 /**
- * With a model, take one step toward goal ({ x, z }, null = stand): pathfind, move the model via the character's mover, then copy position and motion state
+ * With a model, take one step toward goal ({ x, y?, z }, null = stand): pathfind, move the model via the character's mover, then copy position and motion state
  * back to data; shared by every behaviour's near.
  * Standing when in conversation (rec.busy), arrived (distance < arriveDistance) or no goal.
  * Pathfinding goes through engine.characters.findPathAsync; a goal too far (>120 m) first walks straight 100 m, then pathfinds exactly, to avoid
@@ -120,19 +121,20 @@ export function nearStep(e, W, rec, ch, dt) {
 export function goTo(e, W, rec, ch, goal, dt) {
   const nav = rec.nav, p = ch.root.position;
   const dGoal = goal ? Math.hypot(goal.x - p.x, goal.z - p.z) : 0;
-  if (rec.busy || !goal || (dGoal < rec.arriveDistance && !linkAhead(nav.path) && !ch._linkNext)) ch.move(0, 0, false, dt);
+  if (rec.busy || !goal || (dGoal < rec.arriveDistance && sameLevel(e, p, goal) && !linkAhead(nav.path) && !ch._linkNext)) ch.move(0, 0, false, dt);
   else if (e.nav?.crowd) crowdMove(e, rec, ch, goal, dt);
   else {
     nav.repath -= dt;
     // goal changed while waiting, or the answer never came (engine.commits.invalidate dropped it: a partial saves.apply, a level change): ask again
     if (ch._pathReq && (ch._pathReq.goal !== goal || e.time.tick - ch._pathReq.at > PATH_WAIT)) { ch._pathReq.remove(); ch._pathReq = null; }
     if (!nav.path && nav.repath <= 0 && !ch._pathReq) {
-      const far = dGoal > 120, tx = far ? p.x + (goal.x - p.x) / dGoal * 100 : goal.x, tz = far ? p.z + (goal.z - p.z) / dGoal * 100 : goal.z;
+      const far = dGoal > 120, tx = far ? p.x + (goal.x - p.x) / dGoal * 100 : goal.x, tz = far ? p.z + (goal.z - p.z) / dGoal * 100 : goal.z, ty = far ? undefined : goal.y;   // the stop's height says nothing about a point on the way
       // async: many NPCs repathing in one step cost the main thread almost nothing; the answer lands a few steps later (the NPC waits in place)
-      const req = ch._pathReq = e.characters.findPathAsync(p, { x: tx, z: tz }, path => {
+      const req = ch._pathReq = e.characters.findPathAsync(p, { x: tx, y: ty, z: tz }, path => {
         if (ch._pathReq !== req) return;
-        ch._pathReq = null; nav.path = path || [{ x: tx, z: tz }];
-      }, { step: rec.pathStep });
+        // no way there: it stands and asks again at the next repath, a failed search is no licence to press on along the line. A far leg is only a heading, not a place it must reach
+        ch._pathReq = null; nav.path = path ?? (far ? [{ x: tx, y: p.y, z: tz }] : null);
+      }, { radius: ch.radius, step: rec.pathStep, id: rec.id });
       req.goal = goal; req.at = e.time.tick;
       nav.repath = rec.repath;
     }
@@ -140,10 +142,10 @@ export function goTo(e, W, rec, ch, goal, dt) {
     const reach = Math.min(0.8, rec.arriveDistance);
     let wp = null;
     if (nav.path?.length) {
-      const next = nextPoint(nav.path, 0, p.x, p.z, reach);
+      const next = nextPoint(nav.path, 0, p.x, p.y, p.z, reach, e.movement.height);
       if (next) nav.path.splice(0, next);   // the path stays one saved list: what is behind the NPC leaves it
       wp = nav.path[0];
-      if (Math.hypot(wp.x - p.x, wp.z - p.z) < (wp.link ? LINK_REACH : reach)) {
+      if (Math.hypot(wp.x - p.x, wp.z - p.z) < (wp.link ? LINK_REACH : reach) && sameLevel(e, p, wp)) {
         if (wp.link) { nav.link = startLink(ch, wp.link); nav.path.shift(); }
         else nav.path = null;
         wp = null;
@@ -165,7 +167,7 @@ export function goTo(e, W, rec, ch, goal, dt) {
 /** One step straight at wp. nav.stuck counts time, not speed: a body pressed against something that came after the path (an obstacle added in play) still reports a walk */
 function stepToward(nav, ch, wp, dt) {
   const p = ch.root.position, dx = wp.x - p.x, dz = wp.z - p.z, d = Math.hypot(dx, dz), ox = p.x, oz = p.z;
-  ch.move(dx / d, dz / d, false, dt);
+  ch.move(dx / d, dz / d, false, dt, climbTo(p, wp));
   nav.stuck = Math.hypot(p.x - ox, p.z - oz) < 0.002 ? (nav.stuck ?? 0) + dt : 0;
 }
 
@@ -178,12 +180,12 @@ function stepToward(nav, ch, wp, dt) {
 // short of its start and a crossing runs from where the walker stands, so the NPC first walks the rest (reachLink), or its climb starts a meter off the ladder and cuts through the deck.
 function crowdMove(e, rec, ch, goal, dt) {
   const crowd = e.nav.crowd, p = ch.root.position;
-  // nav mesh was rebuilt: the old agent was destroyed with the old crowd
-  if (ch._agent && ch._navVersion !== e.nav.version) { ch._agent = null; ch._agentGoal = null; ch._linkNext = null; }
-  ch._navVersion = e.nav.version;
+  // nav mesh rebuilt, or another nav module: the old agent went with its crowd. The crowd object says so; version numbers count per module and can match
+  if (ch._agent && ch._crowd !== crowd) { ch._agent = null; ch._agentGoal = null; ch._linkNext = null; }
+  ch._crowd = crowd;
   if (!ch._agent) ch._agent = crowd.addAgent({ x: p.x, y: p.y, z: p.z }, { radius: ch.radius, height: e.movement.height, maxSpeed: ch.speed, maxAcceleration: ch.acceleration * ch.speed });
   const a = ch._agent;
-  if (ch._agentGoal !== goal) { a.requestMoveTarget({ x: goal.x, y: e.surface(goal.x, goal.z), z: goal.z }); ch._agentGoal = goal; }
+  if (ch._agentGoal !== goal) { a.requestMoveTarget(e.nav.point(goal)); ch._agentGoal = goal; }
   const onLink = a.state() === AGENT_ON_LINK;
   if (onLink && !ch._agentOnLink) ch._linkNext = linkStartingAt(e.nav.links, p);
   ch._agentOnLink = onLink;   // once per crossing: the agent may still be on its line when a quick game crossing has landed

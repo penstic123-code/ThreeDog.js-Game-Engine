@@ -110,7 +110,7 @@ export const specs = [
         engine.use({ name: 's1fx', type: 'picture', frame() { fxCalls++; throw new Error('s1-boom'); } });
         engine.step(0.2);
         const t0 = engine.clock.now; engine.step(0.5);
-        const fx = { disabled: engine.disabledModules.has('s1fx'), calls: fxCalls, error: engine.error, clockMoved: engine.clock.now > t0 };
+        const fx = { disabled: engine.moduleStates.s1fx === 'disabled', calls: fxCalls, error: engine.error, clockMoved: engine.clock.now > t0 };
         // gameplay: the inventory breaks when a quest reward gives an item (error inside an event listener; it used to be swallowed and the quest still counted as done)
         const inv = { give() { throw new Error('give failed'); } };
         let rewarded = false;

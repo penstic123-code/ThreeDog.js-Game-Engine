@@ -6,14 +6,13 @@
 // "Used" = found in engine sources, examples, the new-game templates or recipe code blocks (tests and prose docs are not users). Name matching is
 // a heuristic: a name shared by several items must be written qualified (parent.name) to count. Record: docs/testing/api-count.md.
 import { readFileSync, readdirSync, existsSync, writeFileSync } from 'node:fs';
-import { join, relative, sep, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
-import { ROOT, ENGINE, TOOLS, MODE, addonDir, cli } from './paths.mjs';
-import { walk } from './lib/text.mjs';
+import { ROOT, ENGINE, TOOLS, MODE, addonDir, cli, rel } from './paths.mjs';
+import { walk, esc } from './lib/text.mjs';
 
 const require = createRequire(import.meta.url);
-const relp = p => relative(ROOT, p).split(sep).join('/');
 /** How a lock line says "may still change" (a trailing word: the file merges by line, so only the marked lines move) */
 export const EXPERIMENTAL = '@experimental';
 
@@ -23,13 +22,13 @@ function collect() {
   const entries = [join(ENGINE, 'index.d.ts'), join(ENGINE, 'types/tsl.d.ts'), join(addonDir('post-effects'), 'index.d.ts'), join(addonDir('post-effects'), 'tsl.d.ts')].filter(existsSync);
   const program = ts.createProgram(entries, { noEmit: true, skipLibCheck: true, target: ts.ScriptTarget.ES2022, moduleResolution: ts.ModuleResolutionKind.Bundler, module: ts.ModuleKind.ESNext });
   const ch = program.getTypeChecker(), items = [];
-  const declOf = s => { const d = s?.declarations?.[0]; return d ? relp(d.getSourceFile().fileName) : '?'; };
+  const declOf = s => { const d = s?.declarations?.[0]; return d ? rel(d.getSourceFile().fileName) : '?'; };
   const fromLib = s => s?.declarations?.some(d => /node_modules[\\/](@types[\\/]three|typescript[\\/]lib)[\\/]/.test(d.getSourceFile().fileName));
   // what: the first sentence of the declaration's doc comment (the list of candidates says what each one is)
   const what = s => (s ? ts.displayPartsToString(s.getDocumentationComment(ch)) : '').split(/\n|(?<=[.;:])\s/)[0].slice(0, 120);
   // sig: the type as the editor shows it (the API lock compares it: a changed parameter or option type is a break); '?' marks an optional member
   // a type from a package prints as an absolute path: keep only the package part, so the lock does not hold this machine's folders
-  const portable = text => text.replace(/import\("[^"]*\/node_modules\/(?:@types\/)?([^"]+)"\)/g, 'import("$1")');
+  const portable = text => text.replace(/import\("[^"]*\/node_modules\/(?:@types\/)?([^"]+)"\)/g, 'import("$1")').replace(/import\("[^"]*\/packages\/engine\/([^"]+)"\)/g, 'import("threedog/$1")');
   const sigOf = s => { const d = s?.declarations?.[0]; if (!d) return ''; try { return (s.flags & ts.SymbolFlags.Optional ? '?' : '') + portable(ch.typeToString(ch.getTypeOfSymbolAtLocation(s, d), d, ts.TypeFormatFlags.NoTruncation | ts.TypeFormatFlags.UseAliasDefinedOutsideCurrentScope).replace(/\s+/g, ' ')); } catch { return ''; } };
   // experimental: the name carries @experimental, or its parent does (a module, an engine member); one tag covers what hangs off it
   const tagged = s => !!s?.getJsDocTags?.(ch).some(t => t.name === 'experimental');
@@ -43,7 +42,13 @@ function collect() {
   const index = program.getSourceFile(entries[0]);
 
   // exported values ('threedog', 'threedog/tsl', '@threedog/post-effects'); module factories are counted again below as modules
-  const exp = exportsOf(entries[0]).filter(s => s.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable | ts.SymbolFlags.Class) && s.name !== 'THREE');
+  // a class declared for its type (Sky, Weather) reads as a value in the .d.ts: only what index.js really exports is one
+  const script = ts.createSourceFile('index.js', readFileSync(join(ENGINE, 'index.js'), 'utf8'), ts.ScriptTarget.Latest), values = new Set();
+  for (const st of script.statements) {
+    if (ts.isExportDeclaration(st) && st.exportClause && ts.isNamedExports(st.exportClause)) for (const e of st.exportClause.elements) values.add(e.name.text);
+    else if (st.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword)) for (const d of st.declarationList?.declarations ?? [st]) values.add(d.name.text);
+  }
+  const exp = exportsOf(entries[0]).filter(s => s.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable | ts.SymbolFlags.Class) && s.name !== 'THREE' && values.has(s.name));
   for (const s of exp) add('exports threedog', s.name, s, 'export');
   for (const s of exportsOf(entries[1]).filter(s => s.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable))) add('exports threedog/tsl', s.name, s, 'export');
   for (const entry of entries.slice(2)) for (const s of exportsOf(entry).filter(s => s.flags & (ts.SymbolFlags.Function | ts.SymbolFlags.Variable))) add('exports @threedog/post-effects', s.name, s, 'export');
@@ -53,22 +58,26 @@ function collect() {
   const ceSig = typeOf(ce, index).getCallSignatures()[0];
   for (const p of propsOf(typeOf(ceSig.parameters[0], index))) add('createEngine options', p.name, p, 'option');
 
-  // module factories: functions returning ModuleDef<Api>; options = the first parameter's keys, API = Api's members named by the engine
+  // module factories: functions returning ModuleDef<Api>, or an array or tuple of them (weather: state and drawing); options = the first parameter's keys, API = each Api's members named by the engine
   // property that holds it (engine.cameraRig for the four cameras: one API type is counted once)
   const engineSym = exportsOf(entries[0]).find(s => s.name === 'Engine' && s.flags & ts.SymbolFlags.Class);
   const engineProps = propsOf(ch.getDeclaredTypeOfSymbol(engineSym));
   const holder = new Map(engineProps.map(p => [ch.getNonNullableType(typeOf(p, index)).symbol, p]).filter(([s]) => s));
   const apiSyms = new Set();
+  const isDef = t => t.aliasSymbol?.name === 'ModuleDef' || t.symbol?.name === 'ModuleDef';
+  const defsOf = t => isDef(t) ? [t] : ch.isArrayType(t) || ch.isTupleType(t) ? ch.getTypeArguments(t).filter(isDef) : [];
   for (const s of exp) {
-    const sig = typeOf(s, index).getCallSignatures()[0], ret = sig && sig.getReturnType();
-    if (!ret || ret.aliasSymbol?.name !== 'ModuleDef' && ret.symbol?.name !== 'ModuleDef') continue;
-    const api = ret.aliasTypeArguments?.[0] ?? ret.typeArguments?.[0] ?? ch.getTypeArguments?.(ret)?.[0];
+    const sig = typeOf(s, index).getCallSignatures()[0], defs = sig ? defsOf(sig.getReturnType()) : [];
+    if (!defs.length) continue;
     const opt = sig.parameters[0] && typeOf(sig.parameters[0], index);
     if (opt && !(ch.getNonNullableType(opt).flags & ts.TypeFlags.Any)) for (const p of propsOf(opt)) add('module options', `${s.name}.${p.name}`, p, 'option', tagged(s));
-    if (!api || api.flags & ts.TypeFlags.Any || !api.symbol || apiSyms.has(api.symbol)) continue;
-    apiSyms.add(api.symbol);
-    const at = holder.get(api.symbol), whole = tagged(s) || tagged(at) || tagged(api.symbol);
-    for (const p of propsOf(api)) add('module APIs', `${at?.name ?? s.name}.${p.name}`, p, 'member', whole);
+    for (const ret of defs) {
+      const api = ret.aliasTypeArguments?.[0] ?? ret.typeArguments?.[0] ?? ch.getTypeArguments?.(ret)?.[0];
+      if (!api || api.flags & ts.TypeFlags.Any || !api.symbol || apiSyms.has(api.symbol)) continue;
+      apiSyms.add(api.symbol);
+      const at = holder.get(api.symbol), whole = tagged(s) || tagged(at) || tagged(api.symbol);
+      for (const p of propsOf(api)) add('module APIs', `${at?.name ?? s.name}.${p.name}`, p, 'member', whole);
+    }
   }
 
   // engine.*: members, and one level into core sub-objects (not three.js / DOM / built-in objects or module APIs)
@@ -89,8 +98,8 @@ async function cliItems() {
   const seen = new Set();
   for (const f of walk(TOOLS, { exts: /\.mjs$/, skip: ['tests', 'templates'] })) {
     for (const m of readFileSync(f, 'utf8').matchAll(/\b(flags|values|lists):\s*\[([^\]]*)\]/g)) for (const q of m[2].matchAll(/'([a-z][\w-]*)'/g)) {
-      const key = relp(f) + ' --' + q[1];
-      if (!seen.has(key)) { seen.add(key); items.push({ group: 'CLI options', name: '--' + q[1], decl: relp(f), kind: 'flag' }); }
+      const key = rel(f) + ' --' + q[1];
+      if (!seen.has(key)) { seen.add(key); items.push({ group: 'CLI options', name: '--' + q[1], decl: rel(f), kind: 'flag' }); }
     }
   }
   return items;
@@ -104,7 +113,7 @@ export async function surfaceLines() {
 
 async function errorItems() {
   const { ERROR_CODES } = await import(pathToFileURL(join(ENGINE, 'core/base/errorCodes.js')).href);
-  return Object.keys(ERROR_CODES).map(c => ({ group: 'error codes', name: c, decl: relp(join(ENGINE, 'core/base/errorCodes.js')), kind: 'error' }));
+  return Object.keys(ERROR_CODES).map(c => ({ group: 'error codes', name: c, decl: rel(join(ENGINE, 'core/base/errorCodes.js')), kind: 'error' }));
 }
 
 // ── who uses it ──
@@ -113,22 +122,21 @@ const files = (d, exts) => walk(d, { exts, skip: ['tests', 'docs', 'types'] });
 function corpus() {
   const code = /\.(m?js|html|json)$/;
   const out = [];
-  for (const d of ['core', 'modules', 'render', 'ui']) for (const f of files(join(ENGINE, d), /\.js$/)) out.push({ file: relp(f), where: 'engine', text: readFileSync(f, 'utf8') });
-  out.push({ file: relp(join(ENGINE, 'index.js')), where: 'engine', text: readFileSync(join(ENGINE, 'index.js'), 'utf8') });
+  for (const d of ['core', 'modules', 'render', 'ui']) for (const f of files(join(ENGINE, d), /\.js$/)) out.push({ file: rel(f), where: 'engine', text: readFileSync(f, 'utf8') });
+  out.push({ file: rel(join(ENGINE, 'index.js')), where: 'engine', text: readFileSync(join(ENGINE, 'index.js'), 'utf8') });
   // presets are option bundles a game picks: they count as a user of the options they set
-  out.push({ file: relp(join(ENGINE, 'presets.js')), where: 'preset', text: readFileSync(join(ENGINE, 'presets.js'), 'utf8') });
-  for (const a of ['post-effects', 'terrain-noise']) for (const f of files(addonDir(a), /\.js$/)) out.push({ file: relp(f), where: 'engine', text: readFileSync(f, 'utf8') });
-  for (const f of files(join(ENGINE, 'examples'), code)) out.push({ file: relp(f), where: 'example', text: readFileSync(f, 'utf8') });
-  for (const f of files(join(TOOLS, 'templates'), /\.(m?js|html|json|md)$/)) out.push({ file: relp(f), where: 'template', text: readFileSync(f, 'utf8') });
+  out.push({ file: rel(join(ENGINE, 'presets.js')), where: 'preset', text: readFileSync(join(ENGINE, 'presets.js'), 'utf8') });
+  for (const a of ['post-effects', 'terrain-noise']) for (const f of files(addonDir(a), /\.js$/)) out.push({ file: rel(f), where: 'engine', text: readFileSync(f, 'utf8') });
+  for (const f of files(join(ENGINE, 'examples'), code)) out.push({ file: rel(f), where: 'example', text: readFileSync(f, 'utf8') });
+  for (const f of files(join(TOOLS, 'templates'), /\.(m?js|html|json|md)$/)) out.push({ file: rel(f), where: 'template', text: readFileSync(f, 'utf8') });
   const rdir = join(ENGINE, 'docs/recipes');
   for (const n of existsSync(rdir) ? readdirSync(rdir).filter(n => n.endsWith('.md')) : []) {
     const blocks = [...readFileSync(join(rdir, n), 'utf8').matchAll(/```[a-z]*\n([\s\S]*?)```/g)].map(m => m[1]).join('\n');
-    out.push({ file: relp(join(rdir, n)), where: 'recipe', text: blocks });
+    out.push({ file: rel(join(rdir, n)), where: 'recipe', text: blocks });
   }
   return out;
 }
 
-const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Mark each item used / unused; returns the unused ones */
 function usage(items, texts) {
   const leaf = i => i.name.split('.').pop();
@@ -200,7 +208,7 @@ function dailySurface(dirs) {
   const items = collect();
   for (const i of items) i.games = 0;
   for (const d of dirs) {
-    const texts = files(d, /\.(m?js|html|json)$/).map(f => ({ file: relp(f), where: 'example', text: readFileSync(f, 'utf8') }));
+    const texts = files(d, /\.(m?js|html|json)$/).map(f => ({ file: rel(f), where: 'example', text: readFileSync(f, 'utf8') }));
     const probe = items.map(i => ({ ...i }));
     usage(probe, texts);
     probe.forEach((p, k) => { if (p.used) items[k].games++; });

@@ -112,6 +112,8 @@ export interface RigidOptions {
   treeRadius?: number;
   /** Player capsule size (meters), default computed from engine.movement radius / height @experimental */
   playerCapsule?: { halfHeight: number; radius: number };
+  /** The flat plane at y = 0 when the ground has no collision of its own, default true. false: only your own bodies and colliders are there (a sky of islands) */
+  fallbackFloor?: boolean;
 }
 /** Parameters for adding a physics body */
 export interface RigidBodyOptions {
@@ -165,16 +167,36 @@ export interface RigidEntry extends Handle {
 
 /** Options of engine.rigid.ragdoll @experimental */
 export interface RagdollOptions {
-  /** A push (kg*m/s) on the part nearest position, else on hips. A hit stronger than the part can take spreads to the whole body, total momentum unchanged */
+  /** A push (kg*m/s) on the part nearest position, else on the root part. A hit stronger than the part can take spreads to the whole body, total momentum unchanged */
   impulse?: Vec3Like;
   /** Where the push lands (world) */
   position?: PositionLike;
-  /** Part -> bone name or bone, over the auto-detection. Parts: hips, chest, head, upperArmL, lowerArmL, upperArmR, lowerArmR, upperLegL, lowerLegL, upperLegR, lowerLegR */
+  /** Humanoid graph only: part -> bone name or bone, over the auto-detection. Parts: hips, chest, head, upperArmL, lowerArmL, upperArmR, lowerArmR, upperLegL, lowerLegL, upperLegR, lowerLegR */
   bones?: Record<string, string | Object3D>;
   /** Part or kind ('lowerLeg', 'upperArm', 'chest', 'head'...) -> [min, max] radians from the bind pose: bend forward (a knee: backward), side, twist along the bone */
   limits?: Record<string, { bend?: [number, number]; side?: [number, number]; twist?: [number, number] }>;
-  /** Whole body, kg (default 70) */
+  /** Whole body, kg (default the graph's; humanoid 70). The graph's proportions stay */
   mass?: number;
+}
+
+/** One part of a ragdoll graph, the value of the rule 'ragdoll.graph': { body: { bone: 'Spine' }, tail: { bone: 'Tail1', parent: 'body', mass: 2 } } @experimental */
+export interface RagdollPart {
+  /** Bone name or bone */
+  bone: string | Object3D;
+  /** The part this one hangs from; its bone must be above this bone. Exactly one part has none: the root, which leads the body */
+  parent?: string;
+  /** Range of motion, [min, max] radians from the bind pose; default loose (45° bend and side, 30° twist) */
+  limits?: { bend?: [number, number]; side?: [number, number]; twist?: [number, number] };
+  /** kg; default 70 shared equally */
+  mass?: number;
+  /** The part this bone points at; default the middle of its child parts, then its first child bone. 'top' measures it from the mesh along up (a head) */
+  end?: string;
+  /** Which way a positive bend moves the tip, in bind space; default [0, 0, 1] */
+  forward?: Vec3Like;
+  /** Fallback for forward and the direction of end: 'top'; default [0, 1, 0] */
+  up?: Vec3Like;
+  /** Name shared by several parts, so one limits entry of rigid.ragdoll covers them ('leg') */
+  kind?: string;
 }
 
 /** What engine.rigid.ragdoll returns. remove() gives the character back; safe to call twice @experimental */
@@ -185,6 +207,25 @@ export interface Ragdoll extends Handle {
   readonly settled: boolean;
   /** Part name -> its rigid entry: entry.body for forces, entry.object is the bone; engine.raycast hits carry the same entry. The bones stay plain three.js */
   readonly parts: Record<string, RigidEntry>;
+}
+
+/** A hit of Collider3D.sweep */
+export interface SweepHit {
+  /** The ball's center at the hit */
+  point: Vector3;
+  /** World direction out of what it hit */
+  normal: Vector3;
+  /** How far the ball got (meters) */
+  distance: number;
+}
+/** engine.collider3d: collision on all three axes (modules/rigid/collider3d.contract.js). rigid provides it; engine.use(mine(), { replaces: 'collider3d' }) swaps in your own @experimental */
+export interface Collider3D {
+  /** A fixed solid turned any way. size [x, y, z] for a box or radius for a ball; rotation [x, y, z] radians or a quaternion. Callable before start(); newGame and a load keep it. engine.collision does not know it */
+  addSolid(opts: { position: PositionLike; size?: number[]; radius?: number; rotation?: number[] | { x: number; y: number; z: number; w: number }; friction?: number }): Handle;
+  /** Is a ball here inside something solid. Skips the player's capsule */
+  overlap(position: PositionLike, radius?: number): boolean;
+  /** Move a ball from there to there: null when clear, else the first hit. Skips the player's capsule */
+  sweep(from: PositionLike, to: PositionLike, radius?: number): SweepHit | null;
 }
 
 /** engine.rigid (real physics; bodies can only be added after start(), or in the engine:ready event) */
@@ -215,7 +256,8 @@ export interface RigidBodies {
   /**
    * Turn a skinned character limp in one call; rd.remove() returns it to animation. who: a Character, an NPC handle, a character id or a skinned Object3D.
    * Its mover, animator, capsule and camera yield until then; calling again on the same one pushes it again and returns the same ragdoll.
-   * Not saved: any load ends it. A skeleton it cannot read throws, naming the missing parts. @experimental
+   * Not saved: any load ends it. A skeleton it cannot read throws, naming the missing parts. The rule 'ragdoll.graph' (per character id) gives the parts: 'humanoid' (default),
+   * Record<string, RagdollPart> for any other body, a function (facts: { character, root, mesh }, engine) => one of those, or false for no ragdoll (returns null). @experimental
    */
   ragdoll(who: any, opts?: RagdollOptions): Ragdoll | null;
   /** Give it a push: impulse vector impulse (Vector3 / [x, y, z] / { x, y, z }), e.g. impulse(ball, [0, 3, 5]) */
@@ -288,7 +330,7 @@ export interface Vehicle extends RigidEntry, Rideable {
   /** World position of a seat (default 0, the driver's) */
   seatPosition(seat?: number): Vector3;
   /** Where to get out of a seat (outside the door on that seat's side, world coordinates) */
-  exitPosition(seat?: number): Vector3;
+  exitPosition(seat?: number, n?: number): Vector3;
 }
 /**
  * What character.enter(vehicle) needs from anything it rides (modules/characters/vehicle.contract.js): rigid.addWheeled's car passes it, and so does a
@@ -316,7 +358,7 @@ export interface Rideable {
   /** World position of a seat (default 0, the driver's; a rider is kept there) */
   seatPosition(seat?: number): Vector3 | Vec3Like;
   /** Where to get out of a seat (world coordinates; rigid cars: outside the door on that seat's side) */
-  exitPosition(seat?: number): Vector3 | Vec3Like;
+  exitPosition(seat?: number, n?: number): Vector3 | Vec3Like;
 }
 
 // ======================================================================
@@ -422,6 +464,8 @@ export interface CameraRigBase {
   kind: CameraKind;
   /** The object being followed */
   target: Object3D | null;
+  /** The pixelSnap option at work, or null: grid (give it to pixelSprite), error (last rounding in art pixels), agrees (false: something else set the view height, rounding stopped) */
+  pixelSnap?: { readonly grid: import('./pixel').PixelGrid; readonly error: { x: number; y: number }; readonly agrees: boolean; bounds: import('./pixel').PixelBounds | null } | null;
   /** Follow someone (called automatically when the player is created), null to cancel. opts temporarily changes distance / height (used while driving), restored when the target changes */
   follow(obj: Object3D | null, opts?: { distance?: number; height?: number }): void;
   /** The "forward" direction on the horizontal plane (player movement is relative to it) */
@@ -491,6 +535,8 @@ export interface FollowCameraOptions {
   hideTargetNear?: number;
   /** Layer used to hide the followed object (0-31), default 30 */
   hideLayer?: number;
+  /** Art-pixel rounding, orthographic only: rounds the camera on screen axes, clamps to bounds there first, and decides the view height (buffer height / pixelsPerMeter), so no size with it. Recipe 62 section 4b */
+  pixelSnap?: { pixelsPerMeter: number; bounds?: import('./pixel').PixelBounds | null };
 }
 /** What a followCamera({ ground: fn }) function receives each frame */
 export interface FollowCameraGroundFacts {
@@ -522,7 +568,7 @@ export interface FollowCameraView {
   look: Vec3Like;
 }
 /** Third-person follow camera */
-export interface FollowCamera extends CameraRigBase, Required<Omit<FollowCameraOptions, 'lockPitch'>> {
+export interface FollowCamera extends CameraRigBase, Required<Omit<FollowCameraOptions, 'lockPitch' | 'pixelSnap'>> {
   /** Smoothed follow point */
   focus: Vector3;
   lockPitch?: boolean;
@@ -602,6 +648,8 @@ export interface CameraShot {
 }
 /** fixedCamera / setCamera('fixed', ...) options; the shot fields (position, lookAt, projection, size...) at the top level are a one-shot form: shots = { main: them } */
 export interface FixedCameraOptions extends Partial<CameraShot> {
+  /** Art-pixel rounding, orthographic only: rounds the camera on screen axes, clamps to bounds there first, and decides the view height (buffer height / pixelsPerMeter), so no size with it. Recipe 62 section 4b */
+  pixelSnap?: { pixelsPerMeter: number; bounds?: import('./pixel').PixelBounds | null };
   /** Shots: name → shot */
   shots?: Record<string, CameraShot>;
   /** Initial shot name */

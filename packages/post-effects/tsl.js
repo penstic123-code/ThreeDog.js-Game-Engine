@@ -38,7 +38,6 @@ export function voxelGI({ resolution = 128, bounds, intensity = 1, occlusion = 0
       const { tsl, p, scenePass, scene, camera, display } = ctx;
       gi = display.own(vxgi(scenePass.getTextureNode('depth'), scenePass.getTextureNode('normal'), scene, camera, resolution));
       display.own({ dispose() { gi = null; } });
-      gi.volume.layers.enable(RESERVED_LAYERS.occlusionHidden);   // a wall out of the camera's sight still throws its color
       if (bounds) gi.volume.bounds.copy(bounds);
       setup?.(gi);
       const light = gi.getGINode().rgb.mul(scenePass.getTextureNode('diffuse').rgb).mul(p.intensity);

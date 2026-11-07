@@ -5,7 +5,7 @@ import type { XZ, PositionLike } from './common';
 export interface NavOptions {
   /** Voxel cell size (meters), default 0.3; smaller is more accurate but slower to build */
   cellSize?: number;
-  /** Character radius (meters), default reads engine.movement.radius (this is an override) */
+  /** Character radius (meters), default reads engine.movement.radius (this is an override). The mesh built at load; a path with another radius gets a mesh of its own, on first ask */
   agentRadius?: number;
   /** Character height (meters), default reads engine.movement.height */
   agentHeight?: number;
@@ -79,7 +79,7 @@ export interface Nav {
   helper: any;
   /** +1 on rebuild / unload: code that cached native objects (crowd agents etc.) must recreate them when it changes @experimental */
   readonly version: number;
-  /** Path from from to to [{ x, z }…] (meters); null if not ready or unreachable. Usually use engine.characters.findPath */
+  /** Path from from to to [{ x, y, z }…] (meters); null if not ready or unreachable; radius: the body it must fit, default agentRadius. Usually use engine.characters.findPath */
   findPath(from: PositionLike, to: PositionLike, opts?: { radius?: number; detailed?: false }): NavPathPoint[] | null;
   /** Pass detailed: true: returns { status: 'ok' | 'noPath' | 'notReady', path }, telling "unreachable" from "mesh not generated yet" */
   findPath(from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true }): { status: 'ok' | 'noPath' | 'notReady'; path: NavPathPoint[] | null };

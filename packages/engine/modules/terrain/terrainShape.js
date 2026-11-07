@@ -24,7 +24,7 @@ export function forEdges(P, fn) {
 
 /**
  * @param {any} S the shape config (functions already source text or functions; an image mask carries data)
- * @param {{ CELL: number, NOISE: any, key: (i: number, j: number) => number, hash: Function, fbm: Function }} ctx
+ * @param {{ CELL: number, NOISE: any, key: (i: number, j: number) => number | string, hash: Function, fbm: Function }} ctx
  */
 export function makeShape(S, { CELL, NOISE, key, hash, fbm }) {
   const pure = (v, label) => (typeof v === 'function' || typeof v === 'string' ? compilePure(v, label).call : null);

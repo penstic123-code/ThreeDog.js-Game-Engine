@@ -40,7 +40,7 @@ Rigid bodies and vehicles do not change a model's shadow settings: set `mesh.cas
   it doesn't compete with jumping) brakes, and without one the engine warns once; press E again to exit.
 - Saving: the player save records which vehicle the player is in (its `id`); loading an on-foot save while driving exits the vehicle first, and
   loading a driving save puts the player back in the car.
-- Code: `engine.player.enter(v)`, `engine.player.exit()`; `engine.player.vehicle` is the vehicle being driven (null when on foot); `v.driver` is who is driving, `v.passengers` who rides, `character.seat` the seat (0 drives; a second `enter` takes a free passenger seat, which does not steer).
+- Code: `engine.player.enter(v)`, `engine.player.exit()` (takes the first walkable exit of `exitPosition(seat, n)`; none: answers `false` and the rider stays, `exit({ force: true })` always gets out); `engine.player.vehicle` is the vehicle being driven (null when on foot); `v.driver` is who is driving, `v.passengers` who rides, `character.seat` the seat (0 drives; a second `enter` takes a free passenger seat, which does not steer). Placing a rider (`placeAt`, a teleport, a write to its record's position) ends the ride, as `exit()` does; to take it along, move the vehicle.
 - NPCs/scripts driving: `v.drive(throttle -1..1, steer -1..1 (right is positive), brake 0-1)`; the last values set are used on every fixed step.
 - Events: `vehicle:enter`, `vehicle:exit` (`{ character, vehicle }`). Removal: `v.remove()` (anyone inside exits first; the model stays,
   `engine.remove(car)` deletes it).
@@ -68,7 +68,7 @@ velocities and sleep, and a load gives that state back to the body with the same
 **Joints** (hinges, doors, ropes, chains) are plain Rapier on engine bodies; the engine has no wrapper. `R.world` is the Rapier world and `entry.body` the Rapier body. newGame and a load rebuild the physics world (physics starts over like a fresh
 page) and free the old world's joints with it; the engine does not copy them. It emits `rigid:rebuilt` once the bodies are back, and that is
 where a game re-creates its joints, with the same code that made them:
-```js
+```js fragment
 const R = engine.rigid, J = R.rapier.JointData;
 const post = R.addBox(postMesh, { fixed: true }), door = R.addBox(doorMesh, { mass: 8 });
 function hang() {   // makes the joints; called after the bodies are added, and again after every rebuild
@@ -98,17 +98,28 @@ stay). Removing a body removes its joints (Rapier does that).
 
 ## 3b. Ragdoll (experimental)
 
-```js
+```js fragment
 const rd = engine.rigid.ragdoll(enemy, { impulse: [0, 150, -400], position: hit.point });   // a Character, NPC handle, id or skinned Object3D
-engine.clock.after(4, () => rd.remove());   // back to animation where the body lies; a get-up clip is yours to play
+engine.clock.after(4, () => rd.remove(), { channel: 'real' });   // back to animation where the body lies; a get-up clip is yours to play
 ```
 - **Skeletons.** Mixamo, Blender, Unreal, Bip01, VRM and Quaternius names are read by themselves. Otherwise name the parts: `{ bones: { lowerLegL: 'Shin_01' } }`; an unreadable skeleton throws, naming the missing parts.
   Parts: `hips chest head upperArmL lowerArmL upperArmR lowerArmR upperLegL lowerLegL upperLegR lowerLegR`.
 - **Limits** are `[min, max]` radians from the bind pose, per part or kind: `{ limits: { lowerLeg: { bend: [0, 2] } } }`. `bend` is forward (a knee: backward), then `side` and `twist`.
 - **The bones stay plain three.js.** Each fixed step writes rotations, and hips' position only, so bones keep their length. Attach things with `character.onPose`. Once `rd.settled`, nothing is written and your bone writes stay. Hands, feet and bones between parts keep their pose.
-- **One owner.** While limp, control is held on the layer `physics` (recipe 57), the animator writes nothing, the capsule is off, the camera follows the hips, `state` is `'ragdoll'` and `root` follows the body. `remove()` gives each back; a camera you moved stays moved. In a vehicle it throws: `exit()` first. `remove()` before `placeAt`. A mixer you made yourself is yours to stop.
+- **One owner.** While limp, control is held on the layer `physics` (recipe 57), the animator writes nothing, the capsule is off, the camera follows the hips, `state` is `'ragdoll'` and `root` follows the body. `remove()` gives each back; a camera you moved stays moved. In a vehicle it throws: `exit()` first. `placeAt`, or a write to its record's position, carries the whole body there at rest, still limp. A mixer you made yourself is yours to stop.
 - **Physics.** One rigid body per part (`rd.parts.head.body`; ray hits carry the bone in `object`), so buoyancy and ground freezing apply. Parts do not collide with each other, nor ragdolls with one another.
 - **Not saved.** A load or new game ends it. A world rebuild without a load keeps it and re-creates its joints on `rigid:rebuilt`. Deleting the character frees everything.
+- **Collision on three axes.** `engine.collider3d` is the slot rigid holds: `addSolid({ position, size | radius, rotation })` puts a fixed solid at any tilt, `overlap(position, radius)` and `sweep(from, to, radius)` answer for a flying mover or a path source. `engine.collision` does not know these solids, so walkers on the simple mover pass through. A game's own provider passes `modules/rigid/collider3d.contract.js` and takes the slot with `engine.use(mine(), { replaces: 'collider3d' })`.
+- **Not a human.** The rule `ragdoll.graph` says what the parts are. The default `'humanoid'` is a physics helper that reads the 11 parts from bone names, not a choice of body for your game; every other body plan passes its own graph, one part without a parent, the rest hanging from it:
+  ```js
+  engine.mod('ragdoll.graph', { owner: 'game', id: 'wolf', set: {
+    body: { bone: 'Spine', mass: 20 },
+    head: { bone: 'Head', parent: 'body', mass: 4 },
+    legFL: { bone: 'FrontL', parent: 'body', kind: 'leg', forward: [0, 0, 1] },
+    tail: { bone: 'Tail1', parent: 'body', limits: { bend: [-1, 1], side: [-1, 1] } },
+  } });
+  ```
+  Without `id` it covers every body; a function `(facts, engine) => graph` picks per body; `false` makes `ragdoll()` return null.
 - **Left out:** partial or blended ragdoll (an arm thrown by a hit while the rest animates); `remove()` cuts to the animation.
 
 ## 4. Verify
@@ -117,4 +128,5 @@ engine.clock.after(4, () => rd.remove());   // back to animation where the body 
   player stands outside the door.
 - Vehicle speed is only in the object form `engine.describe().player.vehicle` (the player line of describeText does not show it);
   `describe().player.mover` and `grounded` are there too.
-- Related test: `threedog test 载具` (test page in the engine repository: `packages/engine/tests/vehicle/`, with a complete car and steps).
+
+A load seats a rider by vehicle id and seat. Your own vehicle joins with `engine.characters.addVehicle(boat)`, before or after the load.

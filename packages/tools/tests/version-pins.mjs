@@ -7,19 +7,9 @@ import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ROOT } from '../paths.mjs';
 import { applyDeps } from '../lib/scaffold.mjs';
+import { accepts, stalePins } from '../lib/pin-range.mjs';
 
 export const name = 'version pins: threedog / @threedog/* ranges accept the current versions, three ranges share one minor';
-
-/** Only the forms the repository uses: ^x.y.z and ~x.y.z (an unknown form fails, so a new form cannot slip past this check) */
-export function accepts(range, version) {
-  const m = /^([\^~])(\d+)\.(\d+)\.(\d+)$/.exec(range), v = version.split('.').map(Number);
-  if (!m) return null;
-  const [, op, ...r] = m, [a, b, c] = r.map(Number);
-  const atLeast = v[0] > a || (v[0] === a && (v[1] > b || (v[1] === b && v[2] >= c)));
-  // ^ on 0.x keeps the minor (npm semver), on >=1 keeps the major; ~ always keeps the minor
-  const same = op === '^' && a > 0 ? v[0] === a : v[0] === a && v[1] === b;
-  return atLeast && same;
-}
 
 export async function run({ check }) {
   const pkgDirs = ['packages/engine', 'packages/tools', 'packages/post-effects', 'packages/terrain-noise'];
@@ -44,4 +34,8 @@ export async function run({ check }) {
   check('three and @types/three ranges are on one minor everywhere', threeMinors.size === 1, [...threeMinors].join(', '));
   // the checker itself: 0.x caret semantics are the whole point
   check('accepts(): ^0.2.0 takes 0.2.5 but not 0.3.0; ~0.187.0 takes 0.187.2', accepts('^0.2.0', '0.2.5') && !accepts('^0.2.0', '0.3.0') && accepts('~0.187.0', '0.187.2') && !accepts('^0.3.0', '0.2.9'));
+  // what `threedog doctor` reports and --fix rewrites in a game of the repo: a ^0.7.1 pin (ETARGET) and a ^0.8.0 pin (second engine) are stale, "*" is not
+  const cur = n => current[n] ?? null, stale = deps => stalePins({ dependencies: deps }, cur).map(s => s[1]).join();
+  check('doctor: ^0.7.1 and ^0.8.0 pins are reported against the current engine, "*" is not',
+    stale({ threedog: '^0.7.1', '@threedog/tools': '^0.8.0', three: '~0.187.0' }) === 'threedog,@threedog/tools' && stale({ threedog: '*', '@threedog/tools': '*' }) === '' && stale({ threedog: `^${current.threedog}` }) === '');
 }

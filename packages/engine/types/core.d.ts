@@ -7,7 +7,7 @@ import type { World } from './generated/modules/world/World';
 import type { Net } from './generated/modules/net/Net';
 import type { PostEffect } from './generated/render/PostFX';
 import type { Grids } from './generated/modules/grid/index';
-import type { Collision, RigidBodies, CameraRig, CameraKind, CameraShotEvent, Animator, AnimatorOptions, Vehicle, Rideable } from './physics';
+import type { Collision, RigidBodies, Collider3D, CameraRig, CameraKind, CameraShotEvent, Animator, AnimatorOptions, Vehicle, Rideable } from './physics';
 import type { Nav, LinkCrossing } from './nav';
 import type { Stream } from './generated/core/stream/Stream';
 import type { Batching } from './generated/core/stream/Batching';
@@ -30,7 +30,7 @@ import type { Random } from './generated/core/base/Random';
 import type { PostFX } from './generated/render/PostFX';
 import type { Occlusion } from './generated/render/occlusion';
 import type {
-  Timeline, Level, LevelLoadedEvent, Triggers, TriggerEvent, TemplateStageEvent,
+  Timeline, Level, LevelLoadedEvent, LevelLoadingEvent, LevelFailedEvent, LevelPlayableEvent, LevelUnloadedEvent, Triggers, TriggerEvent, TemplateStageEvent,
   Particles, SwarmMaker, Settings, Music, MusicChangeEvent, CharactersApi, NPCManager, Character,
   Interactions, Dialogue, Inventory, ItemEvent, ItemUseEvent, PickupEvent, Pickups, PickupsOptions, Quests, Photo, PhotoShot, Ambience, DebugPanel,
   Clock, Vars, Content, Flow, Hud,
@@ -113,7 +113,7 @@ export interface EventMap extends GameEvents {
   'link:enter': [{ id: string; character: Character; crossing: LinkCrossing }];
   /** A crossing ended: landed, or cut short (npc.placeAt, walk.remove()). character is null for an NPC that went out of range mid-crossing @experimental */
   'link:exit': [{ id: string; character: Character | null; crossing: LinkCrossing }];
-  'character:fall': [{ character: Character; safe: Vector3 | null; preventDefault(): void }];
+  'character:fall': [{ character: Character; safe: Vector3 | null }];
   /** A character's model named by asset finished loading and replaced the placeholder body (same root; anim is now set) */
   'character:model': [{ character: Character; model: Object3D }];
   /** A foot of a walking character came down; character.groundType() is what it stepped on */
@@ -158,6 +158,10 @@ export interface EventMap extends GameEvents {
   'quest:part': [{ id: string; step: number; part: number }];
   /** A quest failed (its fail condition held); quests.start(id) may begin it again */
   'quest:fail': [{ id: string }];
+  /** A finished quest's reward was not given. failed: each word that failed; owed: the items the quest still owes, null when none or when onUnpaid took it */
+  'quest:unpaid': [{ id: string; code: string; failed: { word: string; code: string; facts: any }[]; owed: Record<string, number> | null }];
+  /** A content effect word failed ({ give } in a full bag, { op } refused), wherever it ran: a dialogue do, a trigger, a reward, content.run. actor: whose effect it was */
+  'content:failed': [{ code: string; failed: { word: string; code: string; facts: any }[]; actor: string | null }];
   /** A photo was taken */
   'photo:taken': [PhotoShot];
   /** The photo key was pressed but the op photo.take was refused (reason from photo.canTake(), 'denied' when it returned false) */
@@ -167,11 +171,15 @@ export interface EventMap extends GameEvents {
   /** Left a trigger zone */
   'trigger:exit': [TriggerEvent];
   /** Level finished loading */
+  'level:loading': [LevelLoadingEvent];
   'level:loaded': [LevelLoadedEvent];
+  'level:unloaded': [LevelUnloadedEvent];
+  'level:playable': [LevelPlayableEvent];
+  'level:failed': [LevelFailedEvent];
   /** A cutscene started */
   'timeline:start': [{ id: number }];
-  /** A cutscene ended; skipped tells whether it was skipped */
-  'timeline:end': [{ id: number; skipped: boolean }];
+  /** A cutscene ended; ending says how, error why it failed */
+  'timeline:end': [{ id: number; ending: 'finished' | 'skipped' | 'dropped' | 'failed'; error?: string }];
   /** A content template instance entered a new stage by growing (templates with stages) */
   'template:stage': [TemplateStageEvent];
   /** The ground's shape or type changed in this world-space box (engine.terrain.edit): cached ground samples (path rasters) inside it are stale */
@@ -224,6 +232,9 @@ export interface EventMap extends GameEvents {
   'engine:error': [EngineError];
   /** A picture or ui module errored and was disabled (the game continues) */
   'module:disabled': [{ name: string; message: string }];
+  'module:restored': [{ modules: any[] }];
+  /** @internal The state was replaced by something other than a step, from any door (core/saves/stateReplace.js); undone: a failed load put the old state back */
+  'state:replaced': [{ undone: boolean }];
   /** A character boarded a vehicle */
   'vehicle:enter': [{ character: Character; vehicle: Rideable }];
   /** A character exited a vehicle */
@@ -237,7 +248,7 @@ export interface EventMap extends GameEvents {
   /** A playthrough started from a clean slate: kind 'new' (newGame) or 'load' (session.load, with the slot) */
   'session:start': [{ kind: 'new' | 'load'; slot?: string }];
   /** newGame / session.load failed (a save part's load() threw) and the game was rolled back: the old playthrough goes on, no session:start */
-  'session:failed': [{ kind: 'new' | 'load'; slot?: string }];
+  'session:failed': [{ kind: 'new' | 'load' | 'quit'; slot?: string }];
   /** The page went away: the window lost focus or the tab was hidden (engine.page) */
   'page:blur': [{ focused: boolean; visible: boolean }];
   /** The page came back: focused and visible again */
@@ -376,6 +387,9 @@ export type StringTables = Record<string, Record<string, string>>;
 // Saves
 // ======================================================================
 
+/** Which state replacement a call belongs to: handed to a part's load() and a module's afterLoad, opaque, valid until that replacement ends */
+export type SaveTurn = Readonly<object>;
+
 /** Save provider: save() returns JSON-able data, load(data) reads it back (may return a Promise, e.g. for changing level;
  *  later parts wait for it to finish before loading).
  *  first: true providers load first (parts such as the level, where the rest only makes sense after it is loaded) */
@@ -384,12 +398,15 @@ export interface SaveProvider {
    *  part keeps: the engine copies it for its rollback point before a load, so a load() that writes into that same object can still be undone.
    *  Data that cannot be copied makes a load refuse before anything changes (save-part-threw) */
   save: () => any;
-  /** Read data back; may return a Promise (later parts wait). Listener errors of events it emits count as the load throwing, also after an await */
-  load: (data: any) => void | Promise<void>;
+  /** Read data back; may return a Promise (later parts wait). Listener errors of events it emits count as the load throwing, also after an await.
+   *  turn: this replacement's identity. Pass it on as level.load(x, { turn }) / content.load(x, { turn }): awaited without it, those wait for this load, so for ever (dev warns after 3 s, save-nested) */
+  load: (data: any, turn: SaveTurn) => void | Promise<void>;
   /** Load before the other parts (such as the level) */
   first?: boolean;
   /** Join atomic ops: copied before an atomic op runs, put back if it fails (plain data; afterLoad does not run on rollback) */
   atomic?: boolean;
+  /** Why an atomic op leaves this part alone. Every engine part gives atomic: true or this (rule R66); a game's part may */
+  notAtomic?: string;
   /** Dev only: called once start() finished with this part's data in the new-game state, to warn about what should not be there yet (world: records placed by code) */
   checkNewGame?: (data: any) => void;
   /** This part's format version, default 1: raise it by 1 when what save() returns changes shape. A save with a newer version is refused */
@@ -647,8 +664,8 @@ export interface Loading {
   /** Run the game's own loading step as a task (critical by default: a failure before start() finishes stops start()) */
   track<T>(name: string, fn: () => Promise<T>, opts?: { critical?: boolean }): Promise<T>;
   /**
-   * Resolves when every module installed after start() has finished its init() (also when one failed: see engine.moduleStates).
-   * @example engine.use(shop()); await engine.loading.settled(); engine.moduleStates.shop   // 'running'
+   * Resolves when every module installed after start() has finished its init() (also when one failed: engine.explain({ module: name }) says so).
+   * @example engine.use(shop()); await engine.loading.settled(); engine.explain({ module: 'shop' }).ok   // true
    */
   settled(): Promise<void>;
   /** How long start() waits for modules whose isReady(e) stays false before it rejects naming them, in ms (default 120000) */
@@ -865,7 +882,7 @@ export interface UIParts {
   /** Window content by name: a function here replaces that window's default HTML, read each time it draws */
   templates: Record<string, UITemplate>;
   /** Declare a part and its default (engine and modules; games use set) */
-  define(name: string, factory: UIPartFactory, def?: UIPartDef): void;
+  define(name: string, factory: UIPartFactory, def?: UIPartDef): Handle;
   /**
    * Replace a part, give the default options, or turn it off (before engine.start(); the loading part only via createEngine({ ui }))
    * @example engine.ui.set('hud.marker', false)
@@ -907,9 +924,9 @@ export interface Ground {
    */
   height(x: number, z: number, refY?: number): number;
   /** Slope at (x, z) (height difference / horizontal distance) */
-  slope(x: number, z: number): number;
+  slope(x: number, z: number, refY?: number): number;
   /** Ground type at (x, z) (landform name, e.g. 'meadow') */
-  type(x: number, z: number): string;
+  type(x: number, z: number, refY?: number): string;
   /** Global water level (meters); -Infinity when there is no water */
   waterLevel: number;
   /**
@@ -944,6 +961,12 @@ export interface ModuleCtx {
    *  batch rolls back, its init fails, it is replaced, or on engine.dispose() before its dispose hook. Returns the handle */
   track<H extends { remove(): void }>(handle: H): H;
   /**
+   * Write values on an object the module does not own and give them back when the module goes (or on the handle's remove()). A value goes back only if it is
+   * still what this borrow left there, so a later write by the game stands. For a value several parties change at once use a shared value (ctx.mod).
+   * @example ctx.borrow(e.renderer, { toneMapping: THREE.AgXToneMapping }); ctx.borrow(e.scene, { fog: new THREE.Fog(0x667788, 10, 200) });
+   */
+  borrow(obj: object, values: Record<string, any>): { remove(): void };
+  /**
    * engine.mod with this module as the owner, tracked: the change goes when the module goes. Passing owner throws (use engine.mod for another name).
    * @example ctx.mod('time.world', { mul: 0.8, layer: 'effect' })
    */
@@ -963,10 +986,52 @@ export interface ModuleCtx {
    * @example ctx.whileCompiling(() => { const w = new R.World(g); w.step(); w.free(); })
    */
   whileCompiling(fn: () => void): void;
+  /**
+   * This module puts data into whoever holds that capability: fn runs before the use() of a new holder returns, so the next line can read it whole. Leaves with the module.
+   * A throw fails that use() and the old holder comes back.
+   * @example ctx.feeds('collision', () => addMyWalls());
+   */
+  feeds(capability: string, fn: () => void): void;
+  /** engine.ops.define, owned: the op goes when the module goes */
+  ops: { define: Ops['define'] };
+  /** engine.saves.register, owned: the part goes when the module goes and its data stays in the save as unattached data, handed back to a later install */
+  saves: { register(key: string, provider: SaveProvider): Handle };
+  /** engine.ui.define, owned: the part is closed and its definition goes when the module goes */
+  ui: { define(name: string, factory: UIPartFactory, def?: UIPartDef): Handle };
+  /** engine.stream.addReadyCheck, owned */
+  stream: { addReadyCheck(name: string, fn: (source: any) => boolean): Handle };
+  /** engine.budget.metric, owned */
+  budget: { metric(name: string, read: () => number, opts?: { limit?: number }): Handle };
+  /** Where engine.thing finds this module's records, and what engine.explain({ thing }) adds; owned */
+  things: { addSource(source: any): Handle; explainWith(fn: (e: Engine, thing: any, out: any) => void): Handle };
+  /**
+   * Give the ground. provides must name 'ground' (terrain and level hold it too, so two providers are refused at use()); when the module goes the flat ground comes back.
+   * addColliders: more static colliders in engine.ground.forEachCollider, whoever gives the ground.
+   * @example provides: ['ground'], install(e, ctx) { ctx.ground.provide({ height: (x, z) => 0 }); }
+   */
+  ground: { provide(g: Partial<Ground>): Handle; addColliders(forEach: (x: number, z: number, range: number, fn: (x: number, z: number, r: number) => void) => void): Handle };
 }
 
 /** What a module may own (ModuleDef.type; core/engine/moduleTypes.js) */
 export type ModuleType = 'world' | 'picture' | 'actor' | 'rules' | 'ui' | 'net' | 'tool';
+
+/** One content section: validate and prepare must not change the game, commit is the only step that does. See core/base/sections.js */
+export interface ContentSection {
+  /** Entry shapes in the params format, read by content.fields */
+  fields?: Record<string, any>;
+  /** The ids this data names in other sections */
+  references?(data: any): { section: string; id: string; at?: string }[];
+  /** Throw to refuse the data */
+  validate?(data: any, c: any): void;
+  /** Everything that can fail, away from live state; may be async */
+  prepare?(data: any, c: any): any;
+  /** Put the prepared data in place */
+  commit(prepared: any, c: any): any;
+  /** This prepare will not commit: let go of what it holds. prepared may be its Promise, still running */
+  cancel?(prepared: any, c: any): void;
+  /** Effect words this section's owner runs: word -> { ref, desc, describe, run } */
+  effects?: Record<string, any>;
+}
 
 /**
  * A module (the argument of engine.use). The name is the property name on the engine once installed.
@@ -1006,11 +1071,11 @@ export interface ModuleDef<Api = any> {
    * Within a stage use before / after, then install order. What the module may own and how its errors are handled come from type
    */
   stage?: 'control' | 'ground' | 'environment' | 'gameplay' | 'effects' | 'late' | 'audio';
-  /** Hooks run before these modules, inside one stage (ignored if not installed;
-   *  use() throws on a cycle, or when the other module's stage already runs earlier) */
+  /** Hooks run before these modules or capabilities, inside one stage (ignored if not installed; a capability means whichever module provides it now;
+   *  use() throws on a cycle, or when the other module's stage already runs earlier; reached through a capability that is a dev warning and the stage order stays) */
   before?: string[];
-  /** Hooks run after these modules, inside one stage (ignored if not installed;
-   *  use() throws on a cycle, or when the other module's stage already runs later) */
+  /** Hooks run after these modules or capabilities, inside one stage (ignored if not installed; a capability means whichever module provides it now;
+   *  use() throws on a cycle, or when the other module's stage already runs later; reached through a capability that is a dev warning and the stage order stays) */
   after?: string[];
   /**
    * The game cannot run without this module (default false): when its init() fails, engine.start() rejects with the module name and reason instead of
@@ -1027,10 +1092,12 @@ export interface ModuleDef<Api = any> {
   install?(e: Engine, ctx: ModuleCtx): Api;
   /** Called at startup (download things, wait for assets); may be async. ctx is the same as install's */
   init?(e: Engine, ctx: ModuleCtx): void | Promise<void>;
+  /** Content sections this module owns: their format, checks and how the data becomes live state (validate, prepare, commit). See core/base/sections.js */
+  content?: Record<string, ContentSection>;
   /** The loading screen waits until this returns true before disappearing (the hook is called isReady; in the engine ready is always a boolean property) */
   isReady?(e: Engine): boolean;
-  /** After a save loaded: rebuild what the loaded state needs nearby; gameplay waits frozen until the returned Promise resolves */
-  afterLoad?(e: Engine): void | Promise<void>;
+  /** After a save loaded: rebuild what the loaded state needs nearby; gameplay waits frozen until the returned Promise resolves. turn: as SaveProvider.load */
+  afterLoad?(e: Engine, turn: SaveTurn): void | Promise<void>;
   /** Fixed step (60 times per second); dt is in seconds */
   fixed?(dt: number, e: Engine): void;
   /** Once per frame; dt is in seconds */
@@ -1043,8 +1110,10 @@ export interface ModuleDef<Api = any> {
    * Only for modules that keep time themselves (calendar, world); modules that compare against clock.now need nothing
    */
   skip?(dt: number, e: Engine, done: boolean): void;
-  /** Why a module with a fixed hook has no skip hook: engine.catalog shows it instead of a warning */
+  /** Why a module with a fixed hook has no skip hook */
   noSkip?: string;
+  /** How engine.skip advances it. exact: the same state as stepping, from the clock or a hook. approx: a hook catches up with an estimate. step: a hook replays the steps. none: a jump moves nothing here. A module with a fixed or skip hook declares it (engine.catalog reports one that does not); engine modules always do */
+  skipKind?: 'exact' | 'approx' | 'step' | 'none';
   /** The option schema (core/base/params.js): engine.catalog shows it, and dev checks the module's options against it */
   params?: any;
   /** Where its docs live, shown by engine.catalog */
@@ -1089,10 +1158,17 @@ export interface EngineOptions {
    * working; 'webgl': a WebGLRenderer instead (faster, but NodeMaterials cannot draw: start() fails if the scene has one); 'error': start() rejects.
    * Every fallback prints one '[threedog] WebGPU unavailable (...)' line and shows in describe().renderer */
   fallback?: 'webgl2' | 'webgl' | 'error';
-  /** MSAA anti-aliasing (kept with post effects on), default on for desktop and off for low-tier devices; with a renderer of your own, its own antialias. The start value is the canvas's own MSAA (no post chain while no effect is on) */
+  /** MSAA anti-aliasing (kept with post effects on), default on for desktop and off for low-tier devices; with a renderer of your own, its own antialias. It is fixed with the canvas: a player's settings row changes it at the next launch */
   antialias?: boolean;
   /** Render resolution, default min(device pixel ratio, 1.5); the low tier uses at least 0.75 x device pixel ratio (never below 1). describe().render.scale reports it */
   pixelRatio?: number;
+  /**
+   * Real screen pixels per art pixel, a whole number from 1 up: art pixels of exactly one size at any display scale, through page zoom and moves to another display.
+   * Sets image-rendering: pixelated, antialias defaults to off, adaptive resolution stops, and the last few real pixels (fewer than k) at the right and bottom stay empty.
+   * Giving pixelRatio or adaptiveResolution: true as well is an error. Recipe 62 section 4b.
+   * @example createEngine({ canvas, pixelSize: 3 })
+   */
+  pixelSize?: number;
   /** Automatically lower resolution when the frame rate is too low, default true. Never silent: a dev warning once, and describe().render.scale.autoLowered */
   adaptiveResolution?: boolean;
   /** Target frame rate for automatic resolution lowering, default 55 */
@@ -1198,6 +1274,10 @@ export interface RayHit {
   normal: Vector3 | null;
   object: Object3D | null;
   face: any;
+  /** Which instance of an InstancedMesh was hit, as in a three.js intersection */
+  instanceId?: number;
+  /** Which item of a BatchedMesh was hit, as in a three.js intersection */
+  batchId?: number;
   entry?: any;
   kind?: string;
   /**
@@ -1224,10 +1304,8 @@ export interface Thing extends HitThing {
   id: string; owner: string; at: string | null; phase: 'setup' | 'play'; saved: 'record' | 'code' | 'session' | 'engine'; keeps: string[]; loses: string[];
   /** the live object (the record's current model, null when not built) */
   readonly object: Object3D | null;
-  /** everything about this id in one JSON-able object: definition file:line, template, model, materials, state, collision rules, related ops, save status, how to change it. Not engine.explain(): that answers "why can this op / quest not run" (recipes/41 section 6) */
-  explain(): ThingExplanation;
 }
-/** What thing.explain() returns (`threedog thing <id>` prints the same JSON); modules add keys to rules / state through their explainers */
+/** The detail of engine.explain({ thing: id }) (`threedog explain thing <id> --full` prints the same JSON); modules add keys to rules / state through their explainers */
 export interface ThingExplanation {
   id: string; kind: string; owner: string;
   /** at: 'content/props.js:14' (null in release builds and for code without a file) */
@@ -1330,7 +1408,7 @@ export interface StreamEntryOptions {
   radius?: number;
   /** Generate the object (called when entering range, run spread over frames through engine.jobs) */
   build: () => Object3D | Promise<Object3D>;
-  /** Unload (called when leaving range), default engine.remove (frees what nothing else in the scene uses); write your own when the object is reused (e.g. engine.detach) */
+  /** Unload (called when leaving range), default engine.remove (frees what nothing else in the scene uses); write your own when the object is reused (e.g. obj.removeFromParent()) */
   dispose?: (obj: Object3D) => void;
   /** Do not unload even when out of range */
   keep?: boolean;
@@ -1583,7 +1661,7 @@ export declare class Engine {
   validate: boolean;
   /** three.js renderer: WebGLRenderer, or WebGPURenderer on the WebGPU route (EngineRenderer) */
   renderer: EngineRenderer;
-  /** Device tier: 'low' (phones, integrated graphics) | 'high'. A headless page takes it from ?threedog-tier=low|high (threedog shot / gallery / capture pass high, shot --tier low checks the low tier) */
+  /** The one quality value, what everything that scales by quality reads: the device's tier, 'low' (phones, integrated graphics) | 'high', unless the player's preset says otherwise (shared point 'tier'). A headless page takes the device's from ?threedog-tier=low|high (threedog shot / gallery / capture pass high, shot --tier low checks the low tier) */
   tier: 'low' | 'high';
   /** three.js scene */
   scene: import('three').Scene;
@@ -1591,8 +1669,12 @@ export declare class Engine {
    * Placeholder lights: neutral and still, nothing moves them (the sky only gives signals). createEngine({ lights: false }) leaves them out of the scene
    */
   lights: { sun: import('three').DirectionalLight; hemi: import('three').HemisphereLight };
-  /** three.js PerspectiveCamera (class EngineCamera, core/scene/engineCamera.js): a camera rig with projection: 'orthographic' switches it to an orthographic matrix in place (orthoSize; describe().camera.projection says which) */
-  camera: import('three').PerspectiveCamera;
+  /**
+   * The camera the engine draws with, a plain THREE.PerspectiveCamera to begin with. Assign a real THREE.PerspectiveCamera or THREE.OrthographicCamera to draw through it; any other class
+   * is refused [camera-option]. A camera rig with projection: 'orthographic' does the same for you, and the next perspective view brings the first camera back: read this where you use it.
+   * describe().camera.projection says which projection is on.
+   */
+  camera: import('three').PerspectiveCamera | import('three').OrthographicCamera;
   /**
    * Camera focus, updated every frame by the camera module: terrain, models etc. load around it. The center of gameplay simulation is world.anchor (the
    * player by default), which does not follow the camera
@@ -1633,12 +1715,6 @@ export declare class Engine {
   /** Execution order of module hooks (module names, first -> last), for debugging "who runs before whom" @experimental */
   readonly moduleOrder: string[];
   /**
-   * Where each module is: 'registered' (init not started), 'initializing', 'running', 'failed' (init threw: its hooks never run) or 'disposed'.
-   * A module installed after start() runs no fixed / frame hook until it is 'running'; `await engine.loading.settled()` waits for that
-   * @experimental
-   */
-  readonly moduleStates: Record<string, 'registered' | 'initializing' | 'running' | 'failed' | 'disposed'>;
-  /**
    * What this game can do, read from the existing registrations (modules, ops, save parts, describe, params schemas).
    * No argument: the short list, an ARRAY of { id, kind, label, ops, saves, ... } (read .id, not Object.keys); a module id / op name: that entry
    * expanded (null if unknown); { find }: the short list filtered. recipes/51-capability-catalog.md
@@ -1650,8 +1726,6 @@ export declare class Engine {
    * message }, gameplay is frozen; null when there is no error. A release build does not freeze, it reports once in the console
    */
   readonly error: EngineError | null;
-  /** Names of picture / ui modules disabled after an error (a module's type decides: picture and ui fail soft) @experimental */
-  readonly disabledModules: Set<string>;
   /**
    * The engine's cancel signal (AbortSignal): for DOM listeners write addEventListener(type, fn, { signal: engine.signal }), removed automatically on
    * dispose()
@@ -1679,6 +1753,8 @@ export declare class Engine {
   audio: Audio;
   /** Assets */
   assets: Assets;
+  /** The API of the module holding the 'picture' slot (recipe 62), undefined when no look is installed: engine.use(next(), { replaces: 'picture' }) changes it, so read it again after a switch */
+  picture: any;
   /** Observable loading: every asset load, module init / isReady and track() step as a task (phase, error, source manifest) */
   readonly loading: Loading;
   /** Post-processing: named effects in slots (add / get / enable / list) */
@@ -1792,7 +1868,7 @@ export declare class Engine {
   sky?: Sky;
   /** Time of day, day, seasons and clock-time timers (calendar() module); NPC schedules, content clock conditions and audio time rules read it */
   calendar?: Calendar;
-  /** Weather state (weather() module): the table, current values, set / setAuto, save, events */
+  /** Weather state (weather() module): the table, current values, set / auto, save, events */
   weather?: Weather;
   /** Weather drawing (installed by weather(); sky is optional): rain / snow particle systems, lightning flash, the weather's effect on sun, fog and sky @experimental */
   weatherDraw?: WeatherDraw;
@@ -1808,6 +1884,8 @@ export declare class Engine {
   collision?: Collision;
   /** Real physics, Rapier (rigid() module, needs collision) */
   rigid?: RigidBodies;
+  /** Collision on all three axes (the collider3d slot, held by rigid() unless replaced) @experimental */
+  collider3d?: Collider3D;
   /** Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamera) */
   cameraRig?: CameraRig;
   /**
@@ -1838,7 +1916,7 @@ export declare class Engine {
   characters?: CharactersApi;
   /** NPC management (characters() module, npcs on by default) */
   npcs?: NPCManager;
-  /** Interaction prompts (interactions() module) */
+  /** Interaction prompts (interactions() module). Press a key near a thing. Install: engine.use(interactions()); undefined until installed. onUse returning { ok: false, code } fails the use and spends nothing */
   interactions?: Interactions;
   /**
    * Dialogue (dialogue() module). Ops: `dialogue.advance` (finish typing the line, else go on to the next one) and `dialogue.choose { index }` (pick
@@ -1846,9 +1924,9 @@ export declare class Engine {
    * `engine.ops.run('dialogue.choose', { index: 0 })`
    */
   dialogue?: Dialogue;
-  /** Inventory (inventory() module) */
+  /** Inventory (inventory() module). Items, counts and containers, saved with the game. Install: engine.use(inventory()); undefined until installed. add() answers { ok }, read .ok */
   inventory?: Inventory;
-  /** pickups() */
+  /** pickups(). Things on the ground that go in the bag. Install: engine.use(pickups()) with inventory() and interactions(); undefined until installed. A full bag leaves the item on the ground */
   pickups?: Pickups;
   /** Quests (quests() module) */
   quests?: Quests;
@@ -1890,7 +1968,7 @@ export declare class Engine {
    * @example engine.unuse('rain');
    */
   unuse(name: string): void;
-  /** Whether a module is installed */
+  /** Whether a module of this name, or a provider of this capability, is installed. Installed only: engine.explain({ module: name }) says whether it is running */
   has(name: string): boolean;
 
 
@@ -1907,17 +1985,17 @@ export declare class Engine {
   surface(x: number, z: number, refY?: number): number;
   surface(at: PositionLike, refY?: number): number;
   /** Slope at (x, z); a position or object also works */
-  slope(x: number, z: number): number;
-  slope(at: PositionLike): number;
+  slope(x: number, z: number, refY?: number): number;
+  slope(at: PositionLike, refY?: number): number;
   /** Ground type at (x, z) (for footsteps, particles); a position or object also works. 'void' off the outline of terrain({ shape }) */
-  groundType(x: number, z: number): string;
-  groundType(at: PositionLike): string;
+  groundType(x: number, z: number, refY?: number): string;
+  groundType(at: PositionLike, refY?: number): string;
   /**
    * Water surface height at (x, z): standalone water bodies first, otherwise the global water level; -Infinity when there is no water. A position or
    * object also works
    */
-  waterAt(x: number, z: number): number;
-  waterAt(at: PositionLike): number;
+  waterAt(x: number, z: number, refY?: number): number;
+  waterAt(at: PositionLike, refY?: number): number;
   /**
    * Put an object on the ground under it (y = ground height + offset) and return the object. With multi-layer ground the object's current y is the
    * reference height
@@ -1950,8 +2028,6 @@ export declare class Engine {
    * materials of it and its children (textures and geometry / materials shared by assets are not released)
    */
   remove(...objs: Object3D[]): void;
-  /** Only take it off its parent without releasing GPU memory (use when you will add it back later). Use remove for objects you no longer need */
-  detach(...objs: Object3D[]): void;
   /**
    * Fixed-step logic (60 times per second, dt in fixed seconds): movement, physics, cooldowns, and gameplay keys (read pressed() here: a per-step
    * snapshot, independent of frame rate). dt is real seconds (always 1/60) unless { channel } names a time channel: then the channel's scaled dt.
@@ -2015,8 +2091,14 @@ export declare class Engine {
   loadLightmap(file: string | ArrayBuffer, opts?: { owner?: string }): Promise<Lightmap>;
 
   // ---------- Settings ----------
-  /** Render resolution, and the top adaptive resolution climbs back to */
+  /** Render resolution, and the top adaptive resolution climbs back to. Throws while pixelSize is on */
   setPixelRatio(p: number): void;
+  /**
+   * One art pixel becomes k real screen pixels (createEngine({ pixelSize }) at runtime). While on, adaptive resolution stops, engine.setPixelRatio throws and a photo keeps
+   * the art pixels. null turns it off and brings the ratio from before back.
+   * @example engine.setPixelSize(3);
+   */
+  setPixelSize(k: number | null): void;
 
   // ---------- Rays, scenarios ----------
   /** Ray: shoot from origin along dir, returns the nearest hit or null (by default only registered static objects are hit) */
@@ -2169,14 +2251,15 @@ export declare class Engine {
    * Why something is the way it is. { op, args?, actor? }: text says whether it can run now, and if not the reason and the op's note on fixing it
    * (reason first);
    * detail has the last attempt and the events around it; recent / events are the raw last 5 attempts and event names within a step of the last one.
+   * { value }: who last wrote a watched value, with its history. { thing: id }: where the id comes from; detail is the whole ThingExplanation. { module } / { capability }: whether it runs and what blocks it.
    * Other keys are answered by modules (definition field explain: { key(e, value, query) { return { ok, text } } }); the quests module answers { quest: id }.
    * @example engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text   // 'shop.buy {...} cannot run now: noMoney (Not enough gold)'
    * @example engine.explain({ quest: 'first-light' }).text   // which step it waits on
    * An op whose args.id names a world record also says where that record was authored (text ends with "defined in content/props.js:14: edit it there…";
    * thing has the rest).
    */
-  explain(q: { op: string; args?: any; actor?: string } | Record<string, any>): {
-    ok: boolean; code?: string | null; text: string; detail?: string; recent?: any[]; events?: string[]; thing?: HitThing;
+  explain(q: { op: string; args?: any; actor?: string } | { value: string } | { thing: string | Object3D } | { module: string } | { capability: string } | Record<string, any>): {
+    ok: boolean; code?: string | null; text: string; detail?: any; recent?: any[]; events?: string[]; thing?: HitThing;
   };
   /**
    * Module hook timing: pass true to turn on, false to turn off (returns the engine); with no argument returns { moduleName: average milliseconds per
@@ -2275,7 +2358,7 @@ export interface GameState {
   error: EngineError | null;
   /** picture / ui modules disabled after an error */
   disabledModules: string[];
-  /** Modules that are initializing or failed ({ name: state }); absent when every module with an init is running (engine.moduleStates has all) */
+  /** Modules that are initializing, failed or blocked ({ name: state, or 'blocked by provider (state)' }); absent when every module with an init is running (engine.moduleStates has all) */
   moduleStates?: Record<string, string>;
   /** What loading is waiting for, what failed, whether it blocks the start (engine.loading.view()) */
   loading: LoadingView;
@@ -2306,7 +2389,7 @@ export interface GameState {
     state: string | null; [key: string]: any;
   } | null;
   /** Camera: type 'follow' | 'first' | 'fixed' | 'rts', override is the takeover owner's name */
-  camera: { type: string | null; /** a camera rig may switch engine.camera (an EngineCamera) to orthographic */ projection: 'perspective' | 'orthographic'; orthoSize?: number; x: number; y: number; z: number; focus: { x: number; z: number }; override: string | null; [key: string]: any };
+  camera: { type: string | null; /** what the camera in engine.camera is, whether a game or a rig's projection put it there */ projection: 'perspective' | 'orthographic'; orthoSize?: number; x: number; y: number; z: number; focus: { x: number; z: number }; override: string | null; [key: string]: any };
   /** How far counts as nearby (meters) */
   nearbyRadius: number;
   /** Nearby things, sorted by distance (at most 15) */

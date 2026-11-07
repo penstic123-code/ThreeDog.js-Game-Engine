@@ -7,7 +7,7 @@ import { readParams, keysSchema } from '../../core/base/params.js';
 import { parseClock } from '../../core/time/dayTime.js';
 import { codedError, coded } from '../../core/base/errorHints.js';
 import { warnOnce } from '../../core/base/validate.js';
-import { saveValues } from '../../core/saves/saveValues.js';
+import { saveValues, SAVE_MAX_SECONDS } from '../../core/base/saveValues.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { CalendarOptions } from '../../types/world' */
 
@@ -26,7 +26,7 @@ export function calendar(opts = {}) {
   readParams('calendar', CALENDAR_PARAMS, opts);
   let c = null;
   return {
-    name: 'calendar', type: 'world', provides: ['calendar'], label: 'Calendar', params: CALENDAR_PARAMS, options: opts, stage: 'environment', before: ['sky'],
+    name: 'calendar', skipKind: 'exact', type: 'world', provides: ['calendar'], label: 'Calendar', params: CALENDAR_PARAMS, options: opts, stage: 'environment', before: ['sky'],
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.calendar': '日历' }, en: { 'module.calendar': 'calendar' } });
       // sky({ time }) is the fixed time drawn without a calendar: installed before this one it would now sit unused, so say so (sky checks the other order)
       if (e.modules.get('sky')?.options?.time != null) warnOnce(coded('calendar-option', STRINGS.skyTime), 'sky-time-calendar');
@@ -37,17 +37,17 @@ export function calendar(opts = {}) {
       ctx.track(e.audio.measure('daylight', () => c.daylight));
       ctx.track(e.audio.measure('timeOfDay', () => c.timeOfDay));   // render/daylight.js writes uTimeOfDay from it
       // between() ranges re-check whether they are inside after anything that moves the clock without stepping
-      for (const name of ['engine:ready', 'save:loaded', 'state:applied']) ctx.track(e.events.on(name, () => c._sched.syncRanges()));
+      ctx.track(e.events.on('state:replaced', () => c._sched.syncRanges()));
       // the day and time of day are views of the 'calendar' channel: its events and clock timers run right after the channel moves (a step or a skip segment)
       ctx.track(e.time.onMove(() => c.moved()));
       // at: the calendar channel second the time and day belong to, so the origin is right whichever part (calendar or time) loads first
-      e.saves.register('calendar', { save: () => ({ time: c.timeOfDay, day: c.day, at: e.clock.now }),
+      ctx.saves.register('calendar', { notAtomic: 'the clock moves it every step, and an op that sets the time means it to stay', save: () => ({ time: c.timeOfDay, day: c.day, at: e.clock.now }),
         // saved numbers pass saveValues as clock / random / time do: a time 'abc' showed clock 'NaN:NaN' and a day -5 broke seasons (one warning per part)
         load: d => {
           if (d) {
             const v = saveValues('calendar');
             const tod = v.num(d.time, 'time', { min: 0, max: 1, fallback: c.timeOfDay }) % 1;   // 1 is the next midnight, as calendar({ time })
-            const day = v.num(d.day, 'day', { min: 1, int: true, fallback: c.day });
+            const day = v.num(d.day, 'day', { min: 1, max: SAVE_MAX_SECONDS, int: true, fallback: c.day });
             const at = v.num(d.at, 'at', { fallback: e.clock.now });
             v.done();
             c._day0 = day; c._tod0 = tod; c._t0 = at; c._lastDay = c.day;
@@ -80,3 +80,5 @@ export function calendar(opts = {}) {
     },
   };
 }
+
+export const handRolled = 'none: a day counter of its own is a plain number that looks like any other';

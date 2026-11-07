@@ -24,7 +24,9 @@ A game that already has its own picture should pull beside it, then take only wh
 threedog lib pull bright-cartoon --to picture/starter --lib <repo>/packages/starter-pictures
 ```
 
-To see all of it at once, call `sampler(engine, picture)` from `picture/sampler.js` after `createPicture` and shoot one of its views: `overview`, `shore`, `close` for `bright-cartoon`, `overview`, `bank`, `close` for `ascii-meadow`. Read the notes at the top of
+Each entry is a picture module. To change look while the game runs, pull both beside each other and swap: `engine.use(next(), { replaces: 'picture' })`, then read `engine.picture` again. Lights, sky, fog, tone, ground and water of the old one leave with it; game meshes still holding its materials must take the new ones.
+
+To see all of it at once, call `sampler(engine, picture)` from `picture/sampler.js` after `engine.use(createPicture())` and shoot one of its views: `overview`, `shore`, `close` for `bright-cartoon`, `overview`, `bank`, `close` for `ascii-meadow`. Read the notes at the top of
 `picture/index.js` next: they say what each file controls and what to change first.
 
 The entry's `kind` is `picture`, which normally means one file. It holds several, so storing a new version needs `lib add picture --kind picture --force`.

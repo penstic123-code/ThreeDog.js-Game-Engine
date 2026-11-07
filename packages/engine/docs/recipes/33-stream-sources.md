@@ -12,8 +12,9 @@ list, the sources of `engine.stream`:
 | `engine.stream.camera` (built in: `engine.focus`) | full | no |
 | `engine.stream.source(p, { radius, detail, physics, until })` | `detail: 'full'` (default) or `'simple'` (terrain and hlod proxies only) | `physics` (default true for `'full'`) |
 
-```js
+```js fragment
 // teleport: the player moves only after the destination's terrain, collision and nearby models are ready
+// a new game or load during the trip abandons it: it rejects with code stream-removed and the player stays
 await engine.stream.teleport([800, 0, 300]);
 
 // the same by hand (for a door animation or a fade while it loads)
@@ -31,6 +32,8 @@ const vista = engine.stream.source(towerTop, { detail: 'simple', radius: 600 });
 - `radius` caps every loader's own range around that source (terrain view distance, present radius, `stream.radius`); without it each loader uses its own.
 - `source.ready` is checked at the end of each frame; a new source counts after one full frame, so every loader has seen it. Fixed steps must run
   (collision takes effect on a tick), so do not wait while `engine.haltLoop()` is on without stepping.
+- `ready` means nothing is pending, not that everything built: a stream entry or world model whose build failed is reported and left out, and `teleport` still lands. Need a thing built?
+  Check it yourself: `handle.built`, `engine.world.view(id)`. A failed terrain chunk (recipe 28) is different: no ground, never ready, `teleport` ends in `stream-timeout`.
 - Leaving a place and coming back is safe: models unload, but records (an opened chest, a dropped item, a removed rock) stay in `engine.world` and the
   models are rebuilt from them.
 - Module authors with their own distance-based loader: read `engine.stream.sources({ detail: 'full' })` / `sources({ physics: true })` and

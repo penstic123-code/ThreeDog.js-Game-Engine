@@ -60,6 +60,20 @@ export class DebugOverrides {
         ms: number;
         partsChanged?: string[];
     }>;
+    /**
+     * Watch one value the engine does not watch by default, on the dev server: who writes it (file:line, frame) goes into engine.explain({ value: name }), and two writers fighting
+     * over it give a one-line hint. It observes; every write goes through. In a release build it does nothing: watching is false.
+     * Only watched values are seen, and a write that leaves the value unchanged is not: a value that shows no conflict may still have one.
+     * @example engine.debug.watch('boss.hp', boss, 'hp'); engine.debug.watch('player.pos', player, 'position');
+     * @param {string} name what explain and describe('picture').picture.writers call it; a name already in use is refused (watching false)
+     * @param {any} object the object, or a Color, Vector or rotation itself
+     * @param {string} [key] a plain property; a Color, Vector or rotation held there is watched inside. A property behind a class accessor cannot be hooked (watching false)
+     * @returns {{ watching: boolean, remove(): void }} remove() forgets the name; the accessor stays until reload and passes values through
+     */
+    watch(name: string, object: any, key?: string): {
+        watching: boolean;
+        remove(): void;
+    };
     /** The active view ({ mode: 'off', owner: null } when none) @returns {{ mode: string, owner: string | null, what?: string }} */
     viewState(): {
         mode: string;
@@ -94,7 +108,7 @@ export class DebugOverrides {
     clear(owner: string): number;
     /** Active overrides as plain data (describe().scene.overrides) */
     overrides(): any[];
-    /** Active overrides on one object, for engine.thing(id).explain() */
+    /** Active overrides on one object, for engine.explain({ thing: id }) */
     overridesOn(obj: any): any[];
     /** Undo everything, drop / restore what the views put back, re-apply */
     dispose(): void;

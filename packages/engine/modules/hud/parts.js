@@ -31,12 +31,12 @@ export const CSS = `
  * @param {() => { layer: HTMLElement, column(anchor?: string): HTMLElement }} root
  * @returns {void}
  */
-export function defineHudParts(e, root) {
+export function defineHudParts(e, ctx, root) {
   const tools = { esc, t: (k, p) => e.t(k, p) };
   const tpl = name => e.ui.templates[name];
 
   // One marker: update({ x, y, arrow, angle, label, icon, distance }) moves and redraws it; hide() hides it
-  e.ui.define('hud.marker', () => {
+  ctx.ui.define('hud.marker', () => {
     const el = document.createElement('div');
     el.className = 'threedog-hud-marker'; el.hidden = true; root().layer.appendChild(el);
     let html = null;
@@ -61,7 +61,7 @@ export function defineHudParts(e, root) {
   // a counter / bar lives in the column of its anchor; a changed anchor moves the element there
   const place = (el, d) => { const col = root().column(d.anchor ?? 'top-left'); if (el.parentNode !== col) col.appendChild(el); };
 
-  e.ui.define('hud.counter', () => {
+  ctx.ui.define('hud.counter', () => {
     const el = document.createElement('div'); el.className = 'threedog-hud-counter';
     return {
       el,
@@ -77,7 +77,7 @@ export function defineHudParts(e, root) {
     };
   }, { multi: true });
 
-  e.ui.define('hud.bar', () => {
+  ctx.ui.define('hud.bar', () => {
     const el = document.createElement('div'); el.className = 'threedog-hud-bar';
     let label;
     return {

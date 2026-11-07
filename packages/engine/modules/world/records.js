@@ -50,20 +50,22 @@ export function addRecord(w, def, opts) {
  * shortcut: a physics body keeps its own place (positionFrom 'view') until the page reloads; teach restBody to teleport if an editor moves such a place live.
  */
 function repose(w, have, base, rec) {
-  const pose = r => `${r.position.x},${r.position.z},${r.rot}`;
+  const pose = r => `${r.position.x},${r.position.z},${r.rot}`, sameRot = (a, b) => JSON.stringify(a) === JSON.stringify(b);   // rot may be [x, y, z], and the baseline holds its own copy
   if (pose(base) === pose(rec)) return;
   if (have?.position.x === base.position.x && have.position.z === base.position.z) { Object.assign(have.position, rec.position); w._index(have); }
-  if (have && have.rot === base.rot) { if (rec.rot === undefined) delete have.rot; else have.rot = rec.rot; }
+  if (have && sameRot(have.rot, base.rot)) { if (rec.rot === undefined) delete have.rot; else have.rot = structuredClone(rec.rot); }
   Object.assign(base.position, rec.position);
-  if (rec.rot === undefined) delete base.rot; else base.rot = rec.rot;
+  if (rec.rot === undefined) delete base.rot; else base.rot = structuredClone(rec.rot);
 }
 
 export function restRecord(w, id, position, tolerance) {
-  const rec = w.records.get(id), base = w._base.get(id); if (!rec) return;
+  const rec = w.records.get(id), base = w._base.get(id); if (!rec) return false;
   const a = rec.position, b = base?.position;
   const same = !!b && Math.abs(a.x - b.x) <= tolerance && Math.abs(a.y - b.y) <= tolerance && Math.abs(a.z - b.z) <= tolerance;
+  if (!same) return false;
   putPos(`world.rest("${id}")`, position, rec.position); w._index(rec);
-  if (same) base.position = { ...rec.position };
+  base.position = { ...rec.position };
+  return true;
 }
 
 export function orphanIds(w) {
@@ -77,8 +79,12 @@ export function orphanIds(w) {
 export function setRecord(w, id, patch) {
   DEV && w.engine.ops.guard('world.set');
   const rec = w._need(id, 'set');
-  if (DEV) { if ('id' in patch || 'kind' in patch) throw codedError('world-add', fmt(STRINGS.setKey, { id })); if (mustBePlain(w, w.records.get(id).kind, !w._unsaved.has(id))) checkPlain({ ...patch, position: undefined }, id); }
-  const { position, ...rest } = patch;
+  if ('id' in patch || 'kind' in patch) throw codedError('world-add', fmt(STRINGS.setKey, { id }));
+  if (DEV && mustBePlain(w, w.records.get(id).kind, !w._unsaved.has(id))) checkPlain({ ...patch, position: undefined }, id);
+  const { position, ...rest } = patch, live = w.engine.control?.characterOf(id);
+  // a character owns its rot and scale like its position: told before any field lands, so a refusal writes nothing. Its facing is in its motion: a rot kept here would go stale.
+  // Any standing model counts, far too: there is no later build to hand the write to
+  if (live) { live.takePose(rest); delete rest.rot; }
   Object.assign(rec, rest);
   if (position) w.move(id, position);
   if (w._v.presenters.get(rec.kind)?.show) w._v.dirty = true;

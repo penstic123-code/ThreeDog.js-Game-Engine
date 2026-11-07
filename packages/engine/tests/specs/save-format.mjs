@@ -53,8 +53,8 @@ export const specs = [
       });
       check('the save names the step and the parts met', r.saved.step === 'defend' && JSON.stringify(r.saved.parts) === '["a"]', JSON.stringify(r.saved));
       check('after inserting a step, the old save resumes on the same step with the same part met', r.after.step === 2 && JSON.stringify(r.after.current) === '[true,false]', JSON.stringify(r.after));
-      check('a version 1 save migrates by position', r.ok && r.old.step === 1 && JSON.stringify(r.old.parts) === '[false,true]' && JSON.stringify(r.v2) === '{"step":"1","done":false,"parts":["1"]}', JSON.stringify([r.old, r.v2]));
-      check('version 1 positions are named with the ids the quest has now (the save predates ids: position 1 is now mayor)', r.q.step === 1 && JSON.stringify(r.qv2) === '{"step":"mayor","done":false}', JSON.stringify([r.q, r.qv2]));
+      check('a version 1 save migrates by position', r.ok && r.old.step === 1 && JSON.stringify(r.old.parts) === '[false,true]' && JSON.stringify(r.v2) === '{"step":"1","done":false,"visited":["0"],"parts":["1"]}', JSON.stringify([r.old, r.v2]));
+      check('version 1 positions are named with the ids the quest has now (the save predates ids: position 1 is now mayor)', r.q.step === 1 && JSON.stringify(r.qv2) === '{"step":"mayor","done":false,"visited":["talk"]}', JSON.stringify([r.q, r.qv2]));
     },
   },
   {

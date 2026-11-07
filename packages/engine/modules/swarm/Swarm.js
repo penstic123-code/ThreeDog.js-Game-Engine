@@ -18,7 +18,7 @@ import * as THREE from 'three';
 import { codedError, coded } from '../../core/base/errorHints.js';
 import { DEV, warnOnce, closest } from '../../core/base/validate.js';
 import { readParams } from '../../core/base/params.js';
-import { refuseSave } from '../../core/saves/saveValues.js';
+import { refuseSave } from '../../core/base/saveValues.js';
 import { SwarmGrid } from './grid.js';
 import { makeMesh, writeMesh } from './draw.js';
 /** @import { SwarmData, SwarmOptions, SwarmRowFn } from '../../types/gameplay' */
@@ -31,7 +31,7 @@ const SLOT = 2 ** 20;
 const FIXED = ['x', 'y', 'z'], COLOR = ['r', 'g', 'b'], NOT_FIELDS = ['id', 'color'];
 const OPTIONS = {
   name: { type: 'string', desc: 'unique name: shown in describe(), the key in a save' },
-  capacity: { type: 'number', min: 1, max: SLOT, desc: 'most objects alive at once; all memory is taken up front' },
+  capacity: { type: 'int', min: 1, max: SLOT, desc: 'most objects alive at once; all memory is taken up front' },
   geometry: { type: 'any', optional: true, desc: 'plain three.js geometry; leave out with material for a swarm that draws nothing' },
   material: { type: 'any', optional: true, desc: 'plain three.js material; it stays the game\'s to dispose' },
   fields: { type: 'any', optional: true, desc: 'names of the number columns beside x, y, z' },
@@ -271,6 +271,14 @@ export class Swarm {
   /** @internal */
   _load(v) {
     if (!Array.isArray(v?.id) || !v.cols) refuseSave(`swarm '${this.name}'`, 'the part', 'must be { id, cols }', v);
+    // validate the whole part before touching anything: a damaged save must not leave a half-emptied swarm. Handles are serial * SLOT + slot (whole numbers >= SLOT, one per slot)
+    const seen = new Set();
+    for (const h of v.id) {
+      if (!Number.isSafeInteger(h) || h < SLOT || seen.has(h % SLOT)) refuseSave(`swarm '${this.name}'`, 'id', 'must be unique whole-number handles (serial * 2^20 + slot)', h);
+      seen.add(h % SLOT);
+    }
+    for (const k in v.cols) if (Array.isArray(v.cols[k]) && v.cols[k].length !== v.id.length) refuseSave(`swarm '${this.name}'`, `cols.${k}`, `must have one value per id (${v.id.length})`, v.cols[k].length);
+    if (v.serial !== undefined && !Number.isSafeInteger(v.serial)) refuseSave(`swarm '${this.name}'`, 'serial', 'must be a whole number', v.serial);
     this.clear();
     const at = this._at, d = this.data, ids = v.id;
     let lost = 0;
@@ -285,7 +293,7 @@ export class Swarm {
     this._freeN = 0;
     for (let s = this.capacity - 1; s >= 0; s--) if (at[s] < 0) this._free[this._freeN++] = s;
     // restored as saved and not as a maximum: loading one save twice must give the same handles (determinism); every saved handle is smaller, so none collide
-    if (Number.isFinite(v.serial)) this._serial = v.serial;
+    if (v.serial !== undefined) this._serial = v.serial;
     if (lost) warnOnce(coded('swarm-full', `swarm '${this.name}': ${lost} saved objects did not fit capacity ${this.capacity} and were left out`), `swarm-load-${this.name}`);
   }
 }
@@ -302,7 +310,7 @@ export function swarm() {
   /** @type {Swarm[]} */ let list = [];
   let pending = {};   // a swarm not made yet at load: kept here and filled in when it is made
   const stats = s => ({ count: s.count, capacity: s.capacity, dropped: s.dropped, ...(s.saved ? { saved: true } : {}) });
-  return { name: 'swarm', type: 'rules', provides: ['swarm'], label: 'Swarm', stage: 'gameplay',
+  return { name: 'swarm', skipKind: 'none', type: 'rules', provides: ['swarm'], label: 'Swarm', stage: 'gameplay',
     install(e, ctx) {
       e.i18n.add({ 'zh-CN': { 'module.swarm': '成群对象' }, en: { 'module.swarm': 'swarm' } });
       const owner = { drop: s => { list = list.filter(o => o !== s); } };
@@ -311,8 +319,8 @@ export function swarm() {
       // onRender and not frame: step(render: false) skips the matrices, only drawn frames write them
       ctx.track(e.onRender(() => { for (const s of list) if (s.mesh) writeMesh(s, e.stepBlend); }));
       // one save part for all swarms: a load or new game also empties swarms not in saves, or last round's bullets stay on the field
-      e.saves.register('swarm', { version: 1,
-        save: () => Object.fromEntries(list.filter(s => s.saved).map(s => [s.name, s._save()])),
+      ctx.saves.register('swarm', { notAtomic: 'simulated in bulk each step: one copy per atomic run would cost more than the op', version: 1,
+        save: () => ({ ...pending, ...Object.fromEntries(list.filter(s => s.saved).map(s => [s.name, s._save()])) }),   // pending: swarms of the loaded save not made yet stay in the next save
         load: d => {
           pending = { ...d };
           for (const s of list) {
@@ -344,3 +352,5 @@ export function swarm() {
     explain: { swarm: (e, name) => { const s = list.find(o => o.name === name); return s ? { ...stats(s), channel: s.channel, fields: s._names, moves: !!s._fn, drawn: !!s.mesh } : { error: `no swarm '${name}'; swarms: ${list.map(o => o.name).join(', ') || 'none'}` }; } },
     dispose() { for (const s of [...list]) s.dispose(); list = []; } };
 }
+
+export const handRolled = [{ kind: 'pool', seen: 'a pool or list of many shots of its own', use: 'engine.swarm: thousands of shots, crowds and debris in one draw, with reuse and hits (recipe 65)', quiet: /\b(engine|e|eng|ctx)\.swarm\b|\bswarm\(\s*[{)]/, code: /(?:\b(?:const|let|var)\s+|\bthis\.)(?:pool|\w*(?:bullet|projectile|shot|enemy|particle|mesh|object)pool|bullets|projectiles)\s*=\s*(?:\[\s*\]|new Map\b|new Set\b)/i }];

@@ -67,21 +67,25 @@ world (a canyon instead of hills), say so instead of faking it with colors.
    The first frame should already be close: if it is far from the reference, fix sky, exposure, palette and material type before adding anything.
 5. **Check.** `npm run check` type-checks `picture/`, and a misspelled option or a bad call fails on the page with a line in `.threedog/errors.log`.
 6. **Picture: the loop above.** Take pictures with the same arguments every round so only the picture differs, from named places (`shot --at <place>`), not free `--pos` shots.
-   `picture compare` prints brightness, saturation, contrast, fine detail, average and main color of both and one sentence such as "the screenshot is darker and more broken up", with deliberately no
-   "similarity %". Dirty = lower saturation or an off hue, fragmented = fine detail ratio well above 1, dark or flat = brightness and contrast. Keep a change if its number moved toward
+   `picture compare` prints the differences as numbers and one sentence such as "the screenshot is darker and more broken up".
+   Dirty = lower saturation or an off hue, fragmented = fine detail ratio well above 1, dark or flat = brightness and contrast. Keep a change if its number moved toward
    the reference and the picture looks better. A phone UI frame in the screenshot skews the numbers: compare a `--region`.
    `--out side.png` (MCP `picture_compare` always writes `<shot>.compare.png`) is one image, reference left, screenshot right.
 7. **Stop** when the biggest remaining difference is a silhouette or a world rule: that is the assets or the game, not the picture code.
 
 ## Picture check after every shot
-Every `threedog shot` prints picture numbers and hints (`--no-picture` skips them). The numbers are luminance, contrast (std and p5-p95 range of
-luminance), saturation, clipped and near-black shares, and the shadow area. Hints come in three kinds:
+Every `threedog shot` prints picture numbers and hints (`--no-picture` skips them). The numbers are mean luminance, contrast (std and p5-p95 range of
+luminance), saturation, clipped-white and near-black shares, the shadow area and how much shadows darken. Hints come in three kinds:
 - **Contradictions**, whatever the art direction: the settings say one thing and the pixels another. Shadows on but none measurable (with the cause it found:
-  the light's `shadow.bias` as meters of shadow depth, the view outside the shadow box, texel size, or fill light washing them out), a light that changes
+  the light's `shadow.bias` as meters of shadow depth, the view outside the shadow box, texel size, or fill light washing them out), a light the game added that changes
   no pixel.
-- **Facts**: measured, maybe wanted, with what sets them: glare, large clipped or near-black areas, a night that is not dark from lighting (and
-  whether the brightness at 00:00 is lighting at all), the key / fill balance. Each becomes a contradiction only where DESIGN.md declares the
-  opposite.
+- **Facts**: measured, maybe wanted, with what sets them. Each becomes a contradiction only where DESIGN.md declares the opposite (the `Picture intent:` word in brackets):
+  glare, naming each light or glowing material that blows pixels out with its current values and the detail lost under it, and large clipped areas (`no-glare`);
+  large near-black areas (`no-pitch-black`); time of day that barely changes the picture or a night not dark from lighting, and whether the brightness at 00:00 is lighting at all
+  (renders 12:00 and 00:00 when the game runs calendar + sky or the shot sets `--time`; `dark-nights`); `light:` the share of the lit brightness from the sun / key and from the fill
+  (each turned off once) and how much darker shadowed areas are (`strong-light`); the camera standing inside a closed mesh; a black frame, naming the material whose hiding alone
+  brings the picture back (newest materials first; a ShaderMaterial is told the usual NaN / Inf causes, and shader programs that failed to compile are listed); fog that is most of
+  the color in a large share of the picture, with its near / far and color.
 - **Intent**, only against what the game declared: DESIGN.md's optional `Picture intent:` line (listed words such as `no-glare`, `dark-nights`,
   `strong-light`, `muted`; the template lists them all; the table's free text is not read), or the reference given with `--ref`. A muted,
   low-contrast game is told when its shot measures saturated and contrasty, never the other way round unless it said so. No declaration and
@@ -136,5 +140,5 @@ wood / stone / metal surfaces, a lit room (outside and inside) and the UI parts,
   A production build of the vite preset gets a stub instead (no panel, no tweakpane in the bundle); dev and test builds get the real one.
   It reads the three.js objects and writes them directly: exposure, `scene.fog`, each light, `engine.water` / `terrain` / `vegetation` materials and uniforms
   (when installed), a material picked by name, `engine.uniforms`, post effects, UI colors. "write back" saves the changes to
-  `.threedog/tune.json` on the dev server; then `threedog tune write <file>` prints the code change as a diff (one `// threedog:tune begin ... end` block
+  `.threedog/tune.json` on the dev server; then `threedog tune write <file>` prints the code change as a diff (one block
   of plain three.js writes) and `--apply` writes it. Review it, then keep the block or move each value where it belongs (`picture/palette.js`, the material's definition).

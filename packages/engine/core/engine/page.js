@@ -4,7 +4,7 @@
 //   engine.page.pauseOnBlur = false;         // same, at runtime (e.g. a settings toggle)
 //   engine.events.on('page:blur', () => engine.flow?.go('paused'));   // show the pause menu as well, if the game wants one
 // While the page is away (window lost focus or tab hidden) with pauseOnBlur, gameplay is frozen by owner 'page': an ordinary freeze, so everything that obeys a freeze
-// (fixed steps, timers, cutscenes, engine.frozen, runState, describe) agrees with no code of its own here. It is a full still ({ ambient: true }): limbs walking on
+// (fixed steps, timers, cutscenes, engine.frozen, runState, describe) agrees with no code of its own here, and the sound waits too (Audio._hold). It is a full still ({ ambient: true }): limbs walking on
 // the spot over a stopped world look broken. Rendering and UI go on. Coming back resumes from where it stopped, with no catch-up burst (the loop drops the time spent
 // away). A halted engine (tests, the dev bridge) has no real-time loop to hold, so there is no page freeze, and step() drives a page in a background window.
 // Held keys are released by Input when it hears page:blur.
@@ -14,7 +14,7 @@ import { coded } from '../base/errorHints.js';
 import { toast } from '../../ui/UI.js';
 import { warnOnce } from '../base/validate.js';
 import { notePatch, patchOn } from '../scene/threePatches.js';
-import { isWebGPU } from '../../render/backend.js';
+import { isWebGPU, setShadowUpdate } from '../../render/backend.js';
 
 const STRINGS = {
   'zh-CN': { 'page.gpuLost': '图形设备暂时不可用，正在恢复……如果画面一直不恢复，请刷新页面', 'page.gpuBack': '画面已恢复', 'page.gpuGone': '图形设备已丢失，请刷新页面' },
@@ -25,6 +25,22 @@ const DEV = { lost: '[page] WebGL context lost: gameplay waits until the browser
 
 notePatch('device-lost-hook', "renderer.onDeviceLost of a WebGPURenderer (three's own hook, kept and called first): reports the loss through engine.page (core/engine/page.js)", () => {},
   { scope: 'engine renderer', lost: 'engines made from now on: after a device loss the picture freezes while the game keeps running, with no message' });
+
+// document.exitPointerLock is one property for the page: one wrapper for every live engine, gone with the last. A wrapper per engine could only be taken off all at once
+const lockers = new Set();
+/** @param {Page} page @param {AbortSignal} signal */
+function watchExitLock(page, signal) {
+  const exitLock = document.exitPointerLock;
+  if (!exitLock) return;
+  if (!lockers.size) {
+    const own = Object.hasOwn(document, 'exitPointerLock');
+    const wrapper = () => { for (const p of lockers) p._releasing = document.pointerLockElement === p.engine.renderer.domElement; return exitLock.call(document); };
+    document.exitPointerLock = wrapper;
+    lockers.unwrap = () => { if (document.exitPointerLock !== wrapper) return; if (own) document.exitPointerLock = exitLock; else delete document.exitPointerLock; };
+  }
+  lockers.add(page);
+  signal.addEventListener('abort', () => { lockers.delete(page); if (!lockers.size) lockers.unwrap(); });
+}
 
 /** engine.page: window focus, tab visibility, mouse lock and WebGL context, all handled here. */
 export class Page {
@@ -50,13 +66,11 @@ export class Page {
     addEventListener('focus', () => this._set('focused', true), { signal });
     document.addEventListener('visibilitychange', () => this._set('visible', document.visibilityState !== 'hidden'), { signal });
     // Esc and a script's exitPointerLock() end in the same pointerlockchange, so the call is the one place to tell them apart: a game that calls it is not the player pausing
-    const exitLock = document.exitPointerLock;
-    if (exitLock) {
-      document.exitPointerLock = () => { this._releasing = !!document.pointerLockElement; return exitLock.call(document); };
-      signal.addEventListener('abort', () => { delete document.exitPointerLock; });
-    }
+    watchExitLock(this, signal);
     document.addEventListener('pointerlockchange', () => {
-      this.pointerLocked = document.pointerLockElement === canvas;
+      const locked = document.pointerLockElement === canvas;
+      if (locked === this.pointerLocked) return;   // another engine's canvas on this page: not locking is not "the player pressed Esc"
+      this.pointerLocked = locked;
       // the camera locks again on the next click (camera/common.js). byEngine: the engine let go itself; otherwise it was the player's Esc (ui/Focus.js)
       engine.events.emit('page:pointerlock', { locked: this.pointerLocked, byEngine: !this.pointerLocked && this._releasing });
       this._releasing = false;
@@ -68,6 +82,8 @@ export class Page {
     canvas.addEventListener('webglcontextrestored', () => {
       this.contextLost = false; this._resync = true; this._sync();
       toast(engine, engine.t('page.gpuBack'));
+      // a restored context has empty shadow maps, and a map kept on purpose (autoUpdate off, a budget) would stay blank until the game next asked for it
+      setShadowUpdate(engine.renderer, engine.scene, { now: true });
       engine.events.emit('page:contextrestored');
     }, { signal });
     // WebGPU fires no canvas event, three calls this hook. Its WebGL2 backend calls it too, but there the listeners above report the loss and its return
@@ -85,6 +101,7 @@ export class Page {
     if (want === !!this._hold) return;
     if (want) this._hold = this.engine.freeze('page', { ambient: true });
     else { this._hold.remove(); this._hold = null; }
+    this.engine.audio?._hold(want);   // a frozen game keeps no loop sounding on its own in a background tab
   }
 
   /** @internal the graphics went away: gameplay freezes, the developer and the player are told, page:contextlost goes out. Once per loss */

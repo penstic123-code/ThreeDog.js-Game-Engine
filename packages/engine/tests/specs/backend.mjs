@@ -6,6 +6,18 @@ import { probeSource } from '@threedog/tools/picture-check';
 const LOUD = '[threedog] WebGPU unavailable (';
 export const specs = [
   {
+    // Each engine made a throwaway device at start; a re-create loop paid for it every time (docs/testing/runs.md, 2026-11-07)
+    name: '[guard] renderer backend: the startup probe makes one device per navigator.gpu, and a failing one still answers with its reason',
+    url: '/tests/backend/index.html',
+    software: true,
+    async run({ check, ev }) {
+      const r = await ev(() => window.probeCases());
+      check('two asks of one navigator.gpu: both yes, one device, the adapter asked twice', r.first === null && r.again === null && r.devices === 1 && r.adapters === 2, JSON.stringify(r));
+      check('another navigator.gpu is asked again and its failure is named', /^requestDevice\(\) failed: test: no device/.test(r.failing), JSON.stringify(r));
+      check('no adapter and no navigator.gpu are never answered from the kept yes', r.none === 'requestAdapter() returned no adapter' && r.missing === 'navigator.gpu is missing', JSON.stringify(r));
+    },
+  },
+  {
     // It was only a console warning: check, build and assets --strict passed and the optimised model did not load
     name: '[guard] renderer backend: a KTX2 asset asked for before start() loads on WebGPU with no renderer.init() from the game',
     url: '/tests/backend/index.html',
@@ -132,6 +144,7 @@ export const specs = [
     name: "[guard] shader errors on WebGPU: tsl patch errors name patch and slot with the game's line on top, node build errors name the patch or post effect, a Loop outside Fn warns, node compile and pipeline errors name material, mesh and patches",
     url: '/tests/backend/index.html',
     software: true,
+    expectErrors: /'nope'|_broken|Invalid CommandBuffer/,   // the broken node below: on a real device the WGSL error, its pipeline and that frame's commands reach the device's error channel
     async run({ check, ev }) {
       const r = await ev(() => window.shaderErrorCases());
       const game = /test-backend|tests\/backend\/main\.js/;   // the page's own file: bundled by the test build, the source path under vite dev

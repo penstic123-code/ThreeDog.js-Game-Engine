@@ -5,12 +5,12 @@
 
 ## Pick and count: meshes you built, no bag
 Shells on a beach, four kinds of flowers, letters to collect: things the player takes and a number goes up. `interactions()`, `hud()` and a key (`createEngine({ bindings: presets.bindings.interact })`: E) are enough:
-```js
+```js fragment
 engine.hud.counter('shells', { label: 'Shells', value: 0, max: 4 });        // at setup, not on session:start
 shells.forEach((shell, i) => engine.interactions.add(shell, { id: `shell-${i}`, label: 'Pick up', once: true, counter: 'shells', onUse: () => engine.audio.sfx('pick') }));
 ```
-`once` hides the mesh after a use (`onUse` returning `{ ok: false }` leaves it); `counter` adds 1 through `engine.hud.bump(name, n)`, and does nothing without
-`hud()`. Both are saved and go back on a new game. The save knows a thing by `id`, else `mesh.name`: development throws when it has neither, or shares one with another once item.
+`once` hides the mesh after a use (`onUse` returning `{ ok: false }` leaves it; an async `onUse` is judged when it settles, and a throw leaves it too); `counter` adds 1 through `engine.hud.bump(name, n)`, and does nothing without
+`hud()`. Both are saved and go back on a new game. The save knows a thing by `id`, else `mesh.name`: `interactions.add` throws when it has neither, or shares one with another once item.
 A hidden mesh is only hidden: a collider it had is yours to remove in `onUse`. To add up without a thing to take, call `engine.hud.bump('score', 10)` yourself.
 
 | Use | When |
@@ -50,15 +50,13 @@ Remember to `import items, { startItems } from './items.js'` and `import pickups
 
 **Data and stable ids**: each pickup is a plain `kind: 'pickup'` record in `engine.world` (needs `world()`, which `openWorld()` includes); the model
 is built only near the player and removed when far.
-Id: if you write an `id` it is used; otherwise it is `pickup:<item>:<index in the pickups array>`, the same every time for the same content, and
-distinguishes the same item placed at the same coordinates. **Write an `id` if the content will keep changing** (inserting a new one in the middle
-shifts the later indices).
+Id: write an `id`; without one it is `pickup:<item>:<index in the pickups array>`, which moves when an entry is inserted above it (recipe 30, "Ids").
 When picked up, the record is removed from world; one with `respawn` stays and gets an `until` (calendar seconds); while waiting it has no model,
 and at that time (also when far away with no model) it returns to the ground. Pickups in content are initial data, like props (recipe 18 §4).
 `engine.world.remove(id)` deletes one directly.
 
 ## 2. In code (dynamic drops, custom models, instant effects)
-```js
+```js fragment
 engine.inventory.define('gem', { name: 'Gem', icon: '💎', color: 0x66ccff });   // shape: model: 'gemModel' (an asset name), else an asset named 'pickup:gem' / 'pickup', else a gray box (spawn { mesh } puts one object of the game's own down instead)
 const gem = engine.pickups.spawn(engine.player.position, { give: 'gem', count: 1 });   // returns a handle; gem.remove() deletes data and model together
 // opts.id writes a stable id (spawning again with the same id reuses the existing one)
@@ -82,10 +80,12 @@ I.define('sword', { name: 'Sword', stack: 1 });
 const { key } = I.add('sword', 1, { data: { durability: 80, level: 3 } });   // 'sword#7' (add returns { ok: false, code: 'full' } when it does not fit)
 // change it inside an op or fixed step (data objects are frozen: always pass a new one; the key stays the same)
 const s = I.get(key); I.setData(key, { ...s.data, durability: s.data.durability - 1 });
+I.container('chest-1', { capacity: 8 });
 I.transfer('player', 'chest-1', key);           // exactly this sword; it keeps its data and key
-I.remove(key);                                  // exactly this one; I.remove('sword') takes plain ones first, then the oldest
-I.add('tomato', 5, { data: { quality: 2 } });   // stackable: equal data joins the same entry
-I.setData('tomato#4', { quality: 1 }, 2);       // only 2 of that stack change: they split off under a new key (returned)
+I.container('chest-1').remove(key);             // exactly this one; I.remove('sword') takes plain ones first, then the oldest
+I.define('tomato', { name: 'Tomato' });
+const t = I.add('tomato', 5, { data: { quality: 2 } });   // stackable: equal data joins the same entry
+I.setData(t.key, { quality: 1 }, 2);       // only 2 of that stack change: they split off under a new key (returned)
 ```
 Data and keys are saved with the container. Which piece a player means is chosen by key (a click on a row of `list()`), so ops take `item` as an id or a key.
 
@@ -103,7 +103,7 @@ Both act on `ctx.actor`'s container (`'player'` by default).
 
 **Replace an item when the bag is full**: `inventory.trade` takes A and gives B as one all-or-nothing step (it checks that B fits once A is gone), and
 can be undone.
-```js
+```js fragment
 const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' });   // also takeN / giveN; take may be an entry key ('sword#3')
 if (!r.ok) say(r.code);                                                                // 'notEnough' (A missing) | 'full' (B does not fit even after A leaves)
 engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);   // gives A back (with its data), takes B away

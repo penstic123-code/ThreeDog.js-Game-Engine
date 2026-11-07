@@ -85,4 +85,24 @@ export const specs = [
       check("simulate('moveForward') + step(1) moves the player", r.moved > 1, JSON.stringify(r));
     },
   },
+  {
+    name: '[guard] i18n: setLocale is the one way to change the language: locale is read-only, so no name skips the table lookup or i18n:change',
+    url: '/?threedog-headless',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const I = engine.i18n, was = I.locale, told = [];
+        const h = engine.events.on('i18n:change', l => told.push(l));
+        let wrote = null;
+        try { (function () { 'use strict'; I.locale = 'zh'; })(); } catch (err) { wrote = err.name; }   // strict as a game's modules are; this page function is not
+        const afterWrite = I.locale, quiet = told.length;
+        I.setLocale('zh');
+        const zh = { locale: I.locale, told: [...told], text: engine.t('common.close') };
+        I.setLocale(was); h.remove();
+        return { was, wrote, afterWrite, quiet, zh };
+      });
+      check(`writing locale is refused (${r.wrote})`, r.wrote === 'TypeError');
+      check('the language did not change behind the listeners', r.afterWrite === r.was && r.quiet === 0, JSON.stringify(r));
+      check('setLocale resolves the name, tells the listeners, and the text follows', r.zh.locale === 'zh-CN' && r.zh.told[0] === 'zh-CN' && r.zh.text === '关闭', JSON.stringify(r.zh));
+    },
+  },
 ];

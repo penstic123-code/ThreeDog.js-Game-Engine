@@ -30,13 +30,15 @@ Import it in `content/index.js` and put it in the exported object (`containers`)
 
 ## 3. Buy, sell / consign (two ops + dialogue choices)
 Buying and selling are things the player decides to do, so they are ops (`recipes/23-ops.md`): define them once in `main.js`, and every caller
-(dialogue choice, a shop window button, the dev bridge, a test) runs the same `can` / `run`. **Buy** is allowed only when the shelf has stock and the
-player has the money; `transfer` returns how many actually moved, and money is charged only for those (a full inventory does not charge for nothing).
+(dialogue choice, a shop window button, the dev bridge, a test) runs the same `can` / `run`. A trade is one whole step, so both are `atomic: true` (recipe 23 section 12): `run` frees room
+first, and when the other side cannot take its part it returns `{ ok: false, code }` and the engine puts the bag and the shelf back. **Buy** needs stock on the shelf and the money.
 **Consign**: the player puts something on the shelf, and the shelf pays when it accepts it.
 ```js
 // main.js (after engine.use(...inventory()...))
 const price = (e, item) => e.inventory.item(item).price ?? 1;
+const payout = (e, item) => Math.max(1, Math.floor(price(e, item) * 0.6));   // add and remove take 1 or more, never 0
 engine.ops.define('shop.buy', {
+  atomic: true,
   args: { shop: 'string', item: 'string' },
   can(e, { shop, item }, ctx) {
     if (!e.inventory.container(shop).has(item)) return 'soldOut';
@@ -44,23 +46,30 @@ engine.ops.define('shop.buy', {
     return true;
   },
   run(e, { shop, item }, ctx) {
-    const got = e.inventory.transfer(shop, ctx.actor, item, 1);
-    e.inventory.container(ctx.actor).remove('gold', price(e, item) * got);
-    return got;
+    e.inventory.container(ctx.actor).remove('gold', price(e, item));   // first: the last coins free their slot for the goods
+    return e.inventory.transfer(shop, ctx.actor, item, 1) || { ok: false, code: 'bagFull' };
   },
-  reasons: { soldOut: 'Shelf is empty', noMoney: 'Not enough gold' },
+  reasons: { soldOut: 'Shelf is empty', noMoney: 'Not enough gold', bagFull: 'No room in the bag' },
 });
 engine.ops.define('shop.sell', {
+  atomic: true,
   args: { shop: 'string', item: 'string' },
-  can: (e, { item }, ctx) => e.inventory.container(ctx.actor).has(item) || 'notInBag',
-  run(e, { shop, item }, ctx) {
-    const got = e.inventory.transfer(ctx.actor, shop, item, 1);
-    e.inventory.container(ctx.actor).add('gold', Math.floor(price(e, item) * 0.6) * got, { silent: true });
-    return got;
+  can(e, { shop, item }, ctx) {
+    if (!e.inventory.container(ctx.actor).has(item)) return 'notInBag';
+    return e.inventory.container(shop).room(item) > 0 || 'shelfFull';
   },
+  run(e, { shop, item }, ctx) {
+    const bag = e.inventory.container(ctx.actor), pay = payout(e, item);
+    e.inventory.transfer(ctx.actor, shop, item, 1);   // first: the last piece frees its slot for the gold
+    if (bag.room('gold') < pay) return { ok: false, code: 'bagFull' };
+    bag.add('gold', pay, { silent: true });
+    return 1;
+  },
+  reasons: { notInBag: 'Nothing to sell', shelfFull: 'The shelf is full', bagFull: 'No room for the gold' },
 });
 ```
-In the dialogue, `if: { can: [...] }` shows a choice only when the op would succeed, and `do: { op: [...] }` runs it:
+In the dialogue, `if: { can: [...] }` shows a choice only when `can` passes, and `do: { op: [...] }` runs it. `bagFull` comes back from `run`
+(`r.code`), not `can`: it is only known once the goods have moved:
 ```js
 // content/dialogues.js
 const buyKit = ['shop.buy', { shop: 'shop-trader', item: 'medkit' }];
@@ -83,7 +92,7 @@ export default {
 ```
 - The shelf id (`'shop-trader'`: a market stall, a ship's store, a vending machine) is any string, and the shelf contents are saved. A "shop window" is your own UI drawn from `shelf.list()`; its
   buttons call `engine.ops.run('shop.buy', { shop, item })` and grey out with `engine.ops.can(...)`.
-- Prices live on the item (`price` in items.js above), read with `e.inventory.item('medkit').price`; an item without one costs 1 here.
+- Prices live on the item (`price` in items.js above), read with `e.inventory.item('medkit').price`; an item without one costs 1 here. A price is a whole number of 1 or more.
 - Items with their own data (a used sword with `durability`, recipe 03): pass the entry key as `item` (`'sword#3'`, from `shelf.list()[i].key`);
   `transfer` moves exactly that piece with its data, and `e.inventory.container(shop).get(item)` reads the data for a price
   (`def.price * data.durability / 100`).

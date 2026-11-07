@@ -11,7 +11,8 @@
 // Other cameras: firstPersonCamera, fixedCamera, rtsCamera (top-down strategy); all are engine.cameraRig; switch at runtime with engine.setCamera('firstPerson').
 import * as THREE from 'three';
 import { rigModule, defineRig, YAW_RIG, HIDE_RIG, clickToLock, releaseLock } from './common.js';
-import { setProjection } from './projection.js';
+import { setProjection } from '../../core/scene/view.js';
+import { rigPixelSnap, checkPixelView } from './pixelSnap.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { wrapAngle } from '../../core/base/math.js';
 
@@ -26,11 +27,16 @@ export class FollowCamera {
    *  shoulder meters to the right of the target the camera aims (over-the-shoulder; negative = left shoulder, 0 = centered);
    *  pointerLock click locks the mouse (no dragging; the press that locks is swallowed, swallowLockClick: false delivers it);
    *  ground 'raise' | 'shorten' | 'none' | fn (see the top of this file); mouseLook false = the game drives yaw / pitch (setView);
-   *  hideTargetNear hide the followed object when the camera is closer than this (m, 0 = never); hideLayer layer used for hiding */
+   *  hideTargetNear hide the followed object when the camera is closer than this (m, 0 = never); hideLayer layer used for hiding;
+   *  pixelSnap { pixelsPerMeter, bounds } orthographic only: art-pixel rounding, and it decides the view height (pixelSnap.js) */
   constructor(engine, { yaw = 0.8, pitch = 0.42, distance = 13, minDistance = 4, maxDistance = 45, height = 1.4, smoothing = 10,
-    sensitivity = 1, minPitch = 0.05, maxPitch = 1.35, zoomStep = 0.1, groundClearance = 1.2, invertY = false, shoulder = 0, pointerLock = false, swallowLockClick = true, projection = 'perspective', size = 20,
-    ground = null, mouseLook = true, hideTargetNear = 0.9, hideLayer = 30 } = {}) {
+    sensitivity = 1, minPitch = 0.05, maxPitch = 1.35, zoomStep = 0.1, groundClearance = 1.2, invertY = false, shoulder = 0, pointerLock = false, swallowLockClick = true, projection = 'perspective', size = null,
+    ground = null, mouseLook = true, hideTargetNear = 0.9, hideLayer = 30, pixelSnap = null } = {}) {
     if (ground != null && typeof ground !== 'function' && !GROUND.includes(ground)) throw codedError('camera-option', `followCamera({ ground: '${ground}' }): use ${GROUND.map(g => `'${g}'`).join(' | ')} or a function (facts) => position`);
+    if (pixelSnap) checkPixelView('followCamera', { projection, size });
+    /** Art-pixel rounding (.grid, .error, .agrees) or null */
+    this.pixelSnap = rigPixelSnap(engine, pixelSnap, 'followCamera');
+    size ??= 20;
     this.projection = projection; this.size = size;   // 'orthographic': size = world units of view height (the wheel changes size there, clamped to the min/max distance ratio)
     this.size0 = size; this.distance0 = distance;
     Object.assign(this, { engine, yaw, pitch, distance, minDistance, maxDistance, height, smoothing, sensitivity, minPitch, maxPitch, zoomStep, groundClearance });
@@ -73,9 +79,9 @@ export class FollowCamera {
     const look = this.engine.camera.getWorldDirection(new THREE.Vector3()), p = this._pivot ?? this.focus;
     return { yaw: this.yaw, pitch: this.pitch, distance: this.distance, arm: this.arm, lookPoint: { x: p.x, y: p.y, z: p.z }, look: { x: look.x, y: look.y, z: look.z } };
   }
-  onEnter(switched) { clickToLock(this, switched); setProjection(this.engine.camera, this.projection, this.size); this._shadowLayers(); }
+  onEnter(switched) { clickToLock(this, switched); if (this.pixelSnap) this.pixelSnap.enter(); else setProjection(this.engine, this.projection, this.size); this._shadowLayers(); }
   onExit() { releaseLock(this); this._unhide(); }
-  onOverride(on) { if (on) releaseLock(this, true); }
+  onOverride(on) { if (on) { releaseLock(this, true); this._unhide(); } }   // the close-up hide is about this rig's view; update() decides it again at release
 
   update(dt, input) {
     const cam = this.engine.camera, fr = this.framing;
@@ -86,11 +92,14 @@ export class FollowCamera {
     if (input.enabled && this.mouseLook !== false) {
       if (!fr) this.yaw -= input.look.dx * 0.005 * this.sensitivity;
       if (!this.lockPitch) this.pitch = Math.min(this.maxPitch, Math.max(this.minPitch, this.pitch + input.look.dy * 0.004 * this.sensitivity * (this.invertY ? -1 : 1)));
-      if (input.look.zoom && this.projection === 'orthographic') {
-        // distance shows nothing in an orthographic view: zoom `size`, clamped to the same min/max ratio as distance, same wheel feel
+      if (input.look.zoom && this.pixelSnap) { /* the view height is pixelSnap's; the art-pixel zoom is engine.setPixelSize */ }
+      else if (input.look.zoom && cam.isOrthographicCamera) {
+        // distance shows nothing in an orthographic view, whichever the rig asked for: zoom `size`, clamped to the same min/max ratio as distance, same wheel feel.
+        // A camera the game assigned counts from the height it came with
+        if (this._zoomed !== cam) { this._zoomed = cam; this.size = this.size0 = cam.top - cam.bottom; }
         const lo = this.size0 * this.minDistance / this.distance0, hi = this.size0 * this.maxDistance / this.distance0;
         this.size = Math.min(hi, Math.max(lo, this.size * (1 + input.look.zoom * this.zoomStep)));
-        cam.orthoSize = this.size; cam.updateProjectionMatrix();
+        setProjection(this.engine, 'orthographic', this.size);
       } else if (input.look.zoom) this.distance = Math.min(this.maxDistance, Math.max(this.minDistance, this.distance * (1 + input.look.zoom * this.zoomStep)));
     }
     if (!this.target) return;
@@ -113,7 +122,7 @@ export class FollowCamera {
     if (mode === 'shorten') arm = this._shorten(fx, fy, fz, ux, uy, uz, arm, surf);
     place(arm);
     if (mode === 'raise') {
-      const g = e.surface(cam.position.x, cam.position.z) + clear;   // no reference height: the highest ground layer under the camera
+      const g = surf(cam.position.x, cam.position.z) + clear;   // the layer the player is on: a floor above must not lift the camera out of a cellar
       if (cam.position.y < g) cam.position.y = g;
     } else if (typeof mode === 'function') {
       const r = mode({ position: cam.position.clone(), lookPoint: pivot.clone(), dir: { x: ux, y: uy, z: uz }, arm, distance: this.distance,
@@ -162,4 +171,4 @@ defineRig('follow', (e, opts) => {
   const c = new FollowCamera(e, opts); if (opts.lockPitch) c.lockPitch = true; return c;
 }, ['yaw', 'pitch', 'distance', 'minDistance', 'maxDistance', 'height', 'smoothing', 'sensitivity', 'minPitch', 'maxPitch',
     'zoomStep', 'groundClearance', 'invertY', 'lockPitch', 'shoulder', 'pointerLock', 'swallowLockClick', 'projection', 'size',
-    'ground', 'mouseLook', 'hideTargetNear', 'hideLayer']);
+    'ground', 'mouseLook', 'hideTargetNear', 'hideLayer', 'pixelSnap']);

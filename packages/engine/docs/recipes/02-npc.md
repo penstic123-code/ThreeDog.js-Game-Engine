@@ -99,8 +99,7 @@ The behavior name and `mind` (the behavior's parameters and memory) are in the N
 carries on with the new behavior. A wrong behavior name throws and lists the registered ones. NPCs in content can also write `behavior` + `mind`
 directly (see the cat above); to change behavior at runtime use `npc.setBehavior`.
 
-**An enemy that chases the player**: the `chase` behavior below is the example; in `near`, after your own `character.move`, call
-`engine.npcs.avoid.push(rec, npc.character, dt)` once so several enemies don't pile into one clump (see "Avoidance" below). Things that are not NPCs
+**An enemy that chases the player**: the `chase` behavior below is the example; the push in "Avoidance" below keeps several from piling into one clump. Things that are not NPCs
 (monsters, crops) are written as world data, see recipe 18 section 5.
 
 To write your own: `engine.npcs.behavior(name, { near(rec, dt, npc), far(rec, dt) })`, with the same rules as `world.simulate`: `near` is called once
@@ -153,7 +152,7 @@ A walk holds the character's control on layer `script` ([57-control](57-control.
 walk, and an escort quest that wants the same NPC takes control itself (`engine.control.take(npc, { owner: 'escort', step })`) instead of
 editing its record.
 
-```js
+```js fragment
 const guard = new Character(engine, { rig: { root: myGuardMesh } });
 engine.add(guard.root);
 guard.placeAt(post);

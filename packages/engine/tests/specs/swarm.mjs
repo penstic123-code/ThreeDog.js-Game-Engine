@@ -40,7 +40,7 @@ export const specs = [
       const S = r.save;
       check('save round trip: the same rows, fields and handles come back', S.saved && S.loaded && S.same && S.rows[0] === 2 && S.rows[1] && S.rows[2] === 5 && S.rows[3] === 3.25 && S.rows[4] === 7 && S.rows[5] === 1, J(S));
       check('a new game empties a swarm not in saves', S.newGameCleared === 0, J(S));
-      check('a damaged negative id in a save is left out, not given a row', S.damagedId[0] === 1 && S.damagedId[1] === 0, J(S));
+      check('a damaged part (bad id, shared slot, short column) is refused whole and keeps the swarm as it was; capacity 1.5 is refused', S.damagedId[0] === 1 && S.damagedId[1] === 0 && S.damagedId.slice(2, 6).every(x => x === 'refused') && S.damagedId[6] === 1 && S.fractionalCapacity === 'module-params', J(S));
       check('after a load: a dead handle stays dead, a swarm not in saves is empty, new handles are new', S.staleDead === -1 && S.shotsCleared === 0 && S.newHandle, J(S));
       check('a saved swarm made after the load picks its data up; a new field starts at its default', S.late[0] === 2 && S.late[1] === 7 && S.late[2] === 0, J(S));
       for (const k of ['webgl', 'webgpu']) {

@@ -1,6 +1,6 @@
 {
   "name": "threedog",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Web 3D game engine on three.js: core + optional modules, no built-in art (the picture comes from your own style), built to be driven by an AI",
   "license": "MIT",
   "repository": {
@@ -24,8 +24,14 @@
       "default": "./index.js"
     },
     "./error-hints": "./core/base/errorHints.js",
+    "./spelling": "./core/base/spelling.js",
+    "./metadata": "./core/inspect/metadata.generated.js",
     "./grid": "./core/scene/grid.js",
     "./layers": "./render/layers.js",
+    "./pixel": {
+      "types": "./types/pixel.d.ts",
+      "default": "./core/scene/pixel.js"
+    },
     "./worker": {
       "types": "./types/worker.d.ts",
       "default": "./core/threads/threadServe.js"

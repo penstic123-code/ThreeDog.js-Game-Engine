@@ -5,6 +5,8 @@
 // jobs, per module), tracked GPU bytes (run.mjs hooks, when present), frame time. A number that keeps rising after warm-up is the finding.
 // Why a separate loop and not window.sf.longStart: that one flies a camera only; a leak that needs "save then load then scene change" never shows there.
 import * as THREE from 'three';
+import { MeshStandardNodeMaterial, RenderPipeline, WebGPURenderer } from 'three/webgpu';
+import { float, pass, vec3 } from 'three/tsl';
 import { world, terrain, vegetation, sky, particles, weather, calendar, quests, dialogue, level } from '../../index.js';
 import { terrainPreset } from '@threedog/terrain-noise';
 import { kit, makeBlock } from './city.js';
@@ -27,7 +29,7 @@ export function soakMethods({ mkEngine, ready, heap, gc }) {
     const onErr = ev => errors.push(String(ev.message || ev).slice(0, 200));
     window.addEventListener('error', onErr);
     const t0 = performance.now();
-    let e = null, canvas = null, K = null, handles = [], cam = null, ids = [], round = 0, gen = 0;
+    let e = null, L = null, canvas = null, K = null, handles = [], cam = null, ids = [], round = 0, gen = 0;
     // frame times of the steps taken with rendering, since the last sample
     let ms = [];
     const step = async n => {
@@ -43,11 +45,15 @@ export function soakMethods({ mkEngine, ready, heap, gc }) {
 
     const make = async () => {
       const levelA = new THREE.Group(); levelA.add(new THREE.Mesh(new THREE.BoxGeometry(4, 1, 4), new THREE.MeshLambertMaterial({ color: 0x668866 })));
+      // level and terrain both hold the ground, so the scene changes run on an engine of their own; its counts join the sample
+      L?.dispose();
+      L = await ready(mkEngine({ headless: true, saveKey: 'soak-level-' + gen }, document.createElement('canvas')));
+      L.use(level({ scene: levelA }));
       canvas?.remove(); canvas = Object.assign(document.createElement('canvas'), { width: 640, height: 360 }); document.body.append(canvas);   // a disposed engine releases its canvas, so each one gets its own
       e = await ready(mkEngine({ headless: true, saveKey: 'soak-' + gen++ }, canvas));
       window.engine = e;
       e.use(world(), terrain({ ...terrainPreset(), viewChunks: 2 }), vegetation(), sky(), particles(), weather({ types: { wet: { rain: 1 }, clear: {} } }),
-        calendar({ dayLength: 120 }), quests(), dialogue(), level({ scene: levelA }));
+        calendar({ dayLength: 120 }), quests(), dialogue());
       e.vegetation.define('tree', { geometry: new THREE.ConeGeometry(0.8, 3, 6).translate(0, 1.5, 0), wind: 0.08, rule: { perChunk: 30 } });
       e.particles.define('puff', { rate: 0, max: 30, color: [0xffffff, 0xffeeaa], size: [0.6, 0.6], lifetime: [100, 100], speed: [0, 0] });
       const geo = new THREE.BoxGeometry(0.8, 0.8, 0.8).translate(0, 0.4, 0), mat = new THREE.MeshLambertMaterial({ color: 0xa08050 });
@@ -58,7 +64,7 @@ export function soakMethods({ mkEngine, ready, heap, gc }) {
       e.stream.source(cam, { detail: 'full', physics: false });
       K = null; handles = [];
       if (city) {   // a district far from the terrain origin: the camera hops between the two, so both sides stream in and out
-        K = kit(); e.stream.setRadius(150);
+        K = kit(); e.stream.radius = 150;
         for (let i = 0; i < 6; i++) for (let j = 0; j < 6; j++) { const x = 3000 + i * 96, z = j * 96, s = i * 6 + j; handles.push(e.stream.add({ position: [x, 0, z], radius: 48, build: () => makeBlock(K, x, z, s, 0.6) })); }
       }
       ids = [];
@@ -66,8 +72,8 @@ export function soakMethods({ mkEngine, ready, heap, gc }) {
     };
 
     const counts = () => {
-      const c = e.counts(), mods = {}; for (const k of ['world', 'particles', 'sky', 'calendar', 'weather', 'quests', 'dialogue', 'level']) if (c[k] != null) mods[k] = c[k];
-      return { listeners: c.listeners, fixed: c.fixed, frame: c.frame, timers: c.timers, statics: c.statics, streamEntries: c.streamEntries, jobs: c.jobs, commits: c.commits, geometries: c.geometries, textures: c.textures, mods };
+      const c = e.counts(), lc = L.counts(), mods = { level: lc.level }; for (const k of ['world', 'particles', 'sky', 'calendar', 'weather', 'quests', 'dialogue']) if (c[k] != null) mods[k] = c[k];
+      return { listeners: c.listeners, fixed: c.fixed, frame: c.frame, timers: c.timers, statics: c.statics, streamEntries: c.streamEntries, jobs: c.jobs, commits: c.commits, geometries: c.geometries + lc.geometries, textures: c.textures, mods };
     };
     const sample = async what => {
       await gc();
@@ -115,7 +121,7 @@ export function soakMethods({ mkEngine, ready, heap, gc }) {
       async newGame() { await e.session.newGame(); await step(20); },
       async scene() {
         const g = new THREE.Group(); g.add(new THREE.Mesh(new THREE.BoxGeometry(2 + rand(), 1, 2), new THREE.MeshLambertMaterial({ color: 0x884444 })));
-        await e.level.load(g); await step(20);
+        await L.level.load(g); await step(20);
       },
     };
 
@@ -135,8 +141,50 @@ export function soakMethods({ mkEngine, ready, heap, gc }) {
     } catch (err) { aborted = String(err?.stack ?? err).slice(0, 400); }
     window.removeEventListener('error', onErr);
     try { await sample('end'); } catch {}
-    try { e.dispose(); } catch {}
+    try { e.dispose(); L.dispose(); } catch {}
     return { rows, errors: [...new Set(errors)].slice(0, 10), aborted, wallS: Math.round((performance.now() - t0) / 1000), rounds: round - 1 };
+  },
+  /**
+   * The baseline for a VRAM rise in re-create runs: three alone, no engine, a create / draw / dispose loop, each renderer on a canvas of its own. If this rises like a
+   * soak with re-creates, the rise is below the engine. Each option brings it closer to what an engine draws: extraDevices: more devices per cycle, destroyed at once
+   * (what a startup probe does); renderers, shaders, meshes, frames: how much a cycle does; post: the scene through an HDR MSAA pass into the canvas; shadows: a
+   * shadow-casting sun; moving: every mesh moves each frame, so uniforms upload; burst: frames drawn before yielding to the browser (a soak's step() draws 120 in one task);
+   * canvas2d: a texture drawn on a 128x128 2D canvas, as this page's city blocks have (city.js); churn: every 10th frame a new mesh with its own buffers, the last one disposed (streaming).
+   */
+  async soakBare({ minutes = 6, frames = 30, pauseMs = 1500, extraDevices = 0, renderers = 1, shaders = 1, meshes = 1, size = [640, 360], post = false, shadows = false, moving = false, burst = 1, canvas2d = false, churn = false }) {
+    const t0 = performance.now(); let cycles = 0;
+    while ((performance.now() - t0) / 60000 < minutes) {
+      for (let i = 0; i < extraDevices; i++) (await (await navigator.gpu.requestAdapter({ featureLevel: 'compatibility' })).requestDevice()).destroy();
+      for (let n = 0; n < renderers; n++) {
+        const canvas = Object.assign(document.createElement('canvas'), { width: size[0], height: size[1] }); document.body.append(canvas);
+        const r = new WebGPURenderer({ canvas, antialias: true }); await r.init(); r.setSize(size[0], size[1], false); r.shadowMap.enabled = shadows;
+        const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(60, size[0] / size[1], 0.1, 100); cam.position.z = 12;
+        const geo = new THREE.BoxGeometry(), mats = Array.from({ length: shaders }, (_, k) => Object.assign(new MeshStandardNodeMaterial(), { colorNode: vec3(float((k + 1) / shaders)) })), list = [];
+        for (let i = 0; i < meshes; i++) { const m = new THREE.Mesh(geo, mats[i % shaders]); m.castShadow = m.receiveShadow = shadows; m.position.set(i % 12 - 6, Math.floor(i / 12) - 5, 0); scene.add(m); list.push(m); }
+        let tex = null, extra = null;
+        if (canvas2d) {
+          const c = Object.assign(document.createElement('canvas'), { width: 128, height: 128 }), g = c.getContext('2d'); g.fillStyle = '#668866'; g.fillRect(0, 0, 128, 128);
+          tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = true; tex.minFilter = THREE.LinearMipmapLinearFilter;
+          const m = new THREE.Mesh(geo, new MeshStandardNodeMaterial({ map: tex })); scene.add(m); list.push(m);
+        }
+        const sun = new THREE.DirectionalLight(0xffffff, 2); sun.position.set(3, 8, 6); sun.castShadow = shadows; if (shadows) sun.shadow.mapSize.set(2048, 2048); scene.add(sun);
+        const pipe = post ? new RenderPipeline(r) : null;
+        if (pipe) pipe.outputNode = pass(scene, cam);
+        for (let i = 0; i < frames; i++) {
+          if (moving) for (const m of list) m.rotation.y += 0.01;
+          if (churn && i % 10 === 0) {
+            if (extra) { scene.remove(extra); extra.geometry.dispose(); }
+            extra = new THREE.Mesh(new THREE.PlaneGeometry(1, 1, 64, 64), mats[0]); scene.add(extra);
+          }
+          if (pipe) pipe.render(); else r.render(scene, cam);
+          r._nodes.nodeFrame.update();   // three draws a pass() scene once per node frame, which only its own rAF tick advances: several frames in one task need this
+          if ((i + 1) % burst === 0) await tick();
+        }
+        await tick(); pipe?.dispose(); extra?.geometry.dispose(); tex?.dispose(); geo.dispose(); for (const m of mats) m.dispose(); r.dispose(); canvas.remove();
+      }
+      cycles++; await gc(); await tick(pauseMs);
+    }
+    return { cycles, wallS: Math.round((performance.now() - t0) / 1000) };
   },
 };
 }

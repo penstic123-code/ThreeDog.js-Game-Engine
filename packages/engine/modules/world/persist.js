@@ -9,7 +9,8 @@
 //   Changes are found by comparing JSON against the original content, not by events: fields changed directly inside simulate are saved too.
 // Save format (part 'world', version 5): every record is keyed by its stable id, and only what play changed is stored:
 //   { seq, step, time, records: { id: whole runtime record without id }, changed: { id: { set?: changed fields, del?: [removed fields] } },
-//     removed: [ids of removed initial records], owed: { id: simulation seconds owed, only for kinds simulated with far } }
+//     removed: [ids of removed initial records], owed: { id: simulation seconds owed, only for kinds simulated with far },
+//     marks: { id: the channel reading its debt counts from, signed, only for kinds on a time channel; a save without them still loads (sim.js) } }
 //   Version 1 kept records as an array: migrate step 1 (WORLD_MIGRATE) turns it into the id-keyed object.
 //   Version 2 numbered runtime records `<kind>-<n>`; version 3 uses `<kind>#<n>`, so a runtime id can never equal an authored one (authored ids may not
 //   contain `#`, content/ids.js). Step 2 renames them (legacyRuntimeIds says which), and the containers part follows with the same map (a template
@@ -24,8 +25,8 @@
 import { legacyRuntimeIds, renameIdKeys, renameIdValues } from '../../core/saves/saveIds.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { fmt } from '../../core/base/validate.js';
-import { isPlainObject } from '../../core/base/util.js';
-import { refuseSave, saveNumberOk, SAVE_MAX } from '../../core/saves/saveValues.js';
+import { isPlainObject, list } from '../../core/base/util.js';
+import { refuseSave, checkSaveFile, saveNumberOk, SAVE_MAX, SAVE_MAX_SECONDS } from '../../core/base/saveValues.js';
 
 const PLAIN_STRINGS = {
   msg: "saved world data must be plain values (number, string, boolean, array, plain object): {path} is {what}. A model: world.present('crate', { build: rec => mesh }), then world.view(id) gets it; logic: world.simulate(); not saved: world.add(rec, { save: false })",
@@ -134,10 +135,10 @@ export function saveWorld(w) {
 // with the game half-loaded. Refusing throws: saves.apply rolls the whole load back and reports this message (save-bad-record).
 const SHAPE_STRINGS = {
   obj: 'must be a plain object', kind: 'must have kind (a string)', pos: `must be { x, y, z } with finite numbers within ±${SAVE_MAX}`,
-  arr: 'must be an array of record ids', motion: 'must be a plain object (the character motion state) or null', nav: 'must be a plain object (the NPC path state)', path: 'must be null or a list of { x, z } with finite numbers', link: 'must be null or a link leg with an id and both ends', num: 'must be a finite number within ±{max}', count: 'must be a finite number >= 0',
+  arr: 'must be an array of record ids', motion: 'must be a plain object (the character motion state) or null', nav: 'must be a plain object (the NPC path state)', path: 'must be null or a list of { x, z } with finite numbers', link: 'must be null or a link leg with an id and both ends', num: 'must be a finite number within ±{max}', count: 'must be a finite number >= 0', base: 'must be a finite number',
 };
 /** Throw save-bad-record for the first malformed core field of a world save (fields of the game's own are not checked); kindOf(id) is the kind of an authored record @internal */
-function checkWorldSave(d, kindOf) {
+function checkWorldSave(d, kindOf, assets) {
   const bad = (path, why, got) => refuseSave('world', path, why, got);
   const pos = (path, p) => { if (!isPlainObject(p) || !['x', 'y', 'z'].every(k => saveNumberOk(p[k]))) bad(path, SHAPE_STRINGS.pos, p); };
   const num = (path, v) => { if (v !== undefined && !(Number.isFinite(v) && v >= 0)) bad(path, SHAPE_STRINGS.count, v); };
@@ -156,16 +157,21 @@ function checkWorldSave(d, kindOf) {
     leg(`${path}.link`, v.link, 'link');
     for (const k of ['seconds', 'time']) if (!(saveNumberOk(v.link[k]) && v.link[k] >= 0)) bad(`${path}.link.${k}`, SHAPE_STRINGS.count, v.link[k]);
   };
+  // a prop, pickup or NPC builds what its model field says, when it comes near: by then the load is long over, so a URL there stops here
+  const model = (path, m) => { const name = list(m)[0]; if (typeof name === 'string') checkSaveFile(assets, 'world', path, name); };
   if (!isPlainObject(d)) bad('the world part', SHAPE_STRINGS.obj, d);
   num('seq', d.seq); num('step', d.step); num('time', d.time);
-  if (d.step !== undefined && !Number.isSafeInteger(d.step)) bad('step', SHAPE_STRINGS.count, d.step);   // far records take turns in buckets[step % period]: only a whole number lands in one
-  for (const f of ['records', 'changed', 'owed']) if (d[f] !== undefined && !isPlainObject(d[f])) bad(f, SHAPE_STRINGS.obj, d[f]);
+  if (d.time > SAVE_MAX_SECONDS) bad('time', SHAPE_STRINGS.count, d.time);   // a step no longer moves it: world time stops for good
+  // far records take turns in buckets[step % period]: only a whole number lands in one. seq numbers new ids: past safe whole numbers it stops counting and ids repeat
+  for (const k of ['step', 'seq']) if (d[k] !== undefined && !Number.isSafeInteger(d[k])) bad(k, SHAPE_STRINGS.count, d[k]);
+  for (const f of ['records', 'changed', 'owed', 'marks']) if (d[f] !== undefined && !isPlainObject(d[f])) bad(f, SHAPE_STRINGS.obj, d[f]);
   if (d.removed !== undefined && !(Array.isArray(d.removed) && d.removed.every(id => typeof id === 'string'))) bad('removed', SHAPE_STRINGS.arr, d.removed);
   for (const [id, r] of Object.entries(d.records ?? {})) {
     if (!isPlainObject(r)) bad(`records.${id}`, SHAPE_STRINGS.obj, r);
     if (typeof r.kind !== 'string') bad(`records.${id}`, SHAPE_STRINGS.kind, r.kind);
     pos(`records.${id}.position`, r.position);   // world.add gives every record one, and the cell index reads it
     motion(`records.${id}.motion`, r.motion);
+    model(`records.${id}.model`, r.model);
     if (r.kind === 'npc') nav(`records.${id}.nav`, r.nav);
     if (r.kind === 'player') speeds(`records.${id}`, r);
   }
@@ -173,7 +179,7 @@ function checkWorldSave(d, kindOf) {
     if (!isPlainObject(c) || (c.set !== undefined && !isPlainObject(c.set)) || (c.del !== undefined && !Array.isArray(c.del))) bad(`changed.${id}`, SHAPE_STRINGS.obj, c);
     if (c.set && 'position' in c.set) pos(`changed.${id}.set.position`, c.set.position);
     if (c.del?.includes('position')) pos(`changed.${id}.del`, undefined);
-    if (c.set) motion(`changed.${id}.set.motion`, c.set.motion);
+    if (c.set) { motion(`changed.${id}.set.motion`, c.set.motion); model(`changed.${id}.set.model`, c.set.model); }
     if (c.set && 'kind' in c.set && typeof c.set.kind !== 'string') bad(`changed.${id}.set`, SHAPE_STRINGS.kind, c.set.kind);
     // shortcut: an NPC whose content loads after the save is not known here, so its changed nav goes unchecked; move the check to where a pending change is applied if a fuzz run reaches it
     if ((c.set?.kind ?? kindOf(id)) === 'npc') {
@@ -182,11 +188,13 @@ function checkWorldSave(d, kindOf) {
     }
   }
   for (const [id, v] of Object.entries(d.owed ?? {})) num(`owed.${id}`, v);
+  // a mark is a base, not a count: a record faster than its channel (time.local above 1) moves it below zero, and it can pass any fixed range the same way
+  for (const [id, v] of Object.entries(d.marks ?? {})) if (!Number.isFinite(v)) bad(`marks.${id}`, SHAPE_STRINGS.base, v);
 }
 
 /** Load: replace runtime records wholesale; loaded initial records go back to the original then get the save's changes; unloaded content waits for its add. Independent of the order of content.load @internal */
 export function loadWorld(w, d) {
-  checkWorldSave(d, id => w._base.get(id)?.kind);   // before anything is cleared: a refused save leaves the world as it was (the rollback then has nothing to undo here)
+  checkWorldSave(d, id => w._base.get(id)?.kind, w.engine.assets);   // before anything is cleared: a refused save leaves the world as it was (the rollback then has nothing to undo here)
   w._v.clear();
   w.records.clear(); w._cells.clear(); w._unsaved.clear();
   for (const id of [...w._origin.keys()]) if (!w._base.has(id)) w._origin.delete(id);   // runtime records come from the save now (no op to name)

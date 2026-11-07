@@ -27,6 +27,8 @@ function glowOf(g) {
 // 1 for a source that ignores the time of day, else the night factor (0 by day, 1 at night) for its dusk
 const nightK = (pool, src) => src.dusk === null ? 1 : nightOf(pool.daylight, src.dusk);
 export const litOf = (pool, src) => src.intensity * nightK(pool, src);
+/** Put a source's stand-in back as it was added */
+export function restoreGlow(src) { const g = src.glow; if (g) { g.m[g.key] = g.base; g.k = -1; } }
 export function setGlow(pool, src, k) {
   const g = src.glow;
   if (!g) return;
@@ -66,7 +68,7 @@ function handleOf(pool, src) {
       src.removed = true;
       const i = pool.sources.indexOf(src); if (i >= 0) pool.sources.splice(i, 1);
       if (src.slot) src.slot.want = 0;
-      if (src.glow) { src.glow.m[src.glow.key] = src.glow.base; src.glow.k = -1; }
+      restoreGlow(src);
       pool.timer = Infinity;
     },
   };

@@ -22,13 +22,12 @@ export class WeatherDraw {
    */
   constructor(engine, { particles, area = 40, rain = {}, snow = {} } = {}) {
     /** @internal */ this.engine = engine;
-    /** @internal the state half: read only */ this.state = engine.weather;
     /** Sky flash now, 1 at a strike (the weather:lightning event) fading to 0 @type {number} */
     this.flash = 0;
     // the weather's entries on the shared sky points: taken once through ctx.mod (owned by this module, gone with it) and rewritten every frame with
     // handle.change (core/ops/sharedPoint.js), so a frame adds no entry and no cleanup handle. ctx is set by the module's install
     /** @internal */ this._ctx = null; /** @internal */ this._h = {};
-    /** @internal */ this._tint = { color: this.state.overcastColor, amount: 0, horizon: 0 };
+    /** @internal */ this._tint = { color: null, amount: 0, horizon: 0 };
     /** Default particle count per system: weather({ particles }), else 6000 (3000 on low-tier devices) @type {number} */
     this.particles = particles ?? (engine.tier === 'low' ? 3000 : 6000);
     /** @internal */ this.area = area;
@@ -49,6 +48,8 @@ export class WeatherDraw {
 
   /** @internal the weather table (state half) */
   get types() { return this.state.types; }
+  /** @internal the state half, read only and read live: a replaced weather module must not leave the picture on the old one */
+  get state() { return this.engine.weather; }
   /** @internal does any type have this field above 0 */
   _used(field) { return Object.values(this.types).some(v => v[field] > 0); }
 
@@ -98,6 +99,7 @@ export class WeatherDraw {
    */
   apply(camera, dt = 0) {
     const c = this.state.current, e = this.engine, T = this._tint;
+    T.color = this.state.overcastColor;
     const t = e.time.now('real');
     this.flash = Math.max(0, this.flash - dt * 3);
     T.amount = c.grey; T.horizon = c.grey * 0.8; this._put('sky.tint', 'value', T);
@@ -124,14 +126,13 @@ export function weatherDrawModule(opts) {
   readParams('weather (drawing half)', DRAW_PARAMS, opts);
   let L = null;
   return {
-    name: 'weatherDraw', type: 'picture', provides: ['weatherDraw'], label: 'Weather drawing', params: DRAW_PARAMS, options: opts, requires: ['weather'], optional: ['sky'], stage: 'environment', before: ['sky'], after: ['weather'],
+    name: 'weatherDraw', skipKind: 'none', type: 'picture', provides: ['weatherDraw'], label: 'Weather drawing', params: DRAW_PARAMS, options: opts, requires: ['weather'], optional: ['sky'], stage: 'environment', before: ['sky'], after: ['weather'],
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.weatherDraw': '天气外观' }, en: { 'module.weatherDraw': 'weather drawing' } });
       L = new WeatherDraw(e, opts);
       L._ctx = ctx;   // the weather's entries on the shared points go with this module (ctx.mod)
       ctx.track(onRendererSwap(e, () => L._rendererSwapped()));
-      const w = e.weather;
-      ctx.track(e.audio.condition('weather', v => [].concat(v).includes(w.name)));   // audio rule condition { weather: 'rain' | ['rain', 'storm'] }
-      for (const k of ['rain', 'snow', 'wind']) ctx.track(e.audio.measure(k, () => w.current[k]));   // data rules: { rain: { lt: 0.2 } }, volume add: { rain: 0.22 }
+      ctx.track(e.audio.condition('weather', v => [].concat(v).includes(e.weather.name)));   // audio rule condition { weather: 'rain' | ['rain', 'storm'] }
+      for (const k of ['rain', 'snow', 'wind']) ctx.track(e.audio.measure(k, () => e.weather.current[k]));   // data rules: { rain: { lt: 0.2 } }, volume add: { rain: 0.22 }
       builtInSounds(e.assets, { thunder: (audio, p, out) => { const dur = p.duration ?? 3.5, delay = 0.4 + Math.random() * 1.5;   // presentation: thunder delay
         audio.noiseBurst({ type: 'lowpass', freq: p.freq ?? 140, vol: p.volume ?? 0.9, dur, rate: 0.4 * p.pitch, delay, out }); return delay + dur; } },
       { bus: 'ambience' });   // sound asset 'thunder', silent until audio.sounds names it

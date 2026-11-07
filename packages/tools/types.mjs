@@ -9,8 +9,9 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync, existsSync, mkdirSync, writeFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { join, relative, dirname, sep, resolve } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import ts from 'typescript';
+import { hintFor } from 'threedog/error-hints';
 
 import { item, result, startJson } from './lib/result.mjs';
 import * as P from './paths.mjs';
@@ -27,7 +28,6 @@ const SCOPE = checkScope(SCOPE_DIR), ENG = SCOPE?.notEngine;
 // --project <tsconfig>: another config instead of the root one (the types guard test uses a probe file)
 // A game in its own repo without a tsconfig.json gets a default one in .threedog/ (all game .js and .d.ts, engine types through 'threedog')
 const PROJECT = OPT.project ?? (existsSync(join(ROOT, 'tsconfig.json')) ? scopedConfig() ?? join(ROOT, 'tsconfig.json') : defaultConfig());
-const rel = p => relative(ROOT, p).split(sep).join('/');
 // check -w <game> in the monorepo: tsc over this game and the engine's declarations, not every game and example, whose errors it only counted. skipLibCheck: three's and
 // the engine's .d.ts are the root check's to read, and they were most of the time. A game not under games/ keeps the root config, whose include has no pattern for it
 function scopedConfig() {
@@ -68,7 +68,7 @@ if (P.MODE === 'monorepo' && !ENG) {
 }
 
 // Game files checked (the project .js files listed by --listFiles)
-const checked = out.split('\n').map(s => s.trim()).filter(s => s && !s.includes('(') && s.endsWith('.js') && !s.includes('node_modules')).map(s => rel(s)).filter(f => !P.notGameSource(P.abs(f), P.ROOT, false));   // dependencies (vendor/, file: folders) are not game files
+const checked = out.split('\n').map(s => s.trim()).filter(s => s && !s.includes('(') && s.endsWith('.js') && !s.includes('node_modules')).map(P.rel).filter(f => !P.notGameSource(P.abs(f), P.ROOT, false));   // dependencies (vendor/, file: folders) are not game files
 
 // Error: file(line,col): error TSxxxx: message; the indented lines after it are extra explanation
 const diags = [];
@@ -94,7 +94,7 @@ const srcLine = (file, n) => {
 const typeHome = new Map();
 for (const f of [P.abs(P.INDEX_DTS_REL), ...readdirSync(P.abs(P.TYPES_REL)).map(f => join(P.abs(P.TYPES_REL), f))]) {
   if (!f.endsWith('.d.ts') || !existsSync(f)) continue;
-  for (const m of readFileSync(f, 'utf8').matchAll(/export (?:declare )?(?:interface|type|class) (\w+)/g)) typeHome.set(m[1], rel(f));
+  for (const m of readFileSync(f, 'utf8').matchAll(/export (?:declare )?(?:interface|type|class) (\w+)/g)) typeHome.set(m[1], P.rel(f));
 }
 // every engine type name, the generated declarations too (PostEffect): an error that names one is about the engine API (isPlainJs)
 const engineTypes = new Set(typeHome.keys());
@@ -135,6 +135,8 @@ function translate(d) {
       `Fix: /** @param {{ ${m[1]}?: number }} [${who ?? 'opts'}] */ above the function (any type you like, or {any}), or destructure with defaults: ({ ${m[1]} = … } = {})`;
     if (/Window|globalThis/.test(m[2])) return `window has no ${m[1]} (to attach a debug object write /** @type {any} */ (window).${m[1]} = …)`;
     const full = who ? `${who}.${m[1]}` : `${typeText(m[2])}.${m[1]}`;
+    const hint = hintFor(`${m[2]}.${m[1]} is not a function`.toLowerCase());   // a guessed pause: the wording and the names live in the error hint
+    if (hint?.id === 'pause-guess') return `property does not exist: ${full}. ${hint.cause}`;
     return `property does not exist: ${full}` + (m[3] ? `; did you mean \`${m[3]}\`?` : ` (${typeText(m[2])} has no ${m[1]})${where(m[2])}`);
   }
   // the engine has no such export

@@ -3,8 +3,8 @@
 export class I18n {
     /** Language used when a key is missing in the current one (default 'en') @experimental */
     fallback: string;
-    /** Current language, e.g. 'zh-CN' ('zh' and 'zh-Hans' resolve to it, 'en-US' to 'en') @experimental */
-    locale: any;
+    /** Current language, e.g. 'zh-CN' ('zh' and 'zh-Hans' resolve to it, 'en-US' to 'en'). Read-only: setLocale changes it, and tells i18n:change @returns {string} @experimental */
+    get locale(): string;
     /**
      * Register string tables (never overrides text the game gave)
      * @param {StringTables} tables

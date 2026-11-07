@@ -31,6 +31,8 @@ Trigger zones (triggers() module)
   - `who?: string | Vector3 | Object3D | { x, y, z } | (() => Array<string | Obje…) | null` Who can trigger it: engine.actor by default; or an actor id, a position, an object (its position is used), or a function returning an array of those (several actors: () => [e.actor, ...e.net.peers.map(p => p.actor)])
   - `cooldown?: number` Seconds after leaving during which entering does not fire again, default 0
   - `userData?: Record<string, any>` Custom data
+  - `occupancy?: 'zone' | 'each'` 'zone' (default): one enter when the first actor arrives, one exit when the last leaves. 'each': an enter, stay and exit per actor (a door counting entrants); inside is true while anyone is in
+  - `volume?: { contains, bounds? }` Your own region instead of a shape: the plain volume addWaterBody takes. bounds ({ min, max }) lets the zone be indexed and drawn in the debug view; without it the zone is checked every step
 - **Trigger** A trigger zone (the return value of add())
   - `shape: 'cylinder' | 'sphere' | 'box'`
   - `x: number` Position (meters)

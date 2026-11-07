@@ -1,6 +1,6 @@
 // Position read / write for world: shared by add / move / query. A wrong position (a Vector3 used as an array, [x, z] with only two numbers) silently becomes NaN and null in the save,
-// so dev builds throw on the spot and say how to fix it.
-import { DEV, goodPos, fmt } from '../../core/base/validate.js';
+// so every build throws on the spot and says how to fix it: a NaN worked out during play reaches a release build too.
+import { goodPos, fmt } from '../../core/base/validate.js';
 import { badPosition } from '../../core/base/math.js';
 
 const STRINGS = {
@@ -11,10 +11,10 @@ const STRINGS = {
 /** Write position v (Vector3 / object / [x, y, z] / { x, z }) into p; y stays unchanged if omitted @internal */
 export function putPos(fn, v, p) {
   const arr = Array.isArray(v), o = v.isObject3D ? v.position : v;
-  if (DEV && arr && v.length !== 3) throw badPosition(fmt(STRINGS.arr, { fn }), v);
+  if (arr && v.length !== 3) throw badPosition(fmt(STRINGS.arr, { fn }), v);
   const x = arr ? v[0] : o.x, y = arr ? v[1] : o.y ?? p.y, z = arr ? v[2] : o.z;
   // check before writing: a bad position leaves no half-written NaN in the data
-  if (DEV && !goodPos([x, y, z])) throw badPosition(fmt(STRINGS.nan, { fn, got: JSON.stringify(v) }), v);
+  if (!goodPos([x, y, z])) throw badPosition(fmt(STRINGS.nan, { fn, got: JSON.stringify(v) }), v);
   p.x = x; p.y = y; p.z = z;
 }
 /** Query center: objects use position, arrays are [x, y, z], others (Vector3 / { x, z }) are used as is, no allocation @internal */

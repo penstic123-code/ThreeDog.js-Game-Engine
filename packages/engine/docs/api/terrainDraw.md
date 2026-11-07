@@ -1,4 +1,4 @@
-# engine.terrainDraw — terrainDraw()
+# engine.terrainDraw — terrain(opts?: TerrainOptions)
 
 (experimental) Draws the terrain chunks (terrain()'s drawing module, slot 'terrain-draw'; undefined when a game replaced it)
 

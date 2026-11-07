@@ -7,7 +7,7 @@ const { pickupId, templateId } = await import(pathToFileURL(abs(CONTENT_IDS_REL)
 // the engine's stages rules: a stages list the engine would throw on is an error here, before the game runs
 const { stagesProblems } = await import(pathToFileURL(abs(CONTENT_STAGES_REL)).href);
 // the engine's collide rule: a value the load would refuse is an error here
-const { collideProblem } = await import(pathToFileURL(abs(CONTENT_RULES_REL)).href);
+const { collideProblem, placeProblem } = await import(pathToFileURL(abs(CONTENT_RULES_REL)).href);
 
 /** ctx: { c, items, err, checkModel, checkPos, isObj, known } */
 export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, known }) {
@@ -16,8 +16,7 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
     const where = `container ${id}`;
     if (d?.capacity !== undefined && !(d.capacity > 0)) err('containers', `capacity of ${where} must be positive (number of slots)`);
     for (const [item, n] of Object.entries(d?.items || {})) {
-      if (!items[item]) err('containers', `initial cargo ${item} of ${where} does not exist (existing items: ${known(items)})`);
-      else if (!(n > 0)) err('containers', `the count of initial cargo ${item} of ${where} must be positive`);
+      if (items[item] && !(n > 0)) err('containers', `the count of initial cargo ${item} of ${where} must be positive`);
     }
     if (d?.items && Object.keys(d.items).length > (d.capacity ?? 24)) err('containers', `${where} has more kinds of initial cargo than capacity, they do not fit`);
   }
@@ -64,7 +63,7 @@ export function checkWorldData({ c, items, err, checkModel, checkPos, isObj, kno
 
   // Places: rot is the one field the load refuses (a turned place moves everything standing on it, so a bad value must stop here, not at the first load)
   for (const [name, p] of Object.entries(c.places || {})) {
-    if (p?.rot !== undefined && !Number.isFinite(p.rot)) err('places', `place ${name}: rot must be a number of radians about Y, got ${JSON.stringify(p.rot)}`);
+    const bad = placeProblem(p); if (bad) err('places', `place ${name}: ${bad}`);
   }
 
   // 11. Props (a missing place is reported by checkPos; a wrong-typed source by fields.mjs, from the field table)

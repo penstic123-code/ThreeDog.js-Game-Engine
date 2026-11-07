@@ -5,7 +5,7 @@
 Modules: `sky()` (draws the dome from `engine.calendar`, sun and moon, and computes the signals; it writes no light, fog or exposure, those are your `picture/` code, recipe 62; the time itself is `calendar()`, recipe 06), `weather()` (the game's weather types, smooth transitions, rain and snow,
 lightning; their picture is `weather({ rain, snow, lightning })`, recipe 44). The engine has only a neutral fallback.
 
-```js
+```js fragment
 engine.use(sky({ keyframes: ROWS, sunSize: 600, clouds: { coverage: 0.6 }, dim: { stars: false } }));   // start values
 engine.uniforms.uSunBrightness.value = 4;        // sun, moon, star and dome cloud numbers: engine.uniforms, the dome's own objects, on both renderers
 engine.uniforms.uCloudCover.value = 0.8;    // also uSunSize uSunGlow uMoonSize uMoonBrightness uMoonColor uStars uStarScale uSkyCurve uSkyCloudScale uSkyCloudSpeed uCloudOpacity uCloudSoft uCloudColor uCloudShade
@@ -70,7 +70,7 @@ Time of day still reaches it through `engine.uniforms` (`uSunDir`, `uDaylight`, 
 ```js
 engine.weather.set('rain', { seconds: 20 });          // transition to rain over 20 seconds (a type of the game's table, see 2)
 engine.weather.set('storm', { seconds: 0 });          // at once: the full storm before the next step (a screenshot or test right after the call)
-engine.weather.setAuto(true);            // change weather at random (openWorld({ camera: 'follow', autoWeather: true }) also works)
+engine.weather.auto = true;            // change weather at random (openWorld({ camera: 'follow', autoWeather: true }) also works)
 engine.events.on('weather:lightning', () => { /* thunder */ });
 engine.events.on('weather:change', ({ from, to }) => { /* once per change of name, when the blend starts; set() with the same name again does not fire */ });
 ```
@@ -79,7 +79,7 @@ engine.events.on('weather:change', ({ from, to }) => { /* once per change of nam
 `weather({ types })` is the whole list of the game's weather; without it there is only a calm `clear` (the engine assumes no climate). Seven temperate
 ones (clear cloudy overcast rain storm snow fog) are an opt-in preset: `weather(presets.weather.temperate)`; extend with
 `types: { ...presets.weather.temperate.types, dust: {...} }`.
-The preset supplies types and an `autoPool`; the weather changes by itself only with `auto: true` (or `engine.weather.setAuto(true)`). To pin one
+The preset supplies types and an `autoPool`; the weather changes by itself only with `auto: true` (or `engine.weather.auto = true`). To pin one
 for a picture: `engine.weather.set('clear')`, or a shot's `--weather clear` (it also turns `auto` off); a shot prints the weather under the picture.
 Left-out fields are calm (no cloud, rain, snow, grey, lightning; sun, fog, wind 1). There is no patch option for one field
 of a preset type: spread that one type, `const T = presets.weather.temperate.types; weather({ types: { ...T, rain: { ...T.rain, fog: 0.5 } } })`.
@@ -185,7 +185,7 @@ In scope: the GLSL noise helpers `float threedogHash(vec2 p)` and `float threedo
 the patch's `uniforms` (declared for you; number, `THREE.Color`, `THREE.Vector2/3/4`, array of 2-4 numbers, or `THREE.Texture`). Change one later
 with `engine.sky.uniforms.uEdge.value = 0.1` (both renderers). A bad `kind`, GLSL without the function, or an unsupported uniform value throws with the fix.
 Flat painted cloud blobs with a hard edge, multiplied by a texture:
-```js
+```js fragment
 // sky({ clouds: { color: 0xfff1dc, shade: 0x9aa8c4 } }) gives lit and shade; the function goes through the hook
 engine.sky.clouds({ uniforms: { uPaper: paperTexture, uEdge: 0.06 },   // paperTexture: any THREE.Texture, repeat wrapping
   glsl: `vec4 threedogClouds(vec3 d, float time, vec3 sunDir, float night, vec3 lit, vec3 shade, float cover){
@@ -214,7 +214,7 @@ renamed (`threedogSkyLayer0`, `1`, ...), so layers from different parts of the g
 ## 10. Flat backdrop: no horizon at all
 For a scene that should have no horizon (a menu stage, a board game, a diorama):
 ```js fragment
-sky: { backdrop: 0xefebe4 },                                       // one color
+sky({ backdrop: 0xefebe4 });                                            // one color
 engine.sky.backdrop = engine.sky.isDay ? 0xefebe4 : 0x2c3346;           // live, from your own frame code; null gives the dome back
 ```
 - Hides the dome (no gradient, horizon line, sun / moon disk, stars or clouds) and sets `scene.background` to the color. A plain background

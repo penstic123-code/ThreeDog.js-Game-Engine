@@ -6,7 +6,7 @@
 import { warnMissing } from '../base/validate.js';
 import { readParams, keysSchema } from '../base/params.js';
 import { codedError } from '../base/errorHints.js';
-import { setFov } from './view.js';
+import { holdFov } from './view.js';
 
 const vec3 = a => Array.isArray(a) && a.length === 3 && a.every(Number.isFinite);
 
@@ -14,8 +14,8 @@ export class Views {
   /** @param {any} engine */
   constructor(engine) {
     /** @internal */ this.engine = engine;
-    this.map = new Map(); this.current = null; this._cam = null;
-    /** @internal the camera's fov before a view changed it: release() gives it back */ this._fov = null;
+    this.map = new Map(); this._cam = null;
+    /** Name of the view in use, null while none is @type {string | null} */ this.current = null;
   }
   /**
    * Declare a view. position and target are [x, y, z]; fov (degrees) is optional (the camera's own when left out). Returns { remove() } (undeclares it).
@@ -47,15 +47,15 @@ export class Views {
     this._cam = e.takeCamera('views', { focus });
     e.focus.copy(focus);
     c.position.fromArray(v.position); c.lookAt(...v.target);
-    if (v.fov != null && c.isPerspectiveCamera) { this._fov ??= c.fov; setFov(e, v.fov); }   // yields to a fov the game took (engine.autoView.manual('fov'))
+    if (v.fov != null) holdFov(e, v.fov);
     c.updateMatrixWorld(true);
     this.current = name;
     e.events.emit('camera:shot', { name });   // a cut: what follows the camera (the light pool) settles at once instead of easing over
-    return { remove: () => { if (this.current === name) this.release(); } };
+    const cam = this._cam;   // this showing, not the name: a handle kept from an earlier one must not end a later one
+    return { remove: () => { if (this._cam === cam) this.release(); } };
   }
   /** Give the camera back (to the previous holder, e.g. a running cutscene, or to the rig) */
   release() {
-    if (this._fov != null) { setFov(this.engine, this._fov); this._fov = null; }
     this._cam?.remove(); this._cam = null; this.current = null;
   }
 }

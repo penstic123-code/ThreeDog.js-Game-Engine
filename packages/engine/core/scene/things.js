@@ -8,7 +8,7 @@ import { DEV, warnOnce } from '../base/validate.js';
 import { codedError, coded } from '../base/errorHints.js';
 import { stackFrames, frameText } from '../ops/stackFrames.js';
 import { isPlainObject } from '../base/util.js';
-import { refuseSave } from '../saves/saveValues.js';
+import { refuseSave } from '../base/saveValues.js';
 
 /** Throw save-bad-record when the 'scene' part is not { set: { id: { prop: value } }, removed: [id] } (same refusal as the world part, world/persist.js) */
 function checkSceneSave(d) {

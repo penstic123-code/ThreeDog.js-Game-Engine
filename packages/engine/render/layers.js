@@ -5,7 +5,7 @@ export const RESERVED_LAYERS = Object.freeze({
   lightVolumes: 26,
   /** occlusion culling's query boxes: only the view camera sees them, so voxel GI, probes and shadows never take them for geometry */
   occlusionBox: 27,
-  /** what occlusion culling is not drawing now: on shadow cameras, voxel GI and engine.rays, never on the view camera */
+  /** nothing sits here: occlusion culling sets it on shadow cameras so three reads their own layers, not the view camera's, and what it hides still casts */
   occlusionHidden: 28,
   /** objects outline({ offLayer }) leaves without lines */
   outlineOff: 29,

@@ -1,5 +1,5 @@
-// NPC-vs-NPC avoidance (near NPCs, every fixed step, called from goTo): nearby NPCs push each other apart to at least the sum of their radii; the player is an
-// obstacle (NPCs yield, the player is never pushed).
+// NPC-vs-NPC avoidance (near NPCs, every fixed step, called from goTo): nearby NPCs push each other apart to at least the sum of their radii; every player is an
+// obstacle (NPCs yield, a player is never pushed).
 // Why it is written this way: a continuous run and a save-then-load of the same scenario must give bit-identical positions:
 // 1. Each NPC pushes only itself and reads neighbours' positions as of the start of this step (stamped), so a neighbour that already moved this step does not
 // matter and order is irrelevant;
@@ -11,6 +11,7 @@
 // avoidance (too costly).
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { Cells } from '../../core/stream/cells.js';
+import { sameFloor } from '../../core/scene/floor.js';
 
 const KEYS = ['on', 'radius', 'strength'];
 // push direction is rotated ~25° to the right: two NPCs meeting head-on each swerve to their own right instead of deadlocking in a line
@@ -29,15 +30,16 @@ function shove(acc, dx, dz, d, min, tie) {
 
 /** Mounted on engine.npcs: engine.npcs.avoid.set(false | { radius, strength }) */
 export class NpcAvoid {
-  /** @param {(h: any) => any} track the characters module's ctx.track: its listeners leave with the module */
-  constructor(engine, track) {
+  /** @param {any} engine @param {(h: any) => any} track the characters module's ctx.track: its listeners leave with the module @param {Map<string, { character: any }>} players */
+  constructor(engine, track, players) {
     this.engine = engine;
+    /** @internal */ this._players = players;
     this.on = true;         // switch (default on)
     this.radius = null;     // avoid radius per NPC (m); null = engine.movement.radius
     this.strength = 3;      // max push speed (m/s)
     this._acc = { x: 0, z: 0 };
     /** @internal ids of NPCs that have a model now (NPCManager keeps it): only they take part, so far NPCs cost nothing per step */ this.built = new Set();
-    // id → { id, rec, k, x, z, position, n }: x, z = where its own step started (stamped on step k); position = where it was filed for step n (the stamp, or
+    // id → { id, rec, k, x, y, z, position, n }: x, y, z = where its own step started (stamped on step k); position = where it was filed for step n (the stamp, or
     // where it stood before moving), what neighbours read
     this._start = new Map();
     // the shared xz index (core/stream/cells.js) with cells the size of the minimum distance of two NPCs, so a query looks at 3x3 cells. Not world's record index:
@@ -47,7 +49,7 @@ export class NpcAvoid {
     this._q = null; this._qRec = null;   // the NPC being pushed, for the query callback (built once, no closure per push)
     this._onNear = (o, d2) => {
       const own = this._q, rec = this._qRec;
-      if (o.rec === rec || d2 >= this._min2 || (o.rec.zone != null && rec.zone != null && o.rec.zone !== rec.zone)) return;
+      if (o.rec === rec || d2 >= this._min2 || (o.rec.zone != null && rec.zone != null && o.rec.zone !== rec.zone) || !sameFloor(own.y, o.position.y, this.engine.movement.height)) return;
       shove(this._acc, own.x - o.position.x, own.z - o.position.z, Math.sqrt(d2), this._min, rec.id < o.id ? 1 : -1);
     };
     track(engine.events.on('world:remove', ({ id }) => { const s = this._start.get(id); if (s) { this._grid?.delete(s); this._filed.delete(s); this._start.delete(id); } }));
@@ -77,11 +79,11 @@ export class NpcAvoid {
   stamp(rec) {
     if (!this.on) return;
     const s = this._entry(rec);
-    s.k = this.engine.world.steps; s.x = rec.position.x; s.z = rec.position.z;
+    s.k = this.engine.world.steps; s.x = rec.position.x; s.y = rec.position.y; s.z = rec.position.z;
   }
   _entry(rec) {
     let s = this._start.get(rec.id);
-    if (!s) this._start.set(rec.id, s = { id: rec.id, rec, k: -1, x: 0, z: 0, position: { x: 0, z: 0 }, n: -1 });
+    if (!s) this._start.set(rec.id, s = { id: rec.id, rec, k: -1, x: 0, y: 0, z: 0, position: { x: 0, y: 0, z: 0 }, n: -1 });
     s.rec = rec;   // a load replaces record objects
     return s;
   }
@@ -99,13 +101,13 @@ export class NpcAvoid {
       const o = W.get(id); if (!o || !W.view(id)) continue;
       const s = this._entry(o);
       const q = s.k === n ? s : o.position;
-      s.position.x = q.x; s.position.z = q.z;
+      s.position.x = q.x; s.position.y = q.y; s.position.z = q.z;
       s.n = n; G.put(s); filed.add(s);
     }
     for (const s of filed) if (s.n !== n) { G.delete(s); filed.delete(s); }   // model gone since last step
   }
 
-  /** Push ch (the rec's model) apart; call after ch.move, edits ch.root.position x, z directly */
+  /** Push ch (the rec's model) apart in x, z, from walkers on its own floor only (nav({ crowd: true }) separates by the mesh). Call after ch.move, edits ch.root.position x, z directly */
   push(rec, ch, dt) {
     const e = this.engine, W = e.world;
     if (!this.on || e.nav?.crowd) return;
@@ -116,8 +118,9 @@ export class NpcAvoid {
     const acc = this._acc; acc.x = acc.z = 0;
     this._q = own; this._qRec = rec; this._min = min; this._min2 = min * min;
     this._grid.forEach(own, min, this._onNear);
-    const pl = e.player, ox = own.x, oz = own.z;
-    if (pl?.root) {   // the player is an obstacle: only the NPC yields, the player position belongs to the mover
+    const ox = own.x, oz = own.z;
+    for (const { character: pl } of this._players.values()) {   // a player is an obstacle: only the NPC yields, a player's position belongs to its mover
+      if (!sameFloor(own.y, pl.root.position.y, e.movement.height)) continue;
       const q = pl.root.position, m = r + (pl.radius ?? r), dx = ox - q.x, dz = oz - q.z, d = Math.hypot(dx, dz);
       if (d < m) shove(acc, dx, dz, d, m, 1);
     }

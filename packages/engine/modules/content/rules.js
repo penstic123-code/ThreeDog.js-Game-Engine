@@ -28,6 +28,7 @@
 //     check: (data, ctx) => { for (const [id, r] of Object.entries(data)) if (!ctx.data.items?.[r.makes]) ctx.err(`recipe ${id} makes unknown item ${r.makes}`); } } } };
 
 import { list, isObject } from '../../core/base/util.js';
+import { sectionDocs, sectionEffects } from '../../core/inspect/metadata.generated.js';
 
 const counts = o => Object.entries(o || {}).map(([k, n]) => `${k}×${n}`).join('、');
 const opText = v => Array.isArray(v) ? `${v[0]}${v[1] ? ' ' + Object.entries(v[1]).map(([k, x]) => `${k}=${x}`).join(' ') : ''}` : String(v);
@@ -47,34 +48,12 @@ const RULE_STRINGS = {
     give: { ref: 'itemCounts', desc: 'give items', describe: v => `give ${counts(v)}` },
     take: { ref: 'itemCounts', desc: 'take items', describe: v => `take ${counts(v)}` },
     bump: { ref: 'counter', desc: 'counter +1', describe: v => `counter ${v}+1` },
-    startQuest: { ref: 'quest', desc: 'start a quest', describe: v => `start quest ${v}` },
     toast: { ref: 'text', desc: 'show a toast', describe: v => `toast "${v}"` },
     particles: { ref: 'particles', desc: 'play particles', describe: v => `particles ${v.name}×${v.count ?? ''}` },
     marker: { ref: 'position', desc: 'add an objective marker (hud module)', describe: v => `marker ${posText(v)}${v.label ? `"${v.label}"` : ''}` },
     // raw: the value names the marker (content-check still reads it as a place); a place that is gone, on a level left behind, must not stop the clearing
     clearMarker: { ref: 'position', raw: true, desc: 'remove an objective marker', describe: v => `remove marker ${posText(v)}` },
     op: { ref: 'op', desc: "run a game op (engine.ops.run); the game's own actions are ops", describe: v => `op ${opText(v)}` },
-  },
-  // content file name -> description (only these files are recognized in content/)
-  files: {
-    items: 'items (id -> name, icon, description); also export startItems for starting items',
-    pickups: 'pickups on the ground (list)',
-    containers: 'chests / shelves (container id -> { capacity, items: starting goods }; starting goods are placed only the first time, then saved)',
-    npcs: 'NPCs (id -> name, schedule, interact)',
-    dialogues: 'dialogues (id -> speaker, nodes)',
-    quests: 'quests (id -> title, steps, reward; a step can have a target position)',
-    actions: 'own key actions of the game (action name -> default key, label)',
-    places: 'place names (name -> { x, z, y?, rot? }; rot turns everything placed there about Y; coordinates may be computed at runtime in main.js)',
-    triggers: 'trigger zones (tag -> position / from level, enter/exit effects)',
-    level: 'level markers (spawn point, NPCs, trigger zones) of a code-built level: for the tools (content checks, GAMEMAP); load() accepts the file and does not read it',
-    vegetation: 'vegetation (name -> model, growth rule)',
-    props: 'props (list: model, position, facing, collision; or { template, x, z } = an instance of a template; or { id, grid, item, cell } = a grid item), streamed in on demand',
-    templates: 'reusable objects (name -> model, collide, interact, container, sound, animate, state defaults, physics body); shared read-only definitions',
-    audio: 'sounds by asset name, ambience and music rules as data, footsteps (sounds, ambience, music: { tracks, rules }, footsteps)',
-    views: 'named fixed camera views (name -> { position: [x, y, z], target?: [x, y, z], fov? }); engine.views.show(name), ?view=name, npm run shot -- -w game --view name',
-    grids: 'placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved',
-    renames: "renamed or deleted authored ids (old id -> new id, or null = deleted on purpose): the player's saved changes follow the new id",
-    rules: 'condition words and data kinds added by the game ({ conditions, kinds }); actions are ops, not effect words',
   },
   // Placement fields: the keys one entry of a content file may have, in the core/base/params.js spec format. Declared once here, read by the loader
   // (unknown keys), content-check (unknown keys with did-you-mean, wrong type, out of range, not in values) and engine.content.fields() (an editor
@@ -83,49 +62,50 @@ const RULE_STRINGS = {
   // (x, z are optional when place is given), so they are marked optional here.
   fields: (() => {
     const at = {
-      place: { type: 'string', optional: true, desc: "place name (places.js / level marker); x and z are then offsets from it and turn with the place's rot" },
+      place: { label: 'Place', rare: true, type: 'string', optional: true, desc: "place name (places.js / level marker); x and z are then offsets from it and turn with the place's rot" },
       x: { type: 'number', optional: true, desc: 'meters along x (offset from place when place is given)' },
       z: { type: 'number', optional: true, desc: 'meters along z (offset from place when place is given)' },
-      floor: { type: 'number', optional: true, desc: 'reference height of the storey it stands on (multi-layer ground)' },
-      y: { type: 'number', optional: true, desc: 'meters above the ground it stands on' },
+      floor: { label: 'Storey height', rare: true, type: 'number', optional: true, desc: 'reference height of the storey it stands on (multi-layer ground)' },
+      y: { label: 'Height', type: 'number', optional: true, desc: 'meters above the ground it stands on (the height itself when ground is false)' },
     };
     const pose = {
-      rot: { type: 'number', optional: true, desc: 'facing around the vertical axis, radians' },
-      scale: { type: 'number', optional: true, min: 0, desc: 'uniform scale (1 = model size)' },
+      rot: { label: 'Facing', type: 'number|position', optional: true, desc: 'facing around the vertical axis, radians; or [x, y, z] radians to tilt it (a tilted collide needs a collider3d provider)' },
+      scale: { label: 'Size', type: 'number|position', optional: true, desc: 'uniform scale (1 = model size), or [x, y, z] per axis' },
     };
     // a plain tag, so world.query({ where: r => r.source === 'stall' }) finds every copy of one arrangement; nothing else reads it
-    const copied = { source: { type: 'string', optional: true, desc: 'name of the arrangement this entry was copied from; queryable, no other effect' } };
+    const copied = { source: { label: 'Copied from', rare: true, type: 'string', optional: true, desc: 'name of the arrangement this entry was copied from; queryable, no other effect' } };
     return {
       props: {
         id: { type: 'string', optional: true, desc: 'stable id (needed when entries are later inserted in the middle)' },
         model: { type: 'any', desc: "model name, or [name, ...args] for a generated model" }, ...at, ...pose, ...copied,
-        collide: { type: 'any', optional: true, desc: "collision: 'box', 'circle', { circle: radius, occluder?: false }, or false = none" },
-        occluder: { type: 'bool', optional: true, desc: 'false = a solid prop the follow camera may pass through (walkers are still stopped)' },
-        static: { type: 'bool', optional: true, desc: 'never moves (may be merged into one draw call)' },
-        batch: { type: 'bool', optional: true, desc: 'false = never batch this copy' },
-        lod: { type: 'any', optional: true, desc: 'true = lower-detail levels far away (threedog assets optimize --lod), or rising distances in meters like [40, 120]; such a copy is never batched' },
+        ground: { type: 'bool', optional: true, desc: 'false = do not snap to the ground: y is the height in the world' },
+        collide: { label: 'Collision', rare: true, type: 'any', optional: true, desc: "collision: 'box', 'circle', { circle: radius, occluder?: false }, or false = none" },
+        occluder: { label: 'Blocks camera', rare: true, type: 'bool', optional: true, desc: 'false = a solid prop the follow camera may pass through (walkers are still stopped)' },
+        static: { label: 'Never moves', rare: true, type: 'bool', optional: true, desc: 'never moves (may be merged into one draw call)' },
+        batch: { label: 'Merge copies', rare: true, type: 'bool', optional: true, desc: 'false = never batch this copy' },
+        lod: { label: 'Far detail', rare: true, type: 'any', optional: true, desc: 'true = lower-detail levels far away (threedog assets optimize --lod), or rising distances in meters like [40, 120]; such a copy is never batched' },
       },
       'props.template': {
         template: { type: 'string', desc: 'template name (content/templates.js)' },
         id: { type: 'string', optional: true, desc: 'stable id; instances with state should have one' }, ...at, ...pose, ...copied,
-        items: { type: 'object', optional: true, desc: "starting goods of the instance's container { itemId: count }" },
+        items: { label: 'Starts with', rare: true, type: 'object', optional: true, desc: "starting goods of the instance's container { itemId: count }" },
       },
       'props.grid': {
         id: { type: 'string', desc: 'stable id (the player can move or pick it up)' },
         grid: { type: 'string', desc: 'grid name (content/grids.js)' },
         item: { type: 'string', desc: 'grid item name' },
         cell: { type: 'position', desc: 'grid cell [col, row]' },
-        rotation: { type: 'int', optional: true, values: [0, 1, 2, 3], desc: 'quarter turns' },
-        fields: { type: 'object', optional: true, desc: 'record fields of this copy' },
+        rotation: { label: 'Quarter turns', type: 'int', optional: true, values: [0, 1, 2, 3], desc: 'quarter turns' },
+        fields: { label: 'Own fields', rare: true, type: 'object', optional: true, desc: 'record fields of this copy' },
       },
       pickups: {
         id: { type: 'string', optional: true, desc: 'stable id' },
         item: { type: 'string', desc: 'item id (items.js)' }, ...at,
         count: { type: 'int', optional: true, min: 1, desc: 'how many one pickup gives' },
-        data: { type: 'any', optional: true, desc: 'extra data handed to the game' },
-        radius: { type: 'number', optional: true, min: 0, desc: 'pickup reach in meters' },
-        auto: { type: 'bool', optional: true, desc: 'taken by walking into it, no key' },
-        respawn: { type: 'number', optional: true, min: 0, desc: 'seconds until it comes back (0 = never)' },
+        data: { label: 'Extra data', rare: true, type: 'any', optional: true, desc: 'extra data handed to the game' },
+        radius: { label: 'Reach', rare: true, type: 'number', optional: true, min: 0, desc: 'pickup reach in meters' },
+        auto: { label: 'Walk to take', rare: true, type: 'bool', optional: true, desc: 'taken by walking into it, no key' },
+        respawn: { label: 'Comes back after', rare: true, type: 'number', optional: true, min: 0, desc: 'seconds until it comes back (0 = never)' },
       },
       views: {
         position: { type: 'position', optional: true, desc: 'camera position [x, y, z]' },
@@ -148,10 +128,10 @@ const S = RULE_STRINGS;
 export const CONDITIONS = RULE_STRINGS.conditions;
 /** Built-in effect words of the engine */
 export const EFFECTS = RULE_STRINGS.effects;
+/** Every effect word of the engine: the built-in ones and those a section's owner declares, which metadata.mjs reads out for the tools that run without an engine */
+export const ALL_EFFECTS = { ...EFFECTS, ...Object.fromEntries(Object.entries(sectionEffects).map(([k, d]) => [k, { ...d, describe: v => d.describe.replace('{v}', v) }])) };
 /** ref → ref -> how to write the value */
 export const REFS = RULE_STRINGS.refs;
-/** content file name -> description */
-export const CONTENT_FILES = RULE_STRINGS.files;
 /** content entry shape -> { key: field spec } (core/base/params.js format): 'props', 'props.template', 'props.grid', 'pickups', 'views'. Read via fields.js */
 export const PLACEMENT_FIELDS = RULE_STRINGS.fields;
 /** Why a prop's or template's `collide` is wrong, or null. One rule for the load and content-check: a mistyped object must not quietly become a box */
@@ -161,23 +141,25 @@ export function collideProblem(v) {
   if (form && Number.isFinite(v.circle) && v.circle > 0 && (v.occluder === undefined || typeof v.occluder === 'boolean')) return null;
   return `must be one of false, "box", "circle" or { circle: radius in meters above 0, occluder?: false }, got ${JSON.stringify(v)}`;
 }
+/** Why a place cannot load, or null: a turned place moves everything standing on it, so a bad rot stops at the load and in content-check alike */
+export const placeProblem = p => p?.rot !== undefined && !Number.isFinite(p.rot) ? `rot must be a number of radians about Y, got ${JSON.stringify(p.rot)}` : null;
 /** Clock time notation 'HH:MM' (24-hour) */
 export const CLOCK_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /** Merge the engine vocabulary and the game vocabulary (default export of the game's content/rules.js) -> { conditions, effects }. Games add conditions only */
 export function mergeRules(game = {}) {
-  return { conditions: { ...CONDITIONS, ...game.conditions }, effects: EFFECTS };
+  return { conditions: { ...CONDITIONS, ...game.conditions }, effects: ALL_EFFECTS };
 }
-/** Every content name a game may use: the engine's files plus the game's kinds (rules.js kinds) -> description; the one list loader, content-check and GAMEMAP share */
+/** Every content name a game may use: the engine's sections plus the game's kinds (rules.js kinds) -> description; the one list loader, content-check and GAMEMAP share */
 export function contentFiles(game = {}) {
-  const out = { ...CONTENT_FILES, startItems: 'starting items (exported from items.js)' };
+  const out = { ...sectionDocs };
   for (const [name, k] of Object.entries(game?.kinds || {})) out[name] ??= k?.desc || 'game data kind';
   return out;
 }
 /** Problems with a game's kinds table (name clashes with an engine file, a load that is no function): a list of messages */
 export function kindProblems(game = {}) {
   return Object.entries(game?.kinds || {}).flatMap(([name, k]) => [
-    ...(CONTENT_FILES[name] || name === 'startItems' ? [`kind "${name}" is an engine content file name: pick another name (engine files: ${Object.keys(CONTENT_FILES).join(', ')})`] : []),
+    ...(sectionDocs[name] ? [`kind "${name}" is an engine content file name: pick another name (engine files: ${Object.keys(sectionDocs).join(', ')})`] : []),
     ...(k?.load !== undefined && typeof k.load !== 'function' ? [`kind "${name}": load must be a function (e, data) => …, or left out when the game imports the file itself`] : []),
   ]);
 }
@@ -197,7 +179,7 @@ export function describeCond(c, vocab = CONDITIONS) {
   return list(c).map(x => say(vocab, x).join(S.and)).join(S.and);
 }
 /** Describe an effect as one human-readable sentence (for the map); vocab defaults to the engine vocabulary */
-export function describeEffect(a, vocab = EFFECTS) {
+export function describeEffect(a, vocab = ALL_EFFECTS) {
   if (!a) return '';
   if (typeof a === 'function') return S.fn;
   return list(a).map(x => say(vocab, x).join(S.then)).join(S.then);

@@ -102,7 +102,6 @@ export class Batching {
     this._on = on;
     if (on) {
       s.addEventListener('childadded', this._add); s.addEventListener('childremoved', this._rem);
-      s.add(this.root);
       for (const c of s.children) if (c !== this.root) this.incoming.add(c);
     } else {
       s.removeEventListener('childadded', this._add); s.removeEventListener('childremoved', this._rem);

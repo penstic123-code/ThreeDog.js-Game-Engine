@@ -1,6 +1,6 @@
 // R20 one pathfinding core: in engine source (same files as R19), a Recast `.computePath(` or `.findStraightPath(` outside modules/nav/navPath.js, an import of './astar.js'
 //   outside modules/characters/index.js / pathJob.js, and NPC movement code (modules/characters/npcSim.js, behaviors.js, NPC.js) calling the synchronous
-//   `characters.findPath(` → error.
+//   `characters.findPath(` → error. So is a height compared to a body height by hand in characters / nav / collision: sameFloor is the one tolerance.
 // Detection: regex over the whole file text (comments included), reported on the first matching line. Known limits: an astar import written with another
 //   relative path (e.g. '../characters/astar.js') is not seen; a search reached through another name is not seen.
 // Why: two A* / Recast copies drift apart, and the threads 0 / threads 2 bit-identical guarantee holds only for the one shared core; synchronous findPath
@@ -14,6 +14,7 @@ const CHECKS = [
   { re: /\.(computePath|findStraightPath)\(/, ok: f => f === `${M}/nav/navPath.js`, msg: 'Recast path search outside modules/nav/navPath.js', fix: 'query the navmesh through engine.characters.findPath / findPathAsync' },
   { re: /from '\.\/astar\.js'/, ok: f => [`${M}/characters/index.js`, `${M}/characters/pathJob.js`].includes(f), msg: 'imports astar.js', fix: 'use engine.characters.findPath / findPathAsync' },
   { re: /characters\.findPath\(/, ok: f => ![`${M}/characters/npcSim.js`, `${M}/characters/behaviors.js`, `${M}/characters/NPC.js`].includes(f), msg: 'NPC movement calls the synchronous findPath', fix: 'use engine.characters.findPathAsync' },
+  { re: /Math\.abs\([^\n)]*\by\b[^\n)]*\)\s*[<>]=?[^\n;]*\b(height|body|level)\b/, ok: f => !/modules\/(characters|nav|collision)\//.test(f), msg: 'a height tolerance of its own', fix: 'ask sameFloor (core/scene/floor.js): one floor must mean the same to every system' },
 ];
 
 export default {

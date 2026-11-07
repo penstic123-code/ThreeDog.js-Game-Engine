@@ -28,7 +28,7 @@ The canvas is the one you gave `createEngine({ canvas })`, also `engine.renderer
 - The comments in `main.js` list further gameplay modules you can add; usage is in `../api/<module>.md`.
 - To change the starting point of new games, edit the real files in `packages/tools/templates/game/` (`templates/openworld/` for `--open-world`).
 - `DESIGN.md` is a form to fill in with the game's design, `STATUS.md` holds progress, and `CLAUDE.md` holds the working rules, a table cut from AI.md and the reading order.
-- There is no `tests/`: when `tests/specs/` does not exist, `npm test -w games/my-game` runs a smoke test automatically.
+- There is no `tests/`: a smoke test runs until you add `tests/specs/`.
 
 ## 1. Creating the files by hand (to learn what each file is, or when the template doesn't fit)
 | File | Content |
@@ -60,7 +60,7 @@ The template's `tsconfig.json` checks the game files only (`checkJs`), with `lib
 `games/my-game/main.js`: the opening lines are written out once, in [recipe 63](63-third-person-start.md) §1 (the blank template's `main.js` has the same opening with `world(), content(), settings()` and the camera placed by hand). What an open-world game with a few gameplay modules changes in it:
 ```js
 // my-game: ... (this first comment line appears in the file table of GAMEMAP.md)
-// The opening stays as in recipe 63 §1: createEngine({ canvas, lights: false, ui, saveKey, bindings }), createPicture(engine) after engine.use,
+// The opening stays as in recipe 63 §1: createEngine({ canvas, lights: false, ui, saveKey, bindings }), engine.use(createPicture()) after engine.use,
 // Object.assign(window, { engine, picture }) (tests, screenshots and the console rely on it), await engine.start().
 import { presets, openWorld, interactions, dialogue, inventory, pickups, quests, content } from 'threedog';
 import { terrainPreset } from '@threedog/terrain-noise';   // optional terrain generator (nor a world shape)
@@ -121,7 +121,7 @@ refuse to guess: `createPlayer()` throws `[player-control]` without `control`, `
 `openWorld()` throws `[open-world-camera]` without `camera`. The core key table holds only movement and menu confirm / cancel; run, jump and interact
 keys come from the game. `presets` holds named option objects a game picks on purpose; each only bundles options you could write yourself, so spread
 and override:
-```js
+```js fragment
 import { presets, weather, calendar, sky, followCamera, interactions } from 'threedog';
 engine.use(calendar(presets.calendar.fourSeasons), sky(), weather({ ...presets.weather.temperate, autoPool: ['clear', 'rain'] }), followCamera(presets.camera.overShoulder));
 engine.use(interactions({ ...presets.interactions.facing }));   // nearest / facing / aim, each with E

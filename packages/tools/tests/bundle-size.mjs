@@ -7,6 +7,7 @@
 import { mkdirSync, rmSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { gzipSync } from 'node:zlib';
+import { metadata } from 'threedog/metadata';
 import { ROOT, rel, viteOptions } from '../paths.mjs';
 import { copyTemplates } from '../lib/scaffold.mjs';
 
@@ -50,5 +51,8 @@ async function measure(check, route) {
     check(`${route} template JS: ${total} KB gzip in ${js.length} file(s), first load ${firstKb} KB (ceilings ${CEILING_KB[route]} KB total, ${FIRST_KB[route]} KB first load)`, total <= CEILING_KB[route] && firstKb <= FIRST_KB[route],
       `largest chunks: ${sizes.slice(0, 4).map(x => `${x.f} ${Math.round(x.kb)} KB`).join(', ')}; largest sources (rendered, before gzip): ${top}. ` +
       `Look at what an import added (git diff of index.js / core imports); raise CEILING_KB / FIRST_KB in ${rel(join(import.meta.dirname, 'bundle-size.mjs'))} only for a growth you meant`);
+    // the hints a system declares are for the tools: they stay in the source and never reach a player
+    const leaked = Object.values(metadata.hints).filter(h => js.some(f => readFileSync(join(assets, f), 'utf8').includes(h.seen))).map(h => h.kind);
+    check(`${route} template JS carries no hint text`, !leaked.length, leaked.join(', '));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

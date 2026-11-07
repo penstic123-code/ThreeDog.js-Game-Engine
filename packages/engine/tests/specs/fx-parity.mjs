@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const ENGINE = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 // engine files threedog/tsl may import: plain data / plain functions with no three.js WebGL parts
-const SAFE = new Set(['core/base/errorHints.js', 'core/base/errorCodes.js', 'render/engineUniforms.js', 'render/backend.js', 'render/slots.js', 'render/fxNumbers.js', 'core/scene/threePatches.js', 'core/base/validate.js', 'core/base/util.js', 'render/layers.js',
+const SAFE = new Set(['core/base/spelling.js', 'core/base/errorHints.js', 'core/base/errorCodes.js', 'render/engineUniforms.js', 'render/backend.js', 'render/slots.js', 'render/fxNumbers.js', 'core/scene/threePatches.js', 'core/base/validate.js', 'core/base/util.js', 'render/layers.js',
   'render/lit.js']);   // lit.js imports nothing
 const THREE_OK = new Set(['three/tsl', 'three/webgpu']);
 // three's TSL display nodes (bloom, ao for the WebGPU post chain): they import only three/tsl and three/webgpu themselves
@@ -53,6 +53,7 @@ function mainReachesTsl() {
 export const specs = [
   {
     name: '[guard] threedog/tsl imports only three/tsl, three/webgpu and WebGL-free engine files; index.js never reaches it',
+    notRealWebGPU: 'reads source files, draws nothing',
     url: '/tests/fx/index.html',
     async run({ check }) {
       const { files, bad } = tslImports();

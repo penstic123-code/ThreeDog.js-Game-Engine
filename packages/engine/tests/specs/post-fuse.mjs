@@ -9,7 +9,7 @@ export const specs = [
       const r = await ev(() => {
         const { lut, grain, vignette, chromatic } = threedogTest.postEffects, p = engine.post, out = {};
         const err = f => { try { f(); return ''; } catch (e) { return e.message; } };
-        p.setAntialias(false);
+        p.antialias = false;
         const hs = [chromatic({ enabled: true }), lut({ enabled: true }), vignette({ enabled: true, strength: 0.5 }), grain({ enabled: true })].map(e => p.add(e));
         p.render(0.016);
         const fused = () => p.composer.passes.filter(x => x.items);
@@ -50,7 +50,7 @@ export const specs = [
       const r = await ev(() => {
         const { THREE, postEffects: E, ShaderPass, CopyShader } = threedogTest, p = engine.post, R = engine.renderer, gl = R.getContext();
         const sz = R.getSize(new THREE.Vector2()), W = 64, H = 48;
-        R.setSize(W, H, false); p.setAntialias(false);
+        R.setSize(W, H, false); p.antialias = false;
         // 一个 4x4x4 的小 LUT：红绿互换并压暗，确保 LUT 路径真的被采样
         const n = 4, data = new Uint8Array(n * n * n * 4);
         for (let b = 0; b < n; b++) for (let g = 0; g < n; g++) for (let rr = 0; rr < n; rr++) {
@@ -86,7 +86,7 @@ export const specs = [
       const r = await ev(() => {
         const { THREE, outline, postEffects: E } = threedogTest, p = engine.post, R = engine.renderer, gl = R.getContext(), sc = engine.scene;
         const sz = R.getSize(new THREE.Vector2()), W = 160, H = 120, out = {};
-        R.setSize(W, H, false); p.setAntialias(false);
+        R.setSize(W, H, false); p.antialias = false;
         const read = () => { const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); return b; };
         const diff = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > 30) n++; return n; };
         const shot = (o, setup) => {
@@ -141,7 +141,7 @@ export const specs = [
         // 色调曲线是纯 three.js（引擎只在创建时写一次），直接改 renderer.toneMapping，结束时还原
         const tm0 = R.toneMapping; R.toneMapping = THREE.NoToneMapping;
         const pin = [{ remove: () => { R.toneMapping = tm0; } }];
-        R.setSize(W, H, false); p.setAntialias(false);
+        R.setSize(W, H, false); p.antialias = false;
         // 自己搭一个固定的场景（城市页面里的东西每次载入位置不同），隐藏原有内容
         const sc = engine.scene, cam = engine.camera, hidden = sc.children.map(c => [c, c.visible]); hidden.forEach(([c]) => { c.visible = false; });
         const box = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 2), new THREE.MeshStandardMaterial({ color: 0xcc6644 })), ball = new THREE.Mesh(new THREE.SphereGeometry(1.2, 24, 16), new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffeeaa, emissiveIntensity: 0.6 }));
@@ -158,7 +158,7 @@ export const specs = [
         const dofE = () => Ef.dof({ enabled: true, focus: 9, range: 1, falloff: 5, maxBlur: 4 }), lineE = s => Ef.outline({ enabled: true, thickness: 1, strength: s, color: 0x000000 });
         out.dof = {};
         for (const aa of [false, true]) {
-          p.setAntialias(aa);
+          p.antialias = aa;
           p.render(0.016); const plain = bytes(), d = frame([dofE()]), off = frame([lineE(0)]), on = frame([lineE(1)]), dOff = frame([dofE(), lineE(0)]), dOn = frame([dofE(), lineE(1)]);
           out.dof[aa] = { err: dOn.err ?? dOff.err ?? d.err, hash: d.px && (() => { let h = 2166136261; for (const v of d.px) h = Math.imul(h ^ v, 16777619); return h >>> 0; })(),
             blurred: dist(d.px, plain), linesPlain: dist(on.px, off.px), linesWithDof: dOn.px && dist(dOn.px, dOff.px), passes: [d.n, on.n, dOn.n] };
@@ -199,25 +199,25 @@ export const specs = [
         const tone0 = R.toneMapping; R.toneMapping = THREE.AgXToneMapping;   // only a curve the game picked makes the background take part
         const px = () => { p.render(0.016); const b = new Uint8Array(4); gl.readPixels(W >> 1, H >> 1, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, b); return [...b.slice(0, 3)]; };
         const out = { tone: R.toneMapping };
-        p.setAntialias(false); out.direct = px(); out.directActive = p.active;
-        p.setAntialias(true); out.msaa = px();
+        p.antialias = false; out.direct = px(); out.directActive = p.active;
+        p.antialias = true; out.msaa = px();
         const h = p.add({ name: 'bgcopy', slot: 'ldr', enabled: true, create: () => new ShaderPass(CopyShader) });
-        p.setAntialias(false); out.effect = px();
-        p.setAntialias(true); out.both = px();
+        p.antialias = false; out.effect = px();
+        p.antialias = true; out.both = px();
         h.remove();
-        const tm = R.toneMapping; R.toneMapping = THREE.NoToneMapping; p.setAntialias(false); out.noTone = px(); R.toneMapping = tm;
+        const tm = R.toneMapping; R.toneMapping = THREE.NoToneMapping; p.antialias = false; out.noTone = px(); R.toneMapping = tm;
         // no background: the renderer's clear color, same four combinations
         const cc = R.getClearColor(new THREE.Color()), ca = R.getClearAlpha(); S.background = null; R.setClearColor(col, 1);
         out.clear = [];
         for (const [fx, msaa] of [[false, false], [false, true], [true, false], [true, true]]) {
           const hh = fx ? p.add({ name: 'bgcopy', slot: 'ldr', enabled: true, create: () => new ShaderPass(CopyShader) }) : null;
-          p.setAntialias(msaa); out.clear.push(px()); hh?.remove();
+          p.antialias = msaa; out.clear.push(px()); hh?.remove();
         }
         R.setClearColor(cc, ca); S.background = col;
         { const c = col.clone().convertLinearToSRGB(); out.raw = [c.r, c.g, c.b].map(v => Math.round(v * 255)); }
         out.restored = S.background === col;
         S.background = bg; for (const o of shown) o.visible = true;
-        R.toneMapping = tone0; p.setAntialias(aa); R.setSize(sz.x, sz.y, false);
+        R.toneMapping = tone0; p.antialias = aa; R.setSize(sz.x, sz.y, false);
         return out;
       });
       const d = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));

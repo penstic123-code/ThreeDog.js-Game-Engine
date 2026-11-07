@@ -50,7 +50,7 @@ engine.setCamera('follow', { distance: 8, pitch: 0.3 });
 - **Shooting games**: bind first-person firing to a mouse-button action, see `19-shooting-picking.md`.
 
 ## 4. Over the shoulder, lock-on framing, mouse lock (follow camera)
-```js
+```js fragment
 engine.use(followCamera({ distance: 3, shoulder: 0.7, pitch: 0.15, pointerLock: true }));   // shooter / action-adventure view
 engine.cameraRig.shoulder = -0.7;       // switch shoulders at any time (plain property)
 engine.cameraRig.frame(enemy.root);   // lock-on: turn to "behind the player, looking at the enemy"; frame(null) lets go
@@ -94,7 +94,7 @@ engine.use(followCamera({ minPitch: -0.9, ground: 'shorten' }));   // or the sam
 
 ## 4c. Chase camera behind a car
 `addWheeled({ camera })` sets the follow camera's distance and height while seated, but the camera keeps its own yaw, so nothing swings the view behind the car. A racing view is a few lines of game code with `followCamera({ mouseLook: false })`:
-```js
+```js fragment
 let yaw = null;
 engine.onFrame(dt => {
   const q = car.body.rotation();                                       // car: what addWheeled returned
@@ -109,7 +109,7 @@ engine.onFrame(dt => {
 The engine has no default here: `createPlayer` needs `control` (a preset such as `presets.player.thirdPerson` gives keys relative to the camera, Shift
 run, Space jump, turning toward where it walks and `cameraFollow: true`). Each piece below replaces one part and keeps the rest (world record, saving,
 `describe().player`).
-```js
+```js fragment
 import { pickTarget, switchTarget } from 'threedog';
 
 // how the input steers the player: 'camera' (keys relative to the camera) | (player, input, dt) => ({ x, z, run? }) | null (stand still)
@@ -154,7 +154,7 @@ function steer(player, input, dt) {                    // called once per fixed 
 **Orthographic (isometric / 2.5D) with the built-in rigs.** `projection: 'orthographic'` plus `size` (world units of view height) on the fixed and follow cameras.
 The default stays perspective. On resize the view height stays `size` and the width follows the aspect.
 
-```js
+```js fragment
 // one fixed isometric shot (shorthand for a single shot named 'main')
 engine.setCamera('fixed', { position: [14, 14, 14], lookAt: [0, 0, 0], projection: 'orthographic', size: 16 });
 // per shot: shots: { hall: { position, lookAt, projection: 'orthographic', size: 12 }, yard: { position, lookAt } }   // yard stays perspective
@@ -162,7 +162,7 @@ engine.setCamera('fixed', { position: [14, 14, 14], lookAt: [0, 0, 0], projectio
 engine.setCamera('follow', { pitch: 0.6, yaw: 0.8, distance: 20, projection: 'orthographic', size: 14, mouseLook: false, ground: 'none' });
 ```
 **A view that pans at a fixed angle** (isometric, tactics, city builders) is that follow camera, not a fixed shot. `mouseLook: false` stops the drag and the wheel from moving the view, and `ground: 'none'` stops hills from tilting it. It follows the player, or with no player any object the game moves:
-```js
+```js fragment
 const view = new THREE.Object3D();                                        // the point the view is centered on
 engine.cameraRig.follow(view);                                            // again on 'session:start': a new playthrough follows the player or nothing
 engine.onFrame(dt => { view.position.x += engine.input.axis.x * 12 * dt; view.position.z -= engine.input.axis.y * 12 * dt; });
@@ -171,8 +171,7 @@ engine.onFrame(dt => { view.position.x += engine.input.axis.x * 12 * dt; view.po
 
 A `setCamera` before play (boot code, or with the title up) is the camera every playthrough starts from, the same as passing the options to the camera module. During play it is a switch: a new playthrough goes back.
 
-- `engine.camera` stays the one object everything holds (render, post, shadows, sky); it is flipped to an orthographic matrix, so `camera.isOrthographicCamera`
-  is true, `camera.left/right/top/bottom` are set, and `camera.zoom` still zooms. `camera.fov` is ignored while it is on.
+- The option is a short way to the real thing below: the rig puts a real `THREE.OrthographicCamera` in `engine.camera`, and the next perspective view brings the camera it replaced back. Pose, `near`, `far`, `zoom`, layers, the parent and anything hung on the camera go with the view. So read `engine.camera` where you use it, and do not keep a copy across a switch.
 - Blends between two orthographic shots blend `size`; a perspective/orthographic mix switches to the target's mode at once. Switching rig kinds returns to perspective.
 - Limits: on the follow camera the mouse wheel changes `size` (clamped to the `minDistance`/`maxDistance` ratio of the starting `distance`).
   The `fov` slider in the settings menu has no effect. Cascaded shadows, `dof` and `outline` handle orthographic depth; a custom post pass that assumes perspective depth must do the same.
@@ -180,7 +179,7 @@ A `setCamera` before play (boot code, or with the title up) is the camera every 
 **Placing the camera yourself (cutscene, photo mode, your own rig).** Take it with `engine.takeCamera(owner, { focus })`; the camera module leaves the camera alone until you `remove()` the handle.
 Several holders can take it (a cutscene, then a named view on top): the latest is in charge, and removing it hands the camera back to the previous one, not to nobody.
 
-```js
+```js fragment
 let t = 0;
 const cam = engine.takeCamera('my-orbit', { focus: engine.player.position });   // focus (optional): where the world loads around
 const frame = engine.onFrame(dt => {
@@ -189,26 +188,21 @@ const frame = engine.onFrame(dt => {
 // done: frame.remove(); cam.remove();   // the rig resumes from its own state
 ```
 
-To use your own `THREE.OrthographicCamera` instead of flipping `engine.camera`:
+To draw through your own three.js camera, assign it. A real `THREE.PerspectiveCamera` or `THREE.OrthographicCamera` is taken as it is, and any other class, a subclass too, is refused:
 
-```js
-const original = engine.camera, size = 12;
-const ortho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
-function fit() {   // the engine only updates engine.camera.aspect on resize, so keep your own camera's aspect here
-  const s = engine.renderer.getSize(new THREE.Vector2()), a = s.x / s.y;
-  ortho.left = -size * a / 2; ortho.right = size * a / 2; ortho.top = size / 2; ortho.bottom = -size / 2; ortho.updateProjectionMatrix();
-}
-const cam = engine.takeCamera('my-ortho');
-engine.camera = ortho;   // the plain render path, cascaded shadows and modules read engine.camera live
-ortho.position.set(10, 10, 10); ortho.lookAt(0, 0, 0); fit(); addEventListener('resize', fit);
-// give it back: removeEventListener('resize', fit); engine.camera = original; cam.remove();
+```js fragment
+const original = engine.camera;
+const ortho = new THREE.OrthographicCamera(-16, 16, 9, -9, 0.1, 500);
+ortho.position.set(10, 10, 10); ortho.lookAt(0, 0, 0);
+engine.camera = ortho;      // rendering, post, picking, shadows, audio and the camera module go on with it
+// give it back: engine.camera = original;
 ```
 
-Swapping the object only works while no post effect is active: the post chain's scene pass keeps the camera it was built with. With post effects, use
-`projection: 'orthographic'` above instead.
+The aspect follows the canvas, on assignment and on every resize: an orthographic camera keeps its height and its width follows. `engine.autoView.manual('aspect')` before assigning keeps your own frustum. The engine leaves `far` and `fov` of a real orthographic camera alone.
+A camera module goes on placing the camera you assigned, and a camera you assign during a shot stays until the next view is asked for. `projection: 'orthographic', size` sets the height of a real orthographic camera; on a real perspective one the rig's own orthographic camera stands in until the next perspective view, which brings yours back. `pixelSnap` writes the height it needs. A chain taken with `engine.post.own()` is yours to point at the new camera, and a `pixelGrid` you made yourself keeps the camera you gave it.
 
 **Side view (side-scroller).** `presets.player.sideScroller` moves the player along world X only (A / D, `z` stays) and turns it toward the move. Face the camera along -Z with `yaw: 0`, so +X is screen right (`yaw: Math.PI` looks from the far side and flips left and right), on `followCamera`:
-```js
+```js fragment
 engine.use(followCamera({ projection: 'orthographic', size: 15, yaw: 0, pitch: 0, lockPitch: true, distance: 40, ground: 'none', mouseLook: false }));
 ```
 

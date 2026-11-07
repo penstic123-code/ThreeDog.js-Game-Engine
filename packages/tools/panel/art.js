@@ -12,7 +12,7 @@ export function loadedArt(engine) {
   const tex = (t, slot, m) => texs.set(t, { name: t.name || null, url: urlOf(t), slot, material: m.name || m.type });
   engine.scene.traverse(o => {
     for (const m of [].concat(o.material || [])) {
-      if (!m || m.userData?._dbgOf) continue;
+      if (!m || engine._tools.standIn(m)) continue;
       const row = mats.get(m) ?? mats.set(m, { name: m.name || null, type: m.type, shader: !!m.isShaderMaterial, meshes: 0 }).get(m);
       row.meshes++;
       for (const [slot, v] of Object.entries(m)) if (v?.isTexture) tex(v, slot, m);

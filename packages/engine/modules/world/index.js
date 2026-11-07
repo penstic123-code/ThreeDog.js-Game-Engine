@@ -39,15 +39,20 @@ export function world(opts = {}) {
   readParams('world', WORLD_PARAMS, opts);
   let w = null;
   return {
-    name: 'world', type: 'world', provides: ['world'], label: 'World data', params: WORLD_PARAMS, options: opts, stage: 'ground',
+    name: 'world', skipKind: 'approx', type: 'world', provides: ['world'], label: 'World data', params: WORLD_PARAMS, options: opts, stage: 'ground',
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.world': '世界数据' }, en: { 'module.world': 'world data' } });
       w = new World(e, opts);
+      const followed = e.stream.player.pos;
       e.stream.player.at(() => w.center);   // the default stream source sits where gameplay is simulated (world.anchor, else the player)
-      e.stream.addReadyCheck('world', s => s.detail !== 'full' || w.ready);
-      e.saves.register('world', { atomic: true, version: 5, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d), checkNewGame: codePlaced });
-      e._things.addSource(recordSource(w));   // engine.thing / thing.set / the shared id space reach the records through this
-      e.explainWith(worldExplain);
-      e.budget.metric('worldRecords', () => w.records.size);
+      ctx.track({ remove: () => e.stream.player.at(followed) });   // no closure over this world stays behind
+      ctx.stream.addReadyCheck('world', s => s.detail !== 'full' || w.ready);
+      // after the modules, not in world's own step: physics writes the models at stage late, and a record must end the step on the solver's result, a save included
+      ctx.track(e.onFixed(() => w._v.pull(), { phase: 'late' }));
+      ctx.track(e.time.onMove(() => w._s.moved()));
+      ctx.saves.register('world', { atomic: true, version: 5, migrate: WORLD_MIGRATE, save: () => w.toJSON(), load: d => w.fromJSON(d), checkNewGame: codePlaced });
+      ctx.things.addSource(recordSource(w));   // engine.thing / thing.set / the shared id space reach the records through this
+      ctx.things.explainWith(worldExplain);
+      ctx.budget.metric('worldRecords', () => w.records.size);
       if (DEV) {   // orphans are known once content loaded (engine:ready), after a load, and per level for `<level>/<node>` ids
         const warn = () => {
           targets();
@@ -89,3 +94,5 @@ export function world(opts = {}) {
     dispose() { w.dispose(); },
   };
 }
+
+export const handRolled = 'none: far records by hand are ordinary objects in ordinary lists';

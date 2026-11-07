@@ -7,8 +7,9 @@
 //   missing     named or pointed at, and it does not exist
 // When in doubt the answer is not-traced: a false "maybe" costs one line of reading, a false "nobody uses this" gets art deleted.
 import { existsSync, statSync } from 'node:fs';
-import { join, relative, dirname, basename, extname, sep, posix as pp, resolve } from 'node:path';
-import { read, walk, balanced, splitTop } from './lib/text.mjs';
+import { join, relative, dirname, basename, extname, posix as pp, resolve } from 'node:path';
+import { read, walk, balanced, splitTop, esc, noComments } from './lib/text.mjs';
+import { posix } from './paths.mjs';
 import { gameAssets } from './content-check/load.mjs';
 import { fileStems } from './gallery/index.js';
 import { readLibrary } from './lib.mjs';
@@ -21,8 +22,6 @@ const SHOWABLE = /\.(png|jpe?g|webp|avif|gif|svg)$/i;
 const PACK_KEYS = [['models', 'model'], ['textures', 'texture'], ['sounds', 'sound'], ['fonts', 'font']];
 const KINDS = ['model', 'texture', 'sound', 'font', 'material', 'shader', 'library'];
 const kindOf = f => KIND_OF.find(([re]) => re.test(f))?.[1] ?? null;
-const slash = p => p.split(sep).join('/');
-const quote = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const bare = v => v.replace(/[?#].*$/, '');
 // tmp/ and docs/ hold scratch and reference pictures, not the game's art
 const NOT_ART = ['tmp', 'docs'];
@@ -46,22 +45,15 @@ const MAKE = /\bnew\s+(?:[A-Za-z_$][\w$]*\.)?([A-Z]\w*Material|CanvasTexture|Dat
 // `{ material: new X() }` hands the thing over on the spot; a key like `grass:` names a table entry someone reads later
 const SLOT_KEY = /^(material|materials|map|normalMap|roughnessMap|metalnessMap|alphaMap|emissiveMap|envMap|aoMap|bumpMap|lightMap|texture)$/;
 
-/** Comments blanked, line numbers kept: a name in a comment is not a use. Strings go first so a '//' inside a URL survives.
- *  shortcut: a regex literal holding a quote and // on one line can blank too much of that line; upgrade to a real parser if a game shows it */
-export function noComments(text) {
-  return text.replace(/'(?:\\.|[^'\\\n])*'|"(?:\\.|[^"\\\n])*"|`(?:\\[\s\S]|[^`\\])*`|\/\/.*$|\/\*[\s\S]*?\*\//gm,
-    m => m[0] === '/' ? m.replace(/[^\n]/g, ' ') : m);
-}
-
 function source(dir, f) {
-  const raw = read(f), rel = slash(relative(dir, f)), js = /\.m?js$/.test(f), text = js ? noComments(raw) : raw, starts = [0];
+  const raw = read(f), rel = posix(relative(dir, f)), js = /\.m?js$/.test(f), text = js ? noComments(raw) : raw, starts = [0];
   for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
   const line = i => { let a = 0, b = starts.length - 1; while (a < b) { const m = (a + b + 1) >> 1; if (starts[m] <= i) a = m; else b = m - 1; } return a + 1; };
   return { rel, js, text, line, at: i => `${rel}:${line(i)}` };
 }
 
 /** A written pattern ('/models/tree${i}.glb', './tex/*.png') as a regex over the file path or name it can become (any folder prefix: './' is relative) */
-const patternOf = s => new RegExp('(?:^|/)' + s.replace(/^(?:\.{0,2}\/)+/, '').split(/\$\{[^}]*\}|\*+/).map(quote).join('.*') + '$', 'i');
+const patternOf = s => new RegExp('(?:^|/)' + s.replace(/^(?:\.{0,2}\/)+/, '').split(/\$\{[^}]*\}|\*+/).map(esc).join('.*') + '$', 'i');
 
 /** Where a written path lands in the game folder: candidates relative to it, or null for a URL */
 function candidates(value, fromRel) {
@@ -90,7 +82,7 @@ function scanFiles(b) {
   // walk() skips public/ below the folder it starts from, so that folder is walked on its own, and first: art/models looks for its built file there
   const files = [...walk(join(b.dir, 'public'), { exts: ART_FILE }), ...walk(b.dir, { exts: ART_FILE, skip: NOT_ART })];
   for (const f of files) {
-    const rel = slash(relative(b.dir, f));
+    const rel = posix(relative(b.dir, f));
     // art/models/x.glb is the source of public/optimized/x.glb (threedog assets optimize): one resource with two files, not two with one "unused"
     const built = rel.startsWith('art/models/') ? 'public/optimized/' + rel.slice('art/models/'.length) : null;
     if (built && b.byFile.has(built)) { const it = b.byFile.get(built); it.source = rel; b.byFile.set(rel, it); continue; }   // a path to either file finds it
@@ -130,7 +122,7 @@ function register(b, kind, name, value, base, defAt) {
 }
 
 const defLine = (src, name, from = 0) => {
-  const m = new RegExp(`(?:^|[\\s{,])['"]?${quote(name)}['"]?\\s*:`, 'm').exec(src.text.slice(from));
+  const m = new RegExp(`(?:^|[\\s{,])['"]?${esc(name)}['"]?\\s*:`, 'm').exec(src.text.slice(from));
   return m ? src.at(from + m.index + m[0].indexOf(name)) : src.rel;
 };
 
@@ -165,7 +157,7 @@ function scanMade(b, sources) {
       const v = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*$/.exec(before)?.[1];
       const keyed = /(?:^|[\s{,(])['"]?([A-Za-z_$][\w$-]*)['"]?\s*:\s*$/.exec(before)?.[1] ?? /\bthis\.(\w+)\s*=\s*$/.exec(before)?.[1];
       const key = keyed && !SLOT_KEY.test(keyed) ? keyed : undefined;
-      const given = /\bname\s*:\s*['"]([^'"]+)['"]/.exec(args)?.[1] ?? (v && new RegExp(`\\b${quote(v)}\\.name\\s*=\\s*['"]([^'"]+)['"]`).exec(s.text)?.[1]);
+      const given = /\bname\s*:\s*['"]([^'"]+)['"]/.exec(args)?.[1] ?? (v && new RegExp(`\\b${esc(v)}\\.name\\s*=\\s*['"]([^'"]+)['"]`).exec(s.text)?.[1]);
       const color = /\bcolor\s*:\s*(?:0x([0-9a-f]{6})\b|['"]#([0-9a-f]{3,6})['"])/i.exec(args);
       count[cls] = (count[cls] ?? 0) + 1;
       const it = b.add({ kind: /Shader/.test(cls) ? 'shader' : /Texture/.test(cls) ? 'texture' : 'material', name: given ?? v ?? key ?? `${stem === 'index' ? basename(dirname(s.rel)) : stem}-${cls}-${count[cls]}`,
@@ -179,12 +171,12 @@ function scanMade(b, sources) {
     const isDef = (m, len) => m.index < index && /^['"]?\s*[:=]\s*$/.test(s.text.slice(m.index + len, index));
     if (v) {
       // shortcut: scope is not followed, so two `mat` variables in one file see each other's uses; a parser is the upgrade if that ever hides art
-      for (const m of s.text.matchAll(new RegExp(`(?<![\\w$.])${quote(v)}\\b`, 'g'))) if (!isDef(m, v.length)) it.uses.push({ at: s.at(m.index), how: 'variable' });
-      for (const o of sources) if (o !== s) for (const m of o.text.matchAll(new RegExp(`\\bimport\\b[^;]*\\b${quote(v)}\\b[^;]*from`, 'g'))) it.uses.push({ at: o.at(m.index), how: 'imported' });
+      for (const m of s.text.matchAll(new RegExp(`(?<![\\w$.])${esc(v)}\\b`, 'g'))) if (!isDef(m, v.length)) it.uses.push({ at: s.at(m.index), how: 'variable' });
+      for (const o of sources) if (o !== s) for (const m of o.text.matchAll(new RegExp(`\\bimport\\b[^;]*\\b${esc(v)}\\b[^;]*from`, 'g'))) it.uses.push({ at: o.at(m.index), how: 'imported' });
     } else if (key) {
       // a table entry: `materials.grass` is certain; `.grass` or 'grass' alone can be any other field with that name
       it.keyed = true;
-      for (const o of sources) for (const m of o.text.matchAll(new RegExp(`(\\b\\w*(?:materials?|mats?|shaders?|textures?)\\??\\.|this\\.|\\.|['"])${quote(key)}\\b`, 'gi'))) {
+      for (const o of sources) for (const m of o.text.matchAll(new RegExp(`(\\b\\w*(?:materials?|mats?|shaders?|textures?)\\??\\.|this\\.|\\.|['"])${esc(key)}\\b`, 'gi'))) {
         if (o === s && isDef(m, m[0].length)) continue;
         (/^\.|^['"]/.test(m[1]) ? it.maybe : it.uses).push({ at: o.at(m.index), how: 'by key' });
       }
@@ -246,9 +238,9 @@ function scanRefs(b, sources) {
       }
     }
     // a folder joined with a name at run time: '/models/' + name + '.glb'
-    for (const m of s.text.matchAll(/(['"`])([^'"`\n]*\/)\1\s*\+/g)) b.dynamic.push({ at: s.at(m.index), text: m[2] + '…', re: new RegExp('(?:^|/)' + quote(m[2].replace(/^\.{0,2}\//, '')), 'i') });
+    for (const m of s.text.matchAll(/(['"`])([^'"`\n]*\/)\1\s*\+/g)) b.dynamic.push({ at: s.at(m.index), text: m[2] + '…', re: new RegExp('(?:^|/)' + esc(m[2].replace(/^\.{0,2}\//, '')), 'i') });
     // the folder held in a variable: dir + name + '.png'. A folder written out ('/decals/' + name + '.png') is the narrower rule above; this one would reach every .png
-    for (const m of s.text.matchAll(/(?<!\/['"`]\s*\+[^'"`\n]*)\+\s*(['"`])(\.\w+)\1/g)) b.dynamic.push({ at: s.at(m.index), text: '…' + m[2], re: new RegExp(quote(m[2]) + '$', 'i') });
+    for (const m of s.text.matchAll(/(?<!\/['"`]\s*\+[^'"`\n]*)\+\s*(['"`])(\.\w+)\1/g)) b.dynamic.push({ at: s.at(m.index), text: '…' + m[2], re: new RegExp(esc(m[2]) + '$', 'i') });
     if (s.js) for (const [re2, kind] of DYNAMIC) for (const m of s.text.matchAll(re2)) b.dynamic.push({ at: s.at(m.index), text: m[0].trim().slice(0, 60), kind: kind(m), any: true });
   }
 }

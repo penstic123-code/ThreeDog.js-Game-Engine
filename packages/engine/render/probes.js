@@ -35,6 +35,8 @@ const STRINGS = {
   noFloat: 'engine.bakeProbes(): this device cannot render to float textures (EXT_color_buffer_float), which three\'s WebGL bake needs. Bake on a desktop and ship the file: engine.loadProbes(json) works here',
   data: 'engine.loadProbes(json): {why}. Pass what handle.toJSON() returned (format \'' + FORMAT + '\', version ' + VERSION + '), or bake again',
   outside: '{n} lit object(s) reach outside the probe grid ({names}): the part outside gets no probe light and can go black. Widen bounds, or add light there. describe().render.probes lists them',
+  filled: 'engine.bakeProbes(): {n} probe(s) saw a pixel that is not a number (a shader dividing by zero or taking pow of a negative; first at {at}) and took the light of their nearest good neighbours. Fix that material, or leave it out with include',
+  noLight: 'engine.bakeProbes(): every probe saw a pixel that is not a number, so nothing usable was baked. A material in view writes NaN (a shader dividing by zero or taking pow of a negative): fix it, or leave it out with include',
   doubled: 'probe light is added on top of {what}, which the bake already saw, so that light counts twice. Lower it where the probes take over, or bake without it',
 };
 const sets = e => (e._probeSets ??= new Set());
@@ -122,6 +124,25 @@ function probeChecks(e) {
   noteEnvironment(e.scene, doubled);
   if (mapped) doubled.push(`material.lightMap on ${mapped} mesh(es)`);
   return { outside, doubled };
+}
+
+/**
+ * A game's shader can write NaN, and one such pixel in a probe's cube turns all of its numbers to NaN; three's sum cannot skip it: the light of that one pixel is lost, but what the probe stands in is known from its neighbours.
+ * So a broken probe takes the mean of the nearest good ones. Good ones only, so the result does not depend on the order. A file must hold finite numbers (readData refuses others).
+ * @param {{ sh: Float32Array, counts: number[], step: number[], origin: number[] }} d
+ */
+function fillBroken(d) {
+  const [nx, ny, nz] = d.counts, n = nx * ny * nz, good = [], broken = [];
+  const at = i => [(i % nx) * d.step[0], (Math.floor(i / nx) % ny) * d.step[1], Math.floor(i / (nx * ny)) * d.step[2]];
+  for (let i = 0; i < n; i++) (d.sh.subarray(i * SH, (i + 1) * SH).every(Number.isFinite) ? good : broken).push(i);
+  if (!broken.length) return;
+  if (!good.length) throw codedError('probes-data', STRINGS.noLight);
+  for (const i of broken) {
+    const p = at(i), far = good.map(g => at(g).reduce((s, v, k) => s + (v - p[k]) ** 2, 0)), near = Math.min(...far), from = good.filter((_, k) => far[k] <= near * (1 + 1e-6));
+    for (let c = 0; c < SH; c++) d.sh[i * SH + c] = from.reduce((s, g) => s + d.sh[g * SH + c], 0) / from.length;
+  }
+  const first = at(broken[0]).map((v, k) => +(v + d.origin[k]).toFixed(2));
+  warnOnce(coded('probes-check', fmt(STRINGS.filled, { n: broken.length, at: first.join(', ') })));
 }
 
 /** A probe set: grid data + the three.js grid in the scene that draws it. Made by bakeProbes / loadProbes only */
@@ -254,6 +275,9 @@ export const probeMethods = {
     if (!isWebGPU(r) && !r.extensions.has('EXT_color_buffer_float')) throw codedError('probes-option', STRINGS.noFloat);
     const t0 = performance.now();   // measure
     const grid = makeGrid(r, d);
+    // Off the round numbers meshes keep their vertices on, by less than light can show: a vertex exactly on a cube camera's plane leaves a software rasterizer no slopes, so a flat-shaded
+    // triangle there is NaN (plain three.js too; no real GPU tried shows it). This grid only bakes: the one in the scene is built from the data, unshifted.
+    grid.position.addScalar(1.3e-3);
     // hidden while the cubes render: meshes the filter rejects, and every other probe light (an earlier set lighting the capture would count twice)
     const hide = [];
     this.scene.traverse(x => { if (x.visible && (x.isLightProbe || x.isLightProbeGrid || (o.include && (x.isMesh || x.isPoints || x.isLine || x.isSprite) && !o.include(x)))) hide.push(x); });
@@ -267,6 +291,7 @@ export const probeMethods = {
         await new Promise(go => setTimeout(go));
       }
       d.sh = await readGrid(r, grid, d.counts);
+      fillBroken(d);
     } finally { grid.dispose(); }
     d.bakeMs = performance.now() - t0;   // measure
     return addSet(this, d, { owner: o.owner, source: 'bake' });

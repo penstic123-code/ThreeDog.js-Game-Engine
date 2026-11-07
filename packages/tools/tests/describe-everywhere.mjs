@@ -36,7 +36,7 @@ export async function run({ check }) {
   const w0 = console.warn; console.warn = (...a) => { msg += a.join(' '); };
   try { triggers({ debug: true }); } catch (err) { msg = err.message; } finally { console.warn = w0; }
   check('triggers({ debug }) is an unknown option', /unknown option "debug"/.test(msg), msg);
-  const e = fakeEngine(), def = triggers({}), tr = def.install(e, { name: def.name, track: h => h });
+  const e = fakeEngine(), def = triggers({}), tr = def.install(e, { name: def.name, track: h => h, saves: e.saves });
   check('setDebug and the debug flag are gone', tr.setDebug === undefined && tr.debug === undefined);
   check("the module adds 'triggers' to the debug view modes", e.debug.viewModes().includes('triggers'));
 

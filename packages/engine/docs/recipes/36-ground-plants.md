@@ -1,6 +1,7 @@
 # Ground color and plants
 
 ```js
+import { terrainPreset } from '@threedog/terrain-noise';
 engine.use(terrain({ ...terrainPreset(), colors: { grass: 0x6a8a3a, rock: 0x777066 }, biomeColors: { meadow: ['grass'], cliff: ['rock'] } }));
 engine.terrain.material.flatShading = true;                                        // the ground's picture is a plain three.js material
 engine.terrain.recolor({ colors: { grass: 0xa8a050, rock: 0x777066 } });           // what the workers baked in, changed at run time
@@ -45,7 +46,7 @@ patch your material again; the engine only rebuilds its own.
 
 Chunk geometry has `position`, `normal`, `color` and `uv = world xz / chunk size`, continuous across chunk borders, so a repeating texture is seamless whatever chunk it lands in. `texture.repeat.set(8, 8)` = 8 tiles per chunk. Without
 UVs (steep sides stretch a top-down map), project from the world position in a patch instead (`needs.patches: ['world']` gives `vThreedogWorld`):
-```js
+```js fragment
 engine.terrain.material = applyEffects(new THREE.MeshLambertMaterial({ vertexColors: true }), { clouds: false, patches: [{
   name: 'triplanar', needs: { patches: ['world'] }, uniforms: { uTex: { value: groundTexture }, uTexScale: { value: 0.1 } },   // groundTexture: repeat wrapping
   glsl: { fragment: { pars: 'uniform sampler2D uTex; uniform float uTexScale;',
@@ -62,7 +63,7 @@ The lighter alternative, with no material of your own: `terrain({ detail })`, or
 ## Plants and wind
 `vegetation.define` works at any time after `engine.use`, before or after `content.load` and `engine.start`. A species named by a model (`model: 'oak'`) appears when its promise settles, so `vegetation.list()` right after
 that call does not show it yet. To keep plants off a road or a yard, give the species a `densityMap: (x, z) => 0..1`, or a ground type of its own that the species' `biomes` leave out. Per-species options are in `../api/vegetation.md`; `castShadow` defaults to not `nearOnly`.
-```js
+```js fragment
 engine.vegetation.define('oak', { model: await engine.assets.model('oak'), wind: 0.02 });            // per species: its own material, wind, fade
 engine.vegetation.define('fern', { geometry, material: new THREE.MeshToonMaterial({ vertexColors: true }), wind: 0.08 });
 engine.vegetation.material = applyEffects(new THREE.MeshToonMaterial({ vertexColors: true }), { patches: engine.vegetation.patches });   // the shared default

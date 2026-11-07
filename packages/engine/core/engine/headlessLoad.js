@@ -1,6 +1,6 @@
 // Headless loading after start: a headless engine (?threedog-headless, createEngine({ headless: true })) has no real-time loop, so after start()
 // nothing runs frames unless someone calls step(). Anything that makes the world load again after start (a species added with
-// vegetation.define, terrain.setDensity, a teleport, a level swap) queued its work and waited for frames that never came: the page sat on
+// vegetation.define, terrain.density, a teleport, a level swap) queued its work and waited for frames that never came: the page sat on
 // "waiting for module terrain" forever, while the same page in a live browser loaded within a second.
 //
 // Why a load pump and not "step more" in the tools: step() is synchronous, and chunk results come back from workers between tasks, so no
@@ -9,10 +9,9 @@
 // dt 0, jobs drain deterministically), on a timer. A settled world runs nothing, so step()-driven tests keep their exact frame count.
 //
 // stateApplied waits for it too (Engine.js): screenshots, npm test and the dev bridge wait on stateApplied, so a load that began after
-// start is finished before they capture. A load that never settles stops holding stateApplied after engine.loading.timeoutMs (same limit
-// as start()) with one warning naming who is still waiting, so a stuck module cannot hang a tool.
+// start is finished before they capture. A load that never settles stops holding stateApplied at whenSettled's limit with one warning naming who is still waiting, so a stuck module cannot hang a tool.
 import { DEV, warnOnce } from '../base/validate.js';
-import { coded } from '../base/errorHints.js';
+import { coded, codedError } from '../base/errorHints.js';
 
 const TICK_MS = 16;   // one loading frame per ~60 Hz tick: the same pace a live loop gives the workers
 
@@ -24,24 +23,42 @@ export function unsettled(e) {
   return who;
 }
 
+/** The error of a settle that did not come, in the words unsettled() gives */
+const stalled = e => codedError('module-not-ready', `Still waiting after ${Math.round(e.loading.timeoutMs / 1000)} s for: ${unsettled(e).join(', ')}. A module's isReady(e) keeps returning false (or the world never finished its nearby builds); fix that, or raise engine.loading.timeoutMs if the load is only slow`);
+
+/**
+ * @internal The one wait for "ready to play": true once nothing is unsettled, checked per engine frame so step() advances it too; false as soon as valid() stops holding. It rejects (module-not-ready,
+ * naming who still waits) after engine.loading.timeoutMs. start(), flow's transition, level:playable and the headless pump all read this, so the question has one answer and one limit.
+ */
+export function whenSettled(e, valid = () => true) {
+  const now = () => !valid() ? false : unsettled(e).length ? null : true;
+  const first = now();
+  if (first !== null) return Promise.resolve(first);
+  const since = performance.now();   // measure: wall clock, so a wait with no frames to run on still ends
+  let h;
+  const settled = new Promise((res, rej) => {
+    h = e.onFrame(() => {
+      try { const r = now(); if (r !== null) { h.remove(); res(r); } } catch (err) { h.remove(); rej(err); }   // a throwing isReady ends the wait: this hook's error would reach no waiter
+    });
+  });
+  return e.loading._limit(settled, () => now() === null ? since : null, () => { h.remove(); return stalled(e); });
+}
+
 /** @internal start(): begin pumping loading frames for a headless engine (no-op for a live one, its loop already runs frames) */
 export function startHeadlessLoad(e) {
   if (!e.headless || e._headlessLoad) return;
-  const s = e._headlessLoad = { since: -1, stalled: false };
+  const s = e._headlessLoad = { watching: false, stalled: false };
   const tick = () => {
     if (e.disposed) return;
-    if (!unsettled(e).length) { s.since = -1; s.stalled = false; }
+    if (!unsettled(e).length) s.stalled = false;
     else {
-      const now = performance.now();   // measure: wall clock, only to stop a stuck load from holding stateApplied forever
-      if (s.since < 0) s.since = now;
+      if (!s.watching && !s.stalled) {
+        s.watching = true;
+        whenSettled(e).catch(err => { s.stalled = true; if (DEV) warnOnce(coded('module-not-ready', `headless load after start: ${err.message}; stateApplied no longer waits for it`)); }).finally(() => { s.watching = false; });
+      }
       // the same loading frame start() runs while it waits (startup.js _waitReady): frame hooks, stream, jobs; game time stays put
       // (no input.endFrame: a key a test pressed before its next step() must still read as just pressed there)
       e._frameHooks(0, true);
-      if (!s.stalled && now - s.since > e.loading.timeoutMs) {
-        s.stalled = true;
-        const who = unsettled(e);
-        if (DEV && who.length) warnOnce(coded('module-not-ready', `headless load after start stalled: still waiting after ${Math.round(e.loading.timeoutMs / 1000)} s for: ${who.join(', ')}; stateApplied no longer waits for it. A module's isReady(e) keeps returning false; fix that module, or raise engine.loading.timeoutMs if the load is just slow`));
-      }
     }
     setTimeout(tick, TICK_MS);   // main-loop: a headless engine's stand-in for the live frame loop while something is loading
   };

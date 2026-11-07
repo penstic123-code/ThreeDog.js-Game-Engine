@@ -41,7 +41,7 @@ export const specs = [
       const r = await ev(async () => {
         const { mk } = threedogThreads, A = threedogThreads.all, E = mk(A.createEngine, 'picture-bundle');
         await E.start();
-        const out = { w: E.describe('picture').picture.writers, x: E.explain({ picture: 'fog.far' }), d: Object.getOwnPropertyDescriptor(E.renderer, 'toneMappingExposure'), p: A.threePatches?.list().map(p => p.id) };
+        const out = { w: E.describe('picture').picture.writers, x: E.explain({ value: 'fog.far' }), d: Object.getOwnPropertyDescriptor(E.renderer, 'toneMappingExposure'), p: A.threePatches?.list().map(p => p.id) };
         E.dispose();
         return { w: out.w, x: out.x, plain: 'value' in out.d, p: out.p };
       });

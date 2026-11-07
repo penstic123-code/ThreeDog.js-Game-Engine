@@ -2,6 +2,36 @@
 // lost a value, a throw where the game runs fine, a saved record that failed only after a load.
 export const specs = [
   {
+    name: '[guard] applyState: a save that did not load and a new game that failed are refused, the title stays, and the rest of the call stands',
+    url: '/?threedog-headless',
+    async run({ check, ev }) {
+      const r = await ev(async () => {
+        const E = engine, out = {};
+        out.missing = await E.applyState({ save: 'no-such-slot', pos: '3,4' });
+        out.placedTo = E.player ? Math.round(E.player.position.x) : 3;
+        const quiet = console.error; console.error = () => {};
+        const part = E.saves.register('ao-bad', { save: () => ({ n: 1 }), load() { throw new Error('part broke'); } });
+        await E.saves.save('ao-slot');
+        out.threw = await E.applyState({ save: 'ao-slot' });
+        part.remove({ keep: false }); console.error = quiet;
+        const newGame = E.session.newGame, isOpen = E.ui.isOpen, closed = [], close = E.ui.close;
+        E.session.newGame = async () => false; E.ui.isOpen = n => n === 'title' || isOpen.call(E.ui, n); E.ui.close = n => { closed.push(n); };
+        out.play = await E.applyState({ play: 1 });
+        E.session.newGame = async () => true;
+        out.good = await E.applyState({ play: 1 });
+        out.closed = closed;
+        E.session.newGame = newGame; delete E.ui.isOpen; delete E.ui.close;
+        return out;
+      });
+      const J = JSON.stringify, one = (a, key) => a.ok === false && a.refused.length === 1 && a.refused[0].key === key;
+      check('a missing slot is refused and says why', one(r.missing, 'save') && /missing/.test(r.missing.refused[0].reason), J(r.missing));
+      check('the rest of the call stands', r.placedTo === 3, r.placedTo);
+      check('a save that failed while loading is refused too', one(r.threw, 'save'), J(r.threw));
+      check('a new game that failed is refused', one(r.play, 'play'), J(r.play));
+      check('the title closes only for the new game that worked', r.good.ok === true && r.closed.join() === 'title', J({ good: r.good, closed: r.closed }));
+    },
+  },
+  {
     name: '[guard] a game\'s own value stays: sunDir and aspect yield, a lost signal write warns, sky and applyState refuse without throwing',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {

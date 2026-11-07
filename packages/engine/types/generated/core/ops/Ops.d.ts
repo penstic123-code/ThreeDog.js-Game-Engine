@@ -23,7 +23,7 @@ export class Ops {
      * run (and can) may fail with { ok: false, code, facts, nextActions } (facts: object or list [{ id, field, actual, expected? }]); nextActions are the game's own suggestions.
      * owner (optional, checked by net() for peer requests): args => world record id whose `owner` field must equal the requesting actor.
      * @param {string} name
-     * targets (optional): the thing ids, kinds or template names this op is for; engine.thing(id).explain().ops lists it ('*' = any thing).
+     * targets (optional): the thing ids, kinds or template names this op is for; engine.explain({ thing: id }).ops lists it ('*' = any thing).
      * @param {{ run: (e: any, args: any, ctx: OpContext) => any, can?: (e: any, args: any, ctx: OpContext) => true | string | { code: string, facts?: object, nextActions?: { op: string, args?: object }[] }, targets?: string | string[], args?: Record<string, string | { type: string, default?: any, min?: number, max?: number, values?: any[], desc?: string, optional?: boolean }>, offers?: (e: any, ctx: OpContext) => object[], reasons?: Record<string, string>, desc?: string, undo?: (e: any, args: any, value: any) => void, net?: 'peer' | 'local', owner?: (args: any) => string, atomic?: boolean, after?: (e: any, args: any, value: any, ctx: OpContext) => void }} def
      * @returns {{ remove(): void }}
      * @example
@@ -104,6 +104,7 @@ export class Ops {
     };
     /**
      * Reverse a finished op with the undo(e, args, value) its definition declared: pass the same args and the value run returned.
+     * canUndo(e, args, value) in the definition answers like can (true, a reason, a structured failure) when the world may have moved on so far that it cannot be reversed.
      * Returns { ok: true }, or { ok: false, code: 'noUndo', facts: { op }, nextActions } when the op did not declare undo. The undo runs as an op write (the dev guard stays quiet).
      * @example const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' }); engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);
      * @param {string} name

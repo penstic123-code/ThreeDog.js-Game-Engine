@@ -129,30 +129,61 @@ function dropTerrain(r, key) {
   if (t) for (const c of t.colliders) r.world.removeCollider(c, false);
   r.terrain.delete(key);
 }
+// Chunk copies of a ground source that left: terrain and trunks are copies of the ground too, and nothing else asks for them once chunkCollision is gone. Answers whether any went.
+export function dropChunks(r) {
+  if (r.engine.ground.chunkCollision || !(r.terrain.size || r.trees.size)) return false;
+  for (const key of [...r.terrain.keys()]) dropTerrain(r, key);
+  for (const key of [...r.trees.keys()]) dropTrees(r, key);
+  return true;
+}
 // Houses and pillars from the collision module, as physics colliders: engine.collision.mirror does the add / remove diff (shared with nav), this
-// only says how one collider is built and dropped. Built lazily: the mirror lives on the collision module, which rigid requires.
+// only says how one collider is built and dropped. Built lazily: the mirror lives on the collision module, which rigid requires. A mirror knows one module, so another
+// collision module (replaces) drops the old colliders and starts a new mirror. Answers whether a collider changed.
 const UP = new THREE.Vector3(0, 1, 0), Q = new THREE.Quaternion();
 export function syncStatics(r) {
-  r._statics ??= r.engine.collision.mirror({
+  r._collision.sync(() => { r._statics?.clear(true); r._statics = null; });
+  r._statics ??= r.engine.collision?.mirror({
     add(type, o) {
       const R = r.rapier, g = o.y ?? r.engine.surface(o.x, o.z);
-      if (type !== 'box') return r.world.createCollider(R.ColliderDesc.cylinder(o.h / 2, o.r).setTranslation(o.x, g + o.h / 2, o.z));
-      Q.setFromAxisAngle(UP, o.rot);
-      return r.world.createCollider(R.ColliderDesc.cuboid(o.hw, o.h / 2, o.hd).setTranslation(o.x, g + o.h / 2, o.z).setRotation({ x: Q.x, y: Q.y, z: Q.z, w: Q.w }));
+      Q.setFromAxisAngle(UP, o.rot ?? 0);
+      const shape = type === 'box' ? R.ColliderDesc.cuboid(o.hw, o.h / 2, o.hd).setRotation({ x: Q.x, y: Q.y, z: Q.z, w: Q.w }) : R.ColliderDesc.cylinder(o.h / 2, o.r);
+      const c = r.world.createCollider(shape.setTranslation(o.x, g + o.h / 2, o.z));
+      if (o.y == null) r._onGround.set(o, c);
+      return c;
     },
-    remove(col) { r.world.removeCollider(col, false); },
-  });
-  r._statics.sync();
+    remove(c, o) { r._onGround.delete(o); r.world.removeCollider(c, false); },
+  }) ?? null;
+  return !!r._statics?.sync();
 }
 
-// Ground of a level (hand-built scene): one static triangle mesh, rebuilt when the level changes
+/** The ground moved under a world box: a collider that stands on the ground, one with no y of its own, stands on what is there now. Mirror data keeps no height, so nothing else would tell it. No area: all of them */
+export function restandStatics(r, { x0 = -Infinity, z0 = -Infinity, x1 = Infinity, z1 = Infinity } = {}) {
+  for (const [o, c] of r._onGround) if (o.x + o.r >= x0 && o.x - o.r <= x1 && o.z + o.r >= z0 && o.z - o.r <= z1) { c.setTranslation({ x: o.x, y: r.engine.surface(o.x, o.z) + o.h / 2, z: o.z }); r._behind = true; }
+}
+
+// Ground of a level (hand-built scene): one static triangle mesh, rebuilt when the level changes. The provider's staticTrimeshes names the source
+// (engine.ground itself is a fresh object whenever a collider source joins, and that alone must not rebuild it). A new ground of any kind stands the world boxes on it again:
+// a level at another height sends no ground:change. Answers whether the triangles changed.
 export function syncLevel(r) {
-  const G = r.engine.ground; if (!G.staticTrimeshes) return;
-  const v = G.staticVersion?.() ?? 0; if (v === r._levelVersion) return;
-  r._levelVersion = v;
-  for (const c of r._levelColliders || []) r.world.removeCollider(c, false);
-  const desc = t => r.rapier.ColliderDesc.trimesh(t.positions, t.indices).setFriction(0.9);
-  r._levelColliders = G.staticTrimeshes().map(t => r.world.createCollider(desc(t)));
+  r._standOn.sync(() => restandStatics(r));
+  return !!r._level.sync(() => {
+    const G = r.engine.ground, old = r._levelColliders || [];
+    r._levelColliders = [];   // before anything can throw: the retry must not remove these twice
+    for (const c of old) r.world.removeCollider(c, false);
+    const desc = t => r.rapier.ColliderDesc.trimesh(t.positions, t.indices).setFriction(0.9);
+    for (const t of G.staticTrimeshes?.() ?? []) r._levelColliders.push(r.world.createCollider(desc(t)));
+  });
+}
+
+// A ground with no collision of its own stands on an infinite flat plane at y = 0, unless the game turned it off. One more copy of the ground, so it comes and goes with the ground
+// source: left standing it is an invisible floor over a level installed later. Answers whether it changed.
+export const wantsFloor = r => { const G = r.engine.ground; return r.fallbackFloor && !G.chunkCollision && !G.staticTrimeshes; };
+export function syncFloor(r) {
+  return !!r._floor.sync(() => {
+    const want = wantsFloor(r);
+    if (want && !r._floorCollider) r._floorCollider = r.world.createCollider(r.rapier.ColliderDesc.cuboid(5000, 0.5, 5000).setTranslation(0, -0.5, 0));
+    else if (!want && r._floorCollider) { r.world.removeCollider(r._floorCollider, false); r._floorCollider = null; }
+  });
 }
 
 // ---------- Game-set body / collider state across RigidBodies._fresh ----------

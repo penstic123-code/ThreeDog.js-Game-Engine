@@ -8,7 +8,7 @@
 /** Shared by the pixel items: render the engine at a small fixed size, read every pixel, compare two reads */
 const PIX = `(() => {
   const R = engine.renderer, gl = R.getContext(), W = 64, H = 48, size = R.getSize(new threedogTest.THREE.Vector2());
-  R.setSize(W, H, false); engine.post.setAntialias(false);
+  R.setSize(W, H, false); engine.post.antialias = false;
   const read = () => { engine.step(1 / 60, { describe: false }); const b = new Uint8Array(W * H * 4); gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, b); return b; };
   const diff = (a, b) => { let m = 0; for (let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i] - b[i])); return m; };
   return { read, diff, done: () => R.setSize(size.x, size.y, false) };

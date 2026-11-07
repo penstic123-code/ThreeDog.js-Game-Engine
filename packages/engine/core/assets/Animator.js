@@ -279,3 +279,5 @@ export class Animator {
   /** Call when no longer needed to stop per-frame updates. */
   dispose() { this._hook?.remove(); this.mixer.stopAllAction(); }
 }
+
+export const handRolled = [{ kind: 'animation', seen: 'an AnimationMixer of its own', use: 'engine.assets.animate(model, { states }): states, crossfades, sync with game time and pause (recipe 13)', quiet: /\bassets\.animate\b/, code: /\bnew\s+(?:THREE\.)?AnimationMixer\s*\(|\bmixer\.update\s*\(/i }];

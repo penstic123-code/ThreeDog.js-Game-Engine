@@ -27,19 +27,32 @@ import { createAscii } from './ascii.js';
 import { grade } from './grade.js';
 import * as props from './props.js';
 
-/** @param {any} engine */
-export function createPicture(engine) {
-  engine.renderer.toneMapping = palette.toneMapping;
-  const lights = createLights(engine), materials = createMaterials();
-  // onRender, not onFrame: it runs after every module updated, so the signals are this frame's
-  engine.onRender(() => lights.update(engine.uniforms));
-  engine.post.add(grade);
-  const ascii = createAscii(engine);
+// A picture module: engine.use(createPicture()), then engine.picture. Everything it adds goes through ctx, so engine.use(another(), { replaces: 'picture' }) leaves nothing of it.
+export function createPicture() {
   return {
-    lights, materials, props, palette, ascii,
-    /** @param {Parameters<typeof createGround>[0]} [o] */
-    ground: o => { const m = createGround(o); engine.scene.add(m); return m; },
-    /** @param {Parameters<typeof createWater>[1]} [o] */
-    water: o => { const m = createWater(engine, o); engine.scene.add(m); return m; },
+    name: 'asciiMeadow', skipKind: 'none', type: 'picture', provides: ['picture', 'tone', 'fog', 'background', 'sun'],
+    /** @param {any} engine @param {any} ctx */
+    install(engine, ctx) {
+      ctx.borrow(engine.renderer, { toneMapping: palette.toneMapping });
+      const lights = createLights(engine, ctx), materials = createMaterials();
+      ctx.track({ remove() { for (const m of Object.values(materials)) m.dispose(); } });
+      // onRender, not onFrame: it runs after every module updated, so the signals are this frame's
+      ctx.track(engine.onRender(() => lights.update(engine.uniforms)));
+      ctx.track(engine.post.add(grade));
+      const ascii = createAscii(engine, ctx);
+      /** @param {any} m ground and water are the picture's: they leave with it */
+      const own = m => {
+        engine.scene.add(m);
+        ctx.track({ remove() { m.removeFromParent(); m.geometry.dispose(); m.material.dispose(); } });
+        return m;
+      };
+      return {
+        lights, materials, props, palette, ascii,
+        /** @param {Parameters<typeof createGround>[0]} [o] */
+        ground: o => own(createGround(o)),
+        /** @param {Parameters<typeof createWater>[1]} [o] */
+        water: o => own(createWater(engine, o)),
+      };
+    },
   };
 }

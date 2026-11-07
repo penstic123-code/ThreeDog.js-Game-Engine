@@ -39,7 +39,7 @@ export const specs = [
         const { vignette } = threedogTest.postEffects, p = engine.post, out = {};
         const err = f => { try { f(); return ''; } catch (x) { return x.message; } };
         const rp = n => engine.describe().render.post.find(x => x.name === n);
-        p.setAntialias(false);
+        p.antialias = false;
         const names = p.list().map(x => x.name);
         const h = p.add(vignette({ enabled: true, strength: 0.5 }));
         out.add = [rp('vignette').writer, rp('vignette').params.strength, rp('vignette').point];

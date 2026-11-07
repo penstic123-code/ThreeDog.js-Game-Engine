@@ -13,7 +13,6 @@ const ALLOW = [
   [E('index.js'), '*', 'the entry file exports the public API'],
   [E('modules/terrain/chunkWorker.js'), '*', 'Worker entry, loaded through new Worker'],
   // The content vocabulary is for Node tools: content-check/load.mjs imports it dynamically via the path in paths.mjs (the path is not hard-coded), so static analysis cannot see it
-  [P.CONTENT_RULES_REL, 'CONTENT_FILES', 'tools (content check, game map) import it dynamically'],
   [P.CONTENT_RULES_REL, 'CLOCK_RE', 'tools (content check, game map) import it dynamically'],
   [P.CONTENT_RULES_REL, 'mergeRules', 'tools (content check, game map) import it dynamically'],
   [P.CONTENT_RULES_REL, 'describeCond', 'tools (content check, game map) import it dynamically'],

@@ -14,6 +14,7 @@ import { codedError } from '../core/base/errorHints.js';
 import { warnOnce } from '../core/base/validate.js';
 import { readParams, keysSchema } from '../core/base/params.js';
 import { isWebGPU, backendName, webgpuPart, ownMsaa } from './backend.js';
+import { MSAA_KEY } from '../core/scene/tier.js';
 import { defineOwned } from '../core/ops/owned.js';
 import { watchOwnFrame } from './ownFrame.js';
 /** @import { Engine } from '../types/core' */
@@ -84,9 +85,10 @@ export class PostFX {
    * @param {{ antialias?: boolean }} [opts]
    * @internal
    */
-  constructor(engine, { antialias = true } = {}) {
+  constructor(engine, { antialias = true, authored = antialias } = {}) {
     /** @internal */ this.engine = engine;
     /** @internal */ this._aa = antialias;
+    /** @internal the antialias this game starts with when the player chose nothing: what a settings row goes back to */ this.authoredAA = authored;
     /** @internal */ this._list = /** @type {any[]} */ ([]);
     // effect name -> its tie-break place in a slot, given the first time the name is added (or reserved by engine.plugins in plugin order).
     // Why kept across remove: plugins.off then on re-added the effect at the end, so A, B with no order of their own came back B, A (review 2026-11-03)
@@ -102,6 +104,7 @@ export class PostFX {
     /** @internal the chain's backend: postWebGL.js, or the WebGPU one threedog/tsl registers */ this._be = backendFor(engine.renderer);
     /** @internal the renderer's own MSAA on its canvas (fixed when it was made; the engine makes it with the default antialias) */ this._ownAA = ownMsaa(engine.renderer);
     this._be.init(this);
+    /** @internal the camera the built chain draws with */ this._camera = engine.camera;
     watchOwnFrame(engine);   // a game that renders the canvas itself (own EffectComposer) takes the frame; the loop yields (ownFrame.js)
     // own(): the game takes the built chain (composer passes / pipeline.outputNode) and the engine stops rebuilding it; handing it
     // back rebuilds from the list. read is a constant: a direct write to object() is not a takeover (the next chain change replaces it)
@@ -111,21 +114,35 @@ export class PostFX {
   }
 
   /**
-   * MSAA on. Writing it takes effect like setAntialias.
+   * MSAA on or off in the post chain's render targets, for what runs through the chain. It is a render setting, not a drawing part. With no effect on nothing runs through the chain:
+   * the canvas's own MSAA shows, fixed when the context was made (createEngine({ antialias })).
+   * @example engine.post.antialias = false;
    * @type {boolean}
    * @experimental
    */
   get antialias() { return this._aa; }
-  set antialias(on) { this.setAntialias(on); }
+  set antialias(on) {
+    this._aa = !!on;
+    this._be.setAntialias(this, this._aa);
+    this._sync();
+  }
   /**
-   * Whether the post chain runs: an effect is on, or antialias differs from the canvas's own MSAA (fixed when the renderer was made, so a
-   * runtime switch away from it goes through the chain's targets)
+   * @internal A player's choice for the next launch. MSAA is fixed with the canvas, so a row that changed it live would have to switch the whole post chain on to do it, and the cheap
+   * preset cost more than the middle one. createEngine reads it before the renderer exists (core/scene/tier.js storedMsaa); the same value as the game's own is no choice to store.
+   * @param {boolean} on
+   */
+  nextAntialias(on) {
+    const key = this.engine.saves.storageKey(MSAA_KEY);
+    try { if (!!on === this.authoredAA) localStorage.removeItem(key); else localStorage.setItem(key, on ? '1' : '0'); } catch { /* storage blocked: the settings file has the row, this launch runs as it is */ }
+  }
+  /**
+   * Whether the post chain runs: an effect is on
    * @returns {boolean}
    */
-  get active() { return this._aa !== this._ownAA || this._list.some(e => e.enabled); }
+  get active() { return this._list.some(e => e.enabled); }
 
   /**
-   * What the chain runs in, for reading, or null while no post work has run yet (built the first time an effect or MSAA is on; it is not built here, so asking never costs a
+   * What the chain runs in, for reading, or null while no post work has run yet (built the first time an effect is on; it is not built here, so asking never costs a
    * render target). WebGLRenderer: the three.js EffectComposer (pass list, sizes, its targets). WebGPURenderer: { pipeline, scenePass }, three's RenderPipeline and the scene's pass() node. Read-only by rule, not by lock:
    * the engine owns it, rebuilds the chain whenever the list changes and disposes it with the engine. To add a pass use post.add,
    * to own the whole chain post.own() (recipe 52). Why public: a game reading the chain had to dig into an internal field (review 2026-11-03)
@@ -139,7 +156,7 @@ export class PostFX {
    * output; EffectComposer swaps them after every pass with needsSwap (most passes; the scene RenderPass does not). The last pass draws to the
    * canvas and still swaps, so after the frame (engine.onRender(fn, { when: 'after' })) neither target holds the final picture: writeBuffer holds
    * the input of that last pass (readBuffer when the last pass does not swap) and readBuffer is stale. For the final image, render into a target of your own.
-   * Owned by the engine like object(): it resizes them, changes samples on setAntialias and adds a depth texture when an effect needs depth;
+   * Owned by the engine like object(): it resizes them, changes samples when antialias is written and adds a depth texture when an effect needs depth;
    * do not dispose them or swap their textures. A target of your own: new THREE.WebGLRenderTarget in onRender (THREE.md)
    * @returns {{ renderTarget1: any, renderTarget2: any, readBuffer: any, writeBuffer: any } | null}
    * @experimental
@@ -179,7 +196,8 @@ export class PostFX {
     if (effect.fuse && s === 'scene') throw codedError('post-effect', `post effect '${effect.name}': a fuse snippet colors an existing image, it cannot replace the scene render; use slot 'hdr' | 'ldr' | 'final'`);
     const other = s in EXCLUSIVE && this._list.find(e => e.slot === s);
     if (other) throw codedError('post-effect', `post slot '${s}' already holds '${other.name}'; remove it first (only one effect can ${EXCLUSIVE[s]})`);
-    const post = this, point = this._point(effect);
+    const post = this, point = this.switchPoint(`post.${effect.name}.enabled`);
+    point.release('game'); point.base = effect.enabled ?? true;   // only the game's own word starts over: the player's off and any other owner's hold stay on the effect that comes back
     let on = !!point.value();
     const h = {
       name: effect.name, slot: s, order: effect.order ?? 0, seq: this._place(effect.name),
@@ -211,7 +229,7 @@ export class PostFX {
       remove() {
         if (h._removed) return;
         h._removed = true;
-        point.onChange = null; point.clear();
+        point.onChange = null; point.release('game');
         freeImpl(h);
         post._list = post._list.filter(e => e !== h);
         if (!post._kept.has(h.name)) post._seq.delete(h.name);   // removed for good: a later effect of that name starts at the end (plugins keep theirs)
@@ -254,12 +272,13 @@ export class PostFX {
     const samples = this._be.samples(this);
     return { samples, replacedBy: this._aa && !samples ? this._list.find(e => e.enabled && e._def.needsBuffers?.includes('velocity'))?.name ?? null : null };
   }
-  /** The shared point of an effect's switch, starting at what the effect says. Kept across a remove (the registry has no delete); a new effect of that name starts it clean @internal */
-  _point(effect) {
-    const S = this.engine.stacks, id = `post.${effect.name}.enabled`, base = effect.enabled ?? true;
-    const p = S.has(id) ? S.get(id) : S.define(id, { kind: 'value', base, save: false });
-    p.clear(); p.base = base;
-    return p;
+  /**
+   * The shared point of an effect's switch ('post.<name>.enabled'), made on first asking. It outlives the effect (the registry has no delete) and may come before it: settings installs before
+   * the game's boot code adds its effects, and add() starts under whatever is held here. @param {string} id @internal
+   */
+  switchPoint(id) {
+    const S = this.engine.stacks;
+    return S.has(id) ? S.get(id) : S.define(id, { kind: 'value', base: true, save: false });
   }
   /**
    * An added effect's handle (as add() returns it), or undefined.
@@ -278,19 +297,6 @@ export class PostFX {
    * @experimental
    */
   own(on = true) { this._own.manual(!!on); }
-  /**
-   * Turn MSAA on or off. It is a render setting, not a drawing part. With no effect on, the start value is the canvas's own MSAA (free: no
-   * post chain); the other value, and any effect, draws through the chain, whose render targets carry the MSAA.
-   * @example engine.post.setAntialias(false);
-   * @param {boolean} on
-   * @returns {void}
-   * @experimental
-   */
-  setAntialias(on) {
-    this._aa = !!on;
-    this._be.setAntialias(this, this._aa);
-    this._sync();
-  }
   /**
    * Effects in render order: [{ name, slot, order, enabled }]
    * @returns {{ name: string, slot: PostSlot, order: number, enabled: boolean }[]}
@@ -342,8 +348,20 @@ export class PostFX {
    * @param {number} dt @param {any} [target] @returns {void}
    */
   render(dt, target = null) {
+    this._followCamera();
     if (!this.active) { this._be.direct(this, target); return; }
     this._be.render(this, dt, target);
+  }
+  /**
+   * @internal engine.camera was assigned. Passes take the camera when they are built, so the chain is built again from the list, as for a list change. A pass the game made
+   * is kept and moves to the new camera if it drew with the old one. While the game owns the chain it is the game's to change; the rebuild waits for the hand-back.
+   */
+  _followCamera() {
+    const now = this.engine.camera, old = this._camera;
+    if (now === old || !this._own.on) return;
+    this._camera = now;
+    for (const e of this._list) { if (e._def._pass?.camera === old) e._def._pass.camera = now; freeImpl(e); }
+    this._sync();
   }
   /**
    * @internal start() replaced the renderer (fallback: 'webgl'): the chain and every effect's built part (bloom's node, its targets) belong to

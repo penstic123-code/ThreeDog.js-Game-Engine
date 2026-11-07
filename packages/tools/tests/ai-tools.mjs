@@ -11,6 +11,8 @@ export const name = 'AI tools: error hint table and describe snapshots (node)';
 // Real messages: the engine's own carry their [code] tag (codedError / coded), JavaScript / browser ones are plain and land on a pattern;
 // each must land on the listed id
 const SAMPLES = {
+  'fall-prevent': 'e.preventDefault is not a function',
+  'thing-explain': 'engine.thing(...).explain is not a function',
   'frozen-definition': "Cannot assign to read only property 'opened' of object '#<Object>'",
   'module-requires': 'module npcs requires module "world", which is not installed [module-requires]',
   'module-cycle': 'module order forms a cycle: a -> b -> a (check before / after on these modules) [module-cycle]',
@@ -44,6 +46,7 @@ const SAMPLES = {
   'module-disabled': '[engine] picture module particles threw and was disabled (the game continues) [module-disabled]',
   'not-installed': "Cannot read properties of undefined (reading 'give')",
   // a read on null is not "not installed" (a three.js mergeGeometries that returned null got that hint once)
+  'pause-guess': 'engine.time.pause is not a function',
   'null-value': "Cannot read properties of null (reading 'boundingSphere')",
   'not-function': 'engine.inventory.giv is not a function',
   'resource-load': 'Failed to load <img> /textures/grass.png',

@@ -59,7 +59,7 @@ export function hlod(opts = {}) {
   function setFar(c, far) {
     if (c.far === far) return;
     c.far = far;
-    // occlusion watches what is on screen. Taking the old watch away first shows anything it hid, so its mask never mixes with the one kept here
+    // occlusion watches what is on screen. Taking the old watch away first shows anything it hid
     c.watch?.remove();
     for (const p of c.proxy) p.visible = far;
     for (const m of c.originals) {
@@ -142,7 +142,7 @@ export function hlod(opts = {}) {
           for (const c of list) { setFar(c, false); c.watch?.remove(); for (const p of c.proxy) p.geometry.dispose(); for (const m of c.originals) delete m.userData.hlod; }
           api.cells = api.cells.filter(c => !list.includes(c));
           for (const l of lods.values()) l.node.visible = l.visible;
-          e.detach(group);   // proxies share the originals' materials and are never ray-registered: geometries were disposed above
+          group.removeFromParent();   // proxies share the originals' materials and are never ray-registered: geometries were disposed above
         },
       };
       handles.add(h);
@@ -164,12 +164,13 @@ export function hlod(opts = {}) {
 
   const addLevel = root => { levelHandle?.remove(); levelHandle = root ? api.add(root) : null; };
   return {
-    name: 'hlod', type: 'picture', params: HLOD_PARAMS, options: opts, label: 'HLOD', optional: ['terrain', 'level'],
+    name: 'hlod', skipKind: 'none', type: 'picture', params: HLOD_PARAMS, options: opts, label: 'HLOD', optional: ['terrain', 'level'],
     install(engine, ctx) {
       e = engine;
       e.i18n.add({ 'zh-CN': { 'module.hlod': '远景合并' }, en: { 'module.hlod': 'distant merge' } });
       if (autoLevel) {
         ctx.track(e.events.on('level:loaded', ({ root }) => addLevel(root)));
+        ctx.track(e.events.on('level:unloaded', () => addLevel(null)));
         if (e.level?.ready && e.level.root) addLevel(e.level.root);   // install hlod only after the level is ready
       }
       return api;
@@ -180,3 +181,5 @@ export function hlod(opts = {}) {
     describe() { return { cells: api.cells.length, far: api.cells.filter(c => c.far).length }; },
   };
 }
+
+export const handRolled = 'none: merging far meshes is plain three.js, used on purpose';

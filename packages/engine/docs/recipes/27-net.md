@@ -20,7 +20,8 @@ Run the relay on any machine both can reach: `threedog relay 8787` (no dependenc
 and a reconnect key.
 For tests and offline demos use the in-process network instead (latency, jitter and loss adjustable; `manual: true` delivers only on `advance(ms)`):
 ```js
-import { fakeNetwork, net } from 'threedog';
+import { createEngine, fakeNetwork, net } from 'threedog';
+const [host, guest] = [1, 2].map(() => createEngine({ canvas: document.createElement('canvas') }));   // two games on one page
 const wire = fakeNetwork({ latency: 80, jitter: 30, loss: 0.05 });
 host.use(net({ role: 'host', transport: wire.host() }));
 guest.use(net({ role: 'client', transport: wire.connect() }));
@@ -73,8 +74,7 @@ world records, containers, `vars`, and every other save part (quests, clock, sky
 On a client the mirror is applied at the next fixed step; `world.simulate` does not run there (the host simulates). Other players glide between
 updates (kinds in `interpolate`, default `['player']`). The client moves its own avatar and reports its position; the host clamps it to `maxSpeed`
 (m/s, default 15).
-A character another machine drives is held by net for good ([57-control](57-control.md)): on a client every NPC and other player, on the host
-each peer's avatar. A local `walkTo`, cutscene or `engine.control.take` on one is `[control-net]`; change it with an op the host runs.
+A character another machine drives is held by net for good: a local `walkTo`, cutscene or `engine.control.take` on one is `[control-net]` ([57-control](57-control.md)).
 
 ## 5. Write the UI from state, not from run's return value
 On a client `engine.ops.run` returns `{ ok: true, pending: true, seq }` after the local `can` passed (so a "no money" refusal is still instant). The

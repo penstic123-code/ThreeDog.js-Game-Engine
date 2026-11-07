@@ -104,6 +104,12 @@ export async function run({ check }) {
     check('both drags undo in order, back to the first value', p.fields.a.x === 0 && p.history().undone.length === 2, JSON.stringify(p.fields.a));
   }
 
+  // [guard] a turn handle on a tilted entry adds to the y of its [x, y, z], and the x and z stay as written
+  {
+    const p = await page({ a: { x: 0, z: 0, rot: [0.3, 0.2, 0] } }), r = await p.d.moveEntry(p.engine, await p.entry('a'), { x: 0, y: 0, z: 0, yaw: 0.5 });
+    check('[guard] turning an entry with a three-axis rot writes three numbers', r.ok && JSON.stringify(p.fields.a.rot) === '[0.3,0.7,0]', JSON.stringify({ r, f: p.fields.a }));
+  }
+
   // [guard] M2: two rows saved from one held entry, the second against the first's result
   {
     const p = await page({ a: { scale: 1, tag: 'x' } }), e = await p.entry('a');

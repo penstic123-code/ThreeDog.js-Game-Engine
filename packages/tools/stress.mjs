@@ -10,9 +10,9 @@
 // with the renderer string it printed.
 process.env.THREEDOG_TEST = '1';
 import { existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
-import { launchBrowser, launchRealGPU, buildAndPreview, injectTool, forcedRender } from './browser.mjs';
-import { ENGINE, cli, viteOptions } from './paths.mjs';
+import { join } from 'node:path';
+import { launchBrowser, launchRealGPU, buildAndPreview, devServer, injectTool, forcedRender } from './browser.mjs';
+import { ENGINE, cli } from './paths.mjs';
 import { rendererLine, headlessUrl } from './lib/page-url.mjs';
 import { waitEngine, waitLoaded } from './wait-engine.mjs';
 import { intOption } from './lib/cli-args.mjs';
@@ -27,14 +27,8 @@ let FRAMES = 30;
 try { FRAMES = intOption(opt, 'frames') ?? FRAMES; } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
 const say = (...a) => { if (!JSON_OUT) console.log(...a); };
 const t0 = Date.now();
-/** The game on a dev server: the injected page has to import the game's own three */
-async function gameServer() {
-  const { createServer } = await import('vite');
-  const s = await createServer(await viteOptions(GAME, { logLevel: 'error', cacheDir: resolve(GAME, '.threedog/vite-stress'), server: { port: 0, strictPort: false, fs: { strict: false } } }));
-  await s.listen();
-  return { base: s.resolvedUrls.local[0].replace(/\/$/, ''), close: () => s.close() };
-}
-const server = GAME ? await gameServer() : await buildAndPreview(ENGINE);
+// the game on a dev server: the injected page has to import the game's own three
+const server = GAME ? await devServer(GAME, { cacheDir: '.threedog/vite-stress', fs: { strict: false } }) : await buildAndPreview(ENGINE);
 let browser;
 try { browser = GAME ? await launchRealGPU() : await launchBrowser({ prefer: 'gpu' }); } catch (e) { console.error('✗ ' + e.message); await server.close(); process.exit(1); }
 const out = { target: GAME ? 'game' : 'neutral page', renderer: browser.render?.renderer ?? 'SwiftShader (software)', kind: browser.render?.kind ?? 'gpu', timer: false, axes: {} };

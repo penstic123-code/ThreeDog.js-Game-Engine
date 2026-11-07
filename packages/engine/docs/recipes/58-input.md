@@ -58,3 +58,16 @@ Everything a module declares or binds through `ctx.input` leaves with it (rollba
 `engine.input.rebind('attack', ['KeyK'])` is the player's choice, on top of the game's keys; `rebind('attack', null)` gives the game's back.
 `engine.input.rebound()` lists them (the settings menu saves exactly that and restores it at start, even before the module declaring an action is
 installed). The settings menu's key page, its reset button and its save all go through these two calls.
+
+## Local players on one screen
+
+A seat is one player's own keys and gamepad. It reads like `engine.input` (`axis`, `down`, `pressed`, `released`), so a control function works on either.
+
+```js
+const two = engine.input.seat({ pad: 1, keys: { moveForward: 'KeyI', moveBack: 'KeyK', moveLeft: 'KeyJ', moveRight: 'KeyL', jump: 'KeyU' } });
+const p2 = engine.characters.createPlayer({ id: 'two', input: two, control: 'camera', spawn: [4, 0, 0] });
+```
+
+The seat's pad leaves `engine.input` and answers the game's pad bindings on this seat alone, so `bind('jump', ['PadA'])` works for it as written. A seat's keys are its own list: keep them out of the first player's bindings. Two seats on one pad or key, or one seat on two players, throw `input-seat`.
+
+`engine.player` stays the first player; `p2` has its own world record, saved with the world, and `removePlayer('two')` takes it away. There is one screen and one camera. Footstep sounds and NPCs giving way cover every player. A seat with its own `interact` key uses what its player stands by, as that player (`seat.actor`, set by `createPlayer`; `ctx.actor` in the op). The prompt shows `engine.actor`'s choice alone, and one hold runs at a time. A trigger zone hears every player when its `who` names them.

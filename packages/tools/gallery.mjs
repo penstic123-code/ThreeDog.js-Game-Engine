@@ -8,7 +8,7 @@
 // Why the dev server (not a build): the gallery is injected by the vite preset in dev only, and an asset edit needs no rebuild to be seen.
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { cli, rel, viteOptions } from './paths.mjs';
+import { cli, rel } from './paths.mjs';
 import { intOption } from './lib/cli-args.mjs';
 import { headlessUrl } from './lib/page-url.mjs';
 import { parseGalleryOptions, fileStems, escapeHtml as esc } from './gallery/index.js';
@@ -18,11 +18,8 @@ const { dir, opt } = cli(process.argv.slice(2), { flags: ['shots', 'gpu', 'softw
 let modes;
 try { modes = parseGalleryOptions(opt); } catch (e) { console.error('✗ ' + e.message); process.exit(1); }
 if (opt.shots) process.env.THREEDOG_TEST = '1';   // before the server: the vite preset reads it, and a run for pictures must not rewrite GAMEMAP.md
-const { createServer } = await import('vite');
-const server = await createServer(await viteOptions(dir, { logLevel: 'error',
-  server: { port: opt.port ? +opt.port : opt.shots ? 0 : 5181, host: '127.0.0.1', strictPort: false, open: false } }));
-await server.listen();
-const base = (server.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${server.httpServer.address().port}/`).replace(/\/$/, '');
+const { devServer } = await import('./browser.mjs');
+const { base, close } = await devServer(dir, { port: opt.port ? +opt.port : opt.shots ? 0 : 5181, host: '127.0.0.1', open: false });
 if (!opt.shots) {
   console.log(`Asset gallery: ${base}/?gallery=1   (${rel(dir)}; save an art module and the gallery and game update in place; Ctrl+C stops)`);
 } else {
@@ -64,7 +61,7 @@ ${names.map(n => `<tr><td>${esc(n)}</td>${lights.map(l => cell(rows.find(r => r.
     }
     if (bad.length) { console.log('Failed:\n  ' + bad.map(r => `${r.name}: ${r.error}`).slice(0, 10).join('\n  ')); code = 1; }
   } catch (e) { console.error(String(e?.message ?? e)); code = 1; }
-  finally { await browser.close(); await server.close(); }
+  finally { await browser.close(); await close(); }
   if (errors.length) console.log('\nPage errors:\n  ' + errors.slice(0, 5).join('\n  '));
   process.exit(code);
 }

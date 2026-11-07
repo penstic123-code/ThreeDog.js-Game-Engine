@@ -10,6 +10,8 @@
 
 import { hintText, coded, codedError } from './errorHints.js';
 import { isOptions } from './util.js';
+import { closest } from './spelling.js';
+export { closest };
 
 const STRINGS = {
   unknownKey: '{where}: unknown option "{key}", {hint}',
@@ -43,8 +45,12 @@ const enabled = () => live === 0 || quiet < live;
 // @ts-ignore Vite's import.meta.env (undefined outside Vite)
 const ENV = import.meta.env;
 export const DEV = !!(ENV?.DEV || ENV?.THREEDOG_TEST);
-/** Whether a position can be written: [x, y, z], or { x, z } with y left out or a number. The one answer; thing.set asks it in can, world's putPos before it writes @param {any} p @returns {boolean} @internal */
-export const goodPos = p => Array.isArray(p) ? p.length === 3 && p.every(Number.isFinite) : Number.isFinite(p?.x) && Number.isFinite(p?.z) && (p.y === undefined || Number.isFinite(p.y));
+/** Positions and speeds beyond this are damage, not a big world: float32 models are already centimetres off at 1e5 and useless far before 1e7 @internal */
+export const SAVE_MAX = 1e7;
+/** A number the running game can take. Past SAVE_MAX the ground loops around it never end, or a step later a position goes out of range @internal */
+export const saveNumberOk = v => Number.isFinite(v) && Math.abs(v) <= SAVE_MAX;
+/** Whether a position can be written: [x, y, z], or { x, z } with y left out or a number, each one a save can hold (a save with a bigger one never loads). The one answer; thing.set asks it in can, world's putPos before it writes @param {any} p @returns {boolean} @internal */
+export const goodPos = p => Array.isArray(p) ? p.length === 3 && p.every(saveNumberOk) : saveNumberOk(p?.x) && saveNumberOk(p?.z) && (p.y === undefined || saveNumberOk(p.y));
 /** The Vite dev server itself (npm run dev, not the test bundle): only it serves /__threedog endpoints and the dev bridge. The other spelling of "dev", named so nothing reads import.meta.env.DEV on its own. */
 export const DEV_SERVER = !!ENV?.DEV;
 /** Vite's base URL ('/' outside Vite) */
@@ -104,33 +110,6 @@ export function note(msg, key) {
   if (!enabled() || (key !== undefined && warned.has(key))) return;
   if (key !== undefined) warned.add(key);
   console.info('[threedog] ' + msg);
-}
-
-/** Edit distance (case-insensitive; swapping two adjacent letters counts as 1, e.g. jupm -> jump) */
-function distance(a, b) {
-  a = a.toLowerCase(); b = b.toLowerCase();
-  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
-  for (let j = 1; j <= b.length; j++) d[0][j] = j;
-  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
-    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-    if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) d[i][j] = Math.min(d[i][j], d[i - 2][j - 2] + 1);
-  }
-  return d[a.length][b.length];
-}
-
-/**
- * The entry of list closest to name; null if too far. Without maxDist the limit scales with length (longer names tolerate more errors).
- * Too far by spelling, a name of 4+ letters that is part of exactly one entry still matches ('forward' -> 'moveForward'): AIs often drop a prefix.
- */
-export function closest(name, list, maxDist) {
-  name = String(name);
-  const limit = maxDist ?? (name.length <= 4 ? 1 : name.length <= 8 ? 2 : 3);
-  let best = null, bd = Infinity;
-  for (const c of list) { if (c === name) continue; const d = distance(name, String(c)); if (d < bd) { bd = d; best = c; } }
-  if (bd <= limit) return best;
-  if (maxDist != null || name.length < 4) return null;
-  const low = name.toLowerCase(), part = [...list].filter(c => String(c).toLowerCase().includes(low));
-  return part.length === 1 ? part[0] : null;
 }
 
 const listText = list => { const a = [...list]; return a.length ? a.slice(0, 15).join(', ') + (a.length > 15 ? fmt(STRINGS.more, { n: a.length }) : '') : STRINGS.none; };

@@ -13,13 +13,17 @@
 // own work by position, and an expect is only right against the file as the last step left it, so a step must start from the newest entry (fresh), not the one
 // the screen held when the user let go.
 
+import { metadata } from 'threedog/metadata';
+
 const WHY = {
   code: 'not in the content files, so it cannot be saved',
   noPlace: 'this kind of entry has no position here: edit the file',
   noStart: 'it starts from its schedule, which has no one position: edit the file',
 };
-const LIVE = ['props', 'pickups'];   // kinds the loader can take one entry of; anything else reloads the page
+const isLive = kind => !!metadata.sections[kind]?.live;   // the loader can take one entry of this kind; anything else reloads the page
 const HISTORY = 'threedog-editor-history', KEEP = 100, EPS = 1e-4, APART = 1;   // APART: metres between entries added from one view
+/** The facing in a file's or a record's rot: a number, or the y of [x, y, z] (rotOf in modules/content/models.js; the editor sees only the package's public files) */
+const yawOf = rot => (Array.isArray(rot) ? rot[1] : rot) ?? 0;
 const round = v => { const r = Math.round(v * 1000) / 1000; return r === 0 ? 0 : r; };   // a millimetre: no 3.4000000000000004 in a hand-kept file
 const fileValues = new WeakMap();   // entry -> { fields, kind, computed, file, line } as read from the file; private so the screen cannot grow a dependency on them
 
@@ -47,7 +51,7 @@ function whyFixed({ kind, fields, computed }) {
   const bad = computed.find(k => axes.includes(k) || k === '...');
   if (bad) return `${bad} is computed by code: edit the file`;
   if (kind === 'npcs') return fields.start && typeof fields.start === 'object' ? null : WHY.noStart;
-  return LIVE.includes(kind) ? null : WHY.noPlace;
+  return isLive(kind) ? null : WHY.noPlace;
 }
 
 /** The running game's side of an id: its record and model; a record not built yet has no object */
@@ -59,7 +63,7 @@ function liveOf(engine, id) {
 /** What the screen holds for one entry, from what the file says now */
 async function neutral(engine, thing) {
   const { rec, object } = liveOf(engine, thing.id), p = rec?.position ?? (thing.object ?? thing).position;
-  const entry = { id: thing.id, at: thing.definedAt ?? null, position: { x: p.x, y: p.y, z: p.z }, yaw: object?.rotation.y ?? rec?.rot ?? 0, object: object ?? thing.object ?? null,
+  const entry = { id: thing.id, at: thing.definedAt ?? null, position: { x: p.x, y: p.y, z: p.z }, yaw: object?.rotation.y ?? yawOf(rec?.rot), object: object ?? thing.object ?? null,
     movable: false, removable: false, height: false, turn: false, why: WHY.code };
   if (!thing.definedAt) return entry;
   const r = await post({ op: 'read', id: thing.id, ...(rec?.kind === 'npc' && { kind: 'npcs' }) });
@@ -148,7 +152,7 @@ function poseFields(engine, entry, to) {
   }
   // by how much it turned, the short way round: a file may say 7, and the handle only knows angles up to a half turn
   const turned = Math.atan2(Math.sin(to.yaw - entry.yaw), Math.cos(to.yaw - entry.yaw));
-  if (entry.turn && Math.abs(turned) > EPS) out.rot = round((f.rot ?? 0) + turned);
+  if (entry.turn && Math.abs(turned) > EPS) out.rot = Array.isArray(f.rot) ? [f.rot[0], round(f.rot[1] + turned), f.rot[2]] : round((f.rot ?? 0) + turned);
   return out;
 }
 
@@ -177,10 +181,10 @@ const nextFrame = () => new Promise(requestAnimationFrame);
 /** Make the running game what the file says for this id; { reload: true } when only a page load can. A file that took the change is not taken back here: act decides that */
 async function follow(engine, step, r) {
   const id = step.id ?? step.entry.id;
-  if (step.op === 'remove') { leave(engine, id); return LIVE.includes(step.kind) ? {} : { reload: true }; }
+  if (step.op === 'remove') { leave(engine, id); return isLive(step.kind) ? {} : { reload: true }; }
   const now = await post({ op: 'read', id, kind: r.kind });
   if (!now.ok) throw new Error(now.error);
-  if (now.computed.length || !LIVE.includes(now.kind)) return { reload: true };
+  if (now.computed.length || !isLive(now.kind)) return { reload: true };
   leave(engine, id);
   engine.content.load({ [now.kind]: [{ id, ...now.fields }] });
   engine.world.setOrigin(id, { definedAt: `${now.file}:${now.line}` });
@@ -237,11 +241,6 @@ export const moveEntry = (engine, held, to) => inTurn(async () => {
 
 // A yes/no is a list with an empty first line, not a checkbox: most of these mean yes when the file says nothing (static, batch, occluder), and an empty box would show the opposite
 const YES_NO = [true, false];
-// The panel's words. Only the words: the file's name stays the row's key and shows in its tooltip, and what is written does not change
-const LABELS = { y: 'Height', rot: 'Facing', scale: 'Size', rotation: 'Quarter turns', place: 'Place', floor: 'Storey height', source: 'Copied from', collide: 'Collision', occluder: 'Blocks camera',
-  static: 'Never moves', batch: 'Merge copies', lod: 'Far detail', items: 'Starts with', fields: 'Own fields', data: 'Extra data', radius: 'Reach', auto: 'Walk to take', respawn: 'Comes back after' };
-// behind More while the file leaves them empty: most entries never set one, and one that does shows it with the rest
-const RARE = new Set(['place', 'floor', 'source', 'collide', 'occluder', 'static', 'batch', 'lod', 'items', 'fields', 'data', 'radius', 'auto', 'respawn']);
 const inputOf = spec => spec.values || /^bool/.test(spec.type) ? 'select' : { number: 'number', int: 'number', string: 'text' }[spec.type] ?? 'json';
 
 /**
@@ -257,7 +256,7 @@ export function fieldsOf(engine, entry) {
   for (const k of Object.keys(f)) specs[k] ??= { type: typeof f[k] };
   if (specs.model && models.includes(f.model)) specs.model = { ...specs.model, values: models };
   return Object.entries(specs).filter(([k]) => k !== 'id').map(([key, s]) => ({
-    key, label: LABELS[key] ?? key, rare: RARE.has(key) && f[key] == null, input: inputOf(s), value: f[key] ?? null, ...(inputOf(s) === 'select' && { values: s.values ?? YES_NO }), ...(s.default !== undefined && { placeholder: JSON.stringify(s.default) }),
+    key, label: s.label ?? key, rare: !!s.rare && f[key] == null, input: inputOf(s), value: f[key] ?? null, ...(inputOf(s) === 'select' && { values: s.values ?? YES_NO }), ...(s.default !== undefined && { placeholder: JSON.stringify(s.default) }),
     ...(s.desc && { desc: s.desc }), locked: computed.includes(key) }));
 }
 

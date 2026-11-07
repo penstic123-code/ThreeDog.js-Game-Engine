@@ -18,7 +18,7 @@ export function cityGameMethods({ mkEngine, heap, gc, r2 }) {
       const e = window.engine = mkEngine({ headless: false, ui: { loading: { title: 'City' } }, saveKey: 'city-accept' });
       e.use(world(), collision(), characters({ npcs: true }), swarm(), sky({ time: 0.4 }), lightPool({ point: pool }));
       e.camera.far = 1600; e.camera.updateProjectionMatrix();
-      e.stream.setRadius(radius);
+      e.stream.radius = radius;
       const K = kit(), N = blocks, mid = N * P / 2, lit = new Map();
       const road = new THREE.Mesh(new THREE.PlaneGeometry(N * P + P, N * P + P).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x3a3a3c, roughness: 0.95 })); road.position.y = -0.05; road.receiveShadow = true; e.add(road);
       const handles = [];

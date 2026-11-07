@@ -52,7 +52,7 @@ export const specs = [
       const failed = [];
       for (const b of blocks) {
         const r = await ev(code => window.runBlock(code), rewriteImports(b.code));
-        if (!r.ok || r.backends?.some(x => !/^webgl/.test(x))) failed.push(`block ${b.n} (line ${b.line}): ${r.error || 'backend ' + r.backends}`);
+        if (!r.ok || r.backends?.some(x => !['webgl2', 'webgpu'].includes(x))) failed.push(`block ${b.n} (line ${b.line}): ${r.error || 'backend ' + r.backends}`);
       }
       check(`all ${blocks.length} blocks run: start, three frames, no error logged`, !failed.length, failed.join('\n'));
     },

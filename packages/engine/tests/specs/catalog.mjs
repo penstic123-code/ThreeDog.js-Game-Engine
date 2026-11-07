@@ -100,7 +100,7 @@ export const specs = [
       check('Op args schema with default and range, failure codes from reasons', e.ops[0].args.n.default === 1 && e.ops[0].args.n.max === 5
         && e.ops[0].args.who.optional && e.ops[0].failures.join() === 'tooMany', JSON.stringify(e.ops[0]));
       check('Params: schema, default and the value in use', e.params.power.default === 2 && e.params.power.value === 3 && e.params.mode.values.length === 2, JSON.stringify(e.params));
-      check('Time model and problems: fixed hook without skip is flagged', e.time.step === 'fixed' && !e.time.skip && e.problems.some(p => p.includes('no skip hook')), JSON.stringify(e.time));
+      check('Time model and problems: fixed hook without a skip kind is flagged', e.time.step === 'fixed' && !e.time.skip && e.problems.some(p => p.includes('no skipKind')), JSON.stringify(e.time));
       check('api names skip _private', e.queries.api.includes('push') && !e.queries.api.includes('_hidden'), JSON.stringify(e.queries.api));
       check('Default is filled in before can / run', r.ran.ok && r.seen === 1 && !r.fail.ok && r.fail.code === 'tooMany', JSON.stringify([r.ran, r.fail, r.seen]));
       check('Out-of-range arg throws in dev naming the limit', /n must be <= 5/.test(r.range ?? ''), r.range);

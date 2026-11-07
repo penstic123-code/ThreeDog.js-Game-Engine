@@ -4,7 +4,7 @@ import { createServer } from 'vite';
 import { launchBrowser } from '../browser.mjs';
 import { ENGINE, viteOptions } from '../paths.mjs';
 
-export const name = 'picture writers: last writer as file:line, conflict warning, not tracked says so (dev server)';
+export const name = 'value writers: file:line and history, two real writers fighting, the engine yielding with a name, not tracked says so (dev server)';
 
 export async function run({ check }) {
   // a build earlier in this process (the engine specs) leaves NODE_ENV production, and the dev server would then serve import.meta.env.DEV false
@@ -15,8 +15,8 @@ export async function run({ check }) {
   const browser = await launchBrowser({ prefer: 'software' });
   try {
     const page = await browser.newPage();
-    const warnings = [];
-    page.on('console', m => { if (m.type() === 'warning' && /written twice/.test(m.text())) warnings.push(m.text()); });
+    const warnings = [], yields = [];
+    page.on('console', m => { if (m.type() === 'warning' && /two writers/.test(m.text())) warnings.push(m.text()); else if (m.type() === 'warning' && /stopped writing it/.test(m.text())) yields.push(m.text()); });
     await page.goto(`${server.resolvedUrls.local[0]}tests/picture-writers/index.html`);
     await page.waitForFunction(() => window.engine?.ready, null, { timeout: 90000 });
     const step = n => page.evaluate(k => { window.engine.haltLoop(); for (let i = 0; i < k; i++) window.engine.step(1 / 60, { describe: false }); }, n);
@@ -27,14 +27,14 @@ export async function run({ check }) {
     check('[guard] one onRender, parts in separate files: each value names its own file', w.tracked && /picture\/lights\.js:\d+$/.test(v('light:sun.intensity')) && /picture\/sky\.js:\d+$/.test(v('fog.color')), JSON.stringify(w).slice(0, 500));
     check('[guard] a Color and a Vector3 changed in place are attributed, through three.js frames', /picture\/lights\.js:10$/.test(v('light:sun.color')) && /picture\/lights\.js:11$/.test(v('light:sun.position')), JSON.stringify([v('light:sun.color'), v('light:sun.position')]));
     check('fog values start with the line that assigned the fog', /picture\/sky\.js:4$/.test(v('fog.near')) && /picture\/sky\.js:4$/.test(v('scene.fog')), JSON.stringify([v('fog.near'), v('scene.fog')]));
-    const off = await page.evaluate(() => {
-      const e = window.engine, a = e.explain({ picture: 'material:box.color' }), b = e.explain({ picture: 'light:sun.shadow.bias' });
+    const before0 = await page.evaluate(() => {
+      const e = window.engine, a = e.explain({ value: 'material:box.color' }), b = e.explain({ value: 'light:sun.shadow.bias' });
       window.picture.box.material.color.setHex(0xff0000);
-      return { a, b, c: e.explain({ picture: 'material:box.color' }), d: window.picture.box.material.color.getHex(), e: e.explain({ picture: 'light:sun.intensity' }) };
+      return { a, b, c: e.explain({ value: 'material:box.color' }), d: window.picture.box.material.color.getHex(), e: e.explain({ value: 'light:sun.intensity' }) };
     });
-    check('[guard] a value set before tracking and a name outside the list both say not tracked, never a guess', /not tracked: set before/.test(off.a.text) && !off.a.ok && /not tracked/.test(off.b.text) && !off.b.ok, JSON.stringify([off.a.text, off.b.text]));
-    check('a write made from the console has no source file and says so, and the write goes through', !off.c.ok && /no source file/.test(off.c.text) && off.d === 0xff0000, off.c.text);
-    check('explain names the line for a tracked value', off.e.ok && /picture\/lights\.js:9/.test(off.e.text), off.e.text);
+    check('[guard] a value set before tracking and a name outside the list both say not tracked, never a guess', /not tracked: set before/.test(before0.a.text) && !before0.a.ok && /not tracked/.test(before0.b.text) && !before0.b.ok, JSON.stringify([before0.a.text, before0.b.text]));
+    check('a write made from the console has no source file and says so, and the write goes through', !before0.c.ok && /no source file/.test(before0.c.text) && before0.d === 0xff0000, before0.c.text);
+    check('explain names the line for a tracked value', before0.e.ok && /picture\/lights\.js:9/.test(before0.e.text), before0.e.text);
     check('[guard] steps in one function are no fight (copy then lerp on fog.color)', warnings.length === 0 && (await values()).conflicts.length === 0, warnings.join(' | '));
 
     for (const mode of ['nightOnly', 'dayOnly', 'nightOnly']) { await page.evaluate(m => { window.mode = m; }, mode); await step(2); }
@@ -61,7 +61,40 @@ export async function run({ check }) {
     const cost = (await values()).stacks - before;
     // 4 moving values, 3 components each, twice for fog.color: a stack on every write would be over 700 in 60 frames
     check('[guard] stacks stay sampled: a value written every frame gets about one look per 30 frames', cost < 80, String(cost));
+
+    // two real writers in two files that never share a frame: a value the game named, written from picture/lights.js on even ticks and picture/rival.js on odd ones
+    const quiet = await page.evaluate(() => window.engine.explain({ value: 'game.speed' }));
+    check('[guard] a named value nobody wrote answers not tracked', !quiet.ok && /not tracked/.test(quiet.text), quiet.text);
+    await page.evaluate(() => { window.mode = 'duel'; });
+    await step(30);
+    const duel = await page.evaluate(() => window.engine.explain({ value: 'game.speed' }));
+    const hint = warnings.find(x => /game\.speed/.test(x)) ?? '';
+    check('[guard] two writers taking turns: one one-line hint naming both files', /taking turns/.test(hint) && /picture\/lights\.js:\d+/.test(hint) && /picture\/rival\.js:\d+/.test(hint) && hint.split('\n').length === 1, hint);
+    check('[guard] explain gives the history of the value with frames, and the fix', duel.ok && duel.detail.history.length >= 2 && duel.detail.history.every(h => /picture\/(lights|rival)\.js:\d+$/.test(h.at) && h.frame > 0) && /Fix, one of/.test(duel.text), duel.text);
+    check('[guard] a fight blocks nothing', (await page.evaluate(() => window.game.speed)) > 0);
+
+    // the engine's own value: it yields, and now says to whom
+    await page.evaluate(() => { window.mode = 'day'; window.takeFar(); window.engine.viewFar(5000); });
+    await step(2);
+    const view = await page.evaluate(() => ({ x: window.engine.explain({ value: 'view.far' }), row: window.engine.describe('owned').owned['view.far'], v: window.engine.camera.far }));
+    check('[guard] the engine yields as before, and the warning, describe().owned and explain name the line', view.v === 777 && view.row.writer.startsWith('three') && /main\.js:\d+$/.test(view.row.writtenAt) && yields.some(y => /view\.far/.test(y) && /Written at .*main\.js:\d+/.test(y)) && /main\.js:\d+/.test(view.x.text), JSON.stringify([view, yields]));
+    check('[guard] a clean answer never claims there is no conflict', /No fight seen; none seen is not proof of none/.test(view.x.text), view.x.text);
+    const ratio = await page.evaluate(() => window.engine.explain({ value: 'view.pixelRatio' }));
+    check('[guard] an owned value no hook can sit on says so', !ratio.ok && /not tracked/.test(ratio.text), ratio.text);
+
+    await page.evaluate(() => window.dimSun());
+    const point = await page.evaluate(() => window.engine.explain({ value: 'game.sun' }));
+    check('[guard] a shared point answers through the same entry, with its owner and line, and admits what it cannot see', point.ok && /intro/.test(point.text) && /main\.js:\d+/.test(point.text) && /not seen here/.test(point.text), point.text);
+    const none = await page.evaluate(() => window.engine.explain({ value: 'boss.mood' }));
+    check('[guard] an unknown name says nothing is known, and how to watch it', !none.ok && /nothing is known/.test(none.text) && /engine\.debug\.watch/.test(none.text), none.text);
+    const taken = await page.evaluate(() => window.engine.debug.watch('fog.far', {}, 'x').watching);
+    check('[guard] a name already answering is refused', taken === false);
+    const w2 = await values();
+    check('[guard] the list says its own limit', /not proof/.test(w2.limit), w2.limit);
+
     const list = await page.evaluate(() => window.engine.describe({ only: ['threePatches'] }).threePatches?.map(p => p.id) ?? window.engine.threePatches?.list().map(p => p.id));
     check('the change is listed with the others', !!list?.includes('picture-writers'), String(list));
+    const off = await page.evaluate(() => { window.THREEDOG_OFF?.('picture-writers'); return window.engine.explain({ value: 'game.speed' }).text; });
+    check('[guard] switched off, it says so instead of answering from old records', /turned this off/.test(off), off);
   } finally { await browser.close(); await server.close(); process.env.NODE_ENV = env; }
 }

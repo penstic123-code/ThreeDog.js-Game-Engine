@@ -11,7 +11,7 @@ engine.createdPlayer = engine.characters.createPlayer({ ...presets.player.thirdP
 engine.defineState('corner', { pos: '30,30' });
 
 // 启动前登记 400 个按需生成的小方块（20×20 网格，间距 10 米）；范围 40 米内的要在 ready 前做完
-engine.stream.setRadius(40);
+engine.stream.radius = 40;
 const box = new THREE.BoxGeometry(1, 1, 1);
 for (let i = 0; i < 20; i++) for (let j = 0; j < 20; j++) {
   const x = (i - 10) * 10, z = (j - 10) * 10;

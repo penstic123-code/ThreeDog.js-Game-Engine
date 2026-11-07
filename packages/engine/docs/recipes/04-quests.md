@@ -69,6 +69,8 @@ engine.quests.start('slimes3');
 engine.vars.bump('slimes');                      // each time one is defeated
 engine.events.on('quest:done', ({ id }) => { /* quest completed */ });   // there are also quest:start, quest:step, quest:part and quest:fail
 ```
+A failed reward (full bag, refused `{ op }`, a function returning `{ ok: false, code }`) still finishes the quest and fires `quest:unpaid`. Items that did not fit stay owed (`quests.list()`, saved) until there is room, unless the game decides itself with `onUnpaid` (effect words, or `(e, answer) => ...`).
+
 To turn off automatic markers: `hud({ questMarkers: false })`. To add a marker by hand: `const m = engine.hud.marker('gate', { label: 'Gate' }); m.remove();`;
 content effects can add them too: `{ marker: 'gate' }` / `{ clearMarker: 'gate' }`. A counter in the screen corner:
 `engine.hud.counter('slimes', { label: 'Slimes', value: 2, max: 3 })`; `anchor: 'top-right'` (or `top`, `bottom`, `bottom-left`...) puts a counter

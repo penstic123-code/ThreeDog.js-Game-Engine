@@ -55,7 +55,7 @@ const SCRIPT = { flags: ['verbose'], values: ['max', 'file', 'wait'], passthroug
 const OPTIONS = {
   describe: { flags: ['full', 'all'], values: ['max'] },
   press: { values: ['for'] },
-  eval: SCRIPT, js: SCRIPT,
+  js: SCRIPT,
   snap: { flags: ['play', 'no-picture', 'help'], values: ['width'], short: { h: 'help' } },
   'snap-describe': { values: ['only', 'ignore', 'tolerance'] },
   errors: { values: ['since'] },
@@ -148,7 +148,7 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       const took = Object.keys(params).filter(k => !r.refused.some(x => x.key === k));
       return { ok: false, text: `✗ Not applied: ${r.refused.map(x => `${x.key}=${x.value} (${x.reason})`).join('; ')}${took.length ? `. Applied: ${took.join(', ')}` : ''}\n` + lines(r.text, 2) };
     }
-    case 'eval': case 'js': {
+    case 'js': {
       // --file: keep the script in a file, avoiding PowerShell / Bash quoting and multi-line problems
       if (opt.file && !existsSync(opt.file)) throw new Error(`Script file not found: "${opt.file}"`);
       const expr = opt.file ? readFileSync(opt.file, 'utf8') : rest.join(' ');
@@ -247,17 +247,12 @@ export async function run(driver, cmd, args = [], { dir = process.cwd() } = {}) 
       const r = await ev(driver, 'pick', { x: Number(m[1]), y: Number(m[2]) });
       return { ok: r.ok, text: lines(r.text, 3) };
     }
-    case 'thing': {
-      if (!rest[0]) throw new Error('Usage: threedog thing <id>, e.g. threedog thing chest-home (ids: threedog scene, pick x,y)');
-      const r = await ev(driver, 'thing', { id: rest[0] });
-      return { ok: r.ok, text: cut(r.text, max), data: r.data };
-    }
     case 'explain': {
-      if (!rest[1]) throw new Error('Usage: threedog explain op shop.buy key=value … / threedog explain quest first-light / threedog explain picture fog.far');
+      if (!rest[1]) throw new Error('Usage: threedog explain op shop.buy key=value … / threedog explain quest first-light / threedog explain value fog.far / threedog explain thing chest-home / threedog explain module quests');
       const r = rest[0] === 'op' ? await ev(driver, 'op', { name: rest[1], explain: true, pairs: opPairs(rest.slice(2)) })
         : await ev(driver, 'explain', { key: rest[0], value: rest[1] });
-      // --full adds the detail (last attempt, events around it)
-      return { ok: r.ok, text: (r.ok ? '✓ ' : '✗ ') + lines(r.text, 3) + (opt.full && r.detail ? '\n' + cut(r.detail, max) : '') };
+      // --full adds the detail (an op's last attempt, a value's history, a thing's whole JSON)
+      return { ok: r.ok, text: (r.ok ? '✓ ' : '✗ ') + lines(r.text, 3) + (opt.full && r.detail ? '\n' + cut(typeof r.detail === 'string' ? r.detail : JSON.stringify(r.detail, null, 1), max) : '') };
     }
     case 'loading': {
       if (!rest[0]) return loadingText(await evAttached(driver, 'loading', {}));

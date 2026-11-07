@@ -57,7 +57,7 @@ export function probeTime(c, time) {
   const base2 = {};
   try {
     for (const [k, v] of [['noon', 0.5], ['midnight', 0]]) {
-      write(v); e._frameHooks(0, true); R.shadowMap.needsUpdate = true;   // the sun moved: redraw its shadow map (only here; the other renders reuse it)
+      write(v); e._tools.frameHooks(0, true); R.shadowMap.needsUpdate = true;   // the sun moved: redraw its shadow map (only here; the other renders reuse it)
       lum[k] = mean(grab(true));
       own.forEach(s => { s[k] = s.o[s.key]; });
       at[k] = { sun: sun && { name: 'sun.intensity', value: sun.intensity }, hemi: hemi && { name: 'hemi.intensity', value: hemi.intensity },
@@ -68,12 +68,12 @@ export function probeTime(c, time) {
     if (glow.length) lum.glow = glow.slice(0, 4).map(s => ({ name: `${s.name} emissiveIntensity`, value: s.midnight }));
     if (driven.length) {   // two more renders, only for a game that switches its own lights with the time (we are at 00:00 now)
       base2.midnight = zeroDriven(() => mean(grab()));
-      write(0.5); e._frameHooks(0, true); R.shadowMap.needsUpdate = true; grab(true);
+      write(0.5); e._tools.frameHooks(0, true); R.shadowMap.needsUpdate = true; grab(true);
       base2.noon = zeroDriven(() => mean(grab()));
-      write(0); e._frameHooks(0, true); R.shadowMap.needsUpdate = true; grab(true);
+      write(0); e._tools.frameHooks(0, true); R.shadowMap.needsUpdate = true; grab(true);
       lum.base = base2; lum.driven = [...new Set(driven.map(s => s.name))];
     }
     nightWithoutLight(c, at, lum, zeroDriven);
-  } finally { write(was); e._frameHooks(0, true); R.shadowMap.needsUpdate = true; }   // lights back at the shot's time, and the sun's shadow map redrawn for it (the probes left the midnight one); the next real frame draws it
+  } finally { write(was); e._tools.frameHooks(0, true); R.shadowMap.needsUpdate = true; }   // lights back at the shot's time, and the sun's shadow map redrawn for it (the probes left the midnight one); the next real frame draws it
   out.time = { ...lum, at, envSource: pic.environment?.present ? { name: 'scene.environment', value: scene.environment.name || scene.environment.type || 'a map' } : null };
 }

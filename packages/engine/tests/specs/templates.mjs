@@ -145,7 +145,7 @@ export const specs = [
         };
       });
       check('fields(template): state field with default from state, range and desc from fields; type inferred when not written', r.stage?.type === 'int' && r.stage.default === 0 && r.stage.max === 4
-        && r.stage.desc === 'growth' && r.sort?.type === 'string' && r.sort.default === 'wheat' && r.sort.values?.length === 2 && r.placement && r.propRot === 'number' && r.byId, JSON.stringify(r));
+        && r.stage.desc === 'growth' && r.sort?.type === 'string' && r.sort.default === 'wheat' && r.sort.values?.length === 2 && r.placement && r.propRot === 'number|position' && r.byId, JSON.stringify(r));
       check('a placement or spawn outside the template fields throws', /stage must be <= 4/.test(r.range ?? '') && /sort must be one of/.test(r.spawn ?? ''), JSON.stringify([r.range, r.spawn]));
       check('default inside fields throws (defaults live only in state); a misspelled grid key says did you mean', /fields\.n has a default/.test(r.dflt ?? '') && /did you mean 'cell'/.test(r.grid ?? ''), JSON.stringify([r.dflt, r.grid]));
       check('an unknown name lists what fields() knows', /field table/.test(r.unknown ?? '') && /props\.grid/.test(r.unknown ?? ''), r.unknown);

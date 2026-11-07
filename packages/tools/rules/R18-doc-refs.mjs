@@ -11,7 +11,8 @@
 //      (TypeScript checker on the d.ts program shared with R6 / R7 / R22). Why an error there: an AI copies a name from those docs as a fact, and a
 //      renamed API must take its docs along in the same change.
 //   6. free functions `name(` at the start of a span (error): exported by the engine, named in any d.ts, declared in the doc set or game code,
-//      or a JS / DOM global. ```js blocks are type-checked by R13, so classes 4–6 skip them.
+//      or a JS / DOM global. ```js blocks are type-checked by R13, so classes 4 and 6 skip them; class 5 reads them in the engine's docs too, because R13 cannot read a block
+//      that does not parse (the inside of an object, a line with an ellipsis). A game's own docs name the game's modules, so there it stays off.
 //   7. links to `file.md#anchor` and `#anchor` (error): the target has that heading or an <a id>. Why: a recipe's section gets renamed and the link keeps sending readers nowhere.
 // Known limits: names built at runtime and paths without an extension are not checked; class 6 accepts any name a d.ts mentions; option keys are R13's job (js blocks only);
 //   `§` section numbers, chains after a call (`describe().x`: module names decide those), .js template comments, d.ts comments and error texts are not read.
@@ -21,7 +22,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname, resolve, relative, basename, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { walk, read, abs, rel, P, engineApi, dtsFiles, docLevel } from './_lib.mjs';
-import { closest, nearest } from '../lib/text.mjs';
+import { closest, nearest, slug } from '../lib/text.mjs';
 import { workspaceSpecs } from '../lib/specs.mjs';
 
 const ALLOW = [
@@ -30,6 +31,7 @@ const ALLOW = [
   ['*', 'noun:verb', 'the naming convention itself'],
   ['*', 'manual:game', "a describe().owned writer tag ('manual:<who>', core/ops/owned.js), not an event"],
   [`${P.RECIPES_REL}/14-custom-module.md`, 'stamina:empty', 'the event the example module in this recipe defines'],
+  [`${P.RECIPES_REL}/14-custom-module.md`, 'engine.stamina', 'the member the example module in this recipe adds'],
   [`${P.RECIPES_REL}/23-ops.md`, 'npc:state', 'an example of an event name a game may declare'],
   [`${P.RECIPES_REL}/16-dev-bridge.md`, 'assert', 'a global of `threedog js --file` scripts, not an engine export'],
   [`${P.RECIPES_REL}/16-dev-bridge.md`, 'toBeCloseTo', 'a matcher of `threedog js --file` scripts'],
@@ -86,8 +88,8 @@ export async function context(scope = null) {
   const only = scope?.notEngine ? [scope.dir] : null, games = only ?? P.gameDirs();
   // test names
   const tests = [];
-  // the same files npm test runs (lib/specs.mjs); a broken spec file is npm test's error to report, here it only adds no names
-  const specsOf = async d => { try { return (await workspaceSpecs(d)).map(x => x.spec.name); } catch { return []; } };
+  // the same files npm test runs (lib/specs.mjs); a broken spec file is npm test's error to report, here it only adds no names (the other files keep theirs)
+  const specsOf = async d => { try { return (await workspaceSpecs(d, [])).map(x => x.spec.name); } catch { return []; } };
   for (const d of only ?? P.workspaces()) {
     const names = await specsOf(d);
     tests.push(...names);
@@ -232,7 +234,10 @@ export function checkDoc(doc, text, ctx) {
   for (const it of extract(text)) {
     const at = r => ({ ...r, file: doc, line: it.line });
     if (it.span) { const p = checkPath(doc, it.text.trim(), ctx); if (p) out.push(at(p)); }
-    if (it.lang === 'js') continue;   // R13 type-checks js blocks; commands in their comments are examples
+    if (it.lang === 'js') {   // R13 type-checks js blocks; commands in their comments are examples
+      if (levelOf(doc) === 'error') out.push(...checkMembers(doc, it, ctx).map(at));
+      continue;
+    }
     for (const r of [...checkTests(doc, it.text, ctx), ...checkCli(doc, it.text, ctx)]) out.push(at(r));
     for (const r of [...checkEvents(doc, it, ctx), ...checkMembers(doc, it, ctx), ...checkFn(doc, it, ctx)]) out.push(at(r));
   }
@@ -240,7 +245,6 @@ export function checkDoc(doc, text, ctx) {
 }
 
 /** GitHub's heading anchor: lower case, punctuation gone, spaces to dashes */
-const slug = h => h.trim().toLowerCase().replace(/[`*]/g, '').replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
 const anchorsOf = text => new Set([...[...text.matchAll(/^#{1,6}\s+(.+)$/gm)].map(m => slug(m[1])), ...[...text.matchAll(/<a\s+(?:id|name)="([^"]+)"/g)].map(m => m[1])]);
 
 /** Class 7 on one doc's text */

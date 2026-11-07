@@ -79,8 +79,9 @@ export async function status(dir, { page } = {}) {
   const head = `${bad ? '✗' : '✓'} ${runtime.ready ? 'Ready' : 'Not ready'}: ${loading}, ${errs.length ? `${errs.length} page error${errs.length === 1 ? '' : 's'}` : 'no page errors'}`;
   const rs = raw.run, run = rs ? `
 Run state: ${rs.state === 'frozen' ? `frozen(by ${rs.owners.join(', ')})` : rs.state}` : '';
+  const stuck = raw.blockedModules ?? [], blocked = stuck.length ? `\nBlocked modules: ${stuck.join(', ')} (why: threedog catalog ${stuck[0]})` : '';
   return { ok: !bad, runtime, data: { port: p.port, loading: lv, run: rs, errors: { count: errs.length, latest: last ?? null } },
-    text: `${head}${last ? ` (latest E${last.id}: ${oneLine(last.message)}; threedog errors latest)` : ''}${run}` };
+    text: `${head}${last ? ` (latest E${last.id}: ${oneLine(last.message)}; threedog errors latest)` : ''}${run}${blocked}` };
 }
 
 export async function stopServer(dir) {

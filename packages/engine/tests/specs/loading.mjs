@@ -54,7 +54,7 @@ export const specs = [
     },
   },
   {
-    name: '[guard] level is critical: a missing level file rejects start() (no empty world), a switch while playing stays soft and the save does not name the failed file',
+    name: '[guard] level is critical: a missing level file rejects start() (no empty world), a failed switch while playing rejects, keeps the old level, and the save does not name the failed file',
     url: '/tests/loading/index.html',
     expectErrors: /404|Not Found|Failed to load resource|Startup blocked|missing-level|level\.load/,
     async run({ check, ev }) {
@@ -69,7 +69,7 @@ export const specs = [
         return { msg, ready: E.ready, soft, file: F.describe().level?.file ?? null };
       });
       check('start() rejects and names the level module', r.msg !== 'started' && /level/.test(r.msg) && !r.ready, r.msg.split('\n').join(' '));
-      check('level.load() while playing resolves (reported, toast) and describe/save no longer name the failed file', r.soft === 'resolved' && r.file === null, JSON.stringify(r));
+      check('level.load() while playing rejects and describe/save do not name the failed file', r.soft.startsWith('threw') && !/missing-level-2/.test(String(r.file)), JSON.stringify(r));
     },
   },
   {

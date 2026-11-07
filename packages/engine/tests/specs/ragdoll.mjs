@@ -115,9 +115,9 @@ export const specs = [
         await engine.session.load('rd');
         engine.haltLoop(); engine.step(0.1);
         out.loadedAt = p.root.position.distanceTo(at);
-        out.loaded = { limp: !!p._limp, active: r3.active, owner: engine.control.of(p)?.owner, state: p.state, joints: R.world.impulseJoints.len(), held: !!p.anim._held };
+        out.loaded = { limp: !!p.limp, active: r3.active, owner: engine.control.of(p)?.owner, state: p.state, joints: R.world.impulseJoints.len(), held: !!p.anim._held };
 
-        const r4 = R.ragdoll(p); engine.step(0.2); await engine.saves.load('rd'); out.plainLoad = !r4.active && !p._limp;
+        const r4 = R.ragdoll(p); engine.step(0.2); await engine.saves.load('rd'); out.plainLoad = !r4.active && !p.limp;
         engine.step(0.1);
 
         // 不属于任何角色的模型，缩小一半：碰撞体用眼前的真实长度；模型删掉时物理跟着走
@@ -214,7 +214,7 @@ export const specs = [
         const R = engine.rigid, p = engine.player, rd = R.ragdoll(p, { impulse: [60, 80, 140], position: [0, 1.4, 0] });
         await new Promise(f => setTimeout(f, 4000));   // main-loop
         const t = rd.parts.head.body.translation();
-        return { backend: window.backendOf(engine.renderer), head: t.y, limp: !!p._limp };
+        return { backend: window.backendOf(engine.renderer), head: t.y, limp: !!p.limp };
       });
       // 留档的那张在 docs/testing/field/2026-11-05-ragdoll/；要重拍时设 RAGDOLL_SHOT，平时不写，免得每次跑都弄脏工作区
       const shot = await page.screenshot(process.env.RAGDOLL_SHOT ? { path: process.env.RAGDOLL_SHOT } : {});

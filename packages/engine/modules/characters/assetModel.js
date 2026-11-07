@@ -47,7 +47,7 @@ export function loadAssetModel(ch, model, use) {
   if (args.length) throw codedError('character-option', `Character model ${JSON.stringify(model)}: arguments work on a generator that builds synchronously, and "${name}" does not`);
   const fail = why => warnOnce(fmt(STRINGS.failed, { name, why, list }));
   const swap = m => {
-    if (ch._disposed || e.disposed) { e.remove(m); return; }   // removed before loading finished: never reaches the scene, the copy is released
+    if (ch.disposed || e.disposed) { e.remove(m); return; }   // removed before loading finished: never reaches the scene, the copy is released
     // a registered file that failed resolves to the assets gray box: the character's own placeholder body is the better stand-in
     if (m.name === 'placeholder' && e.loading.get(name, 'model')?.phase === 'failed') { e.remove(m); fail('load failed'); return; }
     const rig = ch._rig;   // drop the placeholder body and the joint properties it put on the character
@@ -62,5 +62,5 @@ export function loadAssetModel(ch, model, use) {
   const now = A.entries.get(name)?.value ? A.modelNow(name) : null;   // only when loaded: modelNow hints in dev when nothing loads it
   if (now) { swap(now); return Promise.resolve(); }
   ch.ready = false;
-  return A.model(name).then(swap).catch(err => { if (!ch._disposed) fail(err.message); }).finally(() => { ch.ready = true; });
+  return A.model(name).then(swap).catch(err => { if (!ch.disposed) fail(err.message); }).finally(() => { ch.ready = true; });
 }

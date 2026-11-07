@@ -24,9 +24,10 @@ export function fakeQuests() {
   };
   return {
     name: 'quests', type: 'rules',
+    content: { quests: { commit(d) { for (const [id, q] of Object.entries(d)) api.define(id, q); } } },
     install(engine) {
       e = engine;
-      e.saves.register('quests', { version: 2, save: () => ({ state: structuredClone(prog) }), load: d => { for (const k of Object.keys(prog)) delete prog[k]; Object.assign(prog, d?.state ?? {}); } });
+      e.saves.register('quests', { version: 3, save: () => ({ state: structuredClone(prog) }), load: d => { for (const k of Object.keys(prog)) delete prog[k]; Object.assign(prog, d?.state ?? {}); } });
       return api;
     },
     describe() { return { active: api.list().filter(q => !q.done).map(q => q.id) }; },

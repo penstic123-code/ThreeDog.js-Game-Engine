@@ -8,7 +8,7 @@
 // so a game can swap the picture without touching the weather a save restores.
 //
 // engine.weather.set('rain', { seconds: 20 })   // turn to rain over 20 seconds
-// engine.weather.setAuto(true)     // change weather at random (uses engine.random, so step/tests are reproducible and saved)
+// engine.weather.auto = true     // change weather at random (uses engine.random, so step/tests are reproducible and saved)
 // Weather display names live in the string table as weather.<name> (describe and the debug panel use them); a game that adds a new weather adds its name with
 // i18n.add.
 import * as THREE from 'three';
@@ -18,6 +18,8 @@ import { STRINGS, ERR } from './strings.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { STEP } from '../../core/time/time.js';
 import { weatherDrawModule } from './weatherDraw.js';
+import { isPlainObject } from '../../core/base/util.js';
+import { saveNumberOk, saveValues, SAVE_MAX_SECONDS } from '../../core/base/saveValues.js';
 /** @import { ModuleDef } from '../../types/core' */
 /** @import { WeatherName, WeatherPreset, WeatherOptions, WeatherParticles, WeatherParticleSystem } from '../../types/world' */
 
@@ -117,17 +119,11 @@ export class Weather {
   }
 
   /**
-   * Automatic weather on/off. Writing it takes effect like setAuto.
+   * Automatic weather on/off.
    * @type {boolean}
    */
   get auto() { return this._auto; }
   set auto(on) { this._auto = on; if (on) this.autoTimer = 0; }
-  /**
-   * Automatic weather on/off
-   * @param {boolean} on
-   * @returns {void}
-   */
-  setAuto(on) { this.auto = on; }
 
   /**
    * Switch weather. seconds: transition seconds, default 15; 0 switches at once (current is the new weather before the next step, so a
@@ -145,7 +141,7 @@ export class Weather {
     if (!p) { warnMissing('weather', name, Object.keys(this.types)); return; }
     const from = this.name;
     if (!(seconds >= 0 && Number.isFinite(seconds))) throw codedError('weather-option', `weather.set('${name}', { seconds }) takes seconds >= 0 (0 = at once); got ${seconds}`);
-    this.name = name; this.from = { ...this.current }; this.to = { ...p }; this.t = 0; this.dur = seconds;
+    this.name = name; this.from = { ...this.current }; this.to = { ...p }; this.t = 0; this.dur = Math.max(seconds, 0.01);   // the least a load accepts: a blend divides by it, and the save must read the same after a load
     // seconds 0: land now, not on the next fixed step (a shot or test right after the call saw the old weather, or 1/3 of a short blend)
     if (seconds === 0) { this.t = 1; for (const key in this.to) this.current[key] = this.to[key]; }
     // once per change of name (the blend then runs over `seconds`); setting the same weather again is not a change
@@ -200,23 +196,26 @@ export function weather(opts = {}) {
   readParams('weather', WEATHER_PARAMS, opts);
   let w = null;
   const state = {
-    name: 'weather', type: 'world', provides: ['weather'], label: 'Weather', params: WEATHER_PARAMS, options: opts, stage: 'environment', before: ['sky'],
-    install(e) {
+    name: 'weather', skipKind: 'step', type: 'world', provides: ['weather'], label: 'Weather', params: WEATHER_PARAMS, options: opts, stage: 'environment', before: ['sky'],
+    install(e, ctx) {
       e.i18n.add(STRINGS);
       w = new Weather(e, opts);
       if (opts.auto) w.auto = true;
       // the transition is saved too (current / from / to / t / dur): a save made 30% into sun -> rain loads 30% in, not as full rain, and fires no
       // weather:change (nothing changed for the player). A damaged part, or a weather the game no longer has, loads as a finished switch to that name
-      e.saves.register('weather', {
+      ctx.saves.register('weather', { notAtomic: 'moves on its own timers like the calendar: an op that sets it means it to stay',
         save: () => ({ name: w.name, auto: w.auto, autoTimer: w.autoTimer, nextBolt: w.nextBolt, current: { ...w.current }, from: { ...w.from }, to: { ...w.to }, t: w.t, dur: w.dur }),
         load: d => {
           if (!d) return;
-          if (Number.isFinite(d.t) && d.current && d.from && d.to && w.types[d.name]) {
+          const s = saveValues('weather'), most = { min: 0, max: SAVE_MAX_SECONDS };
+          const fields = v => isPlainObject(v) && Object.values(v).every(saveNumberOk);   // every blended field is a finite number: one NaN would spread to the sky, fog and sound
+          if (Number.isFinite(d.t) && fields(d.current) && fields(d.from) && fields(d.to) && w.types[d.name]) {
             // over the type's own fields: a save older than a field the table has now would blend it from undefined (NaN)
             const full = v => ({ ...w.types[d.name], ...v });
-            w.name = d.name; w.current = full(d.current); w.from = full(d.from); w.to = full(d.to); w.t = d.t; w.dur = Math.max(0.01, d.dur ?? 1);
+            w.name = d.name; w.current = full(d.current); w.from = full(d.from); w.to = full(d.to); w.t = s.num(d.t, 't', { min: 0, max: 1, fallback: 1 }); w.dur = s.num(d.dur ?? 1, 'dur', { ...most, min: 0.01, fallback: 1 });
           } else w.set(d.name, { seconds: 0 });
-          w.auto = d.auto; w.autoTimer = d.autoTimer ?? 0; w.nextBolt = d.nextBolt ?? w.lightningFirst;
+          w.auto = d.auto === true; w.autoTimer = s.num(d.autoTimer ?? 0, 'autoTimer', { ...most, fallback: 0 }); w.nextBolt = s.num(d.nextBolt ?? w.lightningFirst, 'nextBolt', { ...most, fallback: w.lightningFirst });
+          s.done();
         } });
       return w;
     },
@@ -244,3 +243,5 @@ export function weather(opts = {}) {
   };
   return [state, weatherDrawModule(Object.fromEntries(['particles', 'area', 'rain', 'snow'].filter(k => opts[k] !== undefined).map(k => [k, opts[k]])))];
 }
+
+export const handRolled = 'none: weather by hand is plain values with no one shape';

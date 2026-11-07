@@ -49,7 +49,7 @@ export function createVehicle(rigid, mesh, { wheels, mass = 800, engineForce = 8
   const drives = wheels.filter(x => x.drive).length || wheels.length;
   // seat 0 drives, the rest ride; without seats one driver seat at the chassis center
   const seatAt = seats?.length ? seats.map(p => vec3(p)) : [new THREE.Vector3(c.x, c.y, c.z)];
-  let throttle = 0, steerIn = 0, brake = 0;
+  let throttle = 0, steerIn = 0, brake = 0, useFrom;
 
   const v = Object.assign(entry, {
     controller: ctl, wheels, driver: null, camera, hideDriver, seats: seatAt.length, passengers: [],
@@ -57,10 +57,15 @@ export function createVehicle(rigid, mesh, { wheels, mass = 800, engineForce = 8
     drive(t, st, b = 0) { throttle = t; steerIn = st; brake = b; if (t || b) entry.body.wakeUp(); },
     /** World position of a seat (0 = driver) */
     seatPosition(seat = 0) { return mesh.localToWorld((seatAt[seat] ?? seatAt[0]).clone()); },
-    /** Exit position of a seat: exitOffset meters outside the door on that seat's side (default 0.8) */
-    exitPosition(seat = 0) { const a = seatAt[seat] ?? seatAt[0]; return mesh.localToWorld(new THREE.Vector3(c.x + (a.x >= c.x ? 1 : -1) * (s.x / 2 + exitOffset), c.y, a.z)); },
+    /** Exit n of a seat, null past the last: exitOffset meters (default 0.8) outside its own door, the other door, behind, in front */
+    exitPosition(seat = 0, n = 0) {
+      const a = seatAt[seat] ?? seatAt[0], x = (a.x >= c.x ? 1 : -1) * (s.x / 2 + exitOffset), z = s.z / 2 + exitOffset;
+      const at = [[c.x + x, a.z], [c.x - x, a.z], [c.x, c.z - z], [c.x, c.z + z]][n];
+      return at ? mesh.localToWorld(new THREE.Vector3(at[0], c.y, at[1])) : null;
+    },
     /** Every fixed step: write controls to the wheels and advance the vehicle controller (called before the physics step) */
     _update(dt) {
+      if (useFrom !== e.interactions) offerSeat();
       wheels.forEach((wh, i) => {
         ctl.setWheelEngineForce(i, wh.drive || drives === wheels.length ? throttle * engineForce / drives : 0);
         ctl.setWheelSteering(i, wh.steer ? -steerIn * maxSteer : 0);
@@ -86,7 +91,10 @@ export function createVehicle(rigid, mesh, { wheels, mass = 800, engineForce = 8
     return l.x * fwd.x + l.y * fwd.y + l.z * fwd.z;
   } });
   // With the interactions module installed: press the interact key near the car to get in, and again while driving to get out
-  if (e.interactions) {
+  const offerSeat = () => {
+    v._use?.remove(); v._use = null;
+    useFrom = e.interactions;   // the use lives in that module: another one starts empty, so _update offers the seat again
+    if (!e.interactions) return;
     v._use = e.interactions.add(mesh, {
       id: v.id,
       label: () => e.t(e.player?.vehicle === v ? 'vehicle.exit' : 'vehicle.enter'), radius: Math.max(3, s.z / 2 + 1.5),
@@ -94,6 +102,8 @@ export function createVehicle(rigid, mesh, { wheels, mass = 800, engineForce = 8
       enabled: () => !!e.player && (e.player.vehicle === v || !v.driver || v.passengers.length < v.seats - 1),
       onUse: () => e.player.vehicle === v ? e.player.exit() : e.player.enter(v),
     });
-  }
+  };
+  offerSeat();
+  v._seatBook = e.characters?.addVehicle(v);   // after the use: a rider seated here finds a finished vehicle
   return v;
 }

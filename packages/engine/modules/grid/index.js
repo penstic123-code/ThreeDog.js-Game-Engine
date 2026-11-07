@@ -9,7 +9,8 @@
 // Picture: grids({ ok, bad, previewOpacity, previewHeight, tiles, tileLift }) for the plain values, pv.material and layer.material for the three.js materials.
 // The index is the "don't go around it" check: in dev a record's grid field is frozen (editing it in place throws), writes outside ops
 // trigger the ops guard, and a record whose footprint overlaps another one is reported with the fix.
-import { Grid, MAIN, occKey } from './Grid.js';
+import { keepTable } from '../../core/base/sections.js';
+import { Grid, MAIN, occKey, planar } from './Grid.js';
 import { layerTiles } from './tiles.js';
 import { makePreview } from './preview.js';
 import { defineGridOps, placed } from './ops.js';
@@ -61,6 +62,8 @@ export class Grids {
     /** @internal */ this._previews = new Set();
     /** @internal layer data from a save, for layers created after the load */ this._loaded = null;
   }
+  /** @internal A failed content load takes its grids back (core/base/sections.js undo): the function that does it @returns {() => void} */
+  undoPoint() { const back = keepTable(this._grids); return () => { back(); this._rebuild(); }; }
   /**
    * Create a grid. cell: edge length (m, default 1); origin: world [x, z] of the min corner of cell [0, 0]; size: [cells wide, cells deep] (omit = unbounded);
    * zone: level name (tiles only show there); flat: max height difference under a footprint (m, default 0.5);
@@ -80,6 +83,10 @@ export class Grids {
     const m = opts.mapping;
     if (m && !(typeof m.toCell === 'function' && typeof m.center === 'function')) throw codedError('grids-misuse', `grids.add('${name}'): mapping needs both toCell(x, z) => [i, j] and center([i, j]) => [x, z]`, TypeError);
     if (this._grids.has(name)) throw codedError('grids-misuse', fmt(STRINGS.dup, { name }));
+    // a cell of 0 or NaN turns every position into cell NaN: placed things collide with nothing and every later lookup misses
+    const { cell = 1, origin = [0, 0], size = null } = opts, whole = n => Number.isSafeInteger(n) && n > 0;
+    if (!(cell > 0 && Number.isFinite(cell)) || !planar(origin).every(Number.isFinite) || !(size === null || (Array.isArray(size) && size.length === 2 && size.every(whole))))
+      throw codedError('grids-misuse', `grids.add('${name}'): cell must be a number > 0, origin finite and size [width, depth] whole numbers > 0 or left out; got ${JSON.stringify({ cell, origin, size })}`);
     const g = new Grid(this.engine, this, name, opts);
     this._grids.set(name, g);
     for (const [ln, rows] of Object.entries(opts.layers ?? {})) { const l = g.layer(ln); l._byContent = true; l._setBase(rows); }
@@ -258,31 +265,30 @@ const GRID_PARAMS = {
  */
 export function grids(opts = {}) {
   const o = readParams('grids', GRID_PARAMS, opts);
-  let G = null, offOps = null;
-  const subs = [];
+  let G = null;
   return {
-    name: 'grids', type: 'world', label: 'Grid placement', stage: 'gameplay', requires: ['world'], params: GRID_PARAMS, options: o,
-    install(e) {
+    // layout rules, not saved, before props: a props entry with grid places an item on one; a repeated load keeps the grid that exists
+    content: { grids: { desc: 'placement grids (name -> { cell, origin, size, zone?, flat? }); layout rules, not saved', undo: (d, { engine: e }) => e.grids.undoPoint(), commit(d, { engine: e }) { for (const [name, g] of Object.entries(d)) if (!e.grids.get(name)) e.grids.add(name, g); } } },
+    name: 'grids', skipKind: 'none', type: 'world', label: 'Grid placement', stage: 'gameplay', requires: ['world'], params: GRID_PARAMS, options: o,
+    install(e, ctx) {
       G = new Grids(e, o);
       e.i18n.add(TEXT);   // grid.<code> player text for every built-in failure code, and the rotate action's label
-      e.saves.register('grids', { atomic: true, version: 2, migrate: GRIDS_MIGRATE, save: () => G.toJSON(), load: d => G.fromJSON(d) });
-      offOps = defineGridOps(e, G);
-      subs.push(
-        e.events.on('world:add', ({ id }) => G._reindex(id)),
-        e.events.on('world:remove', ({ id }) => G._unindex(id)),
-        e.events.on('world:change', ({ id, keys }) => { if (keys.includes('grid')) G._reindex(id); }),
-        e.events.on('world:load', () => G._rebuild()),
-      );
+      ctx.saves.register('grids', { atomic: true, version: 2, migrate: GRIDS_MIGRATE, save: () => G.toJSON(), load: d => G.fromJSON(d) });
+      defineGridOps(ctx, G);
+      ctx.track(e.events.on('world:add', ({ id }) => G._reindex(id)));
+      ctx.track(e.events.on('world:remove', ({ id }) => G._unindex(id)));
+      ctx.track(e.events.on('world:change', ({ id, keys }) => { if (keys.includes('grid')) G._reindex(id); }));
+      ctx.track(e.events.on('world:load', () => G._rebuild()));
       return G;
     },
     frame() { for (const t of G._tiles.values()) t.frame(); for (const p of G._previews) p.frame(); },
     explain: { grid: (e, q) => G._explain(q) },
     describe() { return G._describe(); },
     dispose() {
-      for (const s of subs) s.remove();
-      offOps?.();
       for (const t of G._tiles.values()) t.dispose();
       for (const p of [...G._previews]) p.remove();
     },
   };
 }
+
+export const handRolled = 'none: cell maths is one Math.floor that any other code writes too';

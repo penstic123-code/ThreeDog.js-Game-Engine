@@ -9,7 +9,7 @@ const STRINGS = {
   head: '[Game state] running {s} s{flags}',
   actions: 'Can do (engine.ops): {list}',
   error: '[Error, gameplay frozen] {where}: {message}', errorAt: ' ({at})',
-  errorHint: ' | Code: {code} | Fix: {fix} Read: {docs}', disabled: 'Disabled picture / ui modules (they threw): {list}',
+  errorHint: ' | Code: {code} | Fix: {fix} Read: {docs}', disabled: 'Disabled picture / ui modules (they threw): {list}', blocked: 'Blocked modules: {list}',
   halted: ', halted', headless: ', headless', notReady: ', still loading',
   waiting: 'Loading: {waiting} ({pending} pending, {done}/{total} done)', loadFailed: 'Load failed{blocked}: {list}', blocked: ' (start blocked)',
   loadWarn: 'Loaded with missing references: {list}',
@@ -25,6 +25,7 @@ const STRINGS = {
   camera: 'Camera: {type}, position ({x}, {y}, {z}), focus ({fx}, {fz}){over}',
   override: ', taken over by "{owner}"',
   cutscene: 'Cutscene: {n} playing{skip}',
+  cutsceneFailed: 'Cutscene failed: {why}',
   overrides: 'Diagnostic overrides active (the screen is not the real state): {list}',
   skippable: ' (skippable)',
   dialogue: 'Dialogue: {speaker}: "{text}"{choices}',
@@ -106,6 +107,8 @@ export function describeText(d, { full = false, path, maxLines = 30, game = [] }
     L.push(fmt(STRINGS.audio, { list: [...low, v.length ? 'playing ' + v.join(', ') : null].filter(Boolean).join('; ') }));
   }
   if (d.disabledModules?.length) L.push(fmt(STRINGS.disabled, { list: d.disabledModules.join(', ') }));
+  const blocked = Object.entries(d.moduleStates ?? {}).filter(([, s]) => s.startsWith('blocked')).map(([n, s]) => `${n} ${s}`);
+  if (blocked.length) L.push(fmt(STRINGS.blocked, { list: blocked.join('; ') }));
   if (t.clock) L.push(fmt(STRINGS.time, { clock: t.clock, day: t.day, season: t.season ? ', ' + tr('season', t.season) : '', dayNight: t.isDay ? STRINGS.day
     : STRINGS.night }));
   const w = d.weather, wl = d.weatherDraw ?? {};   // weather state, and what of it is drawn (the drawing half)
@@ -123,7 +126,8 @@ export function describeText(d, { full = false, path, maxLines = 30, game = [] }
   if (pl?.configured) L.push(fmt(STRINGS.pointerLock, { state: pl.state + (pl.lastFailure ? ` (${pl.lastFailure.reason}, ${pl.lastFailure.agoSec} s ago)` : '')
     + (pl.covered ? `; canvas centre covered by ${pl.covered}` : '') + (pl.cameraOverride ? `; cameraOverride ${pl.cameraOverride} blocks locking` : '') }));
   if (d.scene?.overrides) L.push(fmt(STRINGS.overrides, { list: d.scene.overrides.map(o => `${o.owner}:${o.target}`).join(', ') }));
-  if (d.cutscene) L.push(fmt(STRINGS.cutscene, { n: d.cutscene.count, skip: d.cutscene.skippable ? STRINGS.skippable : '' }));
+  if (d.cutscene?.count) L.push(fmt(STRINGS.cutscene, { n: d.cutscene.count, skip: d.cutscene.skippable ? STRINGS.skippable : '' }));
+  if (d.cutscene?.failure) L.push(fmt(STRINGS.cutsceneFailed, { why: d.cutscene.failure }));
   const dl = d.ui.dialogue;
   if (dl) L.push(fmt(STRINGS.dialogue, { speaker: dl.speaker, text: dl.text, choices: dl.choices.length
     ? fmt(STRINGS.choices, { list: dl.choices.map((x, i) => `${i + 1}. ${x}`).join(' ') }) : '' }));

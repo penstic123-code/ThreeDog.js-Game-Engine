@@ -1,4 +1,4 @@
-# engine.weatherDraw — weatherDraw()
+# engine.weatherDraw — weather(opts?: WeatherOptions)
 
 (experimental) Weather drawing (installed by weather(); sky is optional): rain / snow particle systems, lightning flash, the weather's effect on sun, fog and sky
 

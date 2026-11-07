@@ -13,13 +13,13 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { resolve, dirname, basename } from 'node:path';
 import { keyMaker, staleBaked } from './vite/vite-threedog-cache.js';
-import { cli, rel, TOOLS, viteOptions } from './paths.mjs';
+import { cli, rel, TOOLS } from './paths.mjs';
+import { kb } from './lib/text.mjs';
 
 const t0 = Date.now();
 const { dir: ROOT, opt, rest: only } = cli(process.argv.slice(2), { flags: ['force', 'gpu', 'software'], positional: true });   // ROOT = the workspace to bake
 const DIR = resolve(ROOT, 'public/models/baked'), INDEX = resolve(DIR, 'index.json');
 const force = !!opt.force;
-const kb = n => (n / 1024).toFixed(1) + ' KB';
 
 const index = existsSync(INDEX) ? JSON.parse(readFileSync(INDEX, 'utf8')) : {};
 // If nothing changed (manifest files and the files they import are identical, baked files are all there), no browser is needed
@@ -31,11 +31,9 @@ if (!force && !only.length && existsSync(SIG) && readFileSync(SIG, 'utf8') === s
 }
 const withExists = Object.fromEntries(Object.entries(index).map(([k, v]) => [k, { ...v, exists: (!force || v.source === 'file') && existsSync(resolve(DIR, v.file)) }]));
 
-const [{ createServer }, { launchBrowser }] = await Promise.all([import('vite'), import('./browser.mjs')]);   // loaded only when there is something to bake
+const { launchBrowser, devServer } = await import('./browser.mjs');   // loaded only when there is something to bake
 // Use its own dependency cache directory: do not fight with a running npm run dev over node_modules/.vite
-const server = await createServer(await viteOptions(ROOT, { logLevel: 'error', cacheDir: resolve(ROOT, '.threedog/vite-bake'), server: { port: 0, strictPort: false } }));
-await server.listen();
-const base = server.resolvedUrls.local[0].replace(/\/$/, '');
+const { base, close } = await devServer(ROOT, { cacheDir: '.threedog/vite-bake' });
 const browser = await launchBrowser();
 const page = await browser.newPage();
 const errors = [];
@@ -51,7 +49,7 @@ for (let i = 0; i < 3 && !results.length; i++) {
   } catch (e) { errors.push(String(e).split('\n')[0]); }
 }
 await browser.close();
-await server.close();
+await close();
 if (errors.length) { console.log('Bake page error:\n  ' + errors.join('\n  ')); process.exit(1); }
 
 mkdirSync(DIR, { recursive: true });

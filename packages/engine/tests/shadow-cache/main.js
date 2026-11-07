@@ -29,9 +29,12 @@ async function shot() {
   renderOnce(engine.renderer, engine.scene, cam, rt);
   return new Uint8Array(await engine.renderer.readRenderTargetPixelsAsync(rt, 0, 0, W, H));
 }
-/** mean brightness of the screen spot where the ground point lands (rows as the target stores them, so the y flip is tried by the page's own lit control) */
+/**
+ * mean brightness of the screen spot where the ground point lands. A WebGPU target reads top row first; real-webgpu.mjs flips what pages read to WebGL's order (window.__glRows) and
+ * npm test, also on real WebGPU, does not, so reading in one fixed order looks at the mirror spot: bare lit ground, every shadow gone
+ */
 const spot = (b, x, z) => {
-  const v = new THREE.Vector3(x, 0, z).project(cam), cx = Math.round((v.x + 1) / 2 * W), cy = Math.round((1 - v.y) / 2 * H);
+  const v = new THREE.Vector3(x, 0, z).project(cam), cx = Math.round((v.x + 1) / 2 * W), cy = Math.round((1 + (window.__glRows ? v.y : -v.y)) / 2 * H);
   let s = 0, n = 0;
   for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const k = ((cy + j) * W + cx + i) * 4; s += b[k]; n++; }
   return Math.round(s / n);

@@ -2,14 +2,15 @@
 // api is engine.content: where and offset read a place through api.place, so a wrapped place is the one they use.
 import { placeY } from '../../core/scene/ground.js';
 import { codedError } from '../../core/base/errorHints.js';
+import { placeProblem } from './rules.js';
 
-/** content.load: add the packs' places, then the places option on top. A text entry in a place file waits for the option */
-export function addPlaces(places, packs, given) {
+/** content.load: the packs' places, then the places option on top, checked. A text entry in a place file waits for the option */
+export function placesOf(packs, given) {
   const pl = {};
   for (const p of packs) for (const [name, at] of Object.entries(p.places ?? {})) if (at && typeof at === 'object') pl[name] = at;
   Object.assign(pl, given);
-  for (const [name, p] of Object.entries(pl)) if (p?.rot !== undefined && !Number.isFinite(p.rot)) throw codedError('content-place', `Place "${name}": rot must be a number of radians about Y, got ${JSON.stringify(p.rot)}`);
-  Object.assign(places, pl);
+  for (const [name, p] of Object.entries(pl)) { const bad = placeProblem(p); if (bad) throw codedError('content-place', `Place "${name}": ${bad}`); }
+  return pl;
 }
 
 /** content.place */

@@ -1,19 +1,28 @@
 // Timeline camera and path steps (helper of Timeline.js): a shot takes the camera over with engine.takeCamera (core/ops/holds.js) and gives it back when the run ends;
 // a path moves any object (a character, the camera) along a spline. Each function takes the Timeline as `t`.
+// One writer: a step writes what it drives only while it is the holder in charge (written). Out of charge its clock runs on and it writes nothing; back in charge it writes where its
+// clock is. So a shot under a newer holder of the camera, or a path on a character something above the cutscene has, ends on time and leaves the real owner's values alone.
 import * as THREE from 'three';
 import { vec3 as v3 } from '../../core/base/math.js';
 import { surfaceOr } from '../../core/scene/ground.js';
+import { holdFov } from '../../core/scene/view.js';
+
+/** The one check: a timed step whose step(k) runs only while mine() says it is in charge */
+const written = (t, run, mine, o) => t._timed(run, { ...o, step: k => { if (mine()) o.step(k); } });
+/** Holds the camera now: compared by owner, because engine.cameraOverride is a copy of what takeCamera got */
+const onCamera = (t, st) => t.engine.cameraOverride?.owner === st.override.owner;
 
 /** Camera: { from?, to: { position, lookAt }, duration, ease, fov } or { release: true } */
 export function cameraStep(t, c, run) {
-  const e = t.engine, cam = e.camera;
+  const e = t.engine;
   if (c.release) { releaseCamera(t, run); return Promise.resolve(); }
   const st = takeCamera(t, run);
   let fromP, fromL, fromFov, toP, toL;
   const lookOf = l => l?.isObject3D ? l.position : l;          // may look at a moving object
-  return t._timed(run, {
+  return written(t, run, () => onCamera(t, st), {
     duration: c.duration ?? 1, ease: c.ease ?? 'inOutCubic',
     start: () => {
+      const cam = e.camera;
       fromP = c.from?.position ? v3(c.from.position) : cam.position.clone();
       toP = c.to?.position ? v3(c.to.position) : fromP.clone();
       // start look-at: use it if given, otherwise keep the current view direction at the same distance as the target
@@ -23,11 +32,12 @@ export function cameraStep(t, c, run) {
       fromFov = c.from?.fov ?? cam.fov;
     },
     step: k => {
+      const cam = e.camera;   // read here: a game may assign engine.camera during the shot
       if (c.to?.lookAt?.isObject3D) toL.copy(c.to.lookAt.position);
       cam.position.lerpVectors(fromP, toP, k);
       st.look.lerpVectors(fromL, toL, k);
       cam.lookAt(st.look);
-      if (c.fov != null) { cam.fov = fromFov + (c.fov - fromFov) * k; cam.updateProjectionMatrix(); }
+      if (c.fov != null && cam.fov !== undefined) { fromFov ??= cam.fov; holdFov(e, fromFov + (c.fov - fromFov) * k); }   // a real orthographic camera has none
       st.override.focus.copy(st.look);
     },
   });
@@ -38,16 +48,14 @@ function takeCamera(t, run) {
     // a claim of its own (engine.takeCamera): a named view or a game holding the camera keeps its claim and gets the camera back afterwards.
     // The owner carries the run id so two overlapping runs are two holders, not one overwriting the other.
     const override = { owner: 'timeline:' + run.id, id: run.id, focus: e.focus.clone() };
-    run.cam = { fov: e.camera.fov, look: new THREE.Vector3(), override, hold: e.takeCamera(override.owner, override) };
+    run.cam = { look: new THREE.Vector3(), override, hold: e.takeCamera(override.owner, override) };
   }
   return run.cam;
 }
 export function releaseCamera(t, run) {
   const st = run.cam; if (!st) return;
   run.cam = null;
-  const e = t.engine;
-  st.hold.remove();
-  if (e.camera.fov !== st.fov) { e.camera.fov = st.fov; e.camera.updateProjectionMatrix(); }
+  st.hold.remove();   // the view comes back with the last holder (core/scene/view.js viewHold)
 }
 
 /** Path: { object, points, duration, ease, lookAhead, ground, closed, curve: 'catmullrom'|'centripetal'|'chordal', tension } */
@@ -64,7 +72,8 @@ export function pathStep(t, p, run) {
   const isCam = obj === e.camera;
   const st = isCam ? takeCamera(t, run) : null;
   const pos = new THREE.Vector3(), ahead = new THREE.Vector3();
-  return t._timed(run, {
+  const mine = isCam ? () => onCamera(t, st) : chr ? () => !!t._held.get(chr.id)?.h.placing : () => true;
+  return written(t, run, mine, {
     duration: p.duration ?? 2, ease: p.ease ?? 'inOutSine',
     step: k => {
       curve.getPointAt(Math.min(1, Math.max(0, k)), pos);
@@ -84,9 +93,9 @@ export function pathStep(t, p, run) {
     },
   }).then(r => {
     // the path moved the model, not the mover: the character's world record (the player's) catches up once, so a save right after the cutscene has the new
-    // place
+    // place. Not while another owner has it: the path wrote nothing on its last step, and the record is that owner's
     unpath();
-    if (chr?.recordId && chr.syncRecord) e.ops.allow(() => chr.syncRecord());
+    if (chr?.recordId && chr.syncRecord && mine()) e.ops.allow(() => chr.syncRecord());
     return r;
   }, err => { unpath(); throw err; });
 }

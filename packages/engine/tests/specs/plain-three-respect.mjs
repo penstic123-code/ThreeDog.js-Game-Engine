@@ -89,7 +89,7 @@ export const specs = [
       const want = ['shadow-accessors', 'scene-add-hook', 'mesh-material-accessor', 'material-compile-accessor', 'renderer-render', 'shader-chunks', 'light-idle-shadow', 'post-shadow-hold', 'post-background-tone', 'node-twin-dress', 'node-builder-hook', 'device-lost-hook', 'webgpu-record-sweep', 'batching-draw-walk'];
       check('threePatches lists every change (class, objects, renderer) with scope and what is lost', want.every(id => ids.includes(id)) && r.patches.every(p => p.scope && p.lost),
         JSON.stringify(r.patches.map(p => [p.id, p.scope, p.offable])));
-      check('the two that cannot be undone say so (offable false): shader-chunks, node-twin-dress', r.patches.filter(p => !p.offable).map(p => p.id).sort().join() === 'node-twin-dress,shader-chunks', JSON.stringify(r.patches.filter(p => !p.offable)));
+      check('those that cannot be undone say so (offable false): shader-chunks, node-twin-dress, occlusion-layers-test', r.patches.filter(p => !p.offable).map(p => p.id).sort().join() === 'node-twin-dress,occlusion-layers-test,shader-chunks', JSON.stringify(r.patches.filter(p => !p.offable)));
     },
   },
   {

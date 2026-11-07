@@ -64,7 +64,7 @@ used by `toCell`, `toWorld`, tiles and flatness (footprints stay rectangles of c
 
 ## 3. Layers: per-cell state (soil, creep, paint)
 ```js
-const soil = plot.layer('soil');                          // created on first use; saved with the game (only cells that differ from content)
+const soil = plot.layer('soil', { tiles: true });         // created on first use, options read then; saved with the game (only cells that differ from content)
 engine.ops.define('plot.till',  { args: { cell: 'any' },
   can: (e, { cell }) => (!plot.inside(cell) ? 'outOfBounds' : plot.at(cell) ? 'occupied' : true),
   run: (e, { cell }) => soil.set(cell, { tilled: true }) });

@@ -14,7 +14,7 @@ import { pairs, STATIC_TOOLS } from '../threedog/mcp-extra.mjs';
 export const name = 'MCP server: threedog mcp wraps the dev bridge over stdio';
 
 const BIN = join(TOOLS, 'bin/threedog.mjs');
-const EXPECTED = ['art_list', 'catalog', 'check', 'describe', 'errors', 'explain', 'hold', 'how', 'inspect', 'lib_list', 'loading', 'op', 'ops', 'pick', 'picture_compare', 'picture_palette', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'thing', 'verify'];
+const EXPECTED = ['art_list', 'catalog', 'check', 'describe', 'errors', 'explain', 'hold', 'how', 'inspect', 'lib_list', 'loading', 'op', 'ops', 'pick', 'picture_compare', 'picture_palette', 'play', 'press', 'reload', 'resume', 'scenario', 'scene', 'skip', 'snap', 'snap_describe', 'state', 'status', 'step', 'verify'];
 
 /** Start one MCP server; returns { rpc(method, params), close() }. Async on purpose: the dev server lives in this process */
 function mcp(...args) {
@@ -68,7 +68,7 @@ async function steps(check, plain) {
 
   // 1b. Static tools answer from the files, with or without a dev server
   const how = await plain.rpc('tools/call', { name: 'how', arguments: { task: 'tone mapping' } });
-  check('how: static, the plain three.js answer first (no dev server needed)', !how.isError && /^1\. plain three\.js/.test(how.content[0].text) && how.structuredContent.ok, how.content[0].text.slice(0, 300));
+  check('how: static, the same one answer as the CLI, plain three.js recommended first (no dev server needed)', !how.isError && /^Recommended \(.*not the only.*\): plain three\.js/.test(how.content[0].text) && how.structuredContent.ok, how.content[0].text.slice(0, 300));
   // [guard] a list of strings was joined: the op got the one string "a,b,c", with no way to tell ['a,b', 'c'] from ['a', 'b', 'c']
   check('[guard] op arguments: a string list goes as JSON, numbers stay x,y,z', pairs({ tags: ['a,b', 'c'], at: [1, 2, 3], n: 2 }).join(' ') === 'tags=["a,b","c"] at=1,2,3 n=2');
   // [guard] a child that cannot start had no error listener: the error ended the MCP server
@@ -114,23 +114,23 @@ async function steps(check, plain) {
     const sc2 = await plain.rpc('tools/call', { name: 'picture_compare', arguments: { reference: file, screenshot: file } });
     check('picture_palette / picture_compare: numbers about a saved shot, no image', !sp.isError && !sc2.isError && /brightness|saturation/i.test(sp.content[0].text + sc2.content[0].text)
       && !sp.content.some(c => c.type === 'image'), JSON.stringify([sp.content[0].text.slice(0, 150), sc2.content[0].text.slice(0, 150)]));
-    // thing: the tool and the CLI (threedog thing <id>) end to end against the live page; ids come from the scene tool so no example data is assumed
+    // explain thing: the tool and the CLI end to end against the live page; ids come from the scene tool so no example data is assumed
     const sc = await plain.rpc('tools/call', { name: 'scene', arguments: {} });
     const id = 'player';   // the world example's player (describe names it); 'engine.thing' takes an object name too
-    const t = id ? await plain.rpc('tools/call', { name: 'thing', arguments: { id } }) : null;
+    const t = id ? await plain.rpc('tools/call', { name: 'explain', arguments: { about: 'thing', name: id } }) : null;
     check('thing: the tool returns the id\'s explain() JSON (the name is echoed back in the text)', !!t && !t.isError && t.content[0].text.includes(id), `${id} ${JSON.stringify(t?.content?.[0]?.text).slice(0, 200)}`);
     const stt = await plain.rpc('tools/call', { name: 'status', arguments: {} });
     check('status: against a live page the text has a "Run state:" line (running / frozen(by …) / halted)', /Run state: (running|halted|frozen)/.test(stt.content[0].text), stt.content[0].text);
-    const nt = await plain.rpc('tools/call', { name: 'thing', arguments: { id: 'no-such-thing-xyz' } });
+    const nt = await plain.rpc('tools/call', { name: 'explain', arguments: { about: 'thing', name: 'no-such-thing-xyz' } });
     check('thing: an unknown id is a tool error with a message, not a crash', nt.isError && nt.content[0].text.length > 5, nt.content[0].text);
     // async spawn on purpose: the dev server lives in this process, a blocking spawnSync would starve it
     const cli = await new Promise(res => {
-      const c = spawn(process.execPath, [BIN, 'thing', id ?? 'x', '-w', 'engine'], { cwd: ROOT }); let out = '';
+      const c = spawn(process.execPath, [BIN, 'explain', 'thing', id ?? 'x', '--full', '-w', 'engine'], { cwd: ROOT }); let out = '';
       c.stdout.on('data', d => out += d); c.stderr.on('data', d => out += d);
       const t = setTimeout(() => { c.kill(); res({ status: 'timeout', out }); }, 90000);
       c.on('close', status => { clearTimeout(t); res({ status, out }); });
     });
-    check('threedog thing <id>: CLI prints the same JSON and exits 0', cli.status === 0 && cli.out.includes(id ?? '?'), `${cli.status} ${cli.out.slice(0, 200)}`);
+    check('threedog explain thing <id> --full: CLI prints the JSON and exits 0', cli.status === 0 && cli.out.includes(id ?? '?'), `${cli.status} ${cli.out.slice(0, 200)}`);
   } finally {
     await server.close();
   }

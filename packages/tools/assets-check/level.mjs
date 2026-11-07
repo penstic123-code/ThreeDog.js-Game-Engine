@@ -2,10 +2,9 @@
 // The same JSON feeds `threedog assets check`, content-check (content then needs no hand-written description of Blender markers) and AI queries.
 // The naming rules mirror modules/level (meshes.js COL_RE, nodes.js MARKER_RE and record ids); change them together.
 import { basename, extname } from 'node:path';
+import { sanitize } from 'threedog/spelling';
 
 const MARKER_RE = /^(spawn|spawn_.*|npc_.*|trigger_.*|marker_.*)$/i;
-// three's PropertyBinding.sanitizeNodeName: the name the engine sees ("door.001" -> "door001", spaces -> "_")
-const sanitize = n => String(n ?? '').replace(/\s/g, '_').replace(/[[\].:/]/g, '');
 
 /**
  * @param {any} doc glTF Transform Document

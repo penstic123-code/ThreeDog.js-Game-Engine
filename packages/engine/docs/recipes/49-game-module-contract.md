@@ -13,6 +13,7 @@ shows in `describe()` and the dev bridge, and can be driven by ops, without spec
 3. **Time, skipped** (`engine.skip`, the op `time.skip`, recipe 06 section 2). `fixed` hooks, physics and near simulation do **not** run during a skip.
    A state derived from `clock.now` is exact for free. A module that accumulates in `fixed` must also implement `skip(dt, e, done)` (called once per
    segment, `done` on the last; do heavy work once when `done`), or put the logic in a world record `far(rec, dt)`, which gets one catch-up call.
+   Say which on the definition with `skipKind`: `exact`, `approx`, `step` or `none` (`ModuleDefinition` in the types says what each means); `engine.catalog` reports a module with a `fixed` or `skip` hook that does not.
 4. **Observable.** Module hook `describe(e, ctx)` puts its return value in `describe().<module name>` (plain JSON; the bridge `describe <name>` and
    `describeText()` show it). A game without a module uses `engine.describe.add(name, fn)`. The name must be new (it throws on a clash).
    Keep it compact: the state an AI checks to verify the module worked.
@@ -66,7 +67,7 @@ Both runs must give equal `describe machines` (and `describe time`); if B differ
 ## Checking it: a contract file and the shared contract test
 Write the five points down as data in `contract.js` (`{ name, api, ops, events, saves: { key: version }, describe, options, probe }`, see
 `modules/gameplay/inventory.contract.js`) and run it from your tests (works in a game installed from npm):
-```js
+```js fragment
 import { runContract } from '@threedog/tools/contract';
 runContract(contract, () => myModule(contract.options), { check });   // check(label, ok, detail?)
 ```

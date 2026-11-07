@@ -5,8 +5,8 @@ Cutscenes, tweens (timeline() module)
 - Options `TimelineOptions`
 
 ## Methods and properties
-- `timeline.tween(target: any, to: TweenTo, opts?: { duration?: number; ease?: Ease }) → TweenPromise` — General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, { duration: 1, ease: 'outCubic' }); duration in seconds (default 1), ease default 'inOutCubic'; tween(mesh, to, 1) throws in dev. Returns a Promise (with finish() / remove())
-- `timeline.play(steps: TimelineStep | TimelineStep[], opts?: TimelinePlayOptions) → Promise<{ skipped: boolean }>` — Play a timeline; resolves with { skipped } when it ends
+- `timeline.tween(target: any, to: TweenTo, opts?: { duration?: number; ease?: Ease }) → TweenPromise` — General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, { duration: 1, ease: 'outCubic' }); duration in seconds (default 1), ease default 'inOutCubic'; tween(mesh, to, 1) throws in dev. Returns a Promise (with finish() / remove()); a write that throws ends the tween and rejects it
+- `timeline.play(steps: TimelineStep | TimelineStep[], opts?: TimelinePlayOptions) → Promise<{ ending: "finished" | "s…` — Play a timeline; resolves with { ending, error? } when it ends: 'finished', 'skipped', 'dropped' (a load, a new game or dispose took its state) or 'failed' (a step threw; error says what)
 - `timeline.skip(run?: any)` — Skip all (or one) playing timelines
 - Properties:
   - `skipAll: boolean` (experimental) Skip every cutscene immediately (set by scenario param cutscene=skip)

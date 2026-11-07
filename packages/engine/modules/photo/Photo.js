@@ -16,6 +16,7 @@ import { readParams, keysSchema } from '../../core/base/params.js';
 import { toast } from '../../ui/UI.js';
 import { coded } from '../../core/base/errorHints.js';
 import { setShadowUpdate, shadowsOn } from '../../render/backend.js';
+import { borrowRatio } from '../../core/scene/pixelRatio.js';
 const GROUP = 'photo';   // attachment group in engine.saves
 const TAKE_KEYS = ['scale', 'shadowMapSize', 'bloom', 'quality', 'format'];
 
@@ -32,15 +33,14 @@ export class Photo {
     readParams('photo.take()', keysSchema(TAKE_KEYS), opts);
     const o = { scale: this.scale, shadowMapSize: this.shadowMapSize, bloom: this.bloom, quality: this.quality, format: this.format, ...opts };
     const e = this.engine, r = e.renderer;
-    const prevPR = r.getPixelRatio(), prevBloom = e.post.get('bloom')?.enabled, suns = [];
+    const prevBloom = e.post.get('bloom')?.enabled, suns = [];
     if (shadowsOn(e)) e.scene.traverse(l => { if (l.isDirectionalLight && l.castShadow && l.visible) suns.push([l, l.shadow.mapSize.x, l.shadow.mapSize.y]); });
-    const pr = Math.min(3, prevPR * o.scale);
     const forceBloom = typeof o.bloom === 'boolean' && prevBloom !== undefined;
-    let url, bloomHold = null;
+    let url, bloomHold = null, ratioBack = null;
     // restored in finally: a throw mid-shot (a failed WebGPU frame, a tainted canvas in toDataURL) must not leave the game running at the photo's
     // pixel ratio and shadow map size with photo's bloom hold still on
     try {
-      r.setPixelRatio(pr);   // the post chain follows the renderer on its next draw (postWebGL.js follow)
+      ratioBack = borrowRatio(e, Math.min(3, r.getPixelRatio() * o.scale));   // the post chain follows the renderer on its next draw (postWebGL.js follow)
       for (const [l] of suns) e.shadows.mapSize(l, o.shadowMapSize);
       // a hold on the system layer, removed after the shot: the game's own choice stays what it was (tests/specs/render-once.mjs); a settings restriction still wins
       bloomHold = forceBloom ? e.mod('post.bloom.enabled', { owner: 'photo', set: o.bloom, layer: 'system' }) : null;
@@ -48,7 +48,7 @@ export class Photo {
       e.renderOnce();   // the frame the player sees, post included, read below in the same task; a fresh frame on WebGPU (engine.renderOnce)
       url = r.domElement.toDataURL(o.format, o.quality);
     } finally {
-      r.setPixelRatio(prevPR);
+      ratioBack?.();
       for (const [l, w, h] of suns) e.shadows.mapSize(l, w, h);
       bloomHold?.remove();
     }
@@ -84,7 +84,7 @@ export class Photo {
   async restore() {
     let rows; try { rows = await this.engine.saves.attachments(GROUP); } catch (err) { this._fail(err); return; }
     const have = new Set(this.album.map(s => s.id));
-    for (const r of rows) if (!have.has(r.id)) this.album.push({ id: r.id, url: URL.createObjectURL(r.blob), ...r.meta, at: r.at });
+    for (const r of rows) if (!have.has(r.id)) this.album.push({ ...r.meta, id: r.id, url: URL.createObjectURL(r.blob), at: r.at });   // meta first: an imported file's meta.url must not replace the photo
     this.album.sort((a, b) => (b.at ?? Infinity) - (a.at ?? Infinity) || 0);   // a just-taken shot has no `at`: goes first
     while (this.album.length > this.maxAlbum) this._drop(this.album.pop());
   }
@@ -124,25 +124,25 @@ export function photo(all = {}) {
   const opts = all;
   let ph = null;
   return {
-    name: 'photo', type: 'tool', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'calendar', 'vegetation', 'characters'],
+    name: 'photo', skipKind: 'none', type: 'tool', params: PHOTO_PARAMS, options: all, label: 'Photo mode', optional: ['cameraRig', 'sky', 'calendar', 'vegetation', 'characters'],
     install(e, ctx) {
       e.i18n.add(STRINGS);
       // declared only: the game binds the key (presets.bindings.photo or its own; [] = no key), so every key in a game comes from one bindings table
       ctx.input.action('photo', { label: 'photo.action' });
-      if (e.input.keysOf('photo').length) e.input.touchButton('photo', 'photo.action');
+      if (e.input.keysOf('photo').length) ctx.track(e.input.touchButton('photo', 'photo.action'));
       builtInSounds(e.assets, { shutter: (audio, p, out) => {   // sound asset 'shutter', silent until audio.sounds names it
         audio.noiseBurst({ dur: 0.03, type: 'highpass', freq: p.freq ?? 3000, vol: p.volume ?? 0.4, out });
         audio.noiseBurst({ dur: 0.05, type: 'bandpass', freq: 1800, vol: (p.volume ?? 0.4) * 0.75, delay: 0.07, out }); return 0.15;
       } });
       ph = new Photo(e, opts);
       ph.restore();                                  // read photos taken last time back from storage
-      ctx.track(e.ops.define('photo.take', {
+      ctx.ops.define('photo.take', {
         desc: 'Take a photo (refused when photo.canTake() returns false or a reason)',
         can: () => { const r = ph.canTake(); return r === true ? true : typeof r === 'string' && r ? r : 'denied'; },
         run: () => ph.take(),
         offers: () => [{}],
         reasons: { denied: 'photo.canTake() returned false' },
-      }));
+      });
       ctx.track(e.events.on('save:imported', () => ph.restore()));   // after restoring from a save file, the attachments in the file (photos) also go into the album
       return ph;
     },
@@ -160,3 +160,5 @@ export function photo(all = {}) {
     },
   };
 }
+
+export const handRolled = 'none: a screenshot is one browser call, and a hint would add nothing to it';

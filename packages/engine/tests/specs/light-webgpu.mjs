@@ -20,7 +20,7 @@ export const specs = [
       check('the normal and diffuse buffers come from one merged scene render, with velocity for temporalAA', ['normal', 'diffuse', 'velocity'].every(b => r.buffersOn.includes(b)), JSON.stringify(r.buffersOn));
       check('describe() reports the voxel size, and nothing once the chain let it go', r.row.facts?.voxelSize > 0 && r.off.facts === null, JSON.stringify([r.row, r.off.facts]));
       // 不许绕开: voxelGI and occlusion together, what culling hides stays in the bounce
-      check(`a wall occlusion culling hides still bounces: red minus green ${tint(r.plain)} -> ${tint(r.hiddenBounce)}`, r.volumeSeesHidden && tint(r.hiddenBounce) > tint(r.plain) + 4, JSON.stringify([r.volumeSeesHidden, r.hiddenBounce]));
+      check(`a wall occlusion culling hides still bounces: red minus green ${tint(r.plain)} -> ${tint(r.hiddenBounce)}`, tint(r.hiddenBounce) > tint(r.plain) + 4, JSON.stringify(r.hiddenBounce));
       check('low tier: held, out of the chain, and describe() says why', !r.lowTier.on && !r.lowTier.order && /low/.test(r.lowTier.held), JSON.stringify(r.lowTier));
       check(`off removes it: not in the chain, no extra scene outputs, ${r.costOn} ms -> ${r.off.cost} ms (base ${r.base} ms)`,
         !r.off.order.includes('voxelGI') && !r.off.mrt && r.off.cost < Math.max(r.base * 1.5, r.base + 0.5), JSON.stringify(r.off));

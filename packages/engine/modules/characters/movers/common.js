@@ -17,10 +17,12 @@ const MOVE_STATS = ['speed', 'runSpeed', 'gravity', 'jumpSpeed', 'canJump'];
 /** 'speed' -> 'move.speed', built once: stat runs several times per character per step, so no string is joined there */
 const STACK_OF = Object.fromEntries(MOVE_STATS.map(k => [k, 'move.' + k]));
 
-/** @internal define the move.* stacks once per engine: the characters module install does it (so engine.mod works in setup); the Character constructor calls it too for a character made without the module */
+/** @internal define the move.* stacks and the rule 'fall' once per engine: the characters module install does it (so engine.mod works in setup); the Character constructor calls it too for a character made without the module */
 export function moveStacks(e) {
   if (e.stacks.has('move.speed')) return;
+  e.stacks.rule('character.mover', null);   // defined here for the same reason: engine.mod('character.mover', ...) in setup, before any character
   for (const k of MOVE_STATS) e.stacks.define(STACK_OF[k], { per: 'optional', ...(k === 'gravity' ? {} : { min: 0 }) });
+  e.stacks.rule('fall', false, ['rescue']);
 }
 
 /** The steepest ground a walker climbs (rise over run): the collision module's, else the engine's own */
@@ -60,7 +62,7 @@ const WATER_KEY = new WeakMap();   // the water mode the character is in now (nu
 export function water(c, ox, oz) {
   const e = c.engine, p = c.root.position;
   let ground = groundAt(c, p.x, p.z, p.y);   // pass the current height: walk the ground under a bridge, the deck on top
-  const surface = e.waterAt(p.x, p.z), swimY = surface - c.swimDepth;
+  const surface = e.waterAt(p.x, p.z, p.y), swimY = surface - c.swimDepth;
   const mode = ground < swimY ? waterMode(c, surface - ground, p) : null;
   if (mode === 'block') { p.x = ox; p.z = oz; c.velocity.set(0, 0); ground = groundAt(c, ox, oz, p.y); }
   c.swimming = mode === 'swim' && p.y <= swimY + 0.3;
@@ -135,7 +137,7 @@ export function finish(c, dt) {
   }
   c.moveAmount = sp;
   // a game write since the last step would vanish here without a word (no-conflict rule): say so once, with the calls that do work
-  if (c.state !== c._stateMark) warnOnce(STATE_WRITTEN);
+  if (c.state !== c.stateMark) warnOnce(STATE_WRITTEN);
   const base = c.swimming ? 'swim' : !c.grounded ? (c.vy > 0 ? 'jump' : 'fall') : sp > stat(c, 'speed') * 1.3 ? 'run' : sp > 0.4 ? 'walk' : 'idle';
   // the game's states hook adds its own (crouch, climb, glide, dash...) on top of the built-in ones without taking the mover over; null keeps base
   ownState(c, base, sp);
@@ -143,5 +145,5 @@ export function finish(c, dt) {
 
 /** @internal the state after a mover's step: the game's states hook, or base when it returns null */
 export function ownState(c, base, speed) {
-  c.state = c._stateMark = (c.states && c.states(c, { base, speed, grounded: c.grounded, swimming: c.swimming, vy: c.vy, water: WATER_KEY.get(c) ?? null })) || base;
+  c.state = c.stateMark = (c.states && c.states(c, { base, speed, grounded: c.grounded, swimming: c.swimming, vy: c.vy, water: WATER_KEY.get(c) ?? null })) || base;
 }

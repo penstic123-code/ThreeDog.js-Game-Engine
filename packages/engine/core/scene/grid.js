@@ -126,3 +126,5 @@ export async function decodePng(input) {
   if (bitDepth === 16) { samples = new Uint16Array(width * height * channels); for (let i = 0; i < samples.length; i++) samples[i] = (out[i * 2] << 8) | out[i * 2 + 1]; }
   return { samples, width, height, channels, bitDepth };
 }
+
+export const handRolled = [{ kind: 'grid', seen: 'blending over a height / field array by hand', use: 'sampleGrid(data, { width, height, size, interp }) -> (x, z) => value; engine.assets.gridFromImage reads one from a PNG', quiet: /\bsampleGrid\b/, code: /\b(heights?|heightmap|hm|elevation|terrainData|heightData|field)\w*\s*\[/i, near: [{ re: /Math\.floor\(/, lines: 6 }, { re: /\(\s*1\s*-\s*\w+\s*\)|\blerp\s*\(|\bmix\s*\(/, lines: 6 }], tags: false }];

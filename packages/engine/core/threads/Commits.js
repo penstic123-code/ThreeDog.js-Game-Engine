@@ -5,7 +5,7 @@
 //   when the background work finishes: t.resolve(result); when no longer wanted: t.remove()
 // At the due tick (engine.time.tick at request + lag, default 30 steps = 0.5 s) requests take effect in a stable order (due tick, then request order):
 //   finished -> apply(result); not finished -> apply(fallback()) (stats.late +1; a background result that arrives later is ignored); valid() false -> dropped.
-// A save load or level change (invalidate) drops the requests that have no valid: they were made for the old world. A request with valid decides itself
+// A save load or level change (invalidate) drops the requests that have no valid: they were made for the old world (a load that fails gives them back: the old world stays). A request with valid decides itself
 // (terrain colliders survive a load because the terrain is the same; pass valid when your result belongs to state a load replaces).
 // So sync, async, delayed or out-of-order returns all give the same gameplay state at the same tick for the same input. Fixed steps do not run while frozen, so due time stops too.
 // Requests registered during loading (before engine.ready): start() calls rebase() when done and timing restarts from the playable moment (load time varies by machine and must not count); lag 0 takes effect right then.
@@ -17,6 +17,7 @@ const STRINGS = { noFallback: 'commits.request() needs a fallback: it is compute
   * Sync, async, delayed and out-of-order returns give the same gameplay state at the same tick for the same input. Results that only affect visuals need not go through here.
  */
 import { codedError } from '../base/errorHints.js';
+import { reportError } from '../base/errors.js';
 
 export class Commits {
   /** @internal */
@@ -59,10 +60,13 @@ export class Commits {
     while (this.queue.length && this.queue[0].due <= now) {
       const t = this.queue.shift();
       if (t.canceled || (t.valid ? !t.valid() : t.epoch !== this.epoch)) { this.stats.dropped++; continue; }
-      if (!t.done) { t.result = t.fallback(); t.done = true; this.stats.late++; }
-      if (t.canceled) { this.stats.dropped++; continue; }   // the fallback itself gave up on the request (a job that failed): nothing to apply
-      t.apply(t.result);
-      this.stats.applied++;
+      // each request on its own: one that throws must not push the next ones due to a later tick, or to never, in a frozen dev game
+      try {
+        if (!t.done) { t.result = t.fallback(); t.done = true; this.stats.late++; }
+        if (t.canceled) { this.stats.dropped++; continue; }   // the fallback itself gave up on the request (a job that failed): nothing to apply
+        t.apply(t.result);
+        this.stats.applied++;
+      } catch (err) { reportError(this.engine, err, 'background result apply (commits)'); }
     }
   }
   /** @internal Called when start() finishes loading and when a new playthrough restarts the tick: pending requests restart timing from now (due = now + lag); lag 0 takes effect immediately */
@@ -73,6 +77,7 @@ export class Commits {
   }
   /** @internal Drop all requests (engine.dispose calls it) */
   dispose() { this.queue.length = 0; }
-  /** @internal A save load or level change replaced the world: results requested for the old one must not land on the new one (counted as dropped) */
-  invalidate() { this.epoch++; }
+  /** @internal A save load or level change replaced the world: results requested for the old one must not land on the new one (counted as dropped).
+   *  Returns undo() for a load that failed; a level change since then keeps them dropped, the world they were for has been rebuilt */
+  invalidate() { const was = this.epoch, mine = ++this.epoch; return () => { if (this.epoch === mine) this.epoch = was; }; }
 }

@@ -18,7 +18,7 @@
 // Built in: world (the root), player (parent world), calendar (parent world, speed 'clock.rate'). Physics (rapier) steps with dt('world'): to slow enemies and leave bodies alone, slow a channel of their own, not world.
 import { codedError } from '../base/errorHints.js';
 import { reportError } from '../base/errors.js';
-import { saveValues } from '../saves/saveValues.js';
+import { saveValues, SAVE_MAX_SECONDS } from '../base/saveValues.js';
 
 export const STEP = 1 / 60;
 const STRINGS = { where: 'clock timer', onMove: 'time.onMove listener' };
@@ -40,7 +40,7 @@ export class Time {
     this.channel('world', { parent: null });
     this.channel('player');
     this.channel('calendar', { stack: 'clock.rate' });
-    engine.saves.register('time', {
+    engine.saves.register('time', { notAtomic: 'time goes on through a failed op: going back would run timers twice',
       version: 2,
       // v1 kept the calendar in its own 'clock' part ({ now, timers }); v2 has it as the 'calendar' channel of this part
       migrate: { 1: (d, save) => {
@@ -49,7 +49,8 @@ export class Time {
           timers: [...(d?.timers ?? []), ...(Array.isArray(c.timers) ? c.timers : []).map(t => ({ ...t, channel: 'calendar' }))] };
       } },
       // real: 'real' timers count on a clock no save restores (a new playthrough starts it from 0), so load shifts them by how far it moved
-      save: () => ({ channels: Object.fromEntries([...this._ch.values()].map(c => [c.name, c.now])), real: this.now('real'),
+      // _pending: channels of the loaded save the game has not defined yet stay in the next save
+      save: () => ({ channels: { ...this._pending, ...Object.fromEntries([...this._ch.values()].map(c => [c.name, c.now])) }, real: this.now('real'),
         timers: this._timers.filter(t => t.event && !t.dead).map(({ ch, due, event, data, every }) => ({ channel: ch, due, event, data, ...(every ? { every } : null) })) }),
       load: d => this._load(d),
     });
@@ -58,7 +59,7 @@ export class Time {
   _load(d) {
     // saved seconds pass saveValues first: a negative / non-finite channel time ran its timers backwards (durability audit); clamped to >= 0, one warning
     const v = saveValues('time'), chans = {};
-    for (const [name, now] of Object.entries(d?.channels ?? {})) chans[name] = v.num(now, `channels.${name}`, { min: 0, fallback: 0 });
+    for (const [name, now] of Object.entries(d?.channels ?? {})) chans[name] = v.num(now, `channels.${name}`, { min: 0, max: SAVE_MAX_SECONDS, fallback: 0 });
     const timers = (Array.isArray(d?.timers) ? d.timers : []).filter(t => {
       if (Number.isFinite(t?.due) && typeof t.event === 'string' && typeof t.channel === 'string') return true;
       v.drop('timers[]', t); return false;
@@ -141,7 +142,7 @@ export class Time {
     const t = typeof fnOrEvent === 'string' ? { ch, due: this.now(ch) + seconds, event: fnOrEvent, data, every, dead: false }
       : { ch, due: this.now(ch) + seconds, fn: fnOrEvent, every, dead: false };
     this._timers.push(t);
-    return { remove: () => { t.dead = true; this._timers = this._timers.filter(x => x !== t); } };
+    return { _timer: t, remove: () => { t.dead = true; this._timers = this._timers.filter(x => x !== t); } };   // _timer: ctx.track files it with its module (Session._keepTimer)
   }
   /** Timers in the queue (engine.counts) */
   get size() { return this._timers.length; }
@@ -156,6 +157,7 @@ export class Time {
       if (!due.length) continue;
       this._timers = this._timers.filter(t => !(t.ch === ch && t.due <= at) || t.every);
       for (const t of due) {
+        if (this.engine.disposed) return;   // a callback of this list disposed the engine: dispose cannot reach the ones already taken out of the queue
         if (t.every) { while (!t.dead && t.due <= at) { t.due += t.every; this._call(t); } continue; }
         if (!t.dead) { t.dead = true; this._call(t); }
       }
@@ -168,8 +170,11 @@ export class Time {
   }
   /** @internal engine.session: the function timers now, each with its time left (what a new playthrough starts with) @returns {{ t: any, rem: number }[]} */
   _snapshotFn() { return this._timers.filter(t => !t.event && !t.dead).map(t => ({ t, rem: t.due - this.now(t.ch) })); }
-  /** @internal engine.session: keep the event timers (they came with the save), put back exactly the snapshotted function timers with their original delay */
-  _restoreFn(list) { this._timers = this._timers.filter(t => t.event).concat(list.map(({ t, rem }) => Object.assign(t, { due: this.now(t.ch) + rem, dead: false }))); }
+  /** @internal engine.session: keep the event timers (they came with the save) and function timers set since `old` was taken, drop the rest, put back the snapshotted `list` with its original delay */
+  _restoreFn(list, old) {
+    const gone = new Set([...old, ...list].map(x => x.t));
+    this._timers = this._timers.filter(t => t.event || !gone.has(t)).concat(list.map(({ t, rem }) => Object.assign(t, { due: this.now(t.ch) + rem, dead: false })));
+  }
 
   // ---------- the three ways time moves ----------
   /** @internal loop.js, at the start of a fixed step: count it, so this step's commits, ops and input records carry the new tick */
@@ -210,7 +215,8 @@ export class Time {
     const scales = [...this._ch.values()].map(c => [c, this.scale(c.name)]);
     this._setAmbient(this._amb + fixed);
     for (const [c, s] of scales) c.now += c.name === 'calendar' && calendar != null ? calendar : fixed * s;
-    for (const fn of [...this._onMove]) { try { fn(); } catch (err) { reportError(this.engine, err, STRINGS.onMove); } }
+    for (const fn of [...this._onMove]) { if (!this._onMove.includes(fn)) continue; /* removed earlier in this pass, or by a dispose */ try { fn(); } catch (err) { reportError(this.engine, err, STRINGS.onMove); } }
+    if (this.engine.disposed) return;
     this.engine.stacks._expire();
     this._runTimers();
   }
@@ -237,6 +243,6 @@ export class Time {
     }
     return out;
   }
-  /** Clear all timers (engine.dispose) */
-  dispose() { for (const t of this._timers) t.dead = true; this._timers = []; }
+  /** Clear all timers and move listeners (engine.dispose) */
+  dispose() { for (const t of this._timers) t.dead = true; this._timers = []; this._onMove = []; }
 }

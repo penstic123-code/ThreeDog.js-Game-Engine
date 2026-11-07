@@ -30,7 +30,7 @@
 // Previews: a model or texture gets the gallery's headless turntable shot when the game registers it (assets.js); a code entry gets one only
 //   with --preview <url of a running scene> (shot of that page) or --preview picture.png. Without either the entry has no preview, and says so.
 import { existsSync, statSync, readdirSync, readFileSync, writeFileSync, mkdirSync, rmSync, copyFileSync, renameSync } from 'node:fs';
-import { join, resolve, basename, relative, sep } from 'node:path';
+import { join, resolve, basename, relative } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -41,11 +41,11 @@ import { checkGame, misfit, rendererOf } from './lib/lib-check.mjs';
 import { proveEntry, pullSystem, readSystem, storeSystem, systemProblems } from './lib/lib-system.mjs';
 import { parseOptions } from './lib/cli-args.mjs';
 import { closest } from './lib/text.mjs';
+import { posix } from './paths.mjs';
 
 const HERE = fileURLToPath(new URL('.', import.meta.url));
 export const KINDS = ['model', 'texture', 'material', 'shader', 'effect', 'module', 'system', 'picture', 'other'];
 const NAME = /^[A-Za-z0-9][\w.-]*$/, CODE = /\.m?js$/, MODEL = /\.(glb|gltf)$/i, TEXTURE = /\.(png|jpe?g|webp|avif|gif|ktx2|basis|hdr|exr|svg)$/i;
-const posix = p => p.split(sep).join('/');
 export const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
 /** The library folder: --lib, else THREEDOG_LIBRARY, else ~/.threedog/library */

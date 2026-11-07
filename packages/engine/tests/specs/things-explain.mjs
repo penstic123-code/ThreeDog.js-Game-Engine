@@ -1,4 +1,4 @@
-// engine.thing(id).explain() and engine.debug.override (recipes/40-scene.md): one id answers definition, materials, rules, related ops and
+// engine.explain({ thing: id }) and engine.debug.override (recipes/40-scene.md): one id answers definition, materials, rules, related ops and
 // save status; diagnostic overrides belong to an owner, show in describe().scene.overrides, are never saved and clear without a trace.
 export const specs = [
   {
@@ -16,11 +16,15 @@ export const specs = [
         for (let i = 0; i < 40 && !engine.world.view('probe-rec'); i++) { engine.step(0.1); await new Promise(res => setTimeout(res, 0)); }
         engine.ops.define('probe.poke', { desc: 'poke the probe', targets: 'probe', args: { id: 'string' }, run: () => {} });
         const err = f => { try { f(); return null; } catch (e) { return e.message; } };
-        const a = engine.thing('probe-box').explain(), b = engine.thing('probe-rec').explain();
+        const a = engine.explain({ thing: 'probe-box' }).detail, b = engine.explain({ thing: 'probe-rec' }).detail;
+        // one entry: the thing itself has no second door, and the other questions design 16.2 names go through the same call
+        if (engine.thing('probe-box').explain) throw new Error('thing.explain came back: engine.explain is the one entry');
+        const none = engine.explain({ thing: 'no-such-id' }), mod = engine.explain({ module: 'content' }), cap = engine.explain({ capability: 'content' }), noMod = engine.explain({ module: 'nope' });
+        if (none.ok || !none.text || !mod.ok || mod.detail.state !== 'running' || !cap.ok || !cap.detail.by.includes('content') || noMod.ok) throw new Error('explain thing / module / capability: ' + JSON.stringify({ none, mod, cap, noMod }));
         const col0 = mesh.material.color.getHex(), mat0 = mesh.material;
         const h = engine.debug.override('ai', 'probe-box', { material: 'flat' }), h2 = engine.debug.override('ai', 'probe-box', { visible: false });
         const other = engine.debug.override('view', mesh, { material: 'wire' });
-        const during = { mat: mesh.material.type, vis: mesh.visible, ov: engine.describe().scene.overrides, again: engine.thing('probe-box').explain().overrides, saved: JSON.stringify(engine._things.save()) };
+        const during = { mat: mesh.material.type, vis: mesh.visible, ov: engine.describe().scene.overrides, again: engine.explain({ thing: 'probe-box' }).detail.overrides, saved: JSON.stringify(engine._things.save()) };
         const removed = engine.debug.clear('ai');
         const mid = { vis: mesh.visible, wire: mesh.material.wireframe, ov: engine.describe().scene.overrides.length };
         h.remove();

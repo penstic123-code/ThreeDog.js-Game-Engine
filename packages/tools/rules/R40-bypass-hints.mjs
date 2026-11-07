@@ -1,40 +1,37 @@
-// R40 bypass hints (warnings only, never errors): game code (games/*, engine examples; not the engine itself, R4/R19-R21 cover that) that hand-rolls
-// something an engine system already does. Each warning says what was seen, which system covers it, and how to say "this is on purpose".
-//   timers     setInterval / setTimeout for game timing                 -> engine.clock.after / every, or onFixed (pause, step and saves see them)
-//   random     Math.random() in gameplay code                           -> engine.random (seeded: replay and saves reproduce it)
-//   inventory  a hand-made items / backpack array or object             -> the inventory module (add / remove / has, containers, saves, events)
-//   grid       bilinear blending over a height / field array            -> sampleGrid (nearest / linear / cubic, edges, image input)
-//   save       localStorage.setItem of a save (a save-like key, or JSON of state) -> engine.saves (versions, a corrupt save, slots, Continue on the start screen)
-//              A remembered preference (a volume, a language) is not a save and stays quiet; so is a file that uses engine.saves.
-//   pause      an Esc handler or a paused flag of its own, in a file with no settings / flow / freeze -> settings({ freezeWorld: true })
-// Patterns are line based, with context (the inventory hint needs a declaration and no use of the module in that file; the grid hint needs a floor, a
-// height-like array read and a blend within a few lines), so a plain use of the same word does not fire.
-// Not flagged: tests, docs and scripts folders, tagged presentation code (the same tags as R4: // presentation, // measure, // debug, // wall-clock,
-// // main-loop), setTimeout(resolve, ...) delays, setTimeout(fn, 0).
+// R40 bypass hints (warnings only, never errors): game code that hand-rolls something an engine system already does. Each warning says what was seen, which system
+// covers it, and how to say "this is on purpose". Scanned: a game's own sources (games/*, or a project installed from npm, proved by pack-external), and the engine's examples; not the engine itself (R4/R19-R21 cover that).
+// Why the patterns are not here: the owner of a system knows what its hand-made copy looks like, and a table here forgets the next system. Each system declares
+// export const handRolled next to its definition, the generated metadata carries it (metadata.hints), and this file only reads it; a module with no code shape says 'none: why' (R64 checks).
+// A hint's fields, all optional but seen, use and one of code / raw:
+//   code   regex on the line with comments and strings blanked   raw   regex on the line as written (a key name, a DOM id); with both, both must match
+//   orRaw  regex on the raw line, enough on its own               not / notRaw   the same two lines: a match stays quiet
+//   quiet  regex on the file's code: the file already uses the system      near  [{ re, lines, on: 'raw' }] each must match within that many lines
+//   gameplayOnly  quiet in a picture / style / art file or a picture module   tags: false  a tag (below) does not silence it
+//   yields { kind, raw }  on a matching line the finding belongs to that other kind, while that kind can fire in the file (an Esc handler is pause, not keys)
+//   Never hinted: a native three.js loader in game code (a format engine.assets does not read is a plain three.js job; R21 scans the engine only), or a pathfinder of the game's own.
+// Known limit of quiet: it reads the whole file, so a file that uses engine.inventory and also keeps a hand-made bag stays silent. A hint is a pointer, not a proof nothing was hand-rolled.
+// Not flagged: tests, docs and scripts folders, tagged presentation code (the same tags as R4: // presentation, // measure, // debug, // wall-clock, // main-loop).
 //
 // Switching off. Per line (this line or the whole-line comment above): `// hint-off` for every hint, or `// hint-off(random, timers)` for named ones.
 //   Whole file (one of the first 30 lines): `// hint-off-file` or `// hint-off-file(random)`.
 //   Whole game: the game's package.json (games/<name>/package.json; the repo root's applies to every game)  "threedog": { "hints": false }  (all), or
-//   { "hints": { "random": false, "timers": false } } (named kinds); one run: THREEDOG_HINTS=off npm run check. Kinds: timers random inventory grid save pause.
+//   { "hints": { "random": false, "timers": false } } (named kinds); one run: THREEDOG_HINTS=off npm run check. Kinds: see KINDS.
 //   A switch that cannot work (an unknown kind, hint-off-file below line 30, a wrong hints value) is reported as its own warning, never silently ignored.
 // If you have a reason, write it in DESIGN.md under Systems (what you built by hand and why), so the next reader and the next AI see it.
+import { metadata } from 'threedog/metadata';
 import { readFileSync, existsSync } from 'node:fs';
 import { walk, lines, codeOnly, rel, ROOT, P } from './_lib.mjs';
 import { TAGS } from './R04-real-time.mjs';
+import { isArtFile } from '../paths.mjs';
+import { HINTS_SHOWN } from '../lib/result.mjs';
 
-export const KINDS = ['timers', 'random', 'inventory', 'grid', 'save', 'pause'];
+/** "/source/flags", as metadata.mjs wrote it, back into a RegExp */
+const regex = s => { const m = /^\/(.*)\/(\w*)$/s.exec(s); return new RegExp(m[1], m[2]); };
+const compiled = h => ({ ...h, ...Object.fromEntries(['quiet', 'code', 'raw', 'orRaw', 'not', 'notRaw'].filter(k => h[k]).map(k => [k, regex(h[k])])),
+  ...(h.near && { near: h.near.map(n => ({ ...n, re: regex(n.re) })) }), ...(h.yields && { yields: { ...h.yields, raw: regex(h.yields.raw) } }) });
+const HINTS = Object.fromEntries(Object.entries(metadata.hints).map(([k, h]) => [k, compiled(h)]));
+export const KINDS = Object.keys(HINTS);
 const HOW = 'a reason? write it in DESIGN.md (Systems), or switch the hint off: // hint-off(KIND) on the line, // hint-off-file(KIND) at the top, or package.json "threedog": { "hints": { "KIND": false } }';
-
-const SAY = {
-  timers: ['setInterval / setTimeout used for game timing',
-    'engine.clock.after(seconds, fn) / engine.clock.every(seconds, fn), or accumulate dt in engine.onFixed (they follow pause, step and saves)'],
-  random: ['Math.random() in game code', 'engine.random (seeded: next / range / int / pick / chance; replays, tests and saves get the same numbers)'],
-  inventory: ['a hand-made inventory (items kept in your own array / object)',
-    'the inventory module: engine.use(inventory()), engine.inventory.add / remove / has (counts, containers, events, saved with the game)'],
-  grid: ['blending over a height / field array by hand', 'sampleGrid(data, { width, height, size, interp }) -> (x, z) => value; engine.assets.gridFromImage reads one from a PNG'],
-  save: ['a save of its own in localStorage', "engine.saves: autosave(minutes), register('game', { version: 1, save, load }), and Continue on the start screen (recipe 63); versions, slots and a corrupt save are handled"],
-  pause: ['a pause or Esc handler of its own', 'settings({ freezeWorld: true }): Esc stops every system and opens the menu (recipe 63); engine.freeze(why) for a pause with no menu'],
-};
 
 /** Hints that stay on for the project: package.json "threedog.hints" (false / 'off' / { kind: false }) and THREEDOG_HINTS=off. Returns a Set of kinds */
 export function activeKinds(pkgHints, env = process.env.THREEDOG_HINTS) {
@@ -60,9 +57,9 @@ const wholeLineComment = s => /^\s*(\/\/|\/\*)/.test(s || '');
 
 /**
  * Hints in a text: [{ level: 'warn', line, kind, msg, fix }]. active: the kinds that stay on (default all).
- * @param {string} text @param {Set<string>} [active]
+ * @param {string} text @param {Set<string>} [active] @param {{ art?: boolean }} [o] art: a file of the game's picture (paths.mjs isArtFile)
  */
-export function scanText(text, active = new Set(KINDS)) {
+export function scanText(text, active = new Set(KINDS), { art = false } = {}) {
   const L = text.split(/\r?\n/), out = [];
   const fileOff = new Set(L.slice(0, 30).flatMap(l => offKinds(commentOf(l), 'hint-off-file') ?? []));
   // a switch naming no known kind, or a file switch too far down, would silently do nothing: say so where it is written
@@ -76,28 +73,21 @@ export function scanText(text, active = new Set(KINDS)) {
   const tagged = i => TAGS.some(t => commentOf(L[i]).includes(t) || (wholeLineComment(L[i - 1]) && commentOf(L[i - 1]).includes(t)));
   const add = (i, kind) => {
     if (!active.has(kind) || fileOff.has(kind) || lineOff(i).has(kind)) return;
-    const [what, use] = SAY[kind];
-    out.push({ level: 'warn', line: i + 1, kind, msg: `${what}: ${L[i].trim().slice(0, 80)}`, fix: `use ${use}. If you have a reason: ${HOW.replaceAll('KIND', kind)}` });
+    const { seen: what, use } = HINTS[kind];
+    out.push({ level: 'warn', line: i + 1, kind, msg: `${what}: ${L[i].trim().slice(0, 80)}`, short: `use ${use.split(/ [(;]/)[0]} · off: // hint-off(${kind})`, fix: `use ${use}. If you have a reason: ${HOW.replaceAll('KIND', kind)}` });
   };
   const code = L.map(l => (/^\s*(\/\/|\*|\/\*)/.test(l) ? '' : codeOnly(l)));
   const whole = code.join('\n');
-  const usesInventory = /\b(engine|e|eng)\.inventory\b|\binventory\(\s*[{)]/.test(whole);
-  const usesGrid = /\bsampleGrid\b/.test(whole);
-  const usesSaves = /\bengine\.saves\b/.test(whole);
-  const usesPause = /\bsettings\(|\bengine\.(freeze|flow|settings)\b|\buiFocus\(/.test(whole);
+  const picture = art || /\btype:\s*['"]picture['"]/.test(text);   // on the raw text: codeOnly blanks strings
+  const quietFile = Object.fromEntries(KINDS.map(k => [k, !!HINTS[k].quiet?.test(whole)]));
+  const within = (i, n) => (n.on === 'raw' ? L : code).slice(Math.max(0, i - n.lines), i + n.lines + 1).join('\n');
+  const fires = (h, c, i) => !quietFile[h.kind] && !(h.gameplayOnly && picture)
+    && (((!h.code || h.code.test(c)) && (!h.raw || h.raw.test(L[i]))) || !!h.orRaw?.test(L[i]))
+    && !h.not?.test(c) && !h.notRaw?.test(L[i]) && (h.tags === false || !tagged(i))
+    && !(h.yields && !quietFile[h.yields.kind] && h.yields.raw.test(L[i]))
+    && (h.near ?? []).every(n => n.re.test(within(i, n)));
   code.forEach((c, i) => {
-    if (!c.trim()) return;
-    if (/\b(setInterval|setTimeout)\s*\(/.test(c) && !tagged(i) && !/setTimeout\s*\(\s*(r|res|resolve|done)\b/.test(c) && !/setTimeout\s*\([^,]*,\s*0\s*\)/.test(c)) add(i, 'timers');
-    if (/\bMath\.random\s*\(/.test(c) && !tagged(i)) add(i, 'random');
-    if (!usesInventory && /(?:\b(?:const|let|var)\s+|\bthis\.)(inventory|backpack|bag|pockets|inv)(?:Items|Slots|List|Contents|Data|Map|Counts?|s)?\s*=\s*(\[\s*\]|\{\s*\}|new Map\b|new Set\b)/i.test(c)) add(i, 'inventory');
-    // on the raw line: codeOnly blanks strings, and the key and the Esc name are strings
-    if (!usesSaves && /\blocalStorage\.setItem\s*\(/.test(c) && /save|progress|JSON\.stringify/i.test(L[i])) add(i, 'save');
-    if (!usesPause && (/\b(?:let|var)\s+(?:is|game)?paused\s*=/i.test(c) || /(?:\.key|\.code)\s*===?\s*['"]Escape['"]/.test(L[i]))) add(i, 'pause');
-    // grid: a floor, a height-like array read and a blend ((1 - t), lerp, mix) within 6 lines
-    if (!usesGrid && /\b(heights?|heightmap|hm|elevation|terrainData|heightData|field)\w*\s*\[/i.test(c)) {
-      const win = code.slice(Math.max(0, i - 6), i + 7).join('\n');
-      if (/Math\.floor\(/.test(win) && /\(\s*1\s*-\s*\w+\s*\)|\blerp\s*\(|\bmix\s*\(/.test(win)) add(i, 'grid');
-    }
+    if (c.trim()) for (const k of KINDS) if (fires(HINTS[k], c, i)) add(i, k);
   });
   // one hint per kind per 7 lines (a blend over four array reads is one finding)
   return out.filter((r, k) => !out.slice(0, k).some(p => p.kind === r.kind && r.line - p.line < 7));
@@ -105,6 +95,7 @@ export function scanText(text, active = new Set(KINDS)) {
 
 export default {
   id: 'R40', title: 'Bypass hints: hand-rolled versions of engine systems in game code (warnings only)', game: true,
+  surface: HINTS_SHOWN,   // plain check lists this many and counts the rest in its last line (rules/index.mjs)
   run() {
     // The switch belongs in the game's own package.json (games/<name>/): reading only the repo root's ignored it in this repository.
     // Both apply: the root's to every game, the game's to its own files. Each package.json is read once
@@ -127,7 +118,7 @@ export default {
       const active = game ? new Set([...activeKinds(settingOf(game + 'package.json'))].filter(k => rootSet.has(k))) : rootSet;
       if (!active.size) continue;
       let text; try { text = lines(f).join('\n'); } catch { continue; }
-      for (const r of scanText(text, active)) out.push({ ...r, file: f });
+      for (const r of scanText(text, active, { art: isArtFile(f) })) out.push({ ...r, file: f });
     }
     return out;
   },

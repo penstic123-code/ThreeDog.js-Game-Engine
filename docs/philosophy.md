@@ -41,42 +41,7 @@ Three questions decide whether something belongs in the engine. Three.js must la
 
 ## How separate code shares one frame
 
-Agreement between systems comes from a few small mechanisms, and each one covers a different way code can collide.
-
-**Order is fixed.** Every frame runs gameplay steps, then frame hooks, then render hooks, then shadows, then the draw. Signals are written before the hooks run, so every reader sees the same frame's values.
-
-**Modules declare what they need.** A module says what it `requires` and what it `provides`. A second module providing the same slot is an error at install time unless it says `replaces`, and a missing requirement is an error that names the fix.
-
-**Shared values have one formula.** When several owners really do change one number, such as bullet time and a stopwatch both slowing the world, each one adds an entry with `engine.mod`. Entries combine by layer, from the game through effects and system holds up to the player's settings, and the settings layer can only restrict. Nothing remembers an old value, so effects can end in any order. Two owners who both try to set the value on one layer get an error naming both code lines.
-
-**The engine yields.** The few values the engine still writes, such as the sky's background or the shadow box's center, are registered. When a game writes one directly, the engine stops writing it, keeps the game's value and warns once.
-
-**Everything can be read back.** `engine.describe()` reports what three.js holds now, who wrote each shared value, and which modules hold which slots, so an agent can check its work without guessing.
-
-## The gap this design accepts
-
-Two pieces of the game's own picture code can still collide. If `sky.js` and `rain.js` both assign `sun.intensity`, the later line wins and nothing complains, because this is an ordinary JavaScript assignment. Catching it directly would mean wrapping three.js, which brings the look layer back. The engine accepts this gap on purpose and closes it from the outside, in three steps:
-
-| Kind of value | Example | Rule | On a collision |
-|---|---|---|---|
-| Only one can exist | Sky, fog, tone and exposure, main light | The code takes a slot with `provides`, from a short table of names | Error at install, or an explicit `replaces` |
-| Several parties change it | A sunset and a cutscene both dim the sun | A shared value through `engine.mod`, read in one place and written to three.js once | Combined by the formula |
-| Just more things | Another lamp, another object | Add it | No conflict, only a budget |
-
-Anything undeclared falls to a development tool that records which line wrote a picture value, reports two writers in one frame, reports a write to a value another part holds, and lists what a removed part left behind. Declaring is voluntary, so this tool is the safety net, and it only sees code that actually runs. Nothing here can tell that a warm lamp clashes with a cold sea. That judgment stays with screenshots and human eyes. Three parts written in three styles do run together in a test, and each planned collision fails with a message naming both sides; a real game has not tried it yet.
-
-## Principles
-
-1. Three.js can always be written directly, and what is written takes effect.
-2. Engine objects are real three.js objects. Every change the engine makes to three.js is listed in `describe().threePatches`.
-3. Nothing limits what an agent can draw. Every picture path ends in "replace it with your own".
-4. The engine does not hide three.js. It coordinates, provides tools, builds wheels, and offers only features that do not make games alike.
-5. The engine ships no art: no default style, character or terrain look, only neutral gray placeholders.
-6. Defaults fit no single genre.
-7. Errors are never silent. An error states the rule that was broken and the line to copy.
-8. Each job has one way in, and the vocabulary stays small.
-9. When something replaces something else, the old thing is deleted in the same change. There is no compatibility layer before 1.0.
-10. A module that is not installed costs nothing.
+The frame order, module requirements, shared values with one formula, the engine yielding to direct writes, the known gap and the principles are in [design.md](design.md), sections 2 to 5. They are written there once.
 
 ## WebGL or WebGPU
 
@@ -89,5 +54,4 @@ The evidence is small. In ten timed runs of two small games, half with the engin
 ## What comes next
 
 - An asset library that records where each pulled item came from, describes what it needs and writes, and checks that items fit together.
-- Composed templates, so one placed object can be made of several parts.
 - A harder art test that combines assets from different sources.

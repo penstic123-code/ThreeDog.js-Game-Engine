@@ -16,6 +16,7 @@ export const SOURCE_KEYS = ['radius', 'detail', 'physics', 'until', 'name'];
 export const SOURCE_STRINGS = {
   detail: 'stream.source(): detail must be \'full\' (models, stream entries, physics) or \'simple\' (terrain and hlod proxies only), got {got}',
   removed: 'stream source "{name}" was removed before it was ready (remove(), its until, or engine.dispose()); nothing waits for it any more',
+  abandoned: 'stream.teleport(): the game state was replaced (new game, load) before the destination ({x}, {z}) was ready; the trip was abandoned and the player was not moved',
   timeout: 'stream.teleport(): the destination ({x}, {z}) was not ready after {t} s; still waiting on: {checks}. The player was not moved',
 };
 

@@ -23,7 +23,7 @@ export function reportError(engine, err, key, { module = null, soft = false } = 
     const message = String(err?.message ?? err);
     // code + fix + docs: what to do and which page to read; at: the line that threw (the message alone often does not say which callback line)
     engine.error = { where: key, message, ...errorInfo(err), at: firstFrame(err) };
-    engine.freeze('error');
+    engine.freeze('error');   // until reload, a new game included: dev must not walk past a bug, and a new playthrough on top of it would hide it. Release builds keep running
     console.error(fmt(STRINGS.halted, { key }) + hintText(err?.code ? `[${err.code}]` : message), err);
     engine.events.emit('engine:error', engine.error);
     return;
@@ -53,10 +53,12 @@ export function watchRejections(engine) {
 /** An event listener threw (called by the event bus): counted as gameplay */
 export function reportListenerError(engine, name, err) { reportError(engine, err, fmt(STRINGS.listener, { name })); }
 
-/** Disable a picture / ui module: remove its fixed / frame / afterRender hooks */
+/** Disable a picture / ui module: give back what it borrowed, remove its fixed / frame / afterRender hooks */
 function disableModule(engine, m, err) {
-  if (engine.disabledModules.has(m.name)) return;
-  engine.disabledModules.add(m.name);
+  const was = engine._modState.get(m.name);
+  if (was === 'disabled') return;
+  if (was !== 'failed') engine._modState.set(m.name, 'disabled');   // a failed init stays 'failed': that word is what blocks the modules that require it
+  engine._returnBorrowed(m.name);
   for (const k in engine._hooks) engine._hooks[k] = engine._hooks[k].filter(h => h.name !== m.name);
   console.error(fmt(STRINGS.disabled, { type: m.type, name: m.name }), err);
   engine.events.emit('module:disabled', { name: m.name, message: String(err?.message ?? err) });

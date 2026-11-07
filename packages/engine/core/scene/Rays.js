@@ -24,7 +24,7 @@ import { DEV, warnOnce } from '../base/validate.js';
 // Meshes under this many triangles get no BVH (blocky buildings etc.: the per-triangle check is faster)
 const BVH_MIN = 256;
 const triangles = g => (g.index ? g.index.count : g.attributes.position.count) / 3;
-const _v = new THREE.Vector3(), _d = new THREE.Vector3(), _ndc = new THREE.Vector2(), _sph = new THREE.Sphere();
+const _v = new THREE.Vector3(), _d = new THREE.Vector3(), _ndc = new THREE.Vector2(), _sph = new THREE.Sphere(), _m = new THREE.Matrix4(), _i = new THREE.Matrix4(), _n = new THREE.Matrix3();
 
 /** Cheap broadphase per static: does the ray pass the mesh's world bounding sphere within far? (the same test Mesh.raycast starts with, done before the parent walk) */
 // Measured (5000 statics, 4 casts a frame, node): about 12 ms -> 3-5 ms per frame; caching the world sphere per static was slower than recomputing it.
@@ -43,13 +43,13 @@ export class Rays {
   constructor(engine) {
     /** @internal */ this.engine = engine;
     /** @internal */ this.providers = [];
+    /** @internal the tick the statics' world matrices were last brought up to date */ this.fresh = -1;
     /** Registered mesh -> { refs: registration count, occ: camera-blocker registration count } @type {Map<THREE.Object3D, { refs: number, occ: number }>} @experimental */
     this.statics = new Map();
     /** The three.js Raycaster (firstHitOnly is on) @type {any} @experimental */
     this.ray = new THREE.Raycaster();
     this.ray.firstHitOnly = true;       // only the nearest hit per mesh (faster with a BVH)
     this.ray.layers.enable(RESERVED_LAYERS.batched);   // originals drawn through engine.batching sit here and must still be hit
-    this.ray.layers.enable(RESERVED_LAYERS.occlusionHidden);   // so must what occlusion culling is not drawing this frame
   }
   /**
    * Register a static object and every mesh under it (an array also works; meshes over 256 triangles get a BVH); occluder: true also blocks the camera. Returns a handle { remove() }.
@@ -63,6 +63,7 @@ export class Rays {
   addStatic(obj, opts = {}) {
     const { occluder = false } = opts;
     const added = [];
+    this.fresh = -1;
     for (const o of [].concat(obj)) o.traverse(m => {
       if (DEV && (m.isInstancedMesh || m.isSkinnedMesh)) warnOnce(`engine.rays.addStatic: skipped ${m.isInstancedMesh ? 'an InstancedMesh' : 'a SkinnedMesh'} ("${m.name}"): rays do not hit these and they do not block the camera. Use a collider, or register a plain stand-in mesh.`, 'rays-skip-' + m.type);
       if (!m.isMesh || m.isInstancedMesh || m.isSkinnedMesh || m.userData.lodLevel || !m.geometry?.attributes.position) return;   // a low level stands in on screen only: rays use the full model
@@ -121,6 +122,7 @@ export class Rays {
    */
   _rayAt(ndcX, ndcY, opts = {}) {
     const { far = Infinity, targets = 'static', filter = null, occluders = false } = opts;
+    this.engine.camera.updateWorldMatrix(true, false);   // moved in this step: the matrix is only refreshed by the render
     this.ray.setFromCamera(_ndc.set(ndcX, ndcY), this.engine.camera);
     this.ray.far = far;
     return this._cast(this.ray.ray.origin, this.ray.ray.direction, far, targets, filter, occluders);
@@ -132,11 +134,15 @@ export class Rays {
     let best = null;
     const take = h => { if (h && h.distance <= far && (!best || h.distance < best.distance) && (!filter || filter(h))) best = h; };
     if (Array.isArray(targets)) {
+      for (const t of targets) t.updateWorldMatrix(true, true);
       this.ray.firstHitOnly = false;
       for (const h of this.ray.intersectObjects(targets, true)) { if (shown(h.object)) { take(toHit(h)); if (best) break; } }
       this.ray.firstHitOnly = true;
     } else {
-      const ray = this.ray.ray;
+      const ray = this.ray.ray, tick = this.engine.time.tick;
+      // matrices are refreshed by the render, and a fixed step runs before it: what moved or was added since would answer from where it was.
+      // shortcut: once per tick and not per ray (a walk up the parents of 5000 statics costs more than the rays): something moved between two rays of one step answers from the next tick
+      if (this.fresh !== tick) { this.fresh = tick; for (const m of this.statics.keys()) m.updateWorldMatrix(true, false); }
       for (const [m, s] of this.statics) {
         if (occluders && !s.occ) continue;   // first: a camera ray then pays one flag check for every mesh that is no blocker
         if (!mayHit(ray, m, far)) continue;   // most statics are nowhere near the ray: skip them before walking parents
@@ -157,7 +163,17 @@ function shown(o, scene) {
   for (let p = o; p; p = p.parent) { if (!p.visible) return false; if (p === scene) return true; }
   return !scene;
 }
+/** three's hit as it came (instanceId, batchId, uv stay on it), with the normal in the world: an instance has a matrix of its own, and an uneven scale needs the normal matrix */
 function toHit(h) {
-  const normal = h.face ? h.face.normal.clone().transformDirection(h.object.matrixWorld) : null;
-  return { point: h.point, distance: h.distance, normal, object: h.object, face: h.face };
+  const o = h.object;
+  let normal = null;
+  if (h.face) {
+    _m.copy(o.matrixWorld);
+    const id = o.isInstancedMesh ? h.instanceId : o.isBatchedMesh ? h.batchId : undefined;
+    if (id !== undefined) { o.getMatrixAt(id, _i); _m.multiply(_i); }
+    normal = h.face.normal.clone().applyNormalMatrix(_n.getNormalMatrix(_m));
+  }
+  return { ...h, normal };
 }
+
+export const handRolled = [{ kind: 'picking', seen: 'a pointer-to-object raycast of its own', use: 'engine.pick(x, y), or engine.raycast / engine.rays: colliders and moving things are in the same query (recipe 19)', quiet: /\b(engine|e|eng|ctx)\.(rays|raycast|pick)\b/, code: /\.setFromCamera\s*\(/ }];

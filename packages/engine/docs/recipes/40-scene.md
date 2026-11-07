@@ -23,7 +23,7 @@ A scene object comes in either of two ways, and both end up in the same scene:
 
 The same windmill, both ways:
 
-```js
+```js fragment
 // A. plain three.js: your code builds it on every start
 const mill = buildWindmill();                       // THREE.Group
 mill.position.set(20, 0, -10);
@@ -41,7 +41,7 @@ export default { windmill: { model: 'windmill', collide: 'circle' } };
 // content/props.js
 export default [{ id: 'windmill-hill', template: 'windmill', x: 20, z: -10 }];
 ```
-```js
+```js fragment
 // main.js: a code-built model registered by name
 engine.assets.manifest({ models: { windmill: buildWindmill } });
 ```
@@ -75,15 +75,15 @@ inside an op with `engine.content.spawn(name, at)`: a record is saved whole.
 
 ## 4. Give it an id
 ```js
-const windmill = buildWindmill();                  // any Object3D
+const windmill = new THREE.Group();                // any Object3D
 engine.add(windmill, { id: 'windmill' });          // at setup: thing.set / thing.remove changes to it are saved
-engine.add(spark);                                 // effects need no id: obj#7, this session only
+engine.add(new THREE.Group());                     // effects need no id: obj#7, this session only
 engine.thing('windmill');
 // { id: 'windmill', kind: 'Group', owner: 'game', at: 'main.js:50', phase: 'setup', saved: 'code',
 //   keeps: ['position, rotation, scale, visibility and removal made with thing.set / thing.remove (scene save part)'],
 //   loses: ['geometry and material changes', 'children added later', 'userData', ...], edit: 'added by code at main.js:50 (id ...)' }
 engine.thing('windmill').object;                   // the live Object3D (not enumerable, so the result stays JSON-able)
-engine.thing(engine.pick(0, 0).object).id;         // any child resolves to its registered root; hit.thing says the same
+engine.pick(0, 0)?.thing;                          // any child resolves to its registered root
 ```
 - The id is `{ id }`, else a session id `obj#n` (session tier: never saved). `obj.name` is not an id (GLB roots are all called `Scene`): it only helps `engine.thing(name)` find the object. An id is a non-empty string without `#`,
   unique across `engine.add` objects and world records: a clash throws (`thing-id`) from either side (`engine.add` or `world.add`) and says which one holds it.
@@ -98,7 +98,8 @@ engine.thing(engine.pick(0, 0).object).id;         // any child resolves to its 
 const args = { id: 'windmill', position: [5, 0, 2], rotation: 1.2 };   // rotation: a number is yaw, or [x, y, z]; scale: a number or [x, y, z]
 const r = engine.ops.run('thing.set', args);
 engine.ops.undo('thing.set', args, r.value);                            // back where it was
-engine.ops.run('thing.remove', { id: 'windmill' });                     // detached and kept: undo puts it back
+const gone = engine.ops.run('thing.remove', { id: 'windmill' });        // detached and kept: undo puts it back
+engine.ops.undo('thing.remove', { id: 'windmill' }, gone.value);
 ```
 - A world record id turns into `world.set` / `world.move` (`rot` / `scale` are template instance fields) and `world.remove`; the model follows the
   record. `visible` is refused for a record (`recordVisible`): hide its model with `present({ show })` and a field.
@@ -152,15 +153,15 @@ Plain three.js is always allowed (`engine.scene`, `engine.renderer`, `engine.cam
 The engine adds nothing to your materials. The cloud shadow is a signal (`engine.uniforms.uCloudShadow`, `uCloudShadowScale`, `uCloudShadowSpeed`) and a function: `applyEffects(mat)` gives a lit three.js material the engine's term, so it darkens under the drifting clouds like the engine's ground, on WebGL and WebGPU; your own shader calls `threedogCloudShadow(worldPos)` (recipe 43). Clouds dim the sun only (directional lights, every cascade included): a `PointLight` street lamp or a torch is never shaded by them. At 0 a uniform branch skips the cloud noise, and one program per material type stays. Snow and season cover work the same way: `applyEffects(mat, { season: 'ground' })` (`'foliage'` for leaves).
 Keep the integrations by going through the engine: `applyEffects(mat, { wind, season, detail, lighting, patches })` on your material, `engine.post.add(pass | { name, fuse: { glsl }, slot })` for a screen effect.
 
-## 9. One id, everything: explain() and the three kinds of change
+## 9. One id, everything: explain and the three kinds of change
 ```js
-engine.thing('chest-home').explain();    // CLI: threedog thing chest-home (MCP: thing); the same JSON
+engine.explain({ thing: 'chest-home' }).detail;    // CLI: threedog explain thing chest-home --full (MCP: explain); the same JSON
 // { id, kind, owner, definition: { at: 'content/props.js:14', template, templateAt, level?, node?, spawned? }, model, materials: [{ role, name, from, keys }],
 //   state, rules: { blocksMovement, pickable, interact, height }, ops: [{ op, desc, args }], saved: { tier, keeps, loses }, change: {…}, overrides? }
 ```
 `ops` lists the ops whose definition names this id, kind or template in the optional `targets` field (`engine.ops.define('chest.toggle', { targets: 'chest', … })`;
 `'*'` = any thing, which `thing.set` / `thing.remove` use). `definition.at` is null in release builds and for code run without a file (page `eval`).
-`thing.explain()` (type `ThingExplanation`) is not `engine.explain({ op | quest | … })`: that one takes a question and answers `{ ok, text }` about why an op or quest cannot run now (recipe 23); this one takes no question and returns the facts about one id. `rules.blocksMovement` is the template's / prop's `collide` shape; the engine does not model blocking sight. Pick the kind of change first:
+`text` says in one line where the id comes from and how to change it for good; `detail` has type `ThingExplanation`. The same `engine.explain` answers an op, a quest, a value, a module and a capability (recipe 23).
 
 | Kind | How | Lasts |
 |---|---|---|
@@ -170,7 +171,7 @@ engine.thing('chest-home').explain();    // CLI: threedog thing chest-home (MCP:
 
 ```js
 const h = engine.debug.override('ai-session', 'windmill', { material: 'flat' });   // unlit base colour: is the colour wrong, or the light?
-engine.debug.override('ai-session', 'fence', { visible: false });
+engine.debug.override('ai-session', engine.player.root, { visible: false });
 engine.debug.override('ai-session', engine.renderer, 'toneMappingExposure', 3);   // any three.js value: (object, key, value); held above picture code until remove()
 engine.describe().scene.overrides;       // [{ owner, target, material: 'flat' }, …]: the screen differs from the real state while this is non-empty
 h.remove(); engine.debug.clear('ai-session');   // clear removes every override of that owner (and its debug.view) and nothing else

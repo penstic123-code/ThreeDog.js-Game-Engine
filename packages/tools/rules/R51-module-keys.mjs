@@ -9,10 +9,11 @@
 // to the module call or to interactions.add.
 import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
+import { metadata } from 'threedog/metadata';
 import { ts, read, parse, lineOf, visit, walk, rel, P } from './_lib.mjs';
 
-// module function -> the action it reads when no action option is given. Only actions declared without optional: true belong here.
-const NEEDS = { interactions: 'interact', quests: 'quests', inventory: 'inventory', photo: 'photo' };
+// module function -> the action it reads when no action option is given: what the module declares without optional: true and with no key of its own
+const NEEDS = Object.fromEntries(Object.values(metadata.modules).flatMap(m => metadata.actions.filter(a => a.file === m.file && !a.optional && !a.hasKey).map(a => [m.call, a.action])));
 const isPresetsBindings = n => ts.isPropertyAccessExpression(n) && /^presets\.bindings\.\w+$/.test(n.getText());
 
 /** What a bindings value binds: names into `bound`; anything unreadable sets bound.unknown. groups: presets.bindings */

@@ -43,6 +43,8 @@ export class Audio {
     } });
     /** The game's current mode for rule lists, e.g. 'combat' / 'explore' (condition `state` in music and ambience rules) @type {string | null} */
     this.state = null;
+    // the mode belongs to the playthrough: a new game opens as the page did, a load in the mode it was saved in
+    engine.saves.register('audio', { notAtomic: 'sound, which an atomic op leaves alone: side effects go in after', save: () => ({ state: this.state }), load: d => { this.state = d.state ?? null; } });
     /** @internal */ this.conditions = new Map([['state', v => [].concat(v).includes(this.state)]]);
     /** @internal name -> (engine) => number: values rule data compares ({ daylight: { gt: 0.15 } }) and data volumes add up */
     this.measures = new Map();
@@ -57,12 +59,14 @@ export class Audio {
     /** @internal */ this._last = new Map();        // name -> { at, variant } (cooldown, no-repeat)
     /** @internal */ this._spatial = new Set();     // positional voices: the listener and followed objects update only while any exist
     /** @internal */ this._readySent = false;
-    // Create or resume audio on the first click/keypress (a context created earlier is suspended and must be resumed inside a user gesture)
-    const stop = new AbortController(), signal = AbortSignal.any([stop.signal, engine.signal]);   // remove after unlocking once, or when the engine is disposed
-    // given up only once it worked: a touch pointerdown or Escape is no activation for the browser, and the pointerup after it is
-    const unlock = () => { this._init(); this.ctx?.resume().then(() => stop.abort(), () => {}); };
-    for (const ev of ['pointerdown', 'pointerup', 'keydown']) addEventListener(ev, unlock, { signal });
+    /** @internal the game is held by the page (core/engine/page.js): the sound waits with it */ this._held = false;
+    // Create or resume audio on a click/keypress (a context created earlier is suspended and must be resumed inside a user gesture). Every press, not only the first:
+    // a touch pointerdown or Escape is no activation for the browser, and a phone suspends a running context on a call or an app switch
+    const unlock = () => { if (this._held) return; this._init(); if (this.ctx && this.ctx.state !== 'running') this.ctx.resume().catch(() => {}); };
+    for (const ev of ['pointerdown', 'pointerup', 'keydown']) addEventListener(ev, unlock, { signal: engine.signal });
   }
+  /** @internal page.js: the page froze the game, or let it go */
+  _hold(on) { this._held = on; if (this.ctx) (on ? this.ctx.suspend() : this.ctx.resume()).catch(() => {}); }
   /** @internal Close the audio context (engine.dispose calls it): playing sounds and nodes modules attached stop together */
   dispose() { this.ctx?.close(); this.ctx = null; }
 
@@ -212,6 +216,19 @@ export class Audio {
     this.packs.set(key, pack);
     for (const fn of this._packWatch) fn(key, pack);
   }
+  /**
+   * @internal A failed content load puts this pack back as it was (core/base/sections.js undo): the function that does it. Tracks music took stay defined, unnamed by any rule
+   * @param {any} key  as contentPack @returns {() => void}
+   */
+  keepPack(key) {
+    const { sounds, footsteps } = this.config, was = [{ ...sounds }, { ...footsteps }], pack = this.packs.get(key);
+    return () => {
+      [sounds, footsteps].forEach((t, i) => { for (const k of Object.keys(t)) delete t[k]; Object.assign(t, was[i]); });
+      if (pack) this.packs.set(key, pack); else this.packs.delete(key);
+      const rules = pack ?? { from: '', ambience: [], music: { tracks: {}, rules: [] } };
+      for (const fn of this._packWatch) fn(key, rules);
+    };
+  }
   /** @internal ambience() / music() follow content packs' rules: fn(key, pack) per pack, now for each loaded one and later for new ones */
   onPack(fn) {
     for (const [k, p] of this.packs) fn(k, p);
@@ -275,3 +292,5 @@ export class Audio {
   */
   play(url, opts = {}) { return playFile(this, url, opts); }
 }
+
+export const handRolled = [{ kind: 'audio', seen: 'an AudioContext / Audio element of its own', use: 'engine.audio: engine.audio.play(url, { bus, volume }) or named sounds, with buses and volume settings (recipe 31)', code: /\bnew\s+(?:window\.)?(?:AudioContext|webkitAudioContext)\b|\bnew\s+Audio\s*\(/ }];

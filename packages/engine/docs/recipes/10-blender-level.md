@@ -18,8 +18,8 @@ Export glTF/GLB (tick "Custom Properties") into `art/models/` (create it if miss
 hierarchy are kept; faces are not reduced. Only changed files are processed; `-- --force` redoes everything.
 
 ## 3. Putting it in the game (main.js)
-```js
-import { createEngine, presets, level, collision, followCamera, characters, interactions, dialogue, triggers, content, hlod } from 'threedog';
+```js fragment
+import { presets, level, collision, followCamera, characters, interactions, dialogue, triggers, content, hlod } from 'threedog';
 engine.use(level({ url: '/models/town.glb' }), collision(), followCamera(), characters(), interactions({ ...presets.interactions.nearest }), dialogue(), triggers(), content(), hlod());
 engine.events.once('level:loaded', () => {   // once: level:loaded fires again on every level change
   engine.characters.createPlayer({ ...presets.player.thirdPerson, spawn: engine.level.spawn });
@@ -47,7 +47,7 @@ engine.start();
 Without `terrain()`, `vegetation()` grows on its own chunks over whatever provides the ground: the level, a code-built ground (`engine.setGround`), or
 the flat default. Rules read `engine.surface / slope / groundType`, so pick the level's surfaces by ground type (a mesh's `groundType` custom
 property, else its material name) with `rule.biomes`, and limit the scatter with `area`:
-```js
+```js fragment
 engine.use(level({ url: '/models/town.glb' }), vegetation({ area: { min: [-80, -80], max: [80, 80] }, viewChunks: 3 }), collision());
 engine.vegetation.define('grass', { geometry: grassGeo, nearOnly: true, rule: { perChunk: 500, biomes: { lawn: 1 } } });
 engine.vegetation.define('tree', { model: oak, rule: { perChunk: 6, biomes: { lawn: 0.6, park: 1 }, maxSlope: 0.4, collider: 0.4 } });
@@ -59,7 +59,7 @@ sets `minHeight / maxHeight`. Content `vegetation` works the same way. With `ter
 distance are terrain options). Rapier (`rigid()`) bodies collide with them too (cylinders from `engine.ground.forEachCollider`, gone when felled).
 
 Where a species grows is decided in the same `define()` call, with up to three parts (on a level, a code-built ground or terrain alike):
-```js
+```js fragment
 // rule: random scatter per chunk (above). positions: the game's own spots instead, [x, z] or [x, z, scale, yaw], planted at the ground height
 engine.vegetation.define('hedge', { model: hedge, positions: hedgeSpots /* [[x, z], ...] from your level data */, rule: { collider: 0.5 } });
 // densityMap: thins the rule's or the positions' result, 0..1 per spot -- a function of game data, or a gray image with the heightmap keys
@@ -76,3 +76,15 @@ A game that wants every instance under its own code still builds a plain `THREE.
   (`kind: 'trigger'`) and NPCs.
   Text version: `npm run shot -- /your-page.html --describe-only`.
 - Collision: `engine.collision.walkable({ x, z })` is false inside a col_ box; ground: `engine.surface(x, z)` equals the step / floor height.
+
+## 6. A level and a terrain together
+Each takes the ground slot on its own, so installing both is refused. `compositeGround` holds the slot and asks one of them per point:
+```js fragment
+engine.use(terrain({ part: true }), level({ scene: town, part: true }),
+  compositeGround({ parts: [{ of: 'level', region: (x, z) => x >= -30 && x <= 34 && Math.abs(z) <= 20, priority: 1 }, { of: 'terrain' }] }));
+```
+- `region` is omitted (everywhere), `(x, z) => boolean`, or `{ volume }`, the same `{ contains({ x, y, z }) }` water and trigger zones take (asked at `y` 0). Higher `priority` wins where regions overlap.
+- A region has no height: everything above and below a point belongs to one part. A cellar under a hillside goes in the level, and the level's mesh carries the ground over it too.
+- The navmesh is built from the level parts only. Outside them paths use A*.
+- Physics follows the regions: `rigid` gets terrain triangles only where the terrain answers, so a hill under a level's region is not solid. It is still drawn; lower it there or keep it out of sight.
+- Water over a room: a character, `describe()` and floating bodies ask `waterAt` at their own height, so `addWaterBody({ query })` returning `null` below a lake's bed leaves the room under it dry. A plain `radius` or `halfWidth` body has no bottom and counts at every height.

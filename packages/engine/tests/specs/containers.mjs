@@ -141,12 +141,14 @@ export const specs = [
         engine.ops.define('shop.buy', {
           args: { shop: 'string', item: 'string' },
           can: (e, { shop, item }, ctx) => !e.inventory.container(shop).has(item) ? 'soldOut' : !e.inventory.container(ctx.actor).has('gold', price[item]) ? 'noMoney' : true,
-          run(e, { shop, item }, ctx) { const got = e.inventory.transfer(shop, ctx.actor, item, 1); e.inventory.container(ctx.actor).remove('gold', price[item] * got); return got; },
+          atomic: true,
+          run(e, { shop, item }, ctx) { e.inventory.container(ctx.actor).remove('gold', price[item]); return e.inventory.transfer(shop, ctx.actor, item, 1) || { ok: false, code: 'bagFull' }; },
         });
         engine.ops.define('shop.sell', {
           args: { shop: 'string', item: 'string' },
+          atomic: true,
           can: (e, { item }, ctx) => e.inventory.container(ctx.actor).has(item) || 'notInBag',
-          run(e, { shop, item }, ctx) { const got = e.inventory.transfer(ctx.actor, shop, item, 1); e.inventory.container(ctx.actor).add('gold', 3 * got, { silent: true }); return got; },
+          run(e, { shop, item }, ctx) { const bag = e.inventory.container(ctx.actor); e.inventory.transfer(ctx.actor, shop, item, 1); if (bag.room('gold') < 3) return { ok: false, code: 'bagFull' }; bag.add('gold', 3, { silent: true }); return 1; },
         });
         const buy = ['shop.buy', { shop: 'shop-bakery', item: 'bread' }], sell = ['shop.sell', { shop: 'shop-bakery', item: 'bread' }];
         engine.content.load({

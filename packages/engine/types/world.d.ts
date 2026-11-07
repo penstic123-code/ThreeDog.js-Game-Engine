@@ -145,6 +145,8 @@ export interface TerrainOptions extends Partial<TerrainConfig> {
   density?: number;
   /** true: the signal engine.uniforms.uViewDistance follows the view distance, so a game's fog can read it and fade the far chunk edge out (openWorld() sets true) */
   viewFog?: boolean;
+  /** true: do not take the ground slot; compositeGround({ parts: [{ of: 'terrain' }] }) does and reads terrain.ground (so a terrain and a level can both run) */
+  part?: boolean;
   /** Ground material (default neutral gray with vertex colors); chunks have position, normal, color and uv = world xz / chunk size. Cloud shadows, season tint and detail are added */
   material?: Material | ((engine: Engine) => Material);
   /** With material: false = draw it exactly as given, no cloud shadow / season / detail patch */
@@ -275,18 +277,14 @@ export interface Terrain {
   readonly voidY: number;
   /** Loaded chunks: 'cx,cz' → chunk */
   chunks: Map<string, TerrainChunk>;
-  /** View distance (in chunks); writing it takes effect like setViewChunks @experimental */
+  /** View distance (in chunks). Writing it moves the camera far plane out too, and with viewFog uViewDistance @experimental */
   viewChunks: number;
-  /** Vegetation density multiplier; writing it takes effect like setDensity */
+  /** Vegetation density multiplier. Writing it places plants again on the loaded chunks: it thins plants without a collider, blocking plants stand at every density, so collision does not change */
   density: number;
   /** Time budget (milliseconds) for uploading chunks per frame */
   applyBudgetMs: number;
   /** Statistics (for the debug panel); failed = chunks that failed every try (terrain:chunkFailed) */
   stats: { builtThisFrame: number; applyMs: number; queued: number; failed: number; visible?: number; loaded?: number; instances?: number };
-  /** Change the view distance (in chunks); camera far plane and, with viewFog, uViewDistance adjust too @experimental */
-  setViewChunks(n: number): void;
-  /** Change the vegetation density: plants are placed again on the loaded chunks; the ground and its collision stay @experimental */
-  setDensity(d: number): void;
   /**
    * Draw these chunks: the hooks a draw part that replaces 'terrain-draw' uses. add(c): generated (c.data holds pos / nor / col / uv / tex arrays,
    * c.cx / c.cz the chunk); change(c): an edit rewrote c.data (the vertex count can differ on the rim of a shape with diagonal 'adaptive'); remove(c): released; show(c, visible): in view or not.
@@ -835,8 +833,16 @@ export type { WeatherDraw };
  * rectangle
  */
 export interface WaterBodyOptions {
-  position: PositionLike;
-  level: number;
+  position?: PositionLike;
+  level?: number;
+  /** Your own water (the engine draws nothing): level at (x, z) for a body at height y, or null where this body has none */
+  query?: (x: number, z: number, y?: number) => number | null;
+  /** Box3-like { min, max } that lets waterAt skip the query outside it */
+  bounds?: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } };
+  /** The mesh you draw for it (kept for reference; add it to the scene yourself) */
+  mesh?: Object3D;
+  /** A plain volume with contains({ x, y, z }); with level it is water inside the volume */
+  volume?: { contains(p: { x: number; y: number; z: number }): boolean; bounds?: WaterBodyOptions['bounds'] };
   radius?: number;
   halfWidth?: number;
   halfDepth?: number;

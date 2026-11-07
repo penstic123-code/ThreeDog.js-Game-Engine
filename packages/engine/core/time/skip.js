@@ -86,17 +86,23 @@ export const skipMethods = {
    * @example await engine.skip({ to: '06:00' });                        // sleep: until the calendar clock next reads 06:00
    * @example engine.skip({ seconds: 600 });                             // wait 600 calendar seconds
    * @example await engine.skip({ to: '06:00', fade: 0.6, save: 'auto' }); // fade to black, jump, autosave, fade in
+   * Bad arguments throw at the call, before any fade (`[skip-amount]`, `[module-params]`); a skip already under way rejects.
    * @param {{ to?: string | number, seconds?: number, fade?: number, save?: string | boolean }} opts
-   * Cancelled cleanly by session.newGame / load / quit (the skip resolves null and time stays where the new playthrough put it).
+   * Cancelled cleanly by session.newGame / load / quit and by saves.load (the skip resolves null and time stays where the new playthrough put it).
    * @returns {Promise<{ seconds: number, clock: string | null, day: number | null } | null>}
    */
-  skip(opts = {}) {
+  skip(opts) {
+    opts ??= {};   // skip(null) reads as no amount, the coded error below, not a TypeError on .fade
     readParams('engine.skip()', keysSchema(['to', 'seconds', 'fade', 'save']), opts);
     const { fade = 0, save = null } = opts;
     amount(this, opts);   // throw on bad arguments now, not after the fade
+    // one at a time: the end of a second one unfroze the game during the first one's fade
+    if (this._skipping) return Promise.reject(codedError('skip-busy', 'engine.skip(): a skip is already under way; await the first one, then skip again'));
+    this._skipping = true;
     let out = null, ended = false;
+    const generation = this.saves.generation;
     const go = () => {
-      if (ended) return;   // the playthrough ended during the fade out: nothing to skip in the new one
+      if (ended || this.saves.generation !== generation) return;   // the playthrough ended, or a quick load replaced the state, during the fade out: nothing to skip in the new one
       const r = this.ops.run('time.skip', { seconds: amount(this, opts) });   // measured at jump time: a queued transition may have moved the clock
       if (!r.ok) throw codedError('skip-amount', `engine.skip(): the time.skip op was refused (${r.code}); read it with engine.ops.can('time.skip', { seconds })`);
       out = r.value;
@@ -104,7 +110,7 @@ export const skipMethods = {
     };
     const ctx = this.input.push('skip'); const fz = this.freeze('skip');   // opaque 'skip' context: gameplay input blocked until the skip ends
     const off = this.events.on('session:end', () => { ended = true; });   // newGame / load / quit cancel the skip cleanly (it resolves null)
-    const end = () => { ctx.remove(); fz.remove(); off.remove(); };
+    const end = () => { this._skipping = false; ctx.remove(); fz.remove(); off.remove(); };
     if (!(fade > 0)) { try { go(); } finally { end(); } return Promise.resolve(out); }
     const run = this.flow ? this.flow.transition(go, { fade, autosave: false, music: false })
       : (async () => { try { await fadeScreen(this, 1, { seconds: fade }); go(); } finally { await fadeScreen(this, 0, { seconds: fade }); } })();

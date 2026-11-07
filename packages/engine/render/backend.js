@@ -402,7 +402,8 @@ export function rendererSwapped(engine) { for (const fn of [...(SWAP.get(engine)
 /**
  * Why this browser cannot give WebGPU, or null when it can. Asks the same two questions three's init() asks (an adapter, then a device),
  * because three answers "no" only with a console warning and a silent switch to its WebGL2 backend, and the reason is lost there.
- * The probe device is destroyed at once; three's init() requests its own.
+ * The probe device is destroyed at once; three's init() requests its own. A yes is kept per navigator.gpu, so only the page's first engine pays for a probe device;
+ * the adapter is still asked each time, it costs no device. If the GPU goes bad later, three's own fallback still lands and _startRenderer says so.
  * @returns {Promise<string | null>}
  */
 export async function whyNoWebGPU() {
@@ -411,9 +412,12 @@ export async function whyNoWebGPU() {
   let adapter;
   try { adapter = await gpu.requestAdapter({ featureLevel: 'compatibility' }); } catch (err) { return `requestAdapter() failed: ${err?.message ?? err}`; }
   if (!adapter) return 'requestAdapter() returned no adapter';
+  if (deviceFrom === gpu) return null;
   try { (await adapter.requestDevice()).destroy?.(); } catch (err) { return `requestDevice() failed: ${err?.message ?? err}`; }
+  deviceFrom = gpu;
   return null;
 }
+let deviceFrom = null;   // the navigator.gpu that gave a device (a page's stand-in for it is another object, so it is asked again)
 
 /** Each material on a scene object, once @param {any} scene @param {(m: any, o: any) => void} fn */
 function eachMaterial(scene, fn) {

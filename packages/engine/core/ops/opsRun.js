@@ -39,7 +39,7 @@ export function runOp(ops, name, args, opts) {
     if (ev.traceSize > 0) ev.note('op:' + name, { code: f.code, obj: args?.id });
     return ops._res(f);
   };
-  if (!DEV) { const bad = argRange(d, args); if (bad) return failed(failure(bad), null); }   // release: min / max / values still hold (dev throws earlier, in _ctx)
+  if (!DEV) { const bad = argRange(e, d, args); if (bad) return failed(failure(bad), null); }   // release: the data checks still hold (dev throws earlier, in _ctx)
   ops._stack.push(name);
   const prevCtx = ops._last; ops._last = ctx;
   const prevCause = ev._cur, atomic = d.atomic === true, mark = ops._txAfter.length;   // events emitted by this op's run name it as their cause (Events.trace)
@@ -60,7 +60,7 @@ export function runOp(ops, name, args, opts) {
     ops.revision++;
     if (d.after) {
       const hook = () => { try { d.after(e, args, value, ctx); } catch (err) { reportError(e, err, where + ' after'); } };
-      if (ops._txDepth > 0) ops._txAfter.push(hook); else hook();   // in or inside an atomic run: queue, so hooks run in commit order (nested first) when the outermost one ends
+      if (ops._txDepth > 0) ops._txAfter.push(() => ops._as(name, ctx, hook)); else hook();   // in or inside an atomic run: queue, so hooks run in commit order (nested first) when the outermost one ends; off the stack by then, so with its ctx
     }
     return { ok: true, value, revision: ops.revision };
   } catch (err) {

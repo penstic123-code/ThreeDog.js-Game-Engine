@@ -22,8 +22,12 @@ Water surface (water() module)
 
 ## Data structures
 - **WaterBodyOptions** Parameters of engine.addWaterBody(): position center, level water surface height (meters); give radius for a circle, halfWidth / halfDepth for a rectangle
-  - `position: PositionLike`
-  - `level: number`
+  - `position?: PositionLike`
+  - `level?: number`
+  - `query?: (x: number, z: number, y?: number) => number | null` Your own water (the engine draws nothing): level at (x, z) for a body at height y, or null where this body has none
+  - `bounds?: { min, max }` Box3-like { min, max } that lets waterAt skip the query outside it
+  - `mesh?: Object3D` The mesh you draw for it (kept for reference; add it to the scene yourself)
+  - `volume?: { contains, bounds? }` A plain volume with contains({ x, y, z }); with level it is water inside the volume
   - `radius?: number`
   - `halfWidth?: number`
   - `halfDepth?: number`

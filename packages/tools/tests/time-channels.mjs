@@ -31,6 +31,7 @@ function fake() {
     ops: { defs: new Map(), define: (n, d) => { e.ops.defs.set(n, d); if (n === 'time.skip') e._skipOp = d; } } }, { ...Object.getOwnPropertyDescriptors(loopMethods), ...Object.getOwnPropertyDescriptors(holdMethods) });   // descriptors: spreading holdMethods itself would run its getters
   e.stacks = new Stacks(e); e.stacks._hook(); e.mod = (n, o) => e.stacks.mod(n, o);
   e.clock = new Clock(e); e.time = new Time(e);
+  e.session = { captured: false, _untrack(h) { return h; } };
   e.control = new Control(e);   // NPC behaviors run through the character control slot (core/ops/control.js)
   defineHoldStacks(e);   // the engine's own hold stacks (halt does the loop side effect itself)
   defineSkipOp(e);
@@ -145,12 +146,12 @@ export async function run({ check }) {
     let sim = null;
     e.world = { present() {}, simulate: (k, o) => { sim = o; }, view: () => null, move: (id, p) => Object.assign(recs[id].position, p), zone: null, inZone: () => true };
     e.surface = () => 0; e.events.traceSize = 0;
-    const npcs = new NPCManager(e, h => h); npcs.setup();
+    const npcs = new NPCManager(e, { track: h => h, ops: e.ops }); npcs.setup();
     const rec = (id, look) => ({ id, behavior: 'schedule', look, schedule: [{ at: 0, x: 100, z: 0 }], position: { x: 0, y: 0, z: 0 }, speed: 2,
       nav: {}, arriveDistance: 1, mind: {} });
     const recs = { a: rec('a', { channel: 'enemies' }), b: rec('b', {}) };
     e.mod('time.enemies', { owner: 'bullet-time', mul: 0.25 });
-    const viaSim = (r, dt) => sim.far(r, Sim.prototype.scaled.call({ w: { engine: e } }, sim, r, dt));   // what world.simulate hands far
+    const viaSim = (r, dt) => sim.far(r, new Sim({ engine: e }).scaled(sim, r, dt));   // what world.simulate hands far
     viaSim(recs.a, 2); viaSim(recs.b, 2);
     check("far NPC on channel 'enemies' at 0.25: walks a quarter as far as one on 'world'", near(recs.a.position.x, 1) && near(recs.b.position.x, 4),
       `${recs.a.position.x} / ${recs.b.position.x}`);
@@ -163,7 +164,8 @@ export async function run({ check }) {
     S.simulate('crop', { far: (r, dt) => { r.t += dt; } });
     S.added(slime); S.added(crop);
     e.mod('time.enemies', { owner: 'bullet-time', mul: 0.5 });
-    for (let i = 0; i < 60; i++) S.fixed(STEP, { x: 0, z: 0 });
+    e.time.onMove(() => S.moved());
+    for (let i = 0; i < 60; i++) { S.fixed(STEP, { x: 0, z: 0 }); e.time._endStep(); }   // a debt is read off the channels, so they move as in a real step
     S.skip(2, true);
     let threw = '';
     try { S.simulate('x', { far() {}, channel: 3 }); } catch (err) { threw = err.message; }

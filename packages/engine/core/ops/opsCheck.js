@@ -6,7 +6,7 @@ import { parseSchema, whyBad, checkOf, OP_TYPES as TYPES } from '../base/params.
 
 export const SOURCES = ['player', 'game', 'bridge', 'test', 'replay', 'net', 'editor'];
 const NAME = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const DEF_KEYS = ['desc', 'args', 'can', 'run', 'offers', 'reasons', 'undo', 'net', 'owner', 'targets', 'atomic', 'after'];
+const DEF_KEYS = ['desc', 'args', 'can', 'run', 'offers', 'reasons', 'undo', 'canUndo', 'net', 'owner', 'targets', 'atomic', 'after'];
 const STRINGS = {
   badName: "ops.define('{name}'): name an op noun.verb, e.g. 'shop.buy' (lowercase start, camelCase)",
   noRun: "ops.define('{name}'): run(e, args, ctx) is required; it changes state. Put the \"may I\" checks in can(e, args, ctx)",
@@ -83,14 +83,16 @@ export function checkArgs(e, d, args) {
   }
 }
 
-/** Release builds: the range part of the schema (min / max / values) is still checked, because a bad number from a UI or a net peer must not reach run. Returns a failure spec or null */
-export function argRange(d, args) {
+/** Release builds: what data can get wrong is still checked (a required arg, type, min / max / values, an id with no record), because a bad value from a UI or a net peer must not reach run. Returns a failure spec or null */
+export function argRange(e, d, args) {
   if (!d.shape || !args) return null;
+  const bad = (field, actual, expected) => ({ code: 'badArgs', facts: [{ id: d.name, field, actual, expected }] });
   for (const key in d.shape) {
     const s = d.shape[key], v = args[key];
-    if (v === undefined || !checkOf(s.type)(v)) { if (v !== undefined) return { code: 'badArgs', facts: [{ id: d.name, field: key, actual: v, expected: s.type }] }; continue; }
+    if (v === undefined) { if (!s.optional) return bad(key, v, s.type); continue; }
     const why = whyBad(s, v);
-    if (why) return { code: 'badArgs', facts: [{ id: d.name, field: key, actual: v, expected: why }] };
+    if (why) return bad(key, v, why);
+    if (s.type === 'id' && e._things.sources.length && !e._things.source(v)) return bad(key, v, 'a world record id');
   }
   return null;
 }

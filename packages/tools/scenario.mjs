@@ -13,13 +13,13 @@
 // state is engine.applyState params; "pos": "@id" stands next to world record id. The page is halted first: time moves only in step / press.
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { join, basename } from 'node:path';
-import { closest } from './lib/text.mjs';
+import { closest, sorted } from './lib/text.mjs';
 import { expectDescribe } from './describe-snapshot.mjs';
 import { run as command } from './threedog/commands.mjs';
-import { READY, atPath } from './threedog/pageFns.mjs';
+import { READY, STEPPED, atPath } from './threedog/pageFns.mjs';
 
 const TOP = ['name', 'url', 'state', 'steps', 'version', 'timeout'];   // version: optional, 1; timeout: ms under threedog test, as on a spec
-const KINDS = { op: ['op', 'args', 'actor', 'expect'], step: ['step'], press: ['press'], state: ['state'], expect: ['expect'], snapshot: ['snapshot', 'only', 'ignore', 'tolerance'] };
+const KINDS = { op: ['op', 'args', 'actor', 'expect'], step: ['step'], until: ['until', 'within'], press: ['press'], state: ['state'], expect: ['expect'], snapshot: ['snapshot', 'only', 'ignore', 'tolerance'] };
 const TOL = 0.01;
 
 // ── Functions executed in the page (sent as source, so self-contained) ──
@@ -45,7 +45,6 @@ function pageOp(a) {
   let value; try { value = JSON.parse(JSON.stringify(r.value ?? null)); } catch { value = String(r.value); }
   return { ok: r.ok, code: r.code ?? null, value, why };
 }
-const pageStep = a => { const e = window.engine; e.step(a.seconds, { render: false }); return e.error ? `the engine stopped on an error: ${e.error.message}` : null; };
 const pageState = async a => (await window.engine.applyState(a.state)).refused;
 /** A scenario on a state that was not reached proves nothing, so a refused key stops it */
 const refusedText = (where, refused) => `${where}: state not applied: ` + refused.map(x => `${x.key}=${x.value} (${x.reason})`).join('; ');
@@ -56,7 +55,6 @@ function same(got, want) {
   if (typeof want === 'number' && typeof got === 'number') return Math.abs(got - want) <= TOL;
   return JSON.stringify(sorted(got)) === JSON.stringify(sorted(want));   // object key order does not matter
 }
-const sorted = v => Array.isArray(v) ? v.map(sorted) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map(k => [k, sorted(v[k])])) : v;
 
 /** Check the file shape (ops = null) before the page is touched, then every op name once the page lists them; throws with the fix */
 function lint(sc, ops, file) {
@@ -70,6 +68,7 @@ function lint(sc, ops, file) {
     for (const k of Object.keys(s)) if (!KINDS[kind].includes(k)) throw new Error(`${w}: unknown field "${k}" in a ${kind} step${hint(k, KINDS[kind])}. Fields: ${KINDS[kind].join(', ')}`);
     if (kind === 'op' && ops && !ops.includes(s.op)) throw new Error(`${w}: no op '${s.op}'${hint(s.op, ops)}. Defined: ${ops.join(', ') || 'none'}`);
     if (kind === 'step' && !(s.step > 0)) throw new Error(`${w}: "step" is real seconds > 0, e.g. { "step": 0.5 }`);
+    if (kind === 'until' && !(typeof s.until === 'object' && s.until && s.within > 0)) throw new Error(`${w}: "until" maps describe paths to values and "within" is the deadline in seconds > 0, e.g. { "until": { "boss.phase": "down" }, "within": 3 }`);
     if (kind === 'expect' && (typeof s.expect !== 'object' || !s.expect)) throw new Error(`${w}: "expect" maps describe paths to values, e.g. { "inventory.items.film": 11 }`);
   });
 }
@@ -100,7 +99,11 @@ export async function runScenario(driver, sc, { check, file = sc.name, snapDir, 
       const want = s.expect ?? 'ok', r = await ev(pageOp, s), got = r.ok ? 'ok' : r.code;
       ok = got === want;
       check(`${n}${s.op} ${JSON.stringify(s.args ?? {})} -> ${want}`, ok, `got ${got}${r.why ? ': ' + r.why : ''}`);
-    } else if ('step' in s) { const why = await ev(pageStep, { seconds: s.step }); ok = !why; if (!ok) check(`${n}step ${s.step}`, false, why); }
+    } else if ('step' in s) {
+      const r = await ev(`a => (${STEPPED})(window.engine, a.seconds)`, { seconds: s.step });
+      ok = !r.short; if (!ok) check(`${n}step ${s.step}`, false, `stepped ${r.moved} of ${s.step} s: ${r.why}`);
+    }
+    else if ('until' in s) { const why = await reach(ev, s.until, s.within); ok = !why; if (!ok) check(`${n}until ${JSON.stringify(s.until)}`, false, why); }
     else if ('press' in s) { const r = await command(driver, 'press', [String(s.press)]); ok = r.ok; if (!ok) check(`${n}press ${s.press}`, false, r.text); }
     else if ('state' in s) { const refused = await ev(pageState, { state: s.state }); ok = !refused.length; if (!ok) check(`${n}state`, false, refusedText('state', refused)); }
     else if ('expect' in s) {
@@ -119,6 +122,27 @@ export async function runScenario(driver, sc, { check, file = sc.name, snapDir, 
     if (!ok) break;
   }
   return { layers };
+}
+
+/**
+ * Step until every path reads as wanted, at most `within` seconds. Answers null, or why not. Why it is not a step: a game that wins early and freezes has done what the scenario
+ * asked, and a step would call that too little time. Why each stop has its own answer: a freeze is a pass only once the state is there. Seconds that move no game time
+ * (loading, a hold that may lift) pass as real seconds, so the deadline ends every wait.
+ */
+async function reach(ev, want, within) {
+  const SLICE = 0.1, missing = d => Object.entries(want).filter(([p, v]) => !same(atPath(d, p), v)).map(([p]) => `${p} is ${JSON.stringify(atPath(d, p)) ?? 'nothing'}`);
+  for (let left = within, r; ;) {
+    const miss = missing(await ev(pageDescribe));
+    if (!miss.length) return null;
+    if (r?.state === 'error') return r.why;
+    if (left <= 0) return r?.state === 'loading' ? `still loading after ${within} s`
+      : r?.state === 'frozen' ? `${r.why} before the state came: ${miss.join(', ')}`
+      : `not reached within ${within} s: ${miss.join(', ')}`;
+    const slice = Math.min(SLICE, left);
+    r = await ev(`a => (${STEPPED})(window.engine, a.seconds)`, { seconds: slice });
+    left -= slice;
+    if (r.state !== 'running' && r.state !== 'error') await new Promise(res => setTimeout(res, slice * 1000));
+  }
 }
 
 /** Scenario files of a workspace (tests/scenarios/*.json) */

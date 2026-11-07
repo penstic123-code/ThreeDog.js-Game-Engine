@@ -37,9 +37,10 @@ export const specs = [
       h2.remove();
       check('stacks: the current handle still ends it', !S.get('x').has('o'));
       S.define('y');
-      quiet(() => { S.mod('y', { owner: 'a', set: 1 }); S.mod('y', { owner: 'b', set: 2 }); S.mod('y', { owner: 'a', set: 3 }); });
-      let yv; quiet(() => { yv = S.get('y').value(); });
-      check('stacks: tied sets in one layer, the owner that set again is the latest and wins', yv === 3, String(yv));
+      S.mod('y', { owner: 'a', set: 1 });
+      let refused = false; try { S.mod('y', { owner: 'b', set: 2 }); } catch { refused = true; }
+      S.mod('y', { owner: 'a', set: 3 });
+      check('stacks: a second owner setting a value on one layer is refused, the first owner can still change it', refused && S.get('y').value() === 3, String(S.get('y').value()));
 
       // 8. 调用中 remove 某层包装：这一次调用照旧走完整条链，不跳不重
       const W = new Wraps({}), obj = { f: x => x }, log = [];

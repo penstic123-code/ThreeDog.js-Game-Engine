@@ -58,7 +58,8 @@ export const specs = [
       } catch (err) { return { err: String(err.stack) }; } }, helpers.toString());
       if (r.err) { check('runs without error', false, r.err); return; }
       console.log('  webgpu-tsl numbers:', JSON.stringify({ sway: r.sway, day: r.day, night: r.night, post: r.post, order: r.order }));
-      check('runs on WebGPURenderer, WebGL2 backend (the game asked for it, so no fallback warning reason)', r.renderer.requested === 'webgpu' && r.renderer.backend === 'webgl2', JSON.stringify(r.renderer));
+      // webgpu: this same page under real-webgpu.mjs, which lifts forceWebGL so the example runs on the device too
+      check('runs on WebGPURenderer, WebGL2 backend (the game asked for it, so no fallback warning reason)', r.renderer.requested === 'webgpu' && ['webgl2', 'webgpu'].includes(r.renderer.backend), JSON.stringify(r.renderer));
       const notNode = r.mats.filter(m => !m.node);
       check('every material in the scene is a node material (both sky domes included): nothing GLSL on the WebGPU route', r.mats.length >= 4 && !notNode.length, JSON.stringify(notNode.length ? notNode : r.mats));
       check('the grass moves with engine time (wind() inside the game\'s positionNode reads uTime)', r.sway.swayed > r.sway.still + 0.2, JSON.stringify(r.sway));

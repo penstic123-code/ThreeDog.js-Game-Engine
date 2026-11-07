@@ -74,7 +74,10 @@ class Lane {
     return this.handler;
   }
   // The message is cloned like postMessage would, so a handler that changes its input behaves the same in both places
-  _runLocal(msg) { return Promise.resolve().then(() => this._local()(structuredClone(msg))); }
+  // A lane disposed meanwhile answers nothing, like a worker it terminated: the code after this wait belongs to a dead engine (lifecycle.js)
+  _runLocal(msg) {
+    return new Promise((res, rej) => { Promise.resolve().then(() => this._local()(structuredClone(msg))).then(v => { if (!this._gone) res(v); }, err => { if (!this._gone) rej(err); }); });
+  }
   /**
    * Send a task; resolves with the handler's reply. Typed arrays you list in transfer move to the worker (unusable here afterwards);
    * if that worker then crashes, the task rejects (code threads-transfer) instead of rerunning on the main thread with emptied buffers.
@@ -119,7 +122,7 @@ class Lane {
     if (this.handler) this.handler(structuredClone(msg));
   }
   /** Stop the workers; open tasks never settle */
-  dispose() { clearTimeout(this._watch); for (const s of this.workers) s.w.terminate(); this.workers = []; this.tasks.clear(); this.max = 0; this.threads.lanes.delete(this); }
+  dispose() { this._gone = true; clearTimeout(this._watch); for (const s of this.workers) s.w.terminate(); this.workers = []; this.tasks.clear(); this.max = 0; this.threads.lanes.delete(this); }
 }
 
 /**

@@ -69,7 +69,7 @@ async function saveCase(mut) {
   engine.error = null; engine.stacks.get('freeze').release('error');
   if (threw) return `load threw instead of returning false ${note}: ${threw.message}`;
   if (S._json.get('fz-good') !== goodText) return `a load changed another stored save ${note}`;
-  if (held.includes('threedog:load')) return `the load freeze stayed on ${note}`;
+  if (held.includes('threedog:state-replace') || S.replacing) return `the load freeze stayed on ${note}`;
   if (errored && !ok) return `a refused load left a gameplay error: ${errored.message} ${note}`;
   if (ok === false && after !== before) return `load returned false but the game changed ${note}\n   before ${before}\n   after  ${after}`;
   if (ok === true && reason != null) return `load succeeded where check() said '${reason}' ${note}`;

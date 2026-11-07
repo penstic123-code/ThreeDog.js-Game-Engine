@@ -3,7 +3,7 @@
 //   node packages/engine/tests/stress-field/run.mjs <method> '<json args>' [--backend=webgl|webgpu-gl] [--no-build] [--headed] [--cpuprofile=<seconds>] [--profile-out=<file>] [--gputime=<every nth frame>] [--trace=<seconds>] [--trace-out=<file>] [--shot=<file>]
 //   webgpu-gl: three's WebGPURenderer on its WebGL2 backend, the middle step between webgl (WebGLRenderer) and webgpu: same renderer as webgpu, same driver road as webgl.
 //   --gputime: real GPU time per pass from timestamp queries (WebGPU) or EXT_disjoint_timer_query_webgl2 around the draw (WebGL2). --trace: a Chrome trace over that many seconds of the path, the only view of the GPU process.
-//   methods: env objects churn sceneChurn longStart fly saves modules city cityGame. One fresh page per call; prints one JSON line (long runs also print each sample row).
+//   methods: env objects churn sceneChurn longStart fly saves modules city cityGame soak soakBare. One fresh page per call; prints one JSON line (long runs also print each sample row).
 // Chrome flags: --disable-frame-rate-limit / --disable-gpu-vsync so a frame is not pinned at 16.7 ms (the page also measures queue-drain throughput itself),
 // --js-flags=--expose-gc and --enable-precise-memory-info so the JS heap numbers are exact after a forced gc.
 process.env.THREEDOG_TEST = '1';
@@ -108,7 +108,7 @@ try {
   if (method === 'longStart' || method.startsWith('city') || method === 'soak') poll = setInterval(async () => { try { const r = await page.evaluate(() => window.cityStage?.() ?? window.soakRows?.at(-1) ?? window.rows?.at(-1)); if (r) console.error(JSON.stringify(r)); } catch {} }, method.startsWith('city') ? 10000 : 60000);
   page.setDefaultTimeout(0);
   const t0 = Date.now(), vramRows = [];
-  vramPoll = method.startsWith('city') || method === 'soak' ? setInterval(async () => {
+  vramPoll = method.startsWith('city') || method.startsWith('soak') ? setInterval(async () => {
     const mb = await vram(); if (mb == null) return;
     const at = await page.evaluate(() => { const c = window.cityStage?.(), g = window.__gpu; return { stage: c?.stage, frames: c?.frames, buffers: g.buffers, bg: g.bindGroups, bgLive: g.bindGroupsLive, pipelines: g.pipelines, uploadMB: Math.round(g.uploadMB) }; }).catch(() => ({}));
     vramRows.push({ s: Math.round((Date.now() - t0) / 1000), mb, cpu: cpuBusy(), ...at });

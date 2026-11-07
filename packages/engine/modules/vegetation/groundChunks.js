@@ -7,6 +7,7 @@
 // Collision circles take effect at the tick engine.commits sets (lag by ring, built on the spot if still pending): machine speed never
 // changes whether the player bumps into a tree, the same contract as terrain chunks.
 // The ground changing (setGround, a level loaded or switched: ground.staticVersion) rebuilds every chunk.
+import { follows } from '../../core/base/follows.js';
 import * as THREE from 'three';
 import { makePlacer, makeNoise } from '../../core/stream/scatter.js';
 import { ChunkStream, bookCollision, collidersNear, ringsReady } from '../../core/stream/chunkStream.js';
@@ -18,12 +19,12 @@ export class GroundChunks {
   constructor(engine, veg, opts = {}) {
     const { chunkSize, viewChunks, density, seed, area = null } = { ...GROUND_DEFAULTS, ...opts };
     this.engine = engine; this.veg = veg;
-    this.chunkSize = chunkSize; this.viewChunks = viewChunks; this.density = density; this.area = area; this.seed = seed;
+    this.chunkSize = chunkSize; this._viewChunks = viewChunks; this._density = density; this.area = area; this.seed = seed;
     this.chunks = new Map();
     this.applyBudgetMs = 3;    // max ms per frame spent placing and uploading chunks once playing (loading builds ring 1 at once)
     this.gen = 0;
     this.stats = { loaded: 0, visible: 0, instances: 0, queued: 0 };
-    this._want = []; this._ground = null; this._groundVer = undefined;
+    this._want = []; this._ground = follows(() => engine.ground, G => G.staticVersion?.());
     // which chunks the sources need, ring, culling: the same helper as the terrain chunks (core/stream/chunkStream.js), so both rings mean the same
     this._stream = new ChunkStream(this, { show: (c, v) => this.veg._emit('show', c, v), level: (c, ring) => this._setLevel(c, ring),
       count: (c, ring) => { let n = 0; for (const k in c.plants) { const sp = this.veg.get(k); if (sp && ring <= sp.maxRing) n += c.plants[k].n; } return n; },
@@ -49,7 +50,8 @@ export class GroundChunks {
   /** @internal vegetation / settings plumbing */
   refreshLevels() { for (const c of this.chunks.values()) c.level = -1; }
   /** Rings of chunks drawn around each stream source (the settings page's view distance); the next update loads / releases chunks to match */
-  setViewChunks(n) { this.viewChunks = n; this.refreshLevels(); }
+  get viewChunks() { return this._viewChunks; }
+  set viewChunks(n) { this._viewChunks = n; this.refreshLevels(); }
   /** Drop every chunk; they are placed again around the stream sources (call it after changing the ground behind the same provider) */
   rebuild() {
     this._stream.drop();
@@ -59,8 +61,9 @@ export class GroundChunks {
    * Vegetation density multiplier: the loaded chunks are placed again in place, each species replacing its own plants and collision circles,
    * so trees never go missing in between (dropping the chunks left them without collision until rebuilt)
    */
-  setDensity(d) {
-    this.density = d;
+  get density() { return this._density; }
+  set density(d) {
+    this._density = d;
     for (const c of this.chunks.values()) if (c.state === 'ready') for (const sp of this.veg.list()) if (!sp.nearOnly || c.plants[sp.name]) this._grow(c, sp);
   }
 
@@ -77,8 +80,8 @@ export class GroundChunks {
 
   /** @internal module frame hook: follow the ground, queue / release chunks around the sources, build within budget, LOD and culling */
   update(sources, camera) {
-    const e = this.engine, G = e.ground, ver = G.staticVersion?.();
-    if (G !== this._ground || ver !== this._groundVer) { this._ground = G; this._groundVer = ver; this.rebuild(); }
+    const e = this.engine;
+    this._ground.sync(() => this.rebuild());
     this._stream.follow(sources, this.chunkSize, this.viewChunks);   // queue what a source needs, release what is far from all
     const t0 = performance.now(), loading = !e.ready;   // measure: placement budget
     while (this._want.length) {

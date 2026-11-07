@@ -8,7 +8,7 @@ There is a single pathfinding entry point: `engine.characters.findPath(from, to)
 
 ## 1. Install (main.js)
 A level is a file or a `THREE.Object3D` built in code: `level({ scene: group })`, its meshes named as in `10-blender-level.md`.
-```js
+```js fragment
 import { level, collision, followCamera, characters, nav } from 'threedog';
 engine.use(level({ url: '/models/town.glb' }), collision(), followCamera(), characters(),
   nav({ agentRadius: 0.4, agentHeight: 1.8, maxClimb: 0.45, maxSlope: 45, debug: false }));   // debug: true draws the navmesh
@@ -19,8 +19,8 @@ engine.use(level({ url: '/models/town.glb' }), collision(), followCamera(), char
 - Recast (728 KB, 218 KB gzipped) starts loading when `nav()` is installed, and a game without `nav()` never downloads it; the path worker's bundle holds a second copy. Until it is ready findPath falls back to A*.
 
 ## 2. Use
-```js
-const path = engine.characters.findPath(engine.player.position, { x: 4, z: 5 });   // [{ x, z }...] or null (unreachable)
+```js fragment
+const path = engine.characters.findPath(engine.player.position, { x: 4, z: 5 });   // [{ x, y, z }...] or null (unreachable); a y on either end picks the floor
 const wall = engine.collision.addBox([16, 0, 0], { halfWidth: 4.5, halfDepth: 1 });   // temporarily block a gap (center, half width, half depth); the navmesh updates with it
 wall.remove();                                       // remove the obstacle
 engine.npcs.add({ name: 'Courier', position: [4, 0, -5], schedule: [{ at: 0, position: [4, 0, 5] }] });  // the NPC finds its own way there
@@ -33,13 +33,13 @@ Native Recast objects: `engine.nav.navMesh / query / tileCache / crowd` (crowd n
 - In a test: after `engine.haltLoop()` call `findPath` and look at the waypoints (going around a wall they pass through the gap); after `addBox`,
   `engine.step(0.1)` and query again: the path should switch sides.
 - Did the NPC arrive: after `engine.step(30)`, check `engine.npcs.get('Courier').position`.
-- To see the mesh: `nav({ debug: true })` + `npm run shot -- /your-page.html`. Related test: `threedog test 导航网格` (test page in the engine repository:
+- To see the mesh: `nav({ debug: true })` + `npm run shot -- /your-page.html`.
   `packages/engine/tests/nav/`).
 
 ## 4. Many paths at once: findPathAsync
 `findPath` answers now, on the main thread. For crowds (dozens of NPCs repathing, AI squads) use `findPathAsync`: the same search (navmesh if ready, else A*)
 runs in `engine.threads` workers and `done(path, status)` runs at the start of a fixed step about 4 steps (67 ms) later, through `engine.commits`.
-```js
+```js fragment
 const req = engine.characters.findPathAsync(guard.position, target, (path, status) => {   // status 'ok' | 'noPath' | 'notReady', as findPath({ detailed: true })
   guard.path = path;
 }, { radius: 0.5 });
@@ -49,7 +49,7 @@ engine.characters.pathsPerStep = 64;           // requests sent per fixed step (
 - Built-in NPCs already use it; keep `findPath` for the few calls that need a path this step (player click-to-move).
 - threads on / off / slow / crashed give identical paths on the identical step: the worker mirrors the navmesh (exported bytes) and the collision colliders;
   if either changes while a batch is in flight, that batch is recomputed on the main thread on the new state.
-- With A*, ground shape (water, slope) is sampled on a 1 m raster cached 5 s (colliders and terrain trees are tested exactly), and the search stays inside
+- With A*, ground shape (height, water, slope) is sampled on a 1 m raster cached 5 s, every floor of it, so what stands under a bridge or a storey counts as it does for `findPath` (colliders and terrain trees are tested exactly), and the search stays inside
   the start-goal box plus a margin, so an async path can differ slightly from `findPath`'s.
 - A save taken while a request is in flight does not keep it: the NPC asks again after loading. Tests: `threedog test "paths:"`.
 
@@ -58,14 +58,23 @@ engine.characters.pathsPerStep = 64;           // requests sent per fixed step (
 navmesh, A* and level steps all read it, so a module never writes its own 0.4 or 0.45. A character's position belongs to its mover: other systems
 request movement (`placeAt`, `move`, vehicle `enter`) and never set `player.position`.
 
+A navmesh is cut for one body, so bodies of other sizes get their own. `nav({ agentRadius })` is the size built at load; a path asked for with another `radius` (`findPath`, `findPathAsync`, and `walkTo` and NPCs, which pass the character's own) uses a mesh of that size, built the first time it is asked for and kept until the next rebuild. A small body takes the gap a large one cannot, and a body too wide for every way gets `noPath` and stays put.
+- Sizes are whole cells (`cellSize`, 0.3 m by default), rounded up: 0.5 and 0.6 share a mesh, and only a body no wider than `agentRadius` shares that one. To tell closer sizes apart, or fit a gap within a cell of the body, make `cellSize` smaller.
+- Each extra size is another mesh in memory, about as big as the first, and its first ask builds it there and then, on the main thread: about 10 ms on a 40 m level, 0.3 s on a 200 m one with 300 walls. Ask once during loading to take that off the first walk: `engine.nav.findPath(a, b, { radius })`. With one size none of this happens. Obstacles and rebuilds reach every size.
+- Links exist on each size where both ends still reach its mesh, and their ends sit a little differently on each. `engine.nav.links` is the links of `agentRadius`; `crossing.to` on a path is the walker's own.
+- Height, step and slope are the same for all sizes: only the radius differs.
+- `nav({ crowd: true })` keeps one crowd on the `agentRadius` mesh: Recast's crowd runs on a single mesh, so give it the size of the widest crowd NPC. Use plain NPCs where sizes must differ.
+
+Floors: a `y` on a path, a stop or `collision.walkable([x, y, z])` picks the floor nearest that height, and `{ x, z }` means the ground. A height more than `engine.movement.height` from every surface there goes to the nearest one and warns once `[nav-height]`. A box added with `y` blocks only that floor, for paths, walkers and NPCs alike. Going between floors needs the navmesh; A* stays on the walker's floor and answers `noPath` for a goal on another one. Without `nav()`, a game names its stairs itself: `engine.mod('characters.path', { owner, set: ({ from, to }) => points })` returns the waypoints with their `y`, and `walkTo`, NPCs and `findPath` follow them. A walker that falls off asks again, so the list must work from anywhere it can be.
+
 ## 6. NPC links across gaps
 A link joins two places no one can walk between (Recast calls it an off-mesh connection): a gap, a ledge, a teleporter. Paths use it like any other way, and a walker with no help from the game crosses in a straight line at walking speed.
-```js
+```js fragment
 nav({ links: [
   { id: 'gap', from: [-2.2, 0, 0], to: [2.2, 1.5, 0] },                        // both ways
   { id: 'drop', from: [10, 4, 2], to: [12, 0, 2], oneWay: true },              // down only
 ] });
-const path = engine.characters.findPath(a, b);   // [{ x, z }, { x, z, link: { id: 'gap', from, to } }, { x, z }...]: the leg after a point with link is the crossing
+const path = engine.characters.findPath(a, b);   // [{ x, y, z }, { x, y, z, link: { id: 'gap', from, to } }, { x, y, z }...]: the leg after a point with link is the crossing
 ```
 - Put each end on or near walkable ground: within `radius` sideways (default the agent radius + 3 cells, enough for a point at a ledge or a ladder just off it) and within `maxClimb` in height. A `y` left out is the ground there.
 - Each end then moves onto the mesh, and that is where walkers step on and land: the mesh stops about the agent radius short of every edge, so a ladder at a deck's side or through a hatch ends 0.6 to 0.8 m in from the edge (cells round it), on the deck, wherever its top was written: in a 1.4 m hatch a foot at the opening's edge gives ends 0.6 to 0.9 m apart, a foot at its middle 1.3 m or more. `engine.nav.links` and `crossing.to` give those places. The straight line between them cuts through the deck's edge, so a ladder that must look straight uses `linkPose` to climb first and step in last (below).
@@ -108,7 +117,7 @@ Walkers stop at the edge and slide along it; `collision.walkable()` and A* pathi
 
 ## Line of sight, stealth vision cones and straight-line checks: collision.lineClear
 `engine.collision.lineClear(a, b, { radius })` answers "is anything solid between a and b?", the wall test of a guard's stealth vision cone (the cone itself is your own distance and angle check on `guard.facing`) for a 3D segment: boxes, circles and terrain trees, with heights (a 1 m wall does not block a sight line 3 m above it; a collider's `y` / `height` count). It is a boolean; `addBlocked` water is ignored. Give eye heights in `a` / `b`; `radius` fattens the line (pass the character radius for "can I walk straight there").
-```js
+```js fragment
 const sees = engine.collision.lineClear([guard.x, 1.6, guard.z], [player.x, 1.6, player.z]);   // true = clear view
 const straight = engine.collision.lineClear(me.position, goal, { radius: engine.movement.radius });
 ```

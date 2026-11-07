@@ -157,7 +157,7 @@ async function middle(r, scene, camera, target) {
   return PIX(x.getImageData(0, 0, W, H).data);
 }
 const SOFT_CAM = new THREE.PerspectiveCamera(50, W / H, 0.1, 200); SOFT_CAM.position.set(0, 0, 7); SOFT_CAM.lookAt(0, 0, 0); SOFT_CAM.updateMatrixWorld();
-const SOFT_ORTHO = Object.assign(new THREE.OrthographicCamera(-8, 8, 6, -6, 0.1, 200), { orthoSize: 12 }); SOFT_ORTHO.position.set(0, 0, 7); SOFT_ORTHO.lookAt(0, 0, 0); SOFT_ORTHO.updateMatrixWorld();
+const SOFT_ORTHO = new THREE.OrthographicCamera(-8, 8, 6, -6, 0.1, 200); SOFT_ORTHO.position.set(0, 0, 7); SOFT_ORTHO.lookAt(0, 0, 0); SOFT_ORTHO.updateMatrixWorld();
 const STILL = { max: 4, lifetime: [100, 100], speed: 0, spread: 0, gravity: 0, drag: 0, size: 3, color: 0xffffff, opacity: 1, blending: 'additive', fog: false };
 
 /** Values of the slots written so far: [[got, want]...] compared by the spec */

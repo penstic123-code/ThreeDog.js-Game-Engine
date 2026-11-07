@@ -7,12 +7,13 @@
 //   --eval=<file> with --urls: run this script in each page once it stands, print what it returns (JSON)
 //   --webgl       with --urls: no backend demand, for the WebGL picture to compare with   --headed  a visible window
 //   --all-webgpu  examples and tests that ask for no renderer get renderer: 'webgpu' too (a build-time rewrite of createEngine)
+// A spec with notRealWebGPU: '<why>' is listed as SKIP: its page holds no device of its own for this run to judge.
 // Each page prints its adapter, three's backend and its contexts; a page that is not on real WebGPU fails loudly, it never passes on the fallback.
 // Why build-time rewrites: test pages say forceWebGL: true so that headless runs agree, and that one word would hide the whole point of this run.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { build } from 'vite';
-import { buildAndPreview, launchRealGPU, newGamePage, IGNORED_CONSOLE, TOOL_BUILD } from './browser.mjs';
+import { buildAndPreview, launchRealGPU, newGamePage, IGNORED_CONSOLE, TOOL_BUILD, collect, specContext } from './browser.mjs';
 import { viteOptions, ENGINE } from './paths.mjs';
 import { workspaceSpecs } from './lib/specs.mjs';
 import { waitEngine, waitLoaded } from './wait-engine.mjs';
@@ -28,6 +29,8 @@ const urls = value('urls')?.split(',');
 /** Before any page script: what the page really got from the browser, whichever renderer object made it (test pages keep theirs private) */
 function gpuProbe() {
   const log = window.__gpu = { adapters: [], devices: 0, contexts: {}, errors: [], lost: [] };
+  // the page's own listener counts (lifetime tests) wrap this later: the probe's listener is not the page's
+  const listen = EventTarget.prototype.addEventListener;
   const getContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function (type, ...a) {
     const c = getContext.call(this, type, ...a);
@@ -45,7 +48,7 @@ function gpuProbe() {
       const device = await requestDevice.apply(this, d);
       log.devices++;
       // a validation error does not throw: the frame is dropped and the page goes on, so this is the only place it shows
-      device.addEventListener('uncapturederror', e => { if (log.errors.length < 20) log.errors.push(e.error.message.slice(0, 400)); });
+      listen.call(device, 'uncapturederror', e => { if (log.errors.length < 20) log.errors.push(e.error.message.slice(0, 400)); });
       device.lost.then(l => { if (l.reason !== 'destroyed') log.lost.push(`${l.reason}: ${l.message}`); });   // destroyed: the page's own dispose()
       return device;
     };
@@ -78,7 +81,7 @@ const rewrites = {
   name: 'real-webgpu-rewrites', enforce: 'pre',
   transform(code, id) {
     if (!/\.m?js$/.test(id.split('?')[0]) || /node_modules/.test(id) || !/[\\/](tests|examples)[\\/]|[\\/]games[\\/]/.test(id)) return null;
-    let out = code.replace(/\bforceWebGL:\s*true\b/g, 'forceWebGL: false')
+    let out = code.replace(/\bforceWebGL:\s*true\b(?! \/\* kept \*\/)/g, 'forceWebGL: false')
       // WebGL reads rows bottom-up, a WebGPU target top-down: pages compare the two buffers pixel by pixel
       .replace(/([\w.]+)\.readRenderTargetPixelsAsync\(([^()]*)\)/g, 'window.__glRows($1, $1.readRenderTargetPixelsAsync($2), $2)');
     // these pages take navigator.gpu away so the renderer lands on WebGL2 on every machine; pages that test the fallback itself keep doing it
@@ -89,13 +92,14 @@ const rewrites = {
 };
 
 /** What the page got, as one line of facts plus whether it counts as real WebGPU */
-async function verdict(page, { demand = true, strict = false } = {}) {
+async function verdict(page, { demand = true, strict = false, expected = null } = {}) {
   const g = await page.evaluate(() => ({
     ...window.__gpu,
     gpuApi: !!navigator.gpu,
     described: window.engine?.describe?.().renderer ?? null,
   }));
   const a = g.adapters[0];
+  if (expected) g.errors = g.errors.filter(m => !expected.test(m));   // a test that breaks a shader on purpose names what the device says about it
   const why = [];
   if (demand) {
     if (!g.gpuApi) why.push('navigator.gpu missing');
@@ -126,16 +130,14 @@ const report = (ok, name, line, details) => {
   for (const d of details) console.log(`      ! ${d}`);
 };
 
-let failed = 0;
+let failed = 0, skipped = 0;
 async function runSpec(browser, server, spec) {
-  const errors = [], gpuWarnings = [], results = [];
-  const check = (label, ok, detail = '') => results.push({ label, ok: !!ok, detail });
+  const errors = [], gpuWarnings = [], { results, check } = collect();
   const page = await open(browser, errors, gpuWarnings);
   let facts = { why: ['page never opened'], line: '' };
   try {
     await page.goto(server.base + spec.url);
     await waitEngine(page, { timeout: 60000, errors });
-    const frames = (n = 2) => page.evaluate(n => window.__t.frames(n), n);
     // a real GPUDevice comes later than the fallback's: the page's test function is defined after `await renderer.init()`, past the moment the engine is ready
     const ev = async (fn, arg) => {
       for (let i = 0; ; i++) {
@@ -143,15 +145,16 @@ async function runSpec(browser, server, spec) {
       }
     };
     await Promise.race([
-      spec.run({ page, check, frames, ev, wait: ms => page.waitForTimeout(ms) }),
+      spec.run(specContext(page, check, ev)),
       new Promise((_, no) => setTimeout(() => no(new Error('spec timed out after 150 s')), 150000).unref()),
     ]);
   } catch (e) { check('run error', false, String(e).split('\n')[0]); }
-  facts = await verdict(page).catch(e => ({ why: [`page gone: ${e.message.split('\n')[0]}`], line: '' }));
+  facts = await verdict(page, { expected: spec.expectErrors }).catch(e => ({ why: [`page gone: ${e.message.split('\n')[0]}`], line: '' }));
   const unexpected = spec.expectErrors ? errors.filter(m => !spec.expectErrors.test(m)) : errors;
-  const bad = [...facts.why.map(w => `NOT REAL WEBGPU OR GPU ERROR: ${w}`), ...results.filter(r => !r.ok).map(r => `${r.label} ${String(r.detail).slice(0, 500)}`), ...unexpected.slice(0, 3).map(e => `console: ${e.slice(0, 300)}`), ...[...new Set(gpuWarnings)].slice(0, 3).map(w => `gpu warning: ${w}`)];
+  const warned = spec.expectErrors ? gpuWarnings.filter(m => !spec.expectErrors.test(m)) : gpuWarnings;
+  const bad = [...facts.why.map(w => `NOT REAL WEBGPU OR GPU ERROR: ${w}`), ...results.filter(r => !r.ok).map(r => `${r.label} ${String(r.detail).slice(0, 500)}`), ...unexpected.slice(0, 3).map(e => `console: ${e.slice(0, 300)}`), ...[...new Set(warned)].slice(0, 3).map(w => `gpu warning: ${w}`)];
   failed += bad.length ? 1 : 0;
-  report(!bad.length, `${spec.name.slice(0, 110)} [${results.filter(r => r.ok).length}/${results.length}]`, facts.line, bad);
+  report(!bad.length, `${spec.name} [${results.filter(r => r.ok).length}/${results.length}]`, facts.line, bad);
   await page.close().catch(() => {});
 }
 
@@ -191,11 +194,13 @@ try {
   else {
     const specs = (await workspaceSpecs(dir)).map(x => x.spec).filter(s => !words.length || words.some(w => `${s.name} ${s.url}`.toLowerCase().includes(w.toLowerCase())));
     if (!specs.length) throw new Error(`no test name holds: ${words.join(', ')}`);
-    for (const s of specs) await runSpec(browser, server, s);
+    for (const s of specs) {
+      if (s.notRealWebGPU) { skipped++; console.log(`SKIP  ${s.name}\n      ${s.notRealWebGPU}`); } else await runSpec(browser, server, s);
+    }
   }
 } finally {
   await browser.close().catch(() => {});
   await server.close();
 }
-console.log(failed ? `\n${failed} page(s) FAILED` : '\nall pages passed on real WebGPU');
+console.log(`${failed ? `\n${failed} page(s) FAILED` : '\nall pages passed on real WebGPU'}${skipped ? `, ${skipped} skipped by their spec` : ''}`);
 process.exitCode = failed ? 1 : 0;

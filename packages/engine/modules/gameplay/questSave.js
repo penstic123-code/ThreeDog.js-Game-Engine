@@ -1,4 +1,4 @@
-// Quest progress in saves (part 'quests', version 2): saved by stable step and part ids, never by position, so content may insert or reorder steps.
+// Quest progress in saves (part 'quests', version 3: visited added; owed is optional, so older saves read as they are): saved by stable step and part ids, never by position, so content may insert or reorder steps.
 //   { state: { questId: { step: stepId | null (when done), done, failed?, parts?: [ids of parts met in the current parallel step],
 //                         got?: { stepId: [ids of parts met in a finished parallel step] } } } }
 // A step's (or parallel part's) id is its `id` field (quests.define / content: steps: [{ id: 'talk-mayor', text, done }]), else its position as text
@@ -30,6 +30,8 @@ const indexOf = (def, id) => def.steps.findIndex((_, i) => stepId(def, i) === id
 export function toSaved(def, s) {
   const out = { step: s.done ? null : stepId(def, s.step), done: !!s.done };
   if (s.failed) out.failed = true;
+  if (s.owed) out.owed = { ...s.owed };
+  if (s.visited?.length) out.visited = [...s.visited];
   if (s.parts) out.parts = metIds(def.steps[s.step], s.parts);
   if (s.got) out.got = Object.fromEntries(Object.entries(s.got).map(([i, flags]) => [stepId(def, +i), metIds(def.steps[+i], flags)]));
   return out;
@@ -47,6 +49,9 @@ export function fromSaved(id, def, q) {
   if (step < 0) { warnOnce(coded('quest-step', fmt(STRINGS.missing, { q: id, step: String(q.step) }))); step = 0; }
   const s = { step, done: !!q.done };
   if (q.failed) s.failed = true;
+  if (q.owed) s.owed = { ...q.owed };
+  // a save from before visited went through the list in order, so the steps behind this one are what it left
+  s.visited = Array.isArray(q.visited) ? q.visited.filter(v => typeof v === 'string' && indexOf(def, v) >= 0) : def.steps.slice(0, step).map((_, i) => stepId(def, i));
   const st = def.steps[step];
   if (q.parts && st?.all) s.parts = metFlags(st, q.parts);
   for (const [sid, ids] of Object.entries(q.got || {})) {

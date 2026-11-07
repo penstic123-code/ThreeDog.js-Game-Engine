@@ -9,7 +9,7 @@
 import { DEV, needMaterial } from '../../core/base/validate.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { isPlainObject } from '../../core/base/util.js';
-import { refuseSave, saveNumberOk } from '../../core/saves/saveValues.js';
+import { refuseSave, saveNumberOk } from '../../core/base/saveValues.js';
 
 const key = (i, j) => i + ',' + j;
 const plainErr = (where, v) => `${where}: layer data must be plain values (numbers, strings, booleans, arrays, plain objects); got ${v?.constructor?.name ?? typeof v}. Keep models in tiles / world.present`;
@@ -53,7 +53,7 @@ export class Layer {
   get material() { return this.grid._owner._tiles.get(this)?.mesh?.material ?? null; }
   set material(m) {
     const mesh = this.grid._owner._tiles.get(this)?.mesh;
-    if (!mesh) throw codedError('grids-misuse', `layer '${this.name}'.material: this layer draws no default tiles; give it a picture first: grid.layer('${this.name}', { tiles: true })`);
+    if (!mesh) throw codedError('grids-misuse', `layer '${this.name}'.material: this layer draws no default tiles, and a layer takes that when it is created: first call grid.layer('${this.name}', { tiles: true })`);
     needMaterial('grids-misuse', `layer '${this.name}'.material`, m);
     mesh.material = m;
   }
@@ -76,7 +76,7 @@ export class Layer {
    */
   set([i, j], patch) {
     this._guard('set');
-    if (DEV) checkPlain(`layer ${this.name}.set`, patch);
+    checkPlain(`layer ${this.name}.set`, patch);
     const k = key(i, j), d = { ...this._cells.get(k) };
     for (const [f, v] of Object.entries(patch)) { if (v == null) delete d[f]; else d[f] = v; }
     if (Object.keys(d).length) this._cells.set(k, seal(d)); else this._cells.delete(k);
@@ -117,7 +117,7 @@ export class Layer {
       const copy = { ...d }, r = fn(copy, /** @type {[number, number]} */ (k.split(',').map(Number)));
       const v = r === undefined ? copy : r;
       if (v == null || !Object.keys(v).length) this._cells.delete(k);
-      else { if (DEV) checkPlain(`layer ${this.name}.updateAll`, v); this._cells.set(k, seal(v === d ? { ...v } : v)); }
+      else { checkPlain(`layer ${this.name}.updateAll`, v); this._cells.set(k, seal(v === d ? { ...v } : v)); }
     }
     this._ver++;
     return this._cells.size;
@@ -139,7 +139,7 @@ export class Layer {
   /** @internal a save diff (or null = none): baseline first, then the diff */
   fromJSON(d) {
     const rows = l => l == null || (Array.isArray(l) && l.every(c => Array.isArray(c) && saveNumberOk(c[0]) && saveNumberOk(c[1])));
-    if (d != null && !(isPlainObject(d) && rows(d.set) && rows(d.clear))) refuseSave('grids', `layer '${this.name}'`, 'must be { set: [[i, j, data], ...], clear: [[i, j], ...] }', d);
+    if (d != null && !(isPlainObject(d) && rows(d.set) && rows(d.clear) && (d.set ?? []).every(c => isPlainObject(c[2])))) refuseSave('grids', `layer '${this.name}'`, 'must be { set: [[i, j, data], ...], clear: [[i, j], ...] }', d);
     this._diff = d ?? null;
     this._cells = new Map(d?.whole ? [] : this._base);
     for (const [i, j, v] of d?.set ?? []) this._cells.set(key(i, j), seal(v));
@@ -148,7 +148,7 @@ export class Layer {
   }
   /** @internal authored cells ([[i, j, data], ...] from content/grids.js): the baseline; the last loaded diff is applied on top again */
   _setBase(rows) {
-    for (const [i, j, v] of rows ?? []) { if (DEV) checkPlain(`content grids layer ${this.name}`, v); this._base.set(key(i, j), seal(structuredClone(v))); }
+    for (const [i, j, v] of rows ?? []) { checkPlain(`content grids layer ${this.name}`, v); this._base.set(key(i, j), seal(structuredClone(v))); }
     this.fromJSON(this._diff);
   }
 }

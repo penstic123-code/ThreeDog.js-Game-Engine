@@ -26,6 +26,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `mouseLook?: boolean` false: the built-in mouse / stick look and wheel zoom are off, the game drives the view with setView() (default true)
   - `hideTargetNear?: number` Hide the followed object from the camera when the camera is closer than this to the look point (meters, 0 = never; default 0.9). The shadow stays
   - `hideLayer?: number` Layer used to hide the followed object (0-31), default 30
+  - `pixelSnap?: { pixelsPerMeter, bounds? }` Art-pixel rounding, orthographic only: rounds the camera on screen axes, clamps to bounds there first, and decides the view height (buffer height / pixelsPerMeter), so no size with it. Recipe 62 section 4b
 - firstPersonCamera options `FirstPersonCameraOptions`:
   - `height?: number` Eye height above the feet (meters), default 1.6
   - `sensitivity?: number` Mouse sensitivity, default 1
@@ -44,6 +45,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
   - `smoothing?: number` (experimental) Smoothing of the camera following the body
   - `invertY?: boolean` (experimental) Invert vertical
 - fixedCamera options `FixedCameraOptions` (also includes the fields of Partial<CameraShot>):
+  - `pixelSnap?: { pixelsPerMeter, bounds? }` Art-pixel rounding, orthographic only: rounds the camera on screen axes, clamps to bounds there first, and decides the view height (buffer height / pixelsPerMeter), so no size with it. Recipe 62 section 4b
   - `shots?: Record<string, CameraShot>` Shots: name → shot
   - `start?: string | null` Initial shot name
   - `auto?: false | 'nearest'` Automatic switching: false / 'nearest' (pick the one nearest to the player)
@@ -86,6 +88,7 @@ Current camera (one of followCamera / firstPersonCamera / fixedCamera / rtsCamer
 - Properties:
   - `kind: CameraKind` Current kind (the first argument of engine.setCamera)
   - `target: Object3D | null` The object being followed
+  - `pixelSnap?: { grid, error, agrees, bounds } | null` The pixelSnap option at work, or null: grid (give it to pixelSprite), error (last rounding in art pixels), agrees (false: something else set the view height, rounding stopped)
 - followCamera only: every item of the options (the options of `followCamera`) can be read and written at runtime, e.g. `engine.cameraRig.yaw = 1.2`, `pitch`
   - `cam.frame(target: Object3D | Vec3Like | null, opts?: { strength?: number })` — Lock-on framing: turn yaw each frame toward "behind the followed object, looking at target"; mouse yaw is ignored meanwhile; null hands yaw back. strength default 6 (1/s)
   - `cam.setView(view: { yaw?, pitch?, distance? })` — Set the view from game code: pitch is clamped to minPitch..maxPitch, distance to the zoom range. Negative pitch looks up. Pair with mouseLook: false to own it every frame

@@ -24,7 +24,13 @@ export const MODULE_TYPES = {
   tool: 'a one-shot job (a photo, a bake) that undoes itself when it ends or fails',
 };
 
+/** How engine.skip advances a module (the skipKind field): what each word means is on ModuleDefinition in types/core.d.ts */
+export const SKIP_KINDS = ['exact', 'approx', 'step', 'none'];
+/** The time hooks a module definition may carry (engine.catalog and the generated metadata list the ones a module has) */
+export const TIME_HOOKS = ['fixed', 'frame', 'afterRender', 'skip', 'afterLoad'];
+
 const STRINGS = {
+  badSkip: "module {name} has skipKind '{kind}'. Fix: use one of {list}",
   unknown: "module {name} has type '{type}', which is not a module type. Fix: use one of {list}",
   // rule broken at runtime: module, type, what it did, why not, the fix
   broke: "module {name} (type '{type}') {did}: {why}. Fix: {fix}",
@@ -45,6 +51,7 @@ const RULES = {
 export function checkType(m) {
   m.type ??= 'rules';
   if (!Object.hasOwn(MODULE_TYPES, m.type)) throw codedError('module-type', fmt(STRINGS.unknown, { name: m.name, type: String(m.type), list: Object.keys(MODULE_TYPES).map(t => `'${t}'`).join(' | ') }));
+  if (m.skipKind !== undefined && !SKIP_KINDS.includes(m.skipKind)) throw codedError('module-type', fmt(STRINGS.badSkip, { name: m.name, kind: String(m.skipKind), list: SKIP_KINDS.map(k => `'${k}'`).join(' | ') }));
 }
 
 /**
@@ -66,6 +73,12 @@ export function asModule(e, m, fn) {
   e._curModule = m;
   try { return fn(); } finally { e._curModule = was; }
 }
+
+/**
+ * @internal For a shared service a module calls without its ctx (engine.settings.define): the handle goes on the running module's ctx.track, the one list its things leave by.
+ * Nothing when no module is running. The engine knows the module only during its synchronous code, so what an async callback makes counts as the game's.
+ */
+export function trackForModule(e, h) { if (e._curModule) e._modCtx(e._curModule).track(h); }
 
 /**
  * @internal dev: a frame hook registered while a module installs stays that module's: it runs as the module, so the picture writers tool can tell two parts in one

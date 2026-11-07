@@ -207,9 +207,12 @@ export class Particles {
     scene.traverseVisible(o => { if (o.material && (o.isPoints || [o.material].flat().some(m => !m.depthWrite || m.transmission > 0))) { off.push(o, o.layers.mask); o.layers.disableAll(); } });
     scene.overrideMaterial = d.material; scene.background = null; r.autoClear = true; r.shadowMap.autoUpdate = false;
     r.state.buffers.depth.setMask(true);   // the transparent pass left it off, and the clear needs it
-    r.setRenderTarget(d.target); r.render(scene, camera); r.setRenderTarget(target);
-    scene.overrideMaterial = overrideMaterial; scene.background = background; r.autoClear = autoClear; r.shadowMap.autoUpdate = autoUpdate;
-    for (let i = 0; i < off.length; i += 2) off[i].layers.mask = off[i + 1];
+    try { r.setRenderTarget(d.target); r.render(scene, camera); }
+    finally {   // a throwing render must not leave the scene on the depth material with layers off (M11)
+      r.setRenderTarget(target);
+      scene.overrideMaterial = overrideMaterial; scene.background = background; r.autoClear = autoClear; r.shadowMap.autoUpdate = autoUpdate;
+      for (let i = 0; i < off.length; i += 2) off[i].layers.mask = off[i + 1];
+    }
     d.frame = r.info.render.frame; d.camera = camera;
     return d.target.depthTexture;
   }
@@ -222,7 +225,7 @@ export class Particles {
    */
   update(dt) {
     if (this.engine.still) dt = 0;   // freeze(owner, { ambient: true }): sparks hold in the air
-    const cam = this.engine.camera, pr = this.engine.renderer.getPixelRatio(), scale = this.engine.renderer.getSize(_vs).y * pr / (cam.orthoSize ? cam.orthoSize / cam.zoom : 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));   // orthographic: pixels per world unit
+    const cam = this.engine.camera, pr = this.engine.renderer.getPixelRatio(), scale = this.engine.renderer.getSize(_vs).y * pr / (cam.isOrthographicCamera ? 2 / cam.projectionMatrix.elements[5] : 2 * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));   // orthographic: pixels per world unit
     for (const h of this.emitters) {
       if (!h.active) { h.last = null; continue; }   // a pause leaves no line from where it stopped to where it starts again
       if (!h.object.parent) { h.remove(); continue; }   // object removed from the scene: stop automatically
@@ -258,7 +261,7 @@ export function particles(opts = {}) {
   }
   if (opts.default) readFx('particles({ default })', opts.default);
   let p = null;
-  return { name: 'particles', type: 'picture', provides: ['particles'], label: 'Particles', params: PARTICLES_PARAMS, options: opts, stage: 'effects', install(e) { e.i18n.add({ 'zh-CN': { 'module.particles': '粒子' }, en: { 'module.particles': 'particles' } }); p = new Particles(e, opts); return p; }, frame(dt) { p.update(dt); },
+  return { name: 'particles', skipKind: 'none', type: 'picture', provides: ['particles'], label: 'Particles', params: PARTICLES_PARAMS, options: opts, stage: 'effects', install(e) { e.i18n.add({ 'zh-CN': { 'module.particles': '粒子' }, en: { 'module.particles': 'particles' } }); p = new Particles(e, opts); return p; }, frame(dt) { p.update(dt); },
     dispose() { for (const fx of p.effects.values()) fx.dispose(); p.effects.clear(); p.emitters.clear(); p._depth?.target.depthTexture.dispose(); p._depth?.target.dispose(); p._depth?.material.dispose(); },
     counts() { return { alive: p.count(), emitters: p.emitters.size }; },   // engine.counts().particles
     // "did the dust burst fire": live particles in total and per effect that has any (idle effects left out to stay short). Kept under `alive`
@@ -268,3 +271,5 @@ export function particles(opts = {}) {
       return { effects: p.effects.size, emitters: p.emitters.size, alive: { total: p.count(), effects: each } };
     } };
 }
+
+export const handRolled = [{ kind: 'particles', seen: 'a particle loop of its own', use: 'engine.particles: emitters on game time, one draw call, budgets (recipe 64)', quiet: /\b(engine|e|eng|ctx)\.particles\b|\bparticles\(\s*[{)]/, code: /\bfor\s*\([^)]*\bof\s+[\w.]*(?:particles|sparks|embers)\b|\b(?:particles|sparks|embers)\.(?:forEach|filter)\s*\(/i, near: [{ re: /\.(?:life|age|ttl|vel\w*|v[xyz])\b/, lines: 5 }] }];

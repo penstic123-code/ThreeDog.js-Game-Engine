@@ -5,15 +5,17 @@ import { palette } from './palette.js';
 
 const SHADOW_BOX = 40, SHADOW_SNAP = 0.5;   // meters: half the box around the focus; the box moves in steps so shadow edges do not crawl while walking
 
-/** @param {any} engine */
-export function createLights(engine) {
+/** @param {any} engine @param {any} ctx the picture module's ctx: what is added here leaves with it */
+export function createLights(engine, ctx) {
   const { sun: S, ambient: A } = palette;
   const sun = new THREE.DirectionalLight(S.color, S.noon), ambient = new THREE.HemisphereLight(A.sky, A.ground, A.noon);
+  sun.name = 'sun';   // the 'sun' slot finds the main light by this name
   sun.castShadow = true;
   sun.shadow.mapSize.setScalar(S.shadowMap[engine.tier]);   // the picture reads the quality tier itself: the engine cannot hold this code to it
   Object.assign(sun.shadow.camera, { left: -SHADOW_BOX, right: SHADOW_BOX, bottom: -SHADOW_BOX, top: SHADOW_BOX, near: 1, far: 250 });
   sun.shadow.bias = -0.0001; sun.shadow.normalBias = 0.03;
   engine.scene.add(sun, sun.target, ambient);
+  ctx.track({ remove() { engine.scene.remove(sun, sun.target, ambient); sun.dispose(); ambient.dispose(); } });
 
   return {
     sun, ambient,

@@ -90,16 +90,17 @@ export function describeApi(e) {
   return { describe: api, describeText: text, inspect: inspectApi, explain: q => explain(e, q) };
 }
 
-/** Only the modules that are not running normally (initializing / failed) appear in describe, so the common case adds nothing (null); engine.moduleStates has all of them */
+/** Only the modules that are not running normally (initializing / failed / blocked) appear in describe, so the common case adds nothing (null); engine.explain({ module }) has all of them */
 function pendingModules(e) {
   const out = {};
   for (const [name, st] of e._modState) if (st === 'initializing' || st === 'failed') out[name] = st;
+  for (const [name, by] of e._modBlocked) if (e._modState.get(name) !== 'failed') out[name] = `blocked by ${by.map(b => `${b.module} (${b.state})`).join(', ')}`;
   return Object.keys(out).length ? out : null;
 }
 
 // Engine tables no module hook writes into (hooks add to time / player / camera / ui / perf / cutscene / nearby): a describe({ only }) that asks
 // for nothing else skips the hooks, describe.add and the action list
-const TABLES = new Set(['ready', 'error', 'disabledModules', 'loading', 'audio', 'holds', 'input', 'control', 'shared', 'modules', 'slots', 'scene', 'threePatches', 'owned', 'render', 'picture', 'renderer']);
+const TABLES = new Set(['ready', 'error', 'disabledModules', 'loading', 'audio', 'holds', 'input', 'control', 'shared', 'modules', 'slots', 'scene', 'threePatches', 'owned', 'render', 'picture', 'renderer', 'spatial']);
 const NONE = Symbol('none');   // a conditional section that is absent this time
 
 /**
@@ -115,7 +116,7 @@ function describe(e, { radius = NEAR_RADIUS, center: at, only } = {}, extras) {
     ready: () => e.ready,
     error: () => e.error,                                    // gameplay error in dev / tests (gameplay is frozen)
     unhandled: () => e._unhandled || NONE,                   // dev: first promise rejection nobody caught, and how many followed (errors.js)
-    disabledModules: () => [...e.disabledModules],           // picture / ui modules disabled after an error
+    disabledModules: () => Object.entries(e.moduleStates).filter(([, s]) => s === 'disabled').map(([n]) => n),   // picture / ui modules switched off after an error
     moduleStates: () => pendingModules(e) ?? NONE,           // while a module is initializing or failed
     loading: () => e.loading.view(),                         // what is pending / failed and whether it blocks the start (Loading.js)
     time: () => ({ tick: e.time.tick, real: r1(e.time.now('real')), ambient: r1(e.time.now('ambient')), calendar: r1(e.clock.now), halted: e.halted, frozen: e.frozen, ...(e.frozen ? { frozenBy: e.stacks.get('freeze').names() } : {}), headless: e.headless, run: e.runState,
@@ -131,11 +132,14 @@ function describe(e, { radius = NEAR_RADIUS, center: at, only } = {}, extras) {
       x: r1(p.x), y: r1(p.y), z: r1(p.z),
       ground: e.groundType(p.x, p.z),
       groundName: nameOf(e, 'ground.', e.groundType(p.x, p.z)),
-      inWater: e.waterAt(p.x, p.z) > p.y,
+      inWater: e.waterAt(p.x, p.z, p.y) > p.y,
       state: e.player.state ?? null,   // the character module's own state name ('walk', 'jump'...): core passes it on and never interprets it
     } : null,
-    // projection: engine.camera is an EngineCamera (core/scene/engineCamera.js) that a rig may switch to orthographic; said here so the switch is never hidden
-    camera: () => ({ type: null, projection: cam.orthoSize ? 'orthographic' : 'perspective', ...(cam.orthoSize ? { orthoSize: r1(cam.orthoSize) } : {}), x: r1(cam.position.x), y: r1(cam.position.y), z: r1(cam.position.z),
+    // who answers ground queries and what the world's water is, so "why is there no ground / water here" is one read (ground.js, compositeGround.js)
+    spatial: () => ({ groundHolder: e.stacks.has('ground') ? e.stacks.get('ground').value() : null, voidY: e.ground.voidY(), waterLevel: e.ground.waterLevel,
+      waterBodies: e.waterBodies.length, ownWater: e.waterBodies.filter(b => b.query).length,
+      ...(p ? { under: { ground: r1(e.surface(p.x, p.z, p.y)), water: r1(e.waterAt(p.x, p.z, p.y)) } } : {}) }),
+    camera: () => ({ type: null, projection: cam.isOrthographicCamera ? 'orthographic' : 'perspective', ...(cam.isOrthographicCamera ? { orthoSize: r1(cam.top - cam.bottom) } : {}), x: r1(cam.position.x), y: r1(cam.position.y), z: r1(cam.position.z),
       focus: { x: r1(e.focus.x), z: r1(e.focus.z) }, override: e.cameraOverride?.owner ?? null }),
     nearbyRadius: () => radius,
     nearby: () => [],

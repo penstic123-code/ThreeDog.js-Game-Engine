@@ -6,6 +6,8 @@
 //   const tw = new Tweener();  call tw.update(dt) every frame
 //   await tw.tween(mesh, { 'position.y': 3, 'material.color': 0xffffff }, 1.5, 'outBack');
 //   const p = tw.tween(...); p.finish() jumps to the end; p.remove() stops where it is (the cancel convention)
+// A task that throws (its start, a step, its end) ends there: what it holds goes back, it leaves the list, its promise rejects. The one who awaits it decides what that means (a
+// Timeline run ends 'failed'); a tween nobody awaits is the page's unhandled rejection, which the engine reports (core/base/errors.js watchRejections). The other tasks go on.
 import * as THREE from 'three';
 import { ease as easing } from '../../core/base/easing.js';
 import { allowOwned } from '../../core/ops/owned.js';
@@ -60,13 +62,13 @@ export class Tweener {
   constructor() { this.list = []; }
 
   /**
-   * General task: calls step(k) every frame, k is the eased progress. duration in seconds; returns a Promise with finish() / remove().
+   * General task: calls step(k) every frame, k is the eased progress. duration in seconds; returns a Promise with finish() / remove(), rejected if start, step or end throws.
    * The start value is read on the first update (so a later queued tween starts from where the previous one ended).
    */
   run({ duration = 0, ease = 'linear', start, step, end, group = null }) {
-    let res;
-    const p = new Promise(r => { res = r; });
-    const task = { t: 0, dur: Math.max(0, duration), ease: easing(ease), start, step, end, group, res, started: false, done: false };
+    let res, rej;
+    const p = new Promise((yes, no) => { res = yes; rej = no; });
+    const task = { t: 0, dur: Math.max(0, duration), ease: easing(ease), start, step, end, group, res, rej, started: false, done: false };
     task.finish = () => this._complete(task, 1);
     task.cancel = () => this._complete(task, null);
     p.finish = task.finish; p.remove = task.cancel; p.task = task;
@@ -98,25 +100,29 @@ export class Tweener {
     if (!this.list.length) return;
     for (const task of [...this.list]) {
       if (task.done) continue;
-      if (!task.started) { task.started = true; task.start?.(); }
-      task.t += dt;
-      if (task.t >= task.dur) this._complete(task, 1);
-      else task.step?.(task.ease(task.t / task.dur));
+      try {
+        if (!task.started) { task.started = true; task.start?.(); }
+        task.t += dt;
+        if (task.t >= task.dur) this._complete(task, 1);
+        else task.step?.(task.ease(task.t / task.dur));
+      } catch (error) { this._complete(task, null, { error }); }
     }
   }
 
   /** Jump a group of tasks (or all) to their end */
   finishAll(group) { for (const t of [...this.list]) if (group === undefined || t.group === group) t.finish(); }
 
-  _complete(task, k) {
+  /** The one way a task ends: k 1 jumps to the end, null stops where it is. failed { error }: a throw on the way, and the first one is the promise's answer. So finish() never throws and finishAll reaches every task */
+  _complete(task, k, failed = null) {
     if (task.done) return;
     task.done = true;
-    if (k !== null) {
+    const guard = fn => { try { fn(); } catch (error) { failed ??= { error }; } };
+    if (k !== null) guard(() => {
       if (!task.started) { task.started = true; task.start?.(); }
       task.step?.(task.ease(1));
-    }
-    task.end?.(k !== null);
+    });
+    guard(() => task.end?.(k !== null && !failed));   // whatever happened above: end gives back what the task holds
     const i = this.list.indexOf(task); if (i >= 0) this.list.splice(i, 1);
-    task.res(k !== null);
+    if (failed) task.rej(failed.error); else task.res(k !== null);
   }
 }

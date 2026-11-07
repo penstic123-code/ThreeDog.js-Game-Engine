@@ -72,7 +72,7 @@ export const specs = [
         const scene = engine.describe().scene;
         await engine.saves.save('things'); await engine.saves.flush();
         console.warn = warn;
-        return { x, z, gameBefore, batchingOwner: engine.thing(engine.batching.root).owner, a: { saved: a.saved, owner: a.owner, at: a.at, loses: a.loses, edit: a.edit, kind: a.kind },
+        return { x, z, gameBefore, batchingOwner: (engine.scene.add(engine.batching.root), engine.thing(engine.batching.root).owner), a: { saved: a.saved, owner: a.owner, at: a.at, loses: a.loses, edit: a.edit, kind: a.kind },
           b: { saved: b.saved, owner: b.owner, template: b.template, edit: b.edit }, hit: hit?.thing?.id ?? null, viaBlade, viaModel,
           at0, b0, moved, undone, rmParent: rmParent === null, back: mill.parent === engine.scene, unsavedWarn, owned, dupRec, badId, capped, gone, scene, dupNative, implicit,
           saved: engine.saves.collect().parts.scene, sessionFlag: (engine.events.emit('session:start', {}), T.setup) };

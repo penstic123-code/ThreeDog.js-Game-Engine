@@ -342,4 +342,20 @@ export const specs = [
       check('save / load brings back the grid cell state, and only that cell', r.cell?.kind === 'bed' && r.cell.wet === true && r.other === null, JSON.stringify([r.cell, r.other]));
     },
   },
+  {
+    name: '[guard] terrain keys never alias; blocking plants are the same at any density, decoration thins',
+    url: '/tests/terrain-edit/index.html',
+    async run({ check, ev }) {
+      const r = await ev(() => {
+        const { createTerrain } = threedogTerrain, F = createTerrain({ seed: 7 });
+        const a = F.key(0, 50000), b = F.key(1, -50000), c = F.key(60000000, 3), d = F.key(-60000000, -3);
+        const hard = { perChunk: 100, collider: 0.4, minHeight: -99, maxHeight: 999, maxSlope: 99 }, soft = { ...hard, collider: 0 };
+        const n = (rule, dens) => F.place(0, 0, rule, dens).n;
+        return { alias: a === b, far: c === d, hard: [n(hard, 1), n(hard, 0.5)], soft: [n(soft, 1), n(soft, 0.5)] };
+      });
+      check('key(0, 50000) and key(1, -50000) are different keys', !r.alias && !r.far, JSON.stringify(r));
+      check('a plant with collision is placed identically at density 1 and 0.5', r.hard[0] > 0 && r.hard[0] === r.hard[1], JSON.stringify(r.hard));
+      check('a decorative plant still thins with density', r.soft[1] < r.soft[0], JSON.stringify(r.soft));
+    },
+  },
 ];

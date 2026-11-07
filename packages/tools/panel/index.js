@@ -162,7 +162,7 @@ export async function openPanel(engine) {
   if (names.length) {
     const matF = pane.addFolder({ title: 'material (by name)', expanded: false }), pick = { name: names[0] };
     let sub = null;
-    const byName = n => { const out = new Set(); scene.traverse(o => { for (const m of [].concat(o.material || [])) if (m?.name === n && !m.userData?._dbgOf) out.add(m); }); return [...out]; };
+    const byName = n => { const out = new Set(); scene.traverse(o => { for (const m of [].concat(o.material || [])) if (m?.name === n && !engine._tools.standIn(m)) out.add(m); }); return [...out]; };
     const showMat = () => {
       sub?.dispose();
       const ms = byName(pick.name), m0 = ms[0];

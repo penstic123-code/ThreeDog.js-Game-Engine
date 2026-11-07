@@ -95,12 +95,12 @@ function effect(cellPx) {
   };
 }
 
-/** Adds the layer. Returns its post handle: handle.enabled = false turns it off. @param {any} engine */
-export function createAscii(engine) {
+/** Adds the layer. Returns its post handle: handle.enabled = false turns it off. @param {any} engine @param {any} ctx the picture module's ctx */
+export function createAscii(engine, ctx) {
   const cellPx = () => Math.max(2, Math.round(ASCII.cell * engine.renderer.getPixelRatio()));
   let px = cellPx();
-  const handle = engine.post.add(effect(px));
+  const handle = ctx.track(engine.post.add(effect(px)));
   // the pixel ratio can change at run time: quality settings, or a window dragged to another screen
-  engine.onRender(() => { const now = cellPx(); if (now !== px) { px = now; handle.set({ cellPx: px }); } });
+  ctx.track(engine.onRender(() => { const now = cellPx(); if (now !== px) { px = now; handle.set({ cellPx: px }); } }));
   return handle;
 }

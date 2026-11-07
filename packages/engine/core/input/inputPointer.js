@@ -13,7 +13,9 @@ export function bindPointer(input, canvas, signal) {
   // pointer x / y are pixels from the canvas content box's top-left, ndc is -1..1 across that box: a canvas in a page section or editor
   // panel picks the thing under the mouse, not the thing under the same window position. Read on every event (the canvas may have moved)
   const place = e => {
-    const p = input.pointer, b = canvas.getBoundingClientRect(), w = canvas.clientWidth || b.width || 1, h = canvas.clientHeight || b.height || 1;
+    // clientWidth counts padding, and pixelSize leaves up to k real pixels of it at the right and bottom, where the picture does not reach (core/scene/pixelRatio.js)
+    const st = canvas.style, p = input.pointer, b = canvas.getBoundingClientRect();
+    const w = (canvas.clientWidth || b.width || 1) - (parseFloat(st.paddingRight) || 0), h = (canvas.clientHeight || b.height || 1) - (parseFloat(st.paddingBottom) || 0);
     p.x = e.clientX - b.left - canvas.clientLeft; p.y = e.clientY - b.top - canvas.clientTop;
     p.ndcX = p.x / w * 2 - 1; p.ndcY = -(p.y / h) * 2 + 1;
   };

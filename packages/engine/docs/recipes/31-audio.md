@@ -35,7 +35,7 @@ Buses are real Web Audio `GainNode`s: `master`, `music`, `sfx`, `ambience`, `ui`
 `engine.audio.addBus('voice')`). `engine.audio.setVolume('music', 0.3)` sets one; `engine.audio.buses.sfx` is the node to connect your own nodes to, and `buses.master` (also `audio.master`) is the total. `buses` is empty until audio
 unlocks on the player's first click or key: build your own nodes on the `audio:ready` event. A name that is no bus warns once and gives `master`, so the sound still plays.
 
-```js
+```js fragment
 engine.audio.sfx('door');                                   // plays on its bus (default sfx)
 const h = engine.audio.sfx('shot', { at: enemy.root });    // 3D: a PannerNode that follows the Object3D every frame
 const hum = engine.audio.sfx('engine-hum', { loop: true, at: [4, 0, 2] });
@@ -117,7 +117,7 @@ export default {
   footsteps: { beach: 'step.sand', default: 'footstep' },
 };
 ```
-```js
+```js fragment
 engine.assets.manifest({ name: 'sfx', base: '/sounds/', sounds: { door: 'door.ogg', hit1: 'hit1.ogg', hit2: 'hit2.ogg', shot: 'shot.ogg', 'music-day': 'day.ogg' } });
 engine.content.load([base, forest]);   // each pack's audio merges in
 ```

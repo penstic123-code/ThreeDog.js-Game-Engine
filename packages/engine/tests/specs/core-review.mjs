@@ -109,7 +109,7 @@ export const specs = [
         const loaded = await S.load('cr-proto');
         const text = await S.import(S.export('cr-proto'), 'cr-text');
         console.warn = quiet;
-        const out = { remote, ok, blobText: blob ? await blob.blob.text() : null, newer, fetched, loaded, text, evil: E.vars.flags.evil ?? null, flagOk: E.vars.flags.ok, plain: Object.getPrototypeOf(E.vars.flags) === Object.prototype };
+        const out = { remote, ok, blobText: blob ? await blob.blob.text() : null, newer, fetched, loaded, text, evil: E.vars.flags.evil ?? null, flagOk: E.vars.flags.ok, plain: Object.getPrototypeOf(E.vars.flags) === null };
         E.dispose();
         return out;
       });
@@ -193,7 +193,7 @@ export const specs = [
           const a = E.ops.run('fr.u').revision; E.ops.undo('fr.u', {}, 1);
           return E.ops.revision > a;
         })();
-        const hold = E.freeze('threedog:load-parts'), undoHeld = E.ops.undo('fr.u', {}, 1).code; hold.remove();
+        E.saves._replace.begin(); const undoHeld = E.ops.undo('fr.u', {}, 1).code; E.saves._replace.end();
         let nullLoad = false;
         E.saves.register('frNull', { atomic: true, save: () => null, load: () => { nullLoad = true; } });
         E.ops.define('fr.bad', { atomic: true, run: () => ({ ok: false, code: 'no' }) });
@@ -543,7 +543,7 @@ export const specs = [
         E.dispose();
         return out;
       });
-      check('quest progress is saved by step id (version 2)', r.qs?.step === 'b' && r.qVersion === 2, JSON.stringify(r));
+      check('quest progress is saved by step id (version 3)', r.qs?.step === 'b' && r.qVersion === 3, JSON.stringify(r));
       check('a step inserted before the saved one: progress stays on the same step', r.afterInsert === 2, JSON.stringify(r));
       check('a version-1 save (positions) migrates to ids through the definition', r.v1ok === true && r.migratedStep === 2 && r.migratedId === 'b', JSON.stringify(r));
       check('a saved step id the quest no longer has restarts the quest', r.lostStep === 0, JSON.stringify(r));

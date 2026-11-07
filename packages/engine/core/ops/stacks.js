@@ -26,7 +26,7 @@ export class Stacks {
    *  createServices calls this once saves and events exist */
   _hook() {
     const e = this.engine;
-    e.saves.register('stacks', { save: () => this._save(), load: d => this._load(d) });
+    e.saves.register('stacks', { notAtomic: 'a mod is ended through the handle its owner keeps, which a load cannot put back', save: () => this._save(), load: d => this._load(d) });
     // input.keys and input.gate key their entries by action name, not record id: a removed record 'fire' must not unbind the action 'fire'
     e.events.on('world:remove', ({ id }) => { for (const s of this._all.values()) if (s.per && !s.name.startsWith('input.')) s.dropId(id); });
   }
@@ -46,6 +46,27 @@ export class Stacks {
     this._all.set(name, s);
     if (this._pending[name]) { this._loadOne(s, this._pending[name]); delete this._pending[name]; }
     return s;
+  }
+  /**
+   * @internal The reader behind ctx.rule: a replaceable rule is a plain shared point (kind 'value', per: 'optional', save: false), so owners, conflict
+   * errors, layers, cleanup with the module and describe().shared are the ones every other point has; nothing here is a second registry.
+   * Why the default lives in the reader and not in the point: two systems may share one rule ('fall' covers bodies and characters) and a module can be
+   * replaced and installed again, so asking for a rule that exists is normal, and each reader keeps its own default.
+   * Not saved because a function cannot be; whoever set one still holds it after a load, like a control hold.
+   * @param {string} name @param {any} def @param {string[] | null} [names] the built-in names a decision may be; default just def when def is a name
+   * @returns {{ name: string, value(id?: string): any, decide(id: string | undefined | null, facts: any): any }}
+   */
+  rule(name, def, names = typeof def === 'string' ? [def] : null) {
+    const s = this.has(name) ? this.get(name) : this.define(name, { kind: 'value', per: 'optional', save: false });
+    if (s.kind !== 'value' || s.per !== 'optional') throw codedError('engine-misuse', `ctx.rule('${name}'): '${name}' is already a shared point of another shape (kind ${s.kind}), not a rule; pick another name`);
+    const value = id => s.value(id ?? undefined, def);
+    return { name, value,
+      // the check runs at the decision, not at engine.mod: the point is plain and takes any value, and a function's answer can only be checked here anyway
+      decide: (id, facts) => {
+        const v = value(id), d = typeof v === 'function' ? v(facts, this.engine) : v;
+        if (typeof d === 'string' && names && !names.includes(d)) throw codedError('unknown-name', `rule '${name}'${id == null ? '' : ` for '${id}'`}: '${d}' is not one of its built-in names (${names.join(', ')}). Fix: engine.mod('${name}', { owner, set: ${names.map(n => `'${n}'`).join(' | ')} | false | (facts, engine) => decision })`);
+        return d;
+      } };
   }
   /** @param {string} name @returns {Stack} */
   get(name) {

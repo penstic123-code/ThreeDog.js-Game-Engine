@@ -8,7 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { TOOLS, within } from './paths.mjs';
 import { parseArgs, applyDeps, copyTemplates, writeMcp, gameName } from './lib/scaffold.mjs';
 
-const USAGE = 'Usage: threedog init [folder] [--open-world] [--webgl]   (folder: where the game goes, default the current folder)';
+const USAGE = 'Usage: threedog init [folder] [--open-world | --pixel] [--webgl]   (folder: where the game goes, default the current folder)';
 const parsed = parseArgs(process.argv.slice(2), process.env);
 if (parsed.error) { console.error(parsed.error + '\n' + USAGE); process.exit(1); }
 // Why the argument is a path: it used to be only a name, so `threedog init .demo/town-farm` wrote 18 files into the repo root and merged the root package.json

@@ -64,6 +64,7 @@ export class IdCheck {
  * Why in content and not a save version: renaming is an authoring change; the save format stays the same and an unrenamed save still loads. @internal
  * @param {any} e
  * @param {Record<string, string | null>} map
+ * @returns {void | (() => void)} what puts the goods back, when the inventory gives it (a failed load; the world has its own undo point)
  */
 export function applyRenames(e, map) {
   for (const [a, b] of Object.entries(map || {})) {
@@ -71,8 +72,9 @@ export function applyRenames(e, map) {
     if (typeof b === 'string' && b.includes('#')) throw codedError('content-id', fmt(RENAME_STRINGS.badTarget, { a, b }));
   }
   const stuck = e.world?.renameIds(map) ?? [];
-  e.inventory?.renameIds(map);
+  const goods = e.inventory?.renameIds(map);
   if (DEV && stuck.length) warnOnce(fmt(RENAME_STRINGS.stuck, { list: stuck.join(', ') }));
+  return goods;
 }
 
 /** Index id of a pickup without a written id (the loader's id, and what `threedog content ids` writes) @param {any} p @param {number} i @internal */

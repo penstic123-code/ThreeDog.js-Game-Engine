@@ -1,6 +1,6 @@
 # Animation state machine (skeletal animation)
 
-**In this recipe**: the model (1), clip names (2), skinned characters (3), procedural bodies (3b), 2D sprite characters (3c), other objects (4), gameplay-driven progress (5), checking (6).
+**In this recipe**: the model (1), clip names (2), skinned characters (3), procedural bodies (3b), 2D sprite characters (3c), which modules need a character (3d), other objects (4), gameplay-driven progress (5), checking (6).
 
 There is a single entry point: `engine.assets.animate(model, config)` -> Animator (advanced every frame by the engine; never call mixer.update yourself).
 For characters (player, NPCs), passing `model` builds the Animator automatically and switches clips by character state (idle walk run swim jump fall drive).
@@ -21,13 +21,14 @@ states: { idle: { clip: 'Idle_Sword' }, attack: { clip: 'Sword_Slash', loop: fal
 ```
 **Keep the mapping as data, on the model's manifest entry** (it describes the file, so it travels with it in an asset pack). `assets.animate(model)`
 and characters start from it; config passed in code adds states and wins per state. Swapping the model then only edits its manifest entry:
-```js
+```js fragment
 engine.assets.manifest({ name: 'heroes', models: { hero: { url: '/models/hero.glb', animation: {
   fade: 0.2,
   states: { idle: { clip: 'Idle_Sword' }, walk: { clip: 'Walk' }, attack: { clip: 'Sword_Slash', loop: false, timing: 0.62 }, hurt: { clip: 'HitRecieve', loop: false } },
 } } } });
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'hero' });   // no clips / animation in code
-engine.assets.mapping(engine.player.anim.root);                                     // after whenReady: the entry's mapping, or null
+await engine.player.whenReady;
+engine.assets.mapping(engine.player.anim.root);                                     // the entry's mapping, or null
 ```
 A character's default names (`Idle`, `Walk`...) never shadow a mapped state, and the entry's `fade` beats `characters({ animation })`.
 
@@ -55,7 +56,7 @@ over: it runs after the mover's state each step and returns a state name or null
 like any other state, a speed change stays `engine.mod('move.speed')`. A state only names the pose: climbing also needs someone to move the body
 (recipe 57, Moved by script, has a ladder).
 ```js
-createPlayer({ ...presets.player.thirdPerson, model: hero, clips: { crouch: 'Crouch', glide: 'Glide' },
+engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero, clips: { crouch: 'Crouch', glide: 'Glide' },
   states: (c, f) => f.grounded && engine.input.down('crouch') ? 'crouch' : !f.grounded && f.vy < 0 && gliding ? 'glide' : null });
 ```
 Deep water follows `water`: `'swim'` (default), `'block'` (never enters), `'wade'` (walks the bottom), or `(c, { depth }) => mode` per spot;
@@ -84,7 +85,7 @@ names; a failed load keeps the capsule and warns once; a character disposed befo
 ## 3b. Procedural bodies are assets too (`model: 'humanoid'`)
 Every character picks its body with `model`, the same path for a GLB and a procedural builder. An asset pack can supply a code-built humanoid (box limbs swung by the engine
 while walking, running, swimming, jumping); a builder is built at once, so its joints (`player.armL`, `legR`...) exist right after `createPlayer`. Without `model` (and without `rig`) a character is a gray capsule, warned once.
-```js
+```js fragment
 import { assets } from './assets.js';                               // an asset pack of yours (or a published one) with a 'humanoid' builder
 engine.assets.manifest(assets);
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: 'humanoid' });
@@ -100,7 +101,7 @@ engine.npcs.add({ id: 'fisher', model: 'humanoid', colors: { body: 0x4f6d8f } })
 A 2D sprite character is a plain three.js object handed to `model`, so there is no sprite module to learn. `THREE.Sprite` always faces the camera (a billboard);
 a `Mesh` with a `PlaneGeometry` stays flat and turns with `character.root`, takes light and can cast a shadow, which a `Sprite` does neither of.
 Frames are drawing, so they live in `picture/` (recipe 62) and gameplay never touches them. `onPose` gives them the character's state each frame:
-```js
+```js fragment
 // picture/sprites.js: a sheet of cols x rows frames; which row is which is your sheet's layout
 const ROW = { idle: 0, walk: 1, run: 1, jump: 2, fall: 2 };
 export function spriteBody(texture, cols, rows, framesPerSecond) {
@@ -120,10 +121,36 @@ export function spriteBody(texture, cols, rows, framesPerSecond) {
 const hero = spriteBody(await engine.assets.texture('hero-sheet', { pixelated: true }), 4, 3, 8);
 engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero.sprite }).onPose(hero.animate);
 ```
+**In an orthographic view of a 3D scene** use `pixelSprite` from `threedog/pixel` instead of a `Sprite` or a free plane (recipe 62 section 4b): a plain `Mesh` that stands upright, so walls behind it do not cut its head, and shows one texel per art pixel. `model` takes it as it is. It ignores the turn of `character.root`, and `onPose` picks the frame:
+```js fragment
+const hero = pixelSprite({ grid: engine.cameraRig.pixelSnap.grid, material, width: 16, height: 24, columns: 4, rows: 3, snap: 'followed' });
+const ch = engine.characters.createPlayer({ ...presets.player.thirdPerson, model: hero });
+const right = engine.cameraRig.pixelSnap.grid.axes().right;   // the same vector every frame
+ch.onPose(c => spriteFrame(hero, ROW[c.state] * 4, Math.sin(c.facing) * right.x + Math.cos(c.facing) * right.z < 0));   // no state machine here: which frame shows is the game's
+```
+`c.facing` is an angle in radians around Y (0 looks along +Z), so `c.facing < 0` is not "looks left": which way is left depends on how the camera is turned. Mirror when the heading `(sin, cos)` points against the screen's right axis, as above. Run once in a view turned 45 degrees: walking toward the screen's right gave "not mirrored"; the other direction was not run.
+`character.root` and `hero.position` stay exact, so physics and saves see the true position. A one-off `new Character(engine, { model: hero })` still needs `engine.add(character.root)`, as in recipe 02.
 - **What the engine still does**: everything but the drawing. The mover, ground and collision, `state`, `facing`, `walkTo`, the camera and the save work as for any body; `anim`
   has no clips to play. A one-off NPC is `new Character(engine, { model })` the same way ([02-npc](02-npc.md)).
 - **Facing**: a `Sprite` ignores `root`'s turn and a negative scale. Pick a row from `c.facing`, or mirror with a negative `map.repeat.x` and the matching `offset`.
 - **Edges**: `alphaTest` on the material gives hard edges and no sorting trouble between overlapping sprites. For a side or top-down view see recipe 21 section 6; for a pixel look, recipe 62 section 4b.
+
+## 3d. Which modules need an engine character, which take a sprite or any position
+Tried with a `pixelSprite` mesh and a `Character` whose `model` is one (`threedog new-game name --pixel` is the starting game). Each row below was run once in a real browser, in a few lines; "not run" means only the docs were read.
+| Module | On a sprite / plain object / position | Result |
+|---|---|---|
+| `characters` (`createPlayer`, `new Character`, `walkTo`, `onPose`) | the sprite is the character's `model` | works: moves, collides, `state` and `facing` drive `onPose`; `walkTo` on an NPC character walked there |
+| `interactions.add(object, ...)` | any mesh or sprite, no character | works: E near it, `once`, `counter`, saved as used |
+| `dialogue` | no object at all (a name and flags) | works: flags are in the save |
+| `triggers.add({ position })` | a position; `who` is the actor or an id | works: fired for the player character |
+| `pickups.spawn(position, { mesh })` | a position and your own mesh; `give` as a function without `inventory()` | spawned with a sprite mesh; collecting: not run |
+| `quests` | steps with `target` an object or `{ x, z }` and `done(e)` | works to start and report steps; a step moved on by a dialogue flag: not run past the flag |
+| `collision.addBlocked(fn)` | a function of x, z (the player was kept in the arena) | works; `addObject(mesh)`: not run |
+| `characters.findPath` | positions | returned a path; `nav.findPath` needs the `nav` module: not run |
+| `audio.sfx`, `audio.tone`, `ambience.add` | no object | ran without error (no sound file named, so nothing audible was checked) |
+| `weather.set`, `calendar.at`, `sky` | no object | installed and started; `weather.set('rain')` kept the name `clear` without a weather table (give the module one), `calendar.at` firing: not run |
+| `makeWindow(engine, opts)` | no object | created a window object (`open`, `toggle`, `remove`) |
+Needs an engine character: `createPlayer`, `walkTo`, `onPose`, schedules, characters' collision and ground. Everything else above takes a position or any `THREE.Object3D`. A sprite that only stands there (a signpost, an NPC that never walks) needs no `Character`; one that walks, follows ground or is scheduled does.
 
 ## 4. Non-character objects (a dog, a windmill, a door)
 ```js
@@ -164,7 +191,7 @@ action ends; the animation only shows `t`.
 alone, so a character's per-frame locomotion cannot override it. `sync(null)` hands control back; the next `go()` switches as usual. Entering a synced
 state cross-fades like `go()` (the `transitions` table applies).
 `timing` on the state maps gameplay seconds to clip seconds:
-```js
+```js fragment
 const anim = engine.player.anim;                                    // or engine.assets.animate(model, {...})
 Object.assign(anim.states, {
   // gameplay: windup 0-0.16, hit 0.16-0.28, recovery 0.28-0.62. The clip raises the sword until 0.24 s and brings it down by 0.5 s:
@@ -198,4 +225,3 @@ applied (clips or procedural rig); `h.remove()` stops it. Presentation only.
   clip weights sum to 1).
 - Characters: `describe().player.state` (idle/walk/run...) matches `engine.player.anim.state`.
 - `anim.check([...actions])` is `[]`.
-- Related tests: `threedog test "Animation state machine"`, `threedog test 骨骼动画链路`, `threedog test 骨骼动画最小链路`.

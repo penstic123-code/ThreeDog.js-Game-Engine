@@ -57,7 +57,7 @@ export const specs = [
       const r = await ev(() => { try {
         engine.haltLoop();
         const T = __threedogThree, S = engine.stream, B = engine.batching, was = S.radius, p = new T.Vector3(9000, 0, 9000), src = S.source(p, { physics: false });
-        S.setRadius(50);
+        S.radius = 50;
         let unloaded = 0; const burn = () => { const end = performance.now() + 4; while (performance.now() < end); unloaded++; };   // longer than the jobs budget: one unload per frame
         const hs = []; for (let i = 0; i < 5; i++) hs.push(S.add({ position: [9000 + i, 0, 9000], radius: 1, build: () => new T.Group(), dispose: burn }));
         engine.step(1 / 30); engine.step(1 / 30);
@@ -71,7 +71,7 @@ export const specs = [
         p.x += 1000; engine.step(1 / 30); engine.step(1 / 30);   // a stepped frame still drains them
         const stepped = unloaded;
         for (const h of hs) h.remove();
-        src.remove(); S.setRadius(was);
+        src.remove(); S.radius = was;
         const g = new T.BoxGeometry(), m = new T.MeshStandardMaterial(), roots = [];
         for (let i = 0; i < 12; i++) { const o = new T.Group(); o.userData.batch = true; o.position.set(9000 + i, 0, 0); o.add(new T.Mesh(g, m), new T.Mesh(g, m)); engine.add(o); roots.push(o); }
         engine.step(1 / 30); B.skip(); B.unskip();

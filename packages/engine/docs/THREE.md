@@ -10,8 +10,8 @@ pass is a three.js Pass (`engine.post.add(pass)`) before a ready-made effect.
 |---|---|---|
 | `engine.scene.add(obj)` / `group.add(obj)` | registers each root under the scene like `engine.add`: `engine.thing`, `describe().scene`, `thing.set` / `thing.remove` | a stable id so a save finds it: `engine.add(obj, { id: 'mill' })` |
 | `new THREE.PointLight(...)` / `SpotLight` added to the scene | a real light, adopted as a thing; counted by `engine.budget` `lights` / `shadowLights`, listed in `describe().render.lights`; a casting light at intensity 0 stops redrawing its shadow map; weather and day-night leave its values alone | many sources, few real lights: `lightPool` (recipe 09) |
-| `new THREE.MeshStandardMaterial(...)` | scene fog (height fog too), cascaded shadows | wind sway: `applyEffects(mat, { wind: 0.03 })` |
-| `engine.post.add(pass)`, the one way into the chain (the other renderer's form: recipe 56) | slots it after the scene render and before tone mapping (FXAA / SMAA last), or after tone mapping when you added it after an OutputPass; a pass that renders `engine.scene` itself (RenderPixelatedPass, SSAA, TAA) replaces the scene render, so the scene is drawn once; skips a RenderPass / OutputPass it already has; listed in `post.list()`; `remove()` leaves it undisposed | a settings name and position: `add(pass, { name: 'glow', order })`, then `engine.post.get('glow').enabled = false` |
+| `new THREE.MeshStandardMaterial(...)` | cascaded shadows (`scene.fog` is three.js's own `material.fog`, untouched) | wind sway: `applyEffects(mat, { wind: 0.03 })` |
+| `engine.post.add(pass)`, the one way into the chain (the other renderer's form: recipe 56) | slots it by kind (recipe 52, "Post effect chain"): after the scene render and before tone mapping, FXAA / SMAA last; listed in `post.list()` | a settings name and position: `add(pass, { name: 'glow', order })`, then `engine.post.get('glow').enabled = false` |
 | your own `EffectComposer` / `renderer.render` of the whole canvas, every frame | yields the frame (stops drawing its own, warns once `[own-frame]`); delete your render call to hand it back. A minimap / HUD layer on top (scissor, smaller viewport, or `autoClear = false` with another scene) is not a takeover | - |
 | `renderer.setSize` / `setPixelRatio` yourself | the post chain follows on its next draw | - |
 | `scene.fog.far = 80`, `sun.intensity = 3`, `renderer.toneMappingExposure = 1.4` | stays: the engine never writes these on its own | - |
@@ -57,22 +57,24 @@ that should not see it. It is page-wide: every engine on the page loses the chan
 
 | id | Change | Effect on your code | Off |
 |---|---|---|---|
+| `occlusion-layers-test` | `layers.test` of a mesh `engine.occlusion` hides, an own property while it is hidden | `engine.camera` skips the mesh; every other camera, shadows and rays see it. `mask`, `visible` and clones stay yours | no; `engine.occlusion.enabled = false` removes it |
 | `shadow-accessors` | `Mesh.prototype.customDepthMaterial / customDistanceMaterial` become accessors | Unassigned, they return a shadow material only for a mesh whose material carries a vertex-moving engine patch (wind), so its shadow sways too; otherwise `undefined` as in three. An assignment always wins | yes |
 | `node-setup-position` | `NodeMaterial.prototype.setupPosition` wrapped | WebGPU only: runs the engine's vertex-moving patches (wind) first; other node materials unchanged | yes |
-| `scene-add-hook` | `Object3D.prototype.add / remove` wrapped (page-wide) | None to the call itself; the engine sees what enters and leaves its scene at any depth (adopting `scene.add`, fog, cascades, cloud shadow, light counts). Another library wrapping the same methods stacks with it | yes (`scene.add` no longer adopted) |
+| `scene-add-hook` | `Object3D.prototype.add / remove` wrapped (page-wide) | None to the call itself; the engine sees what enters and leaves its scene at any depth (adopting `scene.add`, cascades, cloud shadow, light counts). Another library wrapping the same methods stacks with it | yes (`scene.add` no longer adopted) |
 | `mesh-material-accessor` | `material` on each object entering the engine's scene: an own get / set on that object (a class accessor, e.g. troika text, still runs) | In devtools `mesh.material` shows as an accessor; `mesh.material = other` works as in three and is seen | yes (new objects) |
-| `material-compile-accessor` | `onBeforeCompile` / `customProgramCacheKey` on each material the engine patches (what applyEffects was asked for, wind, fog) | Your own hook, assigned before or after, runs first, then the engine's | yes (new materials) |
+| `material-compile-accessor` | `onBeforeCompile` / `customProgramCacheKey` on each material the engine patches (what applyEffects was asked for, wind, the game's own shader slots) | Your own hook, assigned before or after, runs first, then the engine's | yes (new materials) |
 | `renderer-render` | `engine.renderer.render` (that instance only) wrapped | Counts your full-canvas draws so the engine yields the frame; a scissored / smaller-viewport / `autoClear = false` layer (minimap, HUD) does not count | yes |
 | `shader-chunks` | `THREE.ShaderChunk.threedog_*` added (new names, nothing replaced) | None until you `#include` one | no (the engine's patches include them) |
 | `light-idle-shadow` | `shadow.autoUpdate` of your shadow-casting point / spot lights: off while intensity is 0, back on when lit | Only lights whose autoUpdate was on; writing autoUpdate yourself hands the light back; `light.userData.idleShadow = false` opts one out; `describe().render.lights` shows `shadowIdled` | yes |
 | `shadow-cache` | `light.shadow.shadowNode` of a light handed to `engine.shadows.cache`: a `ShadowNode` subclass with float depth, a second depth map and a draw filter | Only that light, only after the call; the handle's `remove()` puts three's node back |
 | `batching-draw-walk` | `children` of a parent holding batched meshes: those meshes leave the array during the engine's own draw and come back right after | None outside the draw: your code, raycasts and `scene.traverse` see the scene as built. A scene change made inside a render (`onBeforeRender`) on such a parent is lost | yes (three walks every batched original twice a frame again) |
-| `picture-writers` | Dev server only (absent from bundles and release builds): an own get / set on the picture values of objects in the engine's scene (light intensity / color / position, `scene.fog` and its values, tone and exposure, environment, background, material color / emissive / opacity), and on the `r g b` / `x y z` of those colors and positions | Every read and write goes through unchanged; in devtools these show as accessors. A write records who made it for `describe('picture').writers` and `engine.explain({ picture })` | yes: `threePatches.off('picture-writers')`, accessors stay and only pass values through |
+| `picture-writers` | Dev server only (absent from bundles and release builds): an own get / set on the picture values of objects in the engine's scene (light intensity / color / position, `scene.fog` and its values, tone and exposure, environment, background, material color / emissive / opacity), on the values in `describe().owned` that are plain properties (the camera, `view.far`, the shadow target), on values named with `engine.debug.watch`, and on the components of those colors, vectors and rotations | Every read and write goes through unchanged; in devtools these show as accessors. A write records who made it for `describe('picture').writers` and `engine.explain({ value })` | yes: `threePatches.off('picture-writers')`, accessors stay and only pass values through |
 | `post-shadow-hold` | `render` of the first pass of the WebGL post chain wrapped (it may be your own Pass) | None to what the pass draws; shadow maps redraw once a frame | yes |
 | `post-background-tone` | `onBeforeRender` of three's own background mesh, while the engine draws straight to the canvas | A texture background is tone-mapped as it is through the post chain; your own `renderer.render` keeps three's rule | yes |
 | `node-twin-dress` | `renderer.library.fromMaterial` of a WebGPURenderer wrapped | WebGPU only: the node twin of a classic material gets its patches | no (patched materials would lose their picture on WebGPU) |
 | `node-builder-hook` | `renderer.debug.onNodeBuilderCreated` of a WebGPURenderer wrapped | WebGPU only: your own hook still runs; a later write of yours replaces the engine's | yes |
 | `device-lost-hook` | `renderer.onDeviceLost` of a WebGPURenderer wrapped | WebGPU only: three's hook still runs; a later write of yours replaces the engine's | yes |
+| `occlusion-readback` | `resolveOccludedAsync` of the WebGPU backend (that one instance), once `engine.occlusion` is on | WebGPU only: an AbortError from a buffer destroyed with the renderer is dropped; any other error still reaches you | no (disposing an engine while occlusion answers are on their way would report an unhandled rejection) |
 | `lod-view-camera` | `update` and `clone` of the `THREE.LOD` objects `assets.lod` and a prop's `lod` make | Only the engine camera moves the level, and far off the full model waits on the batch layer with `visible` still true, so rays reach it | yes |
 | `webgpu-record-sweep` | A `'dispose'` event sent to objects drawn earlier that have left every Scene for a few seconds, found through WebGPURenderer's private record list | WebGPU only: your `'dispose'` listener on such an object runs; drawing it again rebuilds its record | yes |
 
@@ -111,23 +113,20 @@ Anywhere a position is accepted it is **one argument**: Vector3 / Object3D / `[x
    One exception, named: with cascaded shadows on (`engine.shadows.cascades(light)`) every built-in lit material gets the `csm` patch, or it would
    be lit N times; a lit `ShaderMaterial` of yours joins with `engine.shadows.include(mat)` (recipe 45).
 2. **Adding to the scene**: `engine.scene.add(obj)` is all it takes: every root under the scene is registered (`engine.thing(obj)` says what it
-   is and what a save keeps). `engine.add(obj, { id })` is only for a stable id, so `thing.set` changes to it are saved. Plain three.js and
-   templates (`engine.content.spawn`, content props) are two doors into one scene (`recipes/40-scene.md`). To attach to a character use `player.root.add(hat)`.
+   is and what a save keeps). `engine.add(obj, { id })` is only for a stable id, so `thing.set` changes to it are saved (`recipes/40-scene.md`). To attach to a character use `player.root.add(hat)`.
 3. **Per-frame logic goes in `engine.onFrame(dt => ...)`** (movement and timing use `engine.onFixed`); it returns a handle, cancel with `h.remove()`.
    Don't start your own `requestAnimationFrame` loop: the engine owns pausing, fast-forward in tests and ordering. Rendering the canvas
-   yourself (own `EffectComposer`) takes the frame over: the engine stops drawing it and its post chain, adaptive resolution and photo mode stop applying. Rendering into your own render target is fine (mirror, minimap, portal, picking): do it in
-   `engine.onRender(({ renderer, scene, camera, dt }) => ...)`, which runs after the camera update and batching, just before the frame
-   (`{ when: 'after' }` runs right after it).
+   yourself (own `EffectComposer`) takes the frame over: the engine stops drawing it and its post chain, adaptive resolution and photo mode stop applying. Rendering into your own render target is fine: `engine.onRender`, in the table above.
 4. **Snap to ground**: get ground height with `engine.surface(x, z)`, or `engine.snapToGround(obj, heightAboveGround)`. Don't raycast the terrain.
    **Rays** always go through `engine.raycast / pick`: level meshes are registered automatically; register your own static objects with
    `engine.rays.addStatic(obj)` or `assets.model(name, { static: true })`.
 5. **Deleting**: when you no longer need an object use `engine.remove(obj)`: it removes it, unregisters it from `engine.rays` and frees the geometry
    and materials (`obj.removeFromParent()` / `scene.remove` leak GPU memory). To take it off only temporarily and `add` it back later use
-   `engine.detach(obj)`. A copy from `assets.model()` shares resources with other copies (`remove` skips them); they are freed together by
+   `obj.removeFromParent()`. A copy from `assets.model()` shares resources with other copies (`remove` skips them); they are freed together by
    `assets.release(name)`.
 6. **The sky lights nothing**: it computes signals and draws the dome, and your `picture/` code writes the lights, the fog and the exposure (recipe 62); weather gives `uWeatherLight` / `uWeatherFog` to multiply in. Every engine-written value: recipe 52
    "Who writes it". Adding your own point lights (street lamps, campfires) is fine.
-7. **Camera**: only change properties of `engine.camera`, never replace the object (post-processing is bound to it; `engine.setCamera('follow')` swaps the camera *module*, not the object). When a camera
+7. **Camera**: `engine.camera` is a three.js camera: change its properties, or assign your own real `THREE.PerspectiveCamera` or `THREE.OrthographicCamera` (`engine.camera = cam`, keep the old value to swap back). Rendering, post, picking, shadows, audio and an installed camera module all go on with it; any other class, a subclass too, is refused. Aspect, frustum and a rig's `projection`: recipe 21. `engine.setCamera('follow')` swaps the camera *module*, not the object. When a camera
    module is installed it places the camera every frame; to control the view yourself take it with `const cam = engine.takeCamera('me')` and `cam.remove()` it
    (`engine.cameraOverride` is read-only: it shows the holder in charge, or `null`).
 8. Collision: the player only respects `engine.collision` (`addCircle / addBox / addObject(mesh)`); a mesh alone does not block anyone.
@@ -152,6 +151,60 @@ engine.snapToGround(mill);                         // snap to ground
 engine.scene.add(mill);                            // registered like engine.add; engine.add(mill, { id: 'mill' }) also keeps thing.set changes in saves
 engine.collision?.addCircle(mill, { radius: 1.3 }); // block the player (when the collision module is installed)
 engine.onFrame(dt => { blades.rotation.z += dt * 1.5; });
+```
+
+## Example: your own rain (three.js drops, a plain call or a module)
+`weather({ rain })` is there if it fits. Your own effect of any kind is the same few steps: three.js builds it, a call adds it, a module only when something must clean up or swap it.
+
+```js
+import { THREE } from 'threedog';
+function makeRain({ count = 2000, area = 40, height = 20, speed = 18 } = {}) {
+  const pos = new Float32Array(count * 6);                         // one short line per drop
+  for (let i = 0; i < count; i++) pos.set([(i * 0.618 % 1 - 0.5) * area, i * 0.31 % 1 * height, (i * 0.754 % 1 - 0.5) * area], i * 6);
+  const geo = new THREE.BufferGeometry().setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  const drops = new THREE.LineSegments(geo, new THREE.LineBasicMaterial({ color: 0x9fb8d0, transparent: true, opacity: 0.5 }));
+  drops.frustumCulled = false;
+  const step = dt => {
+    for (let i = 0; i < count; i++) {
+      const y = (pos[i * 6 + 1] - speed * dt + height) % height;
+      pos[i * 6 + 1] = y; pos[i * 6 + 3] = pos[i * 6]; pos[i * 6 + 4] = y + 0.4; pos[i * 6 + 5] = pos[i * 6 + 2];
+    }
+    geo.attributes.position.needsUpdate = true;
+  };
+  return { drops, step };
+}
+
+// A plain call is enough when the rain stays for the whole game
+const rain = makeRain();
+engine.scene.add(rain.drops);
+engine.onFrame(rain.step);
+
+// A module when it can leave or be swapped: the same code, the callbacks go through ctx.track
+const rainEffect = o => ({ name: 'rain', install(e, ctx) {
+  const r = makeRain(o);
+  e.scene.add(r.drops);
+  ctx.track(e.onFrame(r.step));
+  ctx.track({ remove: () => e.remove(r.drops) });
+} });
+engine.use(rainEffect({ count: 4000 }));
+```
+
+The engine then does the rest: `engine.unuse('rain')`, a failed install or `{ replaces }` runs what `ctx.track` holds, and two modules of one name or two owners of one slot are refused with the fix. A value that others change too (rain slowing the player) goes through `ctx.mod`.
+
+## Example: wet stone in rain (the engine gives the signal, the game decides)
+The weather module knows how hard it rains. It does not know what your stone looks like wet, or whether wet stone is slick: those are this game's look and this game's rule.
+
+```js
+import { THREE } from 'threedog';
+const stone = new THREE.MeshStandardMaterial({ color: 0x777066, roughness: 0.9 });
+engine.onFrame(() => { stone.roughness = 0.9 - 0.6 * engine.uniforms.uRain.value; });   // the look: the game's material reads the rain
+
+let slick = null;                                                                       // the rule, if the game wants one: in game time, through the shared value
+engine.onFixed(() => {
+  const wet = (engine.weather?.current.rain ?? 0) > 0.5 && engine.groundType(engine.player.position) === 'stone';
+  if (wet && !slick) slick = engine.mod('move.speed', { owner: 'wet-stone', id: 'player', mul: 0.8 });
+  if (!wet && slick) { slick.remove(); slick = null; }
+});
 ```
 
 ## Code-built models: what three.js already has

@@ -99,16 +99,11 @@ const TOOLS = {
     schema: obj({ x: num('Pixels from the left edge of the game canvas'), y: num('Pixels from the top edge of the game canvas') }, ['x', 'y']),
     args: a => [`${a.x},${a.y}`],
   },
-  thing: {
-    description: 'Everything about one id as JSON: definition file:line, template, model, materials, state, collision, related ops, save status. Use before changing an object.',
-    schema: obj({ id: str('A thing id from describe, scene or pick') }, ['id']),
-    args: a => [String(a.id)],
-  },
   explain: {
-    description: 'Explain why an op cannot run now (with its last attempts), or where a quest is stuck.',
-    schema: obj({ about: str('"op" (name = the op, args = its arguments) or "quest" (name = the quest id), or "picture" (name = a value such as fog.far: which line last changed it), or another key a module explains'), name: str('The op name, the quest id or the picture value'),
-      args: { type: 'object', description: 'Op arguments (about "op" only)', additionalProperties: true } }, ['about', 'name']),
-    args: a => [a.about, a.name, ...(a.about === 'op' ? pairs(a.args) : [])],
+    description: 'Why something is as it is: an op that cannot run, a stuck quest, who wrote a value, everything about one id. Use before changing an object.',
+    schema: obj({ about: str('"op" (name = the op, args = its arguments) or "quest" (name = the quest id), or "value" (name = a value such as fog.far: which line last changed it), "thing" (name = an id from describe, scene or pick; full gives its JSON), "module", "capability", or another key a module explains'), name: str('The op name, quest id, value, thing id, module or capability'),
+      args: { type: 'object', description: 'Op arguments (about "op" only)', additionalProperties: true }, full: { type: 'boolean', description: 'Add the detail (a thing: its whole JSON)' } }, ['about', 'name']),
+    args: a => [a.about, a.name, ...(a.about === 'op' ? pairs(a.args) : []), ...(a.full ? ['--full'] : [])],
   },
   errors: {
     description: 'Page errors with id, time, tick, source, count and, for known classes, the likely cause and doc page. Default: new since the last call. Check after a change.',

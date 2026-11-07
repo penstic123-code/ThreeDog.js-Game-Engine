@@ -25,7 +25,7 @@ How the coordinator and helper agents work on the engine. The owner pushes and p
 - Output is short by default: each failed item with its failed checks, a progress line, then the list of failed items and the `Total:` line. `threedog test --verbose` (or `-v`) prints every passing check too. Never paste whole logs into context. On a page error read `.threedog/errors.log` first.
 - A new test file is just a new `packages/engine/tests/specs/<name>.mjs` exporting `specs`; the runner finds it (there is no list to register it in). A file that exports no items, or a test name used twice, stops the run before any browser opens.
 - Rendering: specs that read pixels run on software rendering; tests wait on conditions (`frames`, `until`), never fixed sleeps. A failure that appears only under load must be reproduced alone before it is called flaky, and the evidence goes into the log.
-- Real WebGPU: the suite's Chromium lands on WebGPURenderer's WebGL2 backend. `node packages/tools/real-webgpu.mjs` runs specs or pages in system Chrome and fails any page that is not on a real device. Run it by hand after changes to shaders, cascades or the first frame; it needs a GPU and Chrome, so it cannot be in `npm test`.
+- Real WebGPU: the suite's Chromium lands on WebGPURenderer's WebGL2 backend. `node packages/tools/real-webgpu.mjs` runs specs or pages in system Chrome and fails any page that is not on a real device; a spec whose page holds no device of its own says why in `notRealWebGPU: '<why>'` and is listed as SKIP. Run it by hand after changes to shaders, cascades or the first frame; it needs a GPU and Chrome, so it cannot be in `npm test`.
 - Log every run (full suite, post-merge check, field test) as one row at the top of the table in `docs/testing/runs.md` (newest first): date, commit, what was run, pass / fail counts, and for each failure what was done (fixed, known issue, flaky with evidence). Review reports go in `docs/testing/review/`, usability runs in `docs/testing/usability/` (layout: `docs/testing/README.md`).
 - A test that matches text and the source string it matches change in the same commit.
 
@@ -47,6 +47,10 @@ How the coordinator and helper agents work on the engine. The owner pushes and p
 `package.json` allows 0.187.x only. Before moving to a newer minor, read what the engine reaches that three does not promise to keep; each breaks in its own way when renamed:
 - `renderer._animation.start()` and `renderer._nodes?.nodeFrame` (`render/backend.js`, the WebGPU first-frame fix): no public entry exists. The first has no optional chain and throws every frame, the second goes quiet.
 - CSMShadowNode's `_init` and `_shadowNodes` (`render/cascades.tsl.js`).
+- `_objects` and `_renderObjects` (`render/recordSweep.js`, what a mesh that left the scene frees): renamed, the sweep frees nothing and memory grows.
+- `_pixelRatio`, `_width`, `_height` (`render/postWebGL.js`): renamed, the post chain sizes itself wrong.
+- `_nodeBuilderState` (`render/shaderErrors.js`): a compile error loses the patch and slot it names.
+- `_renderTarget` (`render/probes.js`, `packages/tools/light-bake-page.js`), `_edgesRT` (`render/PostFX.js`), `_renderObjectDirect` (`packages/tools/lib/capture-lib.mjs`), `_pipelines` (`packages/tools/perf.mjs`).
 - Everything in `describe().threePatches` (`packages/engine/docs/THREE.md`).
 
 ## Plans

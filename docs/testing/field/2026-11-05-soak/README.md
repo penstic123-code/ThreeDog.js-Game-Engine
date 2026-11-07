@@ -30,7 +30,7 @@ RTX 5060 Laptop GPU, Windows 11. Other agents were running the whole time: at th
 
 | run | command | result |
 | --- | --- | --- |
-| real time | `soak '{"minutes":30,"recreateEvery":10,"sampleEvery":4}'` | 30.0 min wall, 1240 rounds, 250 engine create/dispose (250 WebGPU devices made, 250 destroyed), no page error, no GPU validation error |
+| real time | `soak '{"minutes":30,"recreateEvery":10,"sampleEvery":4}'` | 30.0 min wall, 1240 rounds, 125 engines (250 WebGPU devices made, 250 destroyed: each engine then made two, the startup probe and three's own; corrected 2026-11-07, this line used to say 250 engines), no page error, no GPU validation error |
 | simulated | `soak '{"minutes":20,"simulated":true,"stepsPerAction":3000,"recreateEvery":10,"sampleEvery":2,"seed":7}'` | 20.1 min wall, 208 rounds (about 24,000 fixed steps a round, 400 s of game time, so about 23 game hours in all; the time of day wrapped many times; the 120 s day length is short on purpose), 42 engines, no page error |
 
 ## Numbers (start / quarter / half / three quarters / end of the run)
@@ -54,7 +54,7 @@ Simulated, 20 min: counts flat as above; heap within an engine 21.8, 35.2, 38.7,
 
 - No count that the engine owns rises after warm-up: listeners, hooks, timers, statics, stream entries, jobs, commits, geometries, textures, module counts, scene children, tracked GPU bytes. No engine fix came out of this run, so no CHANGELOG line.
 - Heap climbs about 8 MB in the first minute (shader and pipeline caches, the first chunks) and then stays within 1.5 MB over 30 minutes. True VRAM flat. Both match "warm-up, then flat".
-- Tracked GPU buffers rise by about one per engine re-create (10 to 256 over 250 engines) and so does the within-engine number (it carries the earlier engines' share). Not a leak by the numbers that matter: the 250 WebGPU devices were all destroyed (`device.lost` reason `destroyed`), and the true VRAM counter is flat. The page-side counter only subtracts on `buffer.destroy()`, so a buffer that dies with its device is counted as alive. One buffer per device is probably created by three's WebGPU backend (not found which one in this time box; `"kinds":true` in the soak parameters now prints the live buffers by usage and size for the next look).
+- Tracked GPU buffers rise by about one per engine re-create (10 to 256 over 125 engines) and so does the within-engine number (it carries the earlier engines' share). Not a leak by the numbers that matter: the 250 WebGPU devices (two per engine) were all destroyed (`device.lost` reason `destroyed`), and the true VRAM counter is flat. The page-side counter only subtracts on `buffer.destroy()`, so a buffer that dies with its device is counted as alive. One buffer per device is probably created by three's WebGPU backend (not found which one in this time box; `"kinds":true` in the soak parameters now prints the live buffers by usage and size for the next look).
 - Frame step worst case (max) is 60-95 ms in the real-time run: the first frame after each re-create and each city hop (shader compile and building a block), not a growing tail; p99 stays 6-23 ms.
 - Not covered: the physics engine (rapier), audio, net, a real browser tab in the background, mobile. Day cycle was exercised by the simulated run only.
 
@@ -78,3 +78,35 @@ Simulated only: `soak '{"minutes":20,"simulated":true,"stepsPerAction":3000,"rec
 | tracked GPU buffers after a re-create | 10 to 48, about 1 per engine, as in the first run |
 
 No count the engine owns rises. Heap after a re-create still drifts about 0.14 MB per engine after warm-up (about 2 MB over 15 minutes), the same shape as the first run's 26.9 to 29.5. It is small and inside the noise of this run, so it is not called a leak and not called flat: the 30-minute real-time run before 1.0 should look at it.
+
+## 2026-11-07: true VRAM rises with re-creates
+
+The 11-07 soak read 288 to 317 MB where this one read flat. Measured on a quiet machine, Chrome 156.0.8078.81, RTX 5060 Laptop. "After dispose" is true VRAM with every engine disposed and gc forced; "page gone" is the same after `about:blank`. Rates compare a short run with a long one.
+
+| run | cycles | after dispose, MB per cycle | page gone, MB per cycle |
+| --- | --- | --- | --- |
+| engine soak, every round re-created | 198, 353 | 0.231, 0.207 | 0.070, 0.065 |
+| three alone | 619 | 0.021 | 0.012 |
+| three alone, buffers created and disposed while drawing | 667 | 0.025 | 0.010 |
+| three alone, one texture from a 128x128 2D canvas | 650 | 0.082 | 0.082 |
+
+- **Not a regression in the code.** The 2522f3c4 (11-05) code on today's Chrome grows 0.244 MB per re-create, today's 0.217. Same three.js. Chrome's install folder is dated 11-06 19:33, after the 11-05 run; that may be why 11-05 read flat, but the older Chrome is gone, so this is not proven.
+- **Below the engine, proven:** about 0.02 MB per device, and about 0.08 MB per upload from a 2D canvas to a device that is later destroyed. Three alone reproduces both. The canvas one outlives the page with every canvas collected, so nothing in the page can free it. The canvas in this soak is the test's own city texture (`city.js`), not the engine's.
+- **The engine keeps no GPU object:** after 353 re-creates 4 devices are alive, the same 4 as after 6 rounds, and a GPU object in JS keeps its device alive. Canvases stay at 5 or 6 of 1064 made, image bitmaps at 0.
+- **Not explained:** about 0.09 MB per re-create in the full soak. It is freed when the page goes. Three alone did not reproduce it, and neither did turning off shadows (0.202), sky (0.219), weather and particles (0.218), terrain (0.335, noisy), MSAA (0.198) or the city (0.18). Two runs of three alone with post, shadows and a burst of frames hung and gave no number; the same kinds yielding each frame gave 0.03 over 52 cycles. Streaming only adds 0.016 past the page, not the 0.08 the canvas upload would predict, so the split is approximate.
+- **Who is affected:** only a page that destroys and re-creates its engine. Without re-creates VRAM stayed flat (264.7 MB, 268 rounds). At this rate 1000 re-creates in one page cost about 200 MB, and reloading the page gives most of it back.
+
+## Run of 2026-11-07, before 1.0
+
+`soak '{"minutes":30,"recreateEvery":10,"sampleEvery":4}'` on f099003a, with the week's fixes in. System Chrome, real WebGPU, RTX 5060 Laptop. Other work ran beside it (a pack, builds, test runs; CPU 29% to 78%), so frame times are upper numbers.
+
+| series | result |
+|---|---|
+| length | 30.0 min, 1470 rounds, 147 engines, 295 devices made and all destroyed, no GPU validation error, no page error |
+| listeners, hooks, timers, statics, stream entries, jobs, geometries, textures, tracked GPU MB | flat |
+| JS heap after gc, within an engine, MB | 21.2, 26.3, 25.9, 27.0, 27.1, 27.1, 26.7 |
+| JS heap after gc, right after a re-create, MB | 19.8, 22.9, 24.2, 25.6, 26.1, 25.9, 26.3 |
+| true VRAM, MB | 307 at the start, 314 at the end, 247 to 332 in between. Re-creates add about 0.2 MB each, as measured above |
+| frame step p50 / p99 ms | 0.8-1.5 / 10-72. Worst single step 680 ms, while a pack and a build ran beside it |
+
+Nothing the engine owns rises. Scene children right after a re-create read 6 to 14 with no trend.

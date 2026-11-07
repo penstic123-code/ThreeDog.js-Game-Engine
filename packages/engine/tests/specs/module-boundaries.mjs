@@ -12,9 +12,14 @@ export const specs = [
     async run({ check, ev }) {
       const r = await ev(async () => {
         const { fakeNetwork, createEngine, world, net, content } = threedogCoop;
-        // a game's bag: the public inventory methods content and net call, over plain maps
+        // a game's bag: the public inventory methods net calls, over plain maps; it brings the content sections it reads, as any replacement does
         const bag = name => ({
           name, type: 'rules', provides: ['inventory'],
+          content: {
+            items: { commit(d, { engine: e }) { for (const [id, x] of Object.entries(d)) e.inventory.define(id, x); } },
+            startItems: { commit(d, { engine: e }) { for (const [id, n] of Object.entries(d)) e.inventory.add(id, n); } },
+            containers: { commit(d, { engine: e }) { for (const [id, x] of Object.entries(d)) e.inventory.container(id, x); } },
+          },
           install(e) {
             const boxes = new Map(), defs = new Map();
             const box = id => boxes.get(id) ?? boxes.set(id, {

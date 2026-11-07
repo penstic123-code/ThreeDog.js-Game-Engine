@@ -28,17 +28,17 @@
 //   reminders about test setup left out), __t.frames(n), __t.until(cond, ms).
 process.env.THREEDOG_TEST = '1';
 import { readdirSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join, basename, relative, sep } from 'node:path';
+import { join, basename, relative } from 'node:path';
 import { packTest } from './pack-test.mjs';
 import { item, result, startJson } from './lib/result.mjs';
 import { waitEngine } from './wait-engine.mjs';
 import { scenarioSpecs } from './scenario.mjs';
-import { launchBrowser, forcedRender, newGamePage, buildAndPreview, withTimeout } from './browser.mjs';
+import { launchBrowser, forcedRender, newGamePage, buildAndPreview, withTimeout, collect, specContext } from './browser.mjs';
 import { cpus } from 'node:os';
 import { nearest } from './lib/text.mjs';
 import { workspaceSpecs, toolTests as findToolTests, noDuplicateNames, needsSoftware, softwareWhy } from './lib/specs.mjs';
 import { intOption } from './lib/cli-args.mjs';
-import { ENGINE, TOOLS, ROOT, MODE, rel, cli, engineMismatch } from './paths.mjs';
+import { ENGINE, TOOLS, ROOT, MODE, rel, posix, cli, engineMismatch } from './paths.mjs';
 
 const SPEC_TIMEOUT = 120000;
 const tSuite = Date.now();
@@ -129,8 +129,11 @@ const smokeSpecs = dir => readdirSync(dir).filter(f => f.endsWith('.html')).sort
   },
 }));
 /** A workspace's items: its tests/specs/*.mjs (lib/specs.mjs; none: the smoke test), then its scenarios (tests/scenarios/*.json, scenario.mjs) */
+const loadProblems = new Set();   // spec files that could not be loaded (a Set: the engine's list is read twice); printed after the plan, they fail the round
 async function specsOf(dir) {
-  const own = (await workspaceSpecs(dir)).map(x => x.spec);
+  const found = [];
+  const own = (await workspaceSpecs(dir, found)).map(x => x.spec);
+  for (const p of found) loadProblems.add(p);
   const all = [...(own.length ? own : smokeSpecs(dir)), ...scenarioSpecs(dir)];
   // A repeated name means one filter picks two items and the results cannot be told apart. Stop here, before any browser.
   noDuplicateNames(all, () => 'tests/specs or tests/scenarios', `${rel(dir) || basename(dir)}: test item`);
@@ -141,7 +144,7 @@ let pass = 0, fail = 0, ran = 0;
 /** Parallel failures retried alone per run, at most (see runSpecs); parallelFails counts them, retriesSkipped the ones past the limit */
 const RETRY_LIMIT = 5;
 let parallelFails = 0, retriesSkipped = 0;
-const retried = new Map(), unmarked = [];   // item -> how it failed before it passed on a retry; read pixels on the GPU without a software mark
+const retried = new Map(), unmarked = [], notRun = [];   // item -> how it failed before it passed on a retry; read pixels on the GPU without a software mark
 const seenNames = [];
 /** Items expected this run (for the progress line); set once the plan is made */
 let expected = 0;
@@ -159,7 +162,10 @@ const endProgress = () => { if (progressShown) { process.stdout.write('\n'); pro
 /** Add one item's results to the totals and print them: every check with --verbose, otherwise only a failed item and its failed checks */
 function report(name, results, t0, extra = '', state = []) {
   const bad = results.filter(r => !r.ok);
-  pass += results.length - bad.length; fail += bad.length; ran++;
+  // a check labelled 'skipped: why' says nothing was compared (no fast-check, no baseline for this renderer): told apart from a pass
+  const skipped = results.filter(r => r.ok && /\bskipped:/i.test(r.label));
+  notRun.push(...skipped.map(r => `${name}: ${r.label}`));
+  pass += results.length - bad.length - skipped.length; fail += bad.length; ran++;
   if (bad.length) failedItems.push(name);
   if (bad.length && state.length) jsonItems.push(item({ level: 'warn', code: 'test-state', message: `${name}: when it ended: ${state.join('; ')}` }));
   for (const r of bad) jsonItems.push(item({ code: 'test', message: `${name}: ${r.label}${r.detail ? ' → ' + r.detail : ''}` }));
@@ -172,11 +178,6 @@ function report(name, results, t0, extra = '', state = []) {
   }
   progress();
 }
-// A Promise (or any thenable) as ok is always truthy: check('door opens', ev(...)) without await would pass whatever the page says, so it fails instead
-// Reversed, check(condition, 'name') has the always-truthy name as ok: it could never fail, so a label that is not a string fails instead
-const collect = () => { const results = []; return { results, check: (label, ok, detail = '') => results.push(typeof label !== 'string'
-  ? { label: String(ok), ok: false, detail: 'check(name, condition, detail): the first argument must be the name' }
-  : typeof ok?.then === 'function' ? { label, ok: false, detail: 'check got a Promise: add await' } : { label, ok: !!ok, detail }) }; };
 /** An item whose own run() recorded no check tested nothing (an early return, a loop over an empty list): one failed check says so */
 const noChecks = (results, check) => { if (!results.length) check('no checks recorded', false, 'run() returned without calling check(): it tested nothing'); };
 
@@ -199,6 +200,9 @@ try {
     noDuplicateNames([...engineSpecs, ...tools.map(({ test, file }) => ({ name: test.name, where: `tools test ${file}` }))], s => s.where, 'engine page spec / tools test');
   }
 } catch (e) { console.error(`\n✗ ${e.message}`); process.exit(1); }
+// A spec file that did not load is one failed check; the other files still run (the round ends failed, never silently passing)
+for (const p of loadProblems) console.log(`\n✗ ${p}`);
+fail += loadProblems.size;
 const packs = targets.filter(d => d !== ENGINE).map(d => [d, `pack: ${rel(d) || basename(d)}`]);
 seenNames.push(...packs.map(p => p[1]));
 // Every filter word must find something: a misspelled word next to a good one would otherwise just quietly run less
@@ -258,15 +262,7 @@ async function runSpecPage(spec, dir, server, { software = false } = {}) {
       await page.goto(server.base + spec.url);
       await waitEngine(page, { timeout: 60000, errors });
       startup = await page.evaluate(() => engine.startup);
-      // frames(n): wait for the engine's loop to run n more frames (a key press is read on the next frame; software rendering is slow,
-      //   so waiting by frames is more reliable than by milliseconds)
-      const frames = (n = 2) => page.evaluate(n => window.__t.frames(n), n);
-      // one argument, like page.evaluate: a second one used to vanish without a word and the function ran with undefined
-      const ev = (fn, arg, ...extra) => {
-        if (extra.length) throw new Error(`ev(fn, arg) takes one argument, got ${extra.length + 1}: pass them together, ev(({ a, b }) => ..., { a, b })`);
-        return page.evaluate(fn, arg);
-      };
-      await spec.run({ page, check, frames, ev, wait: ms => page.waitForTimeout(ms) });
+      await spec.run(specContext(page, check));
     })(), spec.timeout ?? SPEC_TIMEOUT, 'spec');
   } catch (e) {
     const why = /timed out/.test(String(e)) && browser.render.kind !== 'gpu' ? softwareWhy(spec) : null;
@@ -394,7 +390,7 @@ for (const dir of targets) {
   mkdirSync(join(dir, '.threedog'), { recursive: true });
   writeFileSync(log, [...seen].map(([k, v]) => `${k}\n    in ${v}\n`).join(''));
   if (!seen.size) continue;
-  const [k, v] = seen.entries().next().value, shown = relative(process.cwd(), log).split(sep).join('/') || log;
+  const [k, v] = seen.entries().next().value, shown = posix(relative(process.cwd(), log)) || log;
   console.log(`\nops guard (${rel(dir) || basename(dir)}): ${seen.size} place(s) change gameplay state outside fixed steps and ops:\n   ${k}\n      in ${v}`
     + `\n   ${seen.size > 1 ? 'all of them' : 'listed'} in ${shown}`);
 }
@@ -403,11 +399,13 @@ if (retriesSkipped) console.log(`\n${retriesSkipped} failed item(s) were not ret
 for (const [n, why] of retried) jsonItems.push(item({ level: 'warn', code: 'test-retried', message: `${n}: passed on retry (${why})` }));
 if (retried.size) console.log(`\n${retried.size} item(s) passed on retry (each failed first: load, or a defect in the test; \`--jobs 1\` runs one at a time, spec.serial: true keeps one alone):\n${[...retried].map(([n, why]) => `   ${n}: ${why}`).join('\n')}`);
 if (unmarked.length) console.log(`\n${unmarked.length} item(s) read rendered pixels on the GPU but are not marked \`software: true\` (their pixels depend on the machine; add the mark to the spec):\n${unmarked.map(n => '   ' + n).join('\n')}`);
+for (const n of notRun) jsonItems.push(item({ level: 'warn', code: 'test-skipped', message: n }));
+if (notRun.length) console.log(`\n${notRun.length} check(s) did not run, so they are not counted as passed:\n${notRun.map(n => '   ' + n).join('\n')}`);
 const took = (Date.now() - tSuite) / 1000;
 const time = took >= 90 ? `${(took / 60).toFixed(1)} min` : `${took.toFixed(1)} s`;
 if (failedItems.length) console.log(`\n${failedItems.length} item(s) failed (details above):\n${failedItems.map(n => '   ✗ ' + n).join('\n')}`);
 // Nothing ran at all (every workspace empty, say) is never a pass
 if (!ran) { console.log(`\n✗✗ NOTHING RAN — FAILED, nothing was tested (${time})`); process.exit(1); }
-totals = `${pass + fail} checks in ${ran} items, ${pass} passed, ${fail} failed (${time})`;
+totals = `${pass + fail} checks in ${ran} items, ${pass} passed, ${fail} failed${notRun.length ? `, ${notRun.length} not run` : ''} (${time})`;
 console.log(`\nTotal: ${totals}`);
 process.exit(fail ? 1 : 0);

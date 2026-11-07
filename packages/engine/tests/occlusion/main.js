@@ -54,11 +54,10 @@ const differing = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) i
 const tick = async () => { engine.step(1 / 60, { describe: false }); await new Promise(requestAnimationFrame); };
 /** What the frame would look like with nothing hidden, without touching the culling state */
 async function truth() {
-  const on = [...engine.occlusion._items].filter(i => i.hidden), boxLayer = cam.layers.mask;
-  const masks = on.map(i => i.meshes.map(m => m.layers.mask));
-  on.forEach((it, k) => it.meshes.forEach((m, j) => { m.layers.mask = it.masks[j]; }));
+  const on = [...engine.occlusion._items].filter(i => i.hidden).flatMap(i => i.meshes), boxLayer = cam.layers.mask;
+  for (const m of on) delete m.layers.test;
   const px = await read();
-  on.forEach((it, k) => it.meshes.forEach((m, j) => { m.layers.mask = masks[k][j]; }));
+  for (const m of on) m.layers.test = engine.occlusion._unseen;
   cam.layers.mask = boxLayer;
   return px;
 }
@@ -87,7 +86,7 @@ window.occlusionRun = async () => {
   out.still = engine.occlusion.stats;
   out.row = engine.describe().render.occlusion;
   out.text = /occlusion: /.test(engine.describe().render.text);
-  out.hiddenLayer = tower.layers.isEnabled(HIDDEN_LAYER) && !tower.layers.isEnabled(0);
+  out.hiddenFromView = !tower.layers.test(cam.layers) && tower.layers.mask === 1;
   out.visibleKept = tower.visible;
   out.shadowSeesBoxes = sun.shadow.camera.layers.isEnabled(BOX_LAYER);
   out.shadowSeesHidden = sun.shadow.camera.layers.isEnabled(HIDDEN_LAYER);
@@ -117,7 +116,7 @@ window.occlusionRun = async () => {
   }
   out.gap = { worst, shown };
   // a camera cut: the frame right after it hides nothing it should show
-  place(0); for (let i = 0; i < 12; i++) await tick();
+  place(0); for (let i = 0; i < 40 && engine.occlusion.stats.hidden < 21; i++) await tick();   // place(0) is a cut too: answers start over
   const before = engine.occlusion.stats.hidden;
   place(9);
   await tick();
@@ -125,7 +124,7 @@ window.occlusionRun = async () => {
 
   out.rootOwner = engine._things.byObj.get(engine.occlusion._root)?.owner;
   engine.occlusion.enabled = false;
-  out.off = { boxes: engine.scene.getObjectByName('occlusion boxes') ? 1 : 0, layerBack: tower.layers.isEnabled(0), stats: engine.occlusion.stats.hidden, shadowMaskBack: sun.shadow.camera.layers.mask === shadowMask };
+  out.off = { boxes: engine.scene.getObjectByName('occlusion boxes') ? 1 : 0, layerBack: tower.layers.test(cam.layers), stats: engine.occlusion.stats.hidden, shadowMaskBack: sun.shadow.camera.layers.mask === shadowMask };
   return out;
 };
 // outline's own renders of the camera (normal view, exempt-layer mask) with the boxes around things in view: the lines must not change

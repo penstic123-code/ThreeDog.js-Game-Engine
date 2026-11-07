@@ -101,6 +101,7 @@ export class RtsCamera {
     if (b) { this.focus.x = Math.min(b.maxX ?? Infinity, Math.max(b.minX ?? -Infinity, this.focus.x)); this.focus.z = Math.min(b.maxZ ?? Infinity, Math.max(b.minZ ?? -Infinity, this.focus.z)); }
   }
   _place() {
+    if (this.engine.cameraOverride) return;   // a held camera has one writer: focus and _f are what lands at release (common.js)
     const cam = this.engine.camera, f = this._f;
     const g = this.engine.surface(f.x, f.z);
     if (g > -Infinity) f.y = g;                    // focus sticks to the ground; over the void of terrain({ shape }) it keeps its last height

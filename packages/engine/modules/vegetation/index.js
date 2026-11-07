@@ -2,6 +2,8 @@
 // felled trees; Vegetation.js) and 'vegetationDraw' (instanced meshes, wind, fade, LOD; draw.js, slot 'vegetation-draw').
 // Why two: collision, paths and felling read only the data, so engine.use(myPlants, { replaces: 'vegetation-draw' }) swaps every pixel
 // of the plants and keeps all of play.
+import { vegetationModel } from '../../core/assets/namedModel.js';
+import { reportError } from '../../core/base/errors.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { Vegetation } from './Vegetation.js';
 import { VegetationDraw } from './draw.js';
@@ -10,6 +12,23 @@ import { codedError } from '../../core/base/errorHints.js';
 
 const OPTS = ['chunkSize', 'viewChunks', 'density', 'area', 'seed'];
 const VEG_PARAMS = keysSchema(OPTS, GROUND_DEFAULTS);   // defaults of the own-chunks mode (without terrain)
+/**
+ * The vegetation section of content data: model names resolve through vegetationModel, the same resolver vegetation.define uses for a name. All kinds register at
+ * the same moment once all models are ready, since each registration rebuilds terrain chunks. One model that fails does not stop the others.
+ * The models are made in commit, not prepare: nothing stands on vegetation, so the rest of a pack does not wait for them
+ */
+const VEGETATION_CONTENT = {
+  desc: 'vegetation (name -> model, growth rule)',
+  // taken back while its models were still generating. On what this load prepared, not on the table: the same table loaded again is a new load
+  prepare: table => ({ table, undone: false }),
+  undo: load => () => { load.undone = true; },
+  commit: (load, { engine: e }) => Promise.all(Object.entries(load.table).map(([name, { model: m, lod, ...rest }]) =>
+    Promise.all([vegetationModel(e, m), lod && vegetationModel(e, lod)])
+      .then(([main, low]) => [name, { ...rest, ...main, ...(low && { lodGeometry: low.model ?? low.geometry }) }])
+      .catch(err => { reportError(e, err, `content vegetation ${name}: model generation`, { soft: true }); return null; })))
+    .then(list => { if (!load.undone) for (const v of list) if (v) e.vegetation.define(v[0], v[1]); }),
+};
+
 /**
  * Vegetation module. Provides engine.vegetation.define(name, {...}) once installed.
  * With terrain() installed first it grows on the terrain chunks and takes no options (density and view distance are terrain options).
@@ -30,16 +49,16 @@ const VEG_PARAMS = keysSchema(OPTS, GROUND_DEFAULTS);   // defaults of the own-c
  */
 export function vegetation(opts = {}) {
   readParams('vegetation', VEG_PARAMS, opts);
-  let v = null, own = null, cols = null, ready = null, drawPart = null;
-  const data = { name: 'vegetation', type: 'world', provides: ['vegetation'], label: 'Vegetation', params: VEG_PARAMS, options: opts, stage: 'ground', after: ['terrain', 'level'], optional: ['terrain', 'level'],
+  let v = null, own = null, drawPart = null;
+  const data = { content: { vegetation: VEGETATION_CONTENT }, name: 'vegetation', skipKind: 'approx', type: 'world', provides: ['vegetation'], label: 'Vegetation', params: VEG_PARAMS, options: opts, stage: 'ground', after: ['terrain', 'level'], optional: ['terrain', 'level', 'settings'],
     install(e, ctx) {
       e.i18n.add({ 'zh-CN': { 'module.vegetation': '植被' }, en: { 'module.vegetation': 'vegetation' } });
-      v = new Vegetation(e, opts);
+      v = new Vegetation(e, opts, ctx);
       ctx.track(e.events.on('settings:shadows', () => v.host.refreshLevels()));   // whichever chunks it grows on: each level pass rereads the shadow switch
       if (v.host !== e.terrain) {
         own = v.host;
-        cols = e.addGroundColliders((x, z, range, fn) => own.forEachCollider(x, z, range, fn));   // collision and path planning see the trees
-        ready = e.stream.addReadyCheck('vegetation', s => own.readyAt(s));
+        ctx.ground.addColliders((x, z, range, fn) => own.forEachCollider(x, z, range, fn));   // collision and path planning see the trees
+        ctx.stream.addReadyCheck('vegetation', s => own.readyAt(s));
       }
       return v;
     },
@@ -48,15 +67,17 @@ export function vegetation(opts = {}) {
     critical: true,
     async init(e) {
       if (own && e.terrain) throw codedError('module-requires', 'vegetation() was installed before terrain(): put terrain() first, vegetation then grows on its chunks');
+      // over a level or a code-built ground these chunks are the only ones: their rows are this module's to offer (on terrain, the terrain's)
+      if (own) e.settings?.define('viewChunks', own.viewChunks, n => { if (own.viewChunks !== n) own.viewChunks = n; }).define('density', own.density, n => { if (own.density !== n) own.density = n; });
       await v.whenLoaded();   // densityMap.url images of species added before start
     },
     frame(dt, e) { own?.update(e.stream.sources(), e.camera); },
     fixed(dt) { v.tick(dt); }, skip(dt, e, done) { if (done) v.tick(1); },
     describe(e, ctx) { if (own) ctx.out.perf.vegetation = { loaded: own.stats.loaded, visible: own.stats.visible, queued: own.stats.queued }; },
-    dispose(e) { own?.dispose(); cols?.remove(); ready?.remove(); v?._view?.remove(); v?._planter?.remove(); } };
+    dispose(e) { own?.dispose(); v?._view?.remove(); v?._planter?.remove(); } };
   const lookModule = {
     // the same vegetation({...}) call (its options are the data part's; the draw part reads the species' define() options)
-    name: 'vegetationDraw', type: 'picture', label: 'Vegetation drawing', params: VEG_PARAMS, options: opts, requires: ['vegetation'], provides: ['vegetation-draw'], stage: 'effects',
+    name: 'vegetationDraw', skipKind: 'none', type: 'picture', label: 'Vegetation drawing', params: VEG_PARAMS, options: opts, requires: ['vegetation'], provides: ['vegetation-draw'], stage: 'effects',
     install(e) { e.i18n.add({ 'zh-CN': { 'module.vegetationDraw': '植被外观' }, en: { 'module.vegetationDraw': 'vegetation drawing' } }); drawPart = new VegetationDraw(e, v); return drawPart; },
     frame() { drawPart.updateFade(); },
     describe() { return { chunks: drawPart?.meshes.size ?? 0 }; },
@@ -64,3 +85,5 @@ export function vegetation(opts = {}) {
   };
   return [data, lookModule];
 }
+
+export const handRolled = 'none: plants of its own are plain three.js, used on purpose';

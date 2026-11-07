@@ -47,7 +47,7 @@ during development and say how to fix it).
 Inserting a new entry in the middle shifts the later indexes, so moves / deletions in old saves no longer match. **Give an `id` to any prop whose
 content may still change.**
 Get them in code, move or delete them (all saved with the game):
-```js
+```js fragment
 engine.world.query({ kind: 'prop' });                     // all prop data { id, position, model, rot, scale, collide ... }
 engine.world.move('prop:rock:3', { x: 12, z: -4 });         // move: model, collision and ray registration follow; height is recomputed from the ground
 engine.world.set('prop:rock:3', { rot: 1.2, scale: 1.5 });  // change rotation / size
@@ -70,7 +70,7 @@ If a model fails to generate, world reports it once in the console, does not blo
 ## 2. Large code-generated models and baking
 Big things assembled in code, such as a city block or a whole house, are written as a function, registered in the manifest and fetched by name. During
 development they are cached automatically (.threedog/cache) and recomputed when the code changes:
-```js
+```js fragment
 import { buildBlock } from './block.js';
 engine.assets.manifest({ models: { 'city-block': buildBlock } });     // the function returns an Object3D or a geometry
 const block = await engine.assets.model('city-block');
@@ -106,6 +106,7 @@ it by name, and use the name everywhere. Later a `.glb` registered under the sam
   `receiveShadow` on any of its meshes keeps its own flags (a rug that receives but does not cast); one that set none casts and receives
   everywhere. The same rule holds for `assets.model(name)` and content props.
 - It runs once per name + params; every placement is a clone sharing geometry and materials (`engine.assets.model(name)` and content props alike).
+- Who frees what: a copy from `assets.model` holds its original until `engine.remove`. `release` and `trim` skip what a copy still holds, and `describe().assets` counts `leases` and `waiting`. A generated model stays cached for good, and a content prop's prototype keeps one copy.
 - Cache key = name + the generator's source (its file and imports) + params + `engine.assets.palette`. Values it reads from outer variables must go in
   `params`, or a change keeps the stale model. In dev a build slower than `assets.cacheMinMs` (20 ms) is stored as GLB in `.threedog/cache` and
   read back next time; `npm run bake` writes the same GLB to `public/models/baked/` (section 2). Neither is needed: unbaked generators run in the
@@ -148,7 +149,7 @@ Objects your code makes and adds (`engine.scene.add(mesh)`, `engine.add(mesh)`, 
 `THREE.Raycaster`, scene walks and material swaps see exactly the meshes you made. Many static copies of your own mesh (fence posts, tiles, coins)
 opt in with one flag on the root you add, set before adding it (or call `engine.batching.refresh(obj)` after). In dev, `engine.inspect.perf()` and
 `describe().perf.batching.hint` say so when many identical meshes of yours draw one by one.
-```js
+```js fragment
 for (const p of postSpots) { const m = new THREE.Mesh(postGeo, woodMat); m.position.copy(p); m.userData.batch = true; engine.scene.add(m); }
 ```
 ```js
@@ -186,9 +187,8 @@ props repeated across the level), think through the parts and their proportions 
 - **Tune numbers live**: declare `params` (section 2a); the dev panel's models folder (`?panel=1`) shows them and every drag rebuilds the
   copies (`engine.assets.setParams(name, values)`). "write back", then `threedog tune write` (dry run; `--apply`) puts the values into the
   schema's `default` where the model is registered.
-- **Review all at once**: `?gallery=1` on the dev page, or `threedog gallery`, puts every registered model and texture on a turntable under three neutral lights;
-  `--shots` writes one page of pictures, `--mode silhouette,value` adds outline and grayscale shots with measurements in `index.json` (`fill`, `boxFill`, `aspect`,
-  luminance `p5` / `p50` / `p95`). They are measurements, not grades: a shape the player must recognize at play distance usually still reads as a silhouette, and a
+- **Review all at once**: `?gallery=1` on the dev page, or `threedog gallery`, puts every registered model and texture on a turntable;
+  `--shots` writes one page of pictures, `--mode silhouette,value` adds outline and grayscale shots with measurements (`../COMMANDS.md`). They are measurements, not grades: a shape the player must recognize at play distance usually still reads as a silhouette, and a
   narrow p5-p95 spread means hue carries the form; compare assets that must be told apart with each other rather than with a fixed number.
 - **Compare with the reference**: `threedog picture compare <reference.png> .threedog/gallery/<name>-midday.png --out diff.png` gives numbers
   for one asset against its reference crop, the same way as for a whole screenshot (`recipes/35-picture-from-reference.md`).
@@ -207,7 +207,7 @@ the DESIGN.md "Asset sources" row, and every source ends up the same way, as a n
 
 **Does it fit?** Every library entry has one card, measured at `lib add` (needs, provides, shared three.js values it writes, size, style, usage); `threedog lib list <word> --card` prints it. Tag a style with `--style` in your own words: only tags can say that, and two entries with no tag in common are reported. After pulling several pieces, `threedog lib check` says what is missing and what clashes. Nothing is forced: fix a clash in your copy, or leave a note you meant.
 
-**Your own library.** `threedog lib add <file|folder|exportName> -w earlier-game` keeps a piece of a finished game in `~/.threedog/library`, `threedog lib list [words]` searches it, `threedog lib pull <name>` copies it into this game (code goes to `plugins/<name>/`, plus a wiring file `plugins/<name>.js`); flags in `../COMMANDS.md`. Look here before writing an effect from scratch. A pulled entry is a copy with no link back and no update: change it to fit this game rather than keeping it as it was, or every game ends up looking alike.
+**Your own library.** `threedog lib add <file|folder|exportName> -w earlier-game` keeps a piece of a finished game in `~/.threedog/library`, `threedog lib list [words]` searches it, `threedog lib pull <name>` copies it into this game; flags and where each kind lands in `../COMMANDS.md`. Look here before writing an effect from scratch. A pulled entry is a copy with no link back and no update: change it to fit this game rather than keeping it as it was, or every game ends up looking alike.
 
 **Rules (correctness and licensing):**
 - Read the license of every asset you did not make, on the page you downloaded it from, before it goes into the game; a library can mix
@@ -246,7 +246,7 @@ Every asset load is a task in `engine.loading` (so are module init / `isReady`, 
 phase (`queued` → `download` → `decode` → `upload` / `build` → `done` | `failed`), progress, the error (file, HTTP status, a texture or `.bin` the
 model references but could not load) and its source (which manifest, which path, file version, animation names).
 Decide per entry what a failure means:
-```js
+```js fragment
 engine.assets.manifest({
   name: 'forest',                                                // the source label in engine.loading (default 'manifest#1')
   models: {
@@ -296,6 +296,6 @@ engine.assets.manifest({ name: 'ui-fonts', base: '/fonts/', fonts: { pixel: 'pix
 - Baking: `npm run bake` prints each item's size; related test `threedog test 烘焙`. To look at the picture: `npm run shot -- / --pos x,z`.
 
 ## 5. Deleting objects
-`engine.remove(obj)` deletes an object and frees its GPU memory; `engine.detach(obj)` only takes it off for a while (add it back with `engine.add`).
+`engine.remove(obj)` deletes an object and frees its GPU memory; `obj.removeFromParent()` only takes it off for a while (add it back with `engine.add`).
 Don't call `obj.removeFromParent()` or `scene.remove()` on meshes you built: their geometry and materials would leak.
 (`thing.remove` (`40-scene.md`) deletes a registered object so that an undo can bring it back; `engine.remove` is final.)

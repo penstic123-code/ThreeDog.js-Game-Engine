@@ -26,7 +26,7 @@ export const name = 'movers: move.* stats via engine.mod, jump API, moving platf
 function fake({ ground = () => 0 } = {}) {
   const events = [], on = {};
   const e = Object.defineProperties({ elapsed: 0, disposed: false, halted: false, _loop() { e.loops = (e.loops ?? 0) + 1; }, page: { _sync() {} }, style: {},
-    movement: { radius: 0.3, stepHeight: 0.4, slopeRatio: 1 }, saves: { register() {} }, ops: { allow: f => f() }, _poses: { add() {}, remove() {} }, clock: { rate: 1, _advance() {} }, world: { recs: {}, get(id) { return this.recs[id] ??= {}; }, move() {} },
+    movement: { radius: 0.3, stepHeight: 0.4, slopeRatio: 1 }, saves: { register() {} }, ops: { allow: f => f() }, _poses: { add() {}, remove() {} }, clock: { rate: 1, _advance() {} }, world: { set() {}, recs: {}, get(id) { return this.recs[id] ??= {}; }, move() {} },
     surface: (x, z) => ground(x, z), waterAt: () => -Infinity, slope: () => 0, groundType: () => 'grass',
     events: { emit: (n, d) => { events.push([n, d]); for (const f of on[n] ?? []) f(d); }, on: (n, f) => { (on[n] ??= []).push(f); return { remove() {} }; } },
   }, Object.getOwnPropertyDescriptors(holdMethods));
@@ -217,6 +217,7 @@ export async function run({ check }) {
   // ---- fall: below belowY back to safe ground, character:fall once
   {
     const e = fake({ ground: x => x < 2 ? 0 : -1000 }), c = make(e, { fall: { belowY: -20 } });
+    e.mod('fall', { owner: 'game', set: 'rescue' });   // the game's choice: the engine alone rescues nothing
     step(e, c, 0, 0, 5);
     const safe = c.safeGround.clone();
     let t = 0; while (c.grounded && t < 300) { step(e, c, 1, 0); t++; }
@@ -225,10 +226,10 @@ export async function run({ check }) {
     check('fell below belowY: character:fall once', falls.length === 1, String(falls.length));
     check('... back on the last safe ground, standing', c.position.y > -1 && c.grounded && c.position.x < 2, JSON.stringify(c.position));
     check('... the safe spot is where it last stood still (before walking off)', c.safeGround.distanceTo(safe) < 2.5);
-    e.on('character:fall', ev => ev.preventDefault());
+    e.mod('fall', { owner: 'game', id: c.id, set: false });
     let n2 = 0; while (n2++ < 400 && e.list.filter(([n]) => n === 'character:fall').length < 2) step(e, c, 1, 0);
     step(e, c, 1, 0, 30);
-    check('preventDefault: stays where it fell (the game handles it), told once', c.position.y < -20 && e.list.filter(([n]) => n === 'character:fall').length === 2);
+    check('rule fall false: stays where it fell (the game handles it), told once', c.position.y < -20 && e.list.filter(([n]) => n === 'character:fall').length === 2);
   }
   { // mover switched at runtime: 'manual' stops the integration (the game writes the position), 'simple' takes it back with the same instance
     const e = fake(), c = make(e), simple = c.mover;

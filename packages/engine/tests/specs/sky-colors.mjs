@@ -14,7 +14,7 @@ export const specs = [
         engine.haltLoop();
         const U = engine.uniforms, sky = engine.sky, out = {}, hex = c => c.getHexString();
         const read = () => ({ hor: hex(U.uSkyHorizon.value), top: hex(U.uSkyTop.value), dome: hex(sky.uniforms.uHorizon.value), domeTop: hex(sky.uniforms.uTop.value) });
-        engine.weather.setAuto(false);
+        engine.weather.auto = false;
         engine.weather.set('clear', { seconds: 0 });
         out.instant = [engine.weather.t, engine.weather.current.rain];
         engine.calendar.timeOfDay = 0.5; engine.step(1 / 30); out.noon = read();

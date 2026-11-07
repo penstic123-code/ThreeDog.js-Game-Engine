@@ -1,6 +1,6 @@
 # engine.inventory — inventory(opts?: InventoryOptions)
 
-Inventory (inventory() module)
+Inventory (inventory() module). Items, counts and containers, saved with the game. Install: engine.use(inventory()); undefined until installed. add() answers { ok }, read .ok
 
 - Options `InventoryOptions`:
   - `action?: string` Action name that opens the inventory, default 'inventory'

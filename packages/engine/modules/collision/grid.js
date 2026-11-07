@@ -2,6 +2,9 @@
 // Results are ordered circles first, then boxes, each in insertion order, exactly the callback order of a linear scan (resolve edits the position in turn, so a different order changes the result).
 // Worker-safe (no imports): the path worker (characters/pathJob.js) rebuilds the same grid from the colliders it mirrors.
 const CELL = 8, MAX_CELLS = 64, KEY = 1048576;   // colliders too large (covering > 64 cells) skip the grid and are scanned linearly, so registration cost does not blow up
+/** Does a body with its feet at y reach this box? A box without a y of its own is a footprint, and a body without y is anywhere: both hit. Written so an undefined on either side falls through to true */
+export const bodyHits = (it, y, body) => !(y >= it.y + it.h || y + body <= it.y);
+
 const byOrder = (a, b) => a._b - b._b || a._o - b._o;
 
 /** Cell span [x0, x1, z0, z1] that an item (x, z, r) covers */
@@ -54,10 +57,12 @@ export class CollisionGrid {
 /**
  * Does a collider in the grid block a character of `radius` standing at (x, z)? The obstacle half of Collision.walkableAt,
  * shared with the pathfinding worker (it rebuilds a grid from the same colliders), so both answer identically. Worker-safe: no imports.
+ * y, body: the feet and height of the character; a box on another floor does not block it. Left out, every box blocks.
  */
-export function gridBlocks(grid, x, z, radius) {
+export function gridBlocks(grid, x, z, radius, y, body) {
   for (const it of grid.query(x, z, radius + 1)) {
     if (!it._b) { if (Math.hypot(x - it.x, z - it.z) < radius + it.r) return true; continue; }
+    if (!bodyHits(it, y, body)) continue;
     const dx = x - it.x, dz = z - it.z, lx = dx * it.c - dz * it.s, lz = dx * it.s + dz * it.c;
     if (Math.abs(lx) < it.hw + radius && Math.abs(lz) < it.hd + radius) return true;
   }

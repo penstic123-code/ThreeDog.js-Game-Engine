@@ -55,7 +55,7 @@ export function shadowFill({ scene, base, grab }, s, unshadowed) {
 export function shadowEdgeMask(c, s, casters, was) {
   const { e, R, lumaOf, grab } = c, cv = R.domElement, mw = Math.min(cv.width, 960), mh = Math.min(cv.height, 540), c3 = document.createElement('canvas'); c3.width = mw; c3.height = mh;
   const g3 = c3.getContext('2d', { willReadFrequently: true }), sx = (cv.width - mw) >> 1, sy = (cv.height - mh) >> 1;
-  const full = () => { e._render(0, false); g3.drawImage(cv, sx, sy, mw, mh, 0, 0, mw, mh); return lumaOf(g3.getImageData(0, 0, mw, mh).data); };
+  const full = () => { e._tools.render(0, false); g3.drawImage(cv, sx, sy, mw, mh, 0, 0, mw, mh); return lumaOf(g3.getImageData(0, 0, mw, mh).data); };
   // two reads far enough apart to see what moves by itself: film grain changes 24 times a second, and two renders back to back read as still
   const on = full(), wait = performance.now() + 50;
   while (performance.now() < wait);

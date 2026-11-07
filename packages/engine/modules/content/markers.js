@@ -1,6 +1,6 @@
 // What the marker / clearMarker effects show: playthrough state, kept in the 'content' save part, so a load shows the save's markers and a new game none of the old
 // ones. st.marks holds id -> [position, label]; api.markers holds the hud markers on screen now.
-import { refuseSave } from '../../core/saves/saveValues.js';
+import { refuseSave } from '../../core/base/saveValues.js';
 
 /** content._mark: set (v = position) or clear (v = null) marker id */
 export function setMark(e, api, st, id, v, label) {

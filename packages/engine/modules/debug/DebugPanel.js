@@ -79,7 +79,7 @@ export class DebugPanel {
       ws.innerHTML = Object.keys(e.weather.types).map(k => `<option value="${esc(k)}">${esc(e.weather.label(k))}</option>`).join('') + `<option value="auto">${esc(e.weather.label('auto'))}</option>`;
       ws.value = e.weather.name;
     }
-    ws.onchange = () => { if (ws.value === 'auto') e.weather.setAuto(true); else { e.weather.setAuto(false); e.weather.set(ws.value, { seconds: 8 }); } };
+    ws.onchange = () => { if (ws.value === 'auto') e.weather.auto = true; else { e.weather.auto = false; e.weather.set(ws.value, { seconds: 8 }); } };
     engine.i18n.add({ 'zh-CN': { 'debug.toggle': '调试面板' }, en: { 'debug.toggle': 'Debug panel' } });   // the settings menu's rebind page shows this name
   }
 
@@ -126,7 +126,7 @@ export function debug(opts = {}) {
   readParams('debugPanel', DEBUG_PANEL_PARAMS, opts);
   let d = null; const prof = { n: 0, t: 0, cpu: 0 };
   return {
-    name: 'debugPanel', type: 'ui', params: DEBUG_PANEL_PARAMS, options: opts, label: 'Debug panel', optional: ['calendar', 'weather', 'terrain'],
+    name: 'debugPanel', skipKind: 'none', type: 'ui', params: DEBUG_PANEL_PARAMS, options: opts, label: 'Debug panel', optional: ['calendar', 'weather', 'terrain'],
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.debugPanel': '调试面板' }, en: { 'module.debugPanel': 'debug panel' } });
       d = new DebugPanel(e, opts); e.debug.panel = d;
       // the toggle action has no key of its own (presets.bindings.debug binds F3); optional: the panel works by code (panel.el.hidden) too
@@ -146,3 +146,5 @@ export function debug(opts = {}) {
     },
   };
 }
+
+export const handRolled = 'none: a dev overlay is ordinary DOM with no shape of its own';

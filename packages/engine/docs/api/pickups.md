@@ -1,6 +1,6 @@
 # engine.pickups — pickups(opts?: PickupsOptions)
 
-pickups()
+pickups(). Things on the ground that go in the bag. Install: engine.use(pickups()) with inventory() and interactions(); undefined until installed. A full bag leaves the item on the ground
 
 - Options `PickupsOptions`:
   - `radius?: number` Reach of pickups that do not set their own radius (meters), default 2

@@ -10,13 +10,15 @@ export const specs = [
       const r = await ev(() => {
         const p = engine.post, pr0 = engine.renderer.getPixelRatio(), out = { fresh: !p.composer };
         engine.setPixelRatio(1.5);   // 后期在像素比不是 1 时建起来，才会暴露"设备像素再乘像素比"
-        p.setAntialias(true); engine.step(1 / 30, { render: true });
+        // an effect, not antialias: only an effect runs the chain (MSAA stays with the canvas)
+        const fx = p.add({ name: 'size-probe', create: () => ({ enabled: true, needsSwap: false, renderToScreen: false, setSize() {}, render() {}, dispose() {} }) });
+        engine.step(1 / 30, { render: true });
         const css = engine.renderer.getSize(new __threedogThree.Vector2());
         for (const pr of [1, 2, 1.4]) {
           engine.setPixelRatio(pr); engine.step(1 / 30, { render: true });
           out[pr] = [p.composer.renderTarget1.width, p.composer.renderTarget2.height, Math.round(css.x * pr), Math.round(css.y * pr)];
         }
-        engine.setPixelRatio(pr0);
+        engine.setPixelRatio(pr0); fx.remove();
         return out;
       });
       const { fresh, ...sizes } = r;
@@ -47,14 +49,14 @@ export const specs = [
         late2.remove();
         // create 抛错：不留在链里，后面的调用不受影响
         out.create = err(() => p.add({ name: 'boom', create: () => { throw new Error('boom!'); } }));
-        out.createGone = !p.get('boom') && err(() => p.setAntialias(true)) === '';
+        out.createGone = !p.get('boom') && err(() => p.antialias = true) === '';
         // remove 两次只 dispose 一次
         const d = { n: 0 }, once = p.add({ name: 'once', create: () => pass(false, d) });
         once.remove(); once.remove(); out.disposed = d.n;
         // handle.set 拼错：报错并列出它有的参数
         const typed = p.add({ name: 'typed', params: { amount: 1 }, create: () => pass(false) });
         out.typo = err(() => typed.set({ amout: 2 })); typed.remove();
-        grade.remove(); edges.remove(); p.setAntialias(false);
+        grade.remove(); edges.remove(); p.antialias = false;
         out.after = p.list().map(e => e.name).join() === before;
         return out;
       });

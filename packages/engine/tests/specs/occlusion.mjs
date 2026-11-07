@@ -5,7 +5,7 @@ const run = async ({ page, check, ev }) => {
   const r = await ev(() => window.occlusionRun());
   console.log('  occlusion numbers:', JSON.stringify(r));
   check('everything behind the wall is hidden, and describe() reports it', r.still.hidden === 21 && r.row?.hidden === 21 && r.row.trianglesSkipped > 100000 && r.text, JSON.stringify([r.still, r.row, r.text]));
-  check("hiding is a layer move: the game's visible stays true", r.hiddenLayer && r.visibleKept);
+  check("hiding is for the view camera: the game's visible and layers stay as they were", r.hiddenFromView && r.visibleKept);
   check(`the picture does not change (${r.changed} pixels), hidden shadow casters included (the shadow itself is ${r.shadowMatters} pixels)`, r.changed === 0 && r.shadowMatters > 20, JSON.stringify([r.changed, r.shadowMatters]));
   check(`rays still hit a hidden thing: ${r.rayHit}`, r.rayHit === true, JSON.stringify(r.rayHit));
   check(`no visible gap while things come into view: worst frame ${r.gap.worst} pixels off, ${r.gap.shown} of 21 came back`, r.gap.worst === 0 && r.gap.shown > 3, JSON.stringify(r.gap));

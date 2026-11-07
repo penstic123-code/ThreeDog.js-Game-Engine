@@ -82,7 +82,7 @@ export const specs = [
           height: '(x,z)=>0', groundType: `(x,z)=> z > ${OZ + 32} + 14*Math.sin((x - ${OX})*0.09) ? "a" : "b"` });
         const species = {}; for (const sp of engine.vegetation?.list() || []) species[sp.name] = sp.rule;
         engine.haltLoop();
-        engine.player.root.visible = false; T.setDensity(0);
+        engine.player.root.visible = false; T.density = 0;
         const cam = new THREE.OrthographicCamera(-32, 32, 32, -32, 1, 200); cam.position.set(OX + 32, 100, OZ + 32); cam.up.set(0, 0, -1); cam.lookAt(OX + 32, 0, OZ + 32);   // top-down over chunk (0, 0), x right, z down
         const N = 512, rt = new THREE.WebGLRenderTarget(N, N), R = engine.renderer;
         const wait = async (fn) => { for (let i = 0; i < 400 && !fn(); i++) { engine.step(1 / 30, { describe: false }); await new Promise(res => setTimeout(res, 20)); } return fn(); };

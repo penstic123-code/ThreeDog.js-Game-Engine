@@ -117,7 +117,7 @@ export default function threedogBridge() {
         try {
           const page = await openHeadless(path || '/');
           await waitEngine(page, { dir: server.config.root });
-          if (idleHalted) { idleHalted = false; await page.evaluate(() => window.engine?._unhalt('bridge-idle')); }   // hand the page back as it was before the idle pause
+          if (idleHalted) { idleHalted = false; await page.evaluate(() => window.engine?._tools.resume('bridge-idle')); }   // hand the page back as it was before the idle pause
           if (op === 'eval') return await page.evaluate(([s, a]) => (0, eval)('(' + s + ')')(a), [src, arg]);
           if (op === 'shot') return (await page.screenshot()).toString('base64');   // the headless page is captured together with the HTML UI
           await page.reload(); return null;

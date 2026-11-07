@@ -3,9 +3,10 @@
 //   1. package contents: the tarballs carry what is needed (docs, workers, style types) and nothing internal (tests)
 //   2. types: a // @ts-check file with a three.js method typo, a wrong vector argument type and an engine option typo gives exactly those
 //      three tsc errors; the correct main.js gives none (skipLibCheck off, so the engine's own declarations are checked too)
-//   3. vite build + vite preview of a minimal game: page opens, engine.ready, no 4xx/5xx (Workers, wasm, decoders, assets), no console errors
+//   3. what opening a game checks: page opens, engine.ready, no 4xx/5xx (Workers, wasm, decoders, assets), no console errors
 //   4. the threedog CLI works in that project: map (GAMEMAP with package-relative paths), check, test (smoke), examples pull, dev + one bridge command;
 //      the project is the new-game template (packages/tools/templates/game + templates/openworld), so the template installs, checks, runs and builds outside the repo
+//   5. vite build + preview of that project and of every other start `threedog init` offers (blank, --pixel, each also with --webgl): a start that builds can still crash on first open
 //   6. the engine alone, installed from a local folder with npm install --install-links (a plain link would skip its dependencies):
 //      nothing unpublished is pulled in (no @threedog/* or file:/workspace: dependency), one copy of three, and a plain vite config builds
 //   7. a game that vendors the whole engine (tests included) in vendor/threedog as a file: dependency: threedog check and types look only at the
@@ -61,8 +62,9 @@ const cleanEnv = () => { const env = { ...process.env }; for (const k of Object.
 const npm = (args, cwd) => npmRun(args, { cwd, timeout: 600000, env: cleanEnv() });
 const node = (args, cwd) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8', timeout: 600000 });
 /** The installed threedog CLI in the temp project; async, so a dev server in another process keeps running */
-const cli = (app, ...args) => new Promise(res => execFile(process.execPath, [join(app, 'node_modules/@threedog/tools/bin/threedog.mjs'), ...args],
-  { cwd: app, encoding: 'utf8', timeout: 900000 }, (err, out, errOut) => res({ code: err ? err.code ?? 1 : 0, out: (out + errOut).trim() })));
+const cliIn = (cwd, app, ...args) => new Promise(res => execFile(process.execPath, [join(app, 'node_modules/@threedog/tools/bin/threedog.mjs'), ...args],
+  { cwd, encoding: 'utf8', timeout: 900000 }, (err, out, errOut) => res({ code: err ? err.code ?? 1 : 0, out: (out + errOut).trim() })));
+const cli = (app, ...args) => cliIn(app, app, ...args);
 const freePort = () => new Promise(r => { const s = createServer().listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => r(p)); }); });
 
 /** npm pack one package into dest; returns the npm pack --json entry ({ filename, files: [{ path }] }) */
@@ -79,9 +81,9 @@ function tsc(app, project) {
 }
 
 /** Start vite preview and resolve with its base URL once it answers */
-async function preview(app, port) {
+async function preview(dir, app, port) {
   const proc = spawn(process.execPath, [join(app, 'node_modules/vite/bin/vite.js'), 'preview', '--port', String(port), '--strictPort', '--host', '127.0.0.1'],
-    { cwd: app });
+    { cwd: dir });
   let log = ''; proc.stdout.on('data', d => log += d); proc.stderr.on('data', d => log += d);
   const base = `http://127.0.0.1:${port}`;
   for (let i = 0; i < 60; i++) {
@@ -92,10 +94,44 @@ async function preview(app, port) {
   throw new Error('vite preview did not answer: ' + log.slice(-300));
 }
 
+/** The starts of `threedog init` other than the open world the project above is made from */
+const STARTS = [['blank', []], ['blank --webgl', ['--webgl']], ['pixel', ['--pixel']], ['pixel --webgl', ['--pixel', '--webgl']], ['open world --webgl', ['--open-world', '--webgl']]];
+
+/**
+ * Build the game in dir, preview it and open the page: it must reach engine.ready, draw a few frames and load everything without a console error.
+ * Each start goes through here because only an opened page shows a crash at startup: the build and the file checks all passed on a main.js that threw on its first lines.
+ * @param {string} dir @param {string} app the project holding node_modules @param {string} label @param {{ check: Function, browser?: any, look?: (page: any) => Promise<void> }} o  look: more checks on the running page
+ */
+async function buildAndOpen(dir, app, label, { check, browser, look }) {
+  const b = node([join(app, 'node_modules/vite/bin/vite.js'), 'build'], dir);
+  check(`${label}: vite build succeeds`, b.status === 0, (b.stdout + b.stderr).split('\n').filter(l => /error/i.test(l)).slice(0, 3).join(' | '));
+  if (b.status !== 0 || !browser) return;
+  const { proc, base } = await preview(dir, app, await freePort());
+  try {
+    const errors = [], badRes = [];
+    const page = await newGamePage(browser, { errors });
+    page.on('response', r => { if (r.status() >= 400) badRes.push(`${r.status()} ${r.url().replace(base, '')}`); });
+    page.on('requestfailed', r => badRes.push(`failed ${r.url().replace(base, '')}`));
+    try {
+      await page.goto(base + '/');
+      await waitEngine(page, { field: 'ready', errors });
+      // a few more frames: Worker / physics / navmesh errors often only show up after startup
+      await page.evaluate(() => new Promise(r => { let k = 0; const h = window['engine'].onFrame(() => { if (++k >= 5) { h.remove(); r(); } }); }));
+      check(`${label}: page opens, engine.ready is true`, true);
+      await look?.(page);
+    } catch (e) { check(`${label}: page opens, engine.ready is true`, false, String(e).split('\n')[0]); }
+    check(`${label}: no failed resource loads (Workers, wasm, decoders, assets)`, badRes.length === 0, badRes.slice(0, 3).join(' | '));
+    check(`${label}: no console errors`, errors.length === 0, errors.slice(0, 3).join(' | '));
+    await page.close();
+  } finally {
+    // wait for preview to exit: on Windows its open handles keep the temp folder locked (EBUSY) for a moment
+    if (proc.exitCode === null) await new Promise(r => { proc.once('exit', r); proc.kill(); });
+  }
+}
+
 export async function packExternal({ check, browser, keep = false }) {
   const tmp = mkdtempSync(join(tmpdir(), 'threedog-ext-'));
   const app = join(tmp, 'app');
-  let server;
   try {
     // 1. pack and look at the contents
     const eng = pack(ENGINE, tmp), tools = pack(TOOLS, tmp), terrainPkg = pack(addonDir('terrain-noise'), tmp), postPkg = pack(addonDir('post-effects'), tmp);
@@ -140,6 +176,22 @@ export async function packExternal({ check, browser, keep = false }) {
     const chk = await cli(app, 'check');
     check('cli: threedog check passes (game checks only)', chk.code === 0 && /GAMEMAP\.md is up to date/.test(chk.out), chk.out.split('\n').filter(l => /✗|error/i.test(l)).slice(0, 4).join(' | ') || chk.out.slice(-300));
     check('template: AGENTS.md is written beside CLAUDE.md with the same text, and threedog check still passes with it there', existsSync(join(app, 'AGENTS.md')) && readFileSync(join(app, 'AGENTS.md'), 'utf8') === readFileSync(join(app, 'CLAUDE.md'), 'utf8'));
+    // hints and how reach a project with no games/ folder: the patterns come from the installed package's metadata, the words from its docs
+    check('cli: the new game itself gets no bypass hint', !/bypass/.test(chk.out), chk.out.slice(-200));
+    mkdirSync(join(app, 'systems'));
+    writeFileSync(join(app, 'systems/handmade.js'), "import * as THREE from 'three';\nexport const mixer = new THREE.AnimationMixer(new THREE.Object3D());\nexport const bag = [];\nfunction tick() { requestAnimationFrame(tick); }\ntick();\n");
+    const hints = await cli(app, 'check', '--rule', 'R40');
+    check('cli: threedog check hints at hand-written code in a project outside the repo, and still passes', hints.code === 0 && ['AnimationMixer', 'requestAnimationFrame'].every(w => hints.out.includes(w)) && /handmade\.js/.test(hints.out), hints.out.slice(-400));
+    const pj = join(app, 'package.json'), pkgText = readFileSync(pj, 'utf8');
+    writeFileSync(pj, JSON.stringify({ ...JSON.parse(pkgText), threedog: { hints: { animation: false } } }, null, 2));
+    const off = await cli(app, 'check', '--rule', 'R40');
+    check('cli: the package.json switch turns a kind off there too', !off.out.includes('AnimationMixer') && off.out.includes('requestAnimationFrame'), off.out.slice(-300));
+    writeFileSync(pj, pkgText); rmSync(join(app, 'systems'), { recursive: true });
+    const how = await cli(app, 'how', 'carry items in a backpack');
+    check('cli: threedog how answers from the installed docs', how.code === 0 && /inventory/.test(how.out) && !/packages\//.test(how.out), how.out.slice(0, 300));
+    const list = await cli(app, 'how', '--browse'), inv = await cli(app, 'how', '--card', 'inventory'), miss = await cli(app, 'how', 'qqzzxx');
+    check('cli: threedog how --browse and --card work from the installed package', list.code === 0 && /^items: /m.test(list.out) && inv.code === 0 && /engine\.use\(inventory\(\)\)/.test(inv.out) && /recipes\/66-common-tasks\.md/.test(inv.out), list.out.slice(0, 300) + inv.out.slice(0, 300));
+    check('cli: a miss names browse and the installed AI.md, in one line', !miss.out.includes('\n') && /how --browse/.test(miss.out) && /node_modules\/threedog\/docs\/AI\.md/.test(miss.out), miss.out);
     const ty = await cli(app, 'types');
     check('cli: threedog types passes with the template tsconfig.json (game sources, lib ESNext, skipLibCheck)', ty.code === 0, ty.out.split('\n').filter(l => /✗|error/i.test(l)).slice(0, 4).join(' | ') || ty.out.slice(-300));
     // examples ship in the engine tarball and pull from node_modules/threedog into the game (examples.mjs, game mode of paths.mjs)
@@ -171,22 +223,8 @@ export async function packExternal({ check, browser, keep = false }) {
     // 7. a game that vendors the engine in a subfolder
     await vendored(tmp, tools, check, { npm, cli });
 
-    // 5. production build + preview in a browser
-    const b = node([join(app, 'node_modules/vite/bin/vite.js'), 'build'], app);
-    check('vite build succeeds', b.status === 0, (b.stdout + b.stderr).split('\n').filter(l => /error/i.test(l)).slice(0, 3).join(' | '));
-    if (b.status !== 0 || !browser) return;
-    const { proc, base } = await preview(app, await freePort());
-    server = proc;
-    const errors = [], badRes = [];
-    const page = await newGamePage(browser, { errors });
-    page.on('response', r => { if (r.status() >= 400) badRes.push(`${r.status()} ${r.url().replace(base, '')}`); });
-    page.on('requestfailed', r => badRes.push(`failed ${r.url().replace(base, '')}`));
-    try {
-      await page.goto(base + '/');
-      await waitEngine(page, { field: 'ready', errors });
-      // a few more frames: Worker / physics / navmesh errors often only show up after startup
-      await page.evaluate(() => new Promise(r => { let k = 0; const h = window['engine'].onFrame(() => { if (++k >= 5) { h.remove(); r(); } }); }));
-      check('preview: page opens, engine.ready is true', true);
+    // 5. production build + preview in a browser: the open-world project, then every other start, made by the real init
+    await buildAndOpen(app, app, 'preview', { check, browser, look: async page => {
       const tpl = await page.evaluate(() => { const e = window['engine']; e.ops.define('probe.ping', { desc: 'Outside check', run: () => {} }); return e.ops.run('probe.ping'); });
       check('template: an op defined in the page runs from the installed packages', tpl.ok, JSON.stringify(tpl));
       // this browser usually has no WebGPU adapter, so either backend is right; what must hold is the ask, and a reason whenever it fell back
@@ -194,13 +232,16 @@ export async function packExternal({ check, browser, keep = false }) {
       console.log(`  packaged game: asked ${drawn.requested}, drawn on ${drawn.backend}${drawn.reason ? ` (${drawn.reason})` : ''}`);
       check('template: the new game asks for WebGPU and describe() says which backend draws, with the reason on a fallback',
         drawn.requested === 'webgpu' && (drawn.backend === 'webgpu' || (drawn.backend === 'webgl2' && !!drawn.reason)), JSON.stringify(drawn));
-    } catch (e) { check('preview: page opens, engine.ready is true', false, String(e).split('\n')[0]); }
-    check('preview: no failed resource loads (Workers, wasm, decoders, assets)', badRes.length === 0, badRes.slice(0, 3).join(' | '));
-    check('preview: no console errors', errors.length === 0, errors.slice(0, 3).join(' | '));
-    await page.close();
+    } });
+    for (const [label, flags] of STARTS) {
+      const dir = join(app, 'starts', label.replace(/\W+/g, '-'));
+      const made = await cli(app, 'init', dir, ...flags);
+      check(`${label}: threedog init makes the game`, made.code === 0, made.out.slice(-300));
+      const chk = await cliIn(dir, app, 'check'), ty = await cliIn(dir, app, 'types');
+      check(`${label}: threedog check and types pass`, chk.code === 0 && ty.code === 0, (chk.out + ty.out).split('\n').filter(l => /✗|error/i.test(l)).slice(0, 4).join(' | '));
+      await buildAndOpen(dir, app, label, { check, browser });
+    }
   } finally {
-    // wait for preview to exit: on Windows its open handles keep the temp folder locked (EBUSY) for a moment
-    if (server && server.exitCode === null) await new Promise(r => { server.once('exit', r); server.kill(); });
     if (keep) console.log('temp project kept: ' + app);
     else try { rmSync(tmp, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 }); }
     catch (e) { console.log(`(could not delete temp project ${tmp}: ${e.code}; the OS temp cleanup will)`); }

@@ -106,12 +106,14 @@ export const specs = [
         const run = async (id, type) => {
           const E = threedogThreads.createEngine({ canvas: document.createElement('canvas'), headless: true, urlState: false, saveKey: id });
           let calls = 0;
+          const lent = { mine: 'game', taken: 'game' };
           // no extra flag: the type alone decides how an error is handled
-          E.use({ name: id, type, frame() { calls++; throw new Error(`${id}-boom`); } });
+          E.use({ name: id, type, install(_e, ctx) { ctx.borrow(lent, { mine: 'mod', taken: 'mod' }); },
+            frame() { calls++; lent.taken = 'game again'; throw new Error(`${id}-boom`); } });
           await E.start(); E.haltLoop();
           E.step(0.1);
           const t0 = E.clock.now; E.step(0.5);
-          const out = { disabled: E.disabledModules.has(id), calls, error: E.error?.message ?? null, frozen: E.frozen, clockMoved: E.clock.now > t0 };
+          const out = { disabled: E.moduleStates[id] === 'disabled', calls, error: E.error?.message ?? null, frozen: E.frozen, clockMoved: E.clock.now > t0, lent: { ...lent } };
           E.dispose();
           return out;
         };
@@ -122,8 +124,9 @@ export const specs = [
       for (const k of ['picture', 'ui']) {
         const x = r[k];
         check(`${k} module throwing in frame: switched off after one call, no engine.error, not frozen, game time runs`, x.disabled && x.calls === 1 && !x.error && !x.frozen && x.clockMoved, JSON.stringify(x));
+        check(`${k} module switched off: what it borrowed is back, and a value someone else took meanwhile stands`, x.lent.mine === 'game' && x.lent.taken === 'game again', JSON.stringify(x.lent));
       }
-      check('rules module throwing in frame: gameplay frozen and recorded in engine.error', r.rules.frozen && /mt-rules-boom/.test(r.rules.error ?? '') && !r.rules.disabled && !r.rules.clockMoved, JSON.stringify(r.rules));
+      check('rules module throwing in frame: gameplay frozen and recorded in engine.error, its borrow kept', r.rules.frozen && /mt-rules-boom/.test(r.rules.error ?? '') && !r.rules.disabled && !r.rules.clockMoved && r.rules.lent.mine === 'mod', JSON.stringify(r.rules));
     },
   },
 ];

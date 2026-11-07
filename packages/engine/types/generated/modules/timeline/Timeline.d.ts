@@ -19,7 +19,7 @@ export class Timeline {
     get playing(): boolean;
     /**
      * General tween (the only entry point for tweens in the engine): await engine.timeline.tween(mesh, { 'position.y': 2 }, { duration: 1, ease: 'outCubic' }); duration in seconds (default 1), ease default 'inOutCubic'; tween(mesh, to, 1) throws in dev.
-     * Returns a Promise (with finish() / remove())
+     * Returns a Promise (with finish() / remove()); a write that throws ends the tween and rejects it
      * @param {any} target
      * @param {TweenTo} to
      * @param {{ duration?: number, ease?: Ease }} [opts]
@@ -30,13 +30,14 @@ export class Timeline {
         ease?: Ease;
     }): TweenPromise;
     /**
-     * Play a timeline; resolves with { skipped } when it ends
+     * Play a timeline; resolves with { ending, error? } when it ends: 'finished', 'skipped', 'dropped' (a load, a new game or dispose took its state) or 'failed' (a step threw; error says what)
      * @param {TimelineStep | TimelineStep[]} steps
      * @param {TimelinePlayOptions} [opts]
-     * @returns {Promise<{ skipped: boolean }>}
+     * @returns {Promise<{ ending: 'finished' | 'skipped' | 'dropped' | 'failed', error?: string }>}
      */
     play(steps: TimelineStep | TimelineStep[], opts?: TimelinePlayOptions): Promise<{
-        skipped: boolean;
+        ending: "finished" | "skipped" | "dropped" | "failed";
+        error?: string;
     }>;
     /**
      * Skip all (or one) playing timelines

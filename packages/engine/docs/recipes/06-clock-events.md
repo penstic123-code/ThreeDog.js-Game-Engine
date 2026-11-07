@@ -84,18 +84,19 @@ call `after` in code.
 
 ```js
 import { parseClock, formatClock } from 'threedog';
+const lamp = new THREE.PointLight();
 
 // Time-window switch: lamps on from 18:00 to 06:00 (crosses midnight). On registration, at start, after loading a save, applyState, or turning the time back, it aligns to the current time immediately (returns a handle; lampHours.remove() cancels)
 const lampHours = engine.calendar.between('18:00', '06:00', { on: () => lamp.visible = true, off: () => lamp.visible = false });
 
 // An event when a clock time is crossed (an "action" once per day): open the market at 12:00
-engine.calendar.at('12:00', day => market.open(), { days: [1, 3, 5] });   // only on days 1, 3, 5; a function also works: day => day % 7 === 6
+engine.calendar.at('12:00', day => engine.vars.bump('marketDays'), { days: [1, 3, 5] });   // only on days 1, 3, 5; a function also works: day => day % 7 === 6
 
 // After how long: pass an event name to make it saveable (still fires after loading a save); a function cannot be saved
 engine.clock.after(120, 'bread:ready', { data: { oven: 1 } });
-engine.events.on('bread:ready', ({ oven }) => engine.inventory?.add('bread', 1));
+engine.events.on('bread:ready', ({ oven }) => engine.vars.bump('bread'));
 
-engine.clock.every(30, () => spawnBird());                           // every 30 calendar seconds (not 30 clock seconds)
+engine.clock.every(30, () => engine.vars.bump('birds'));             // every 30 calendar seconds (not 30 clock seconds)
 engine.calendar.daily(day => console.log('day', day));              // every day at 00:00
 engine.calendar.onSeason('winter', () => engine.weather?.set('snow', { seconds: 20 }));   // needs seasons (presets.calendar.fourSeasons) and a 'snow' weather (presets.weather.temperate)
 
@@ -120,7 +121,7 @@ For "which time" or "has this been done" in a story, use `engine.vars.bump / set
 
 ## 1b. Smooth movement between fixed steps: `engine.stepBlend`
 The game runs in fixed steps and the screen draws at its own rate, so most frames fall between two steps. Something you move in `onFixed` and draw at its latest position jumps from step to step and stutters, the more so on a fast screen. Keep where it was before the step and where it is now, and draw between them. `engine.stepBlend` says how far this frame is from the last step to the next, from 0 to 1:
-```js
+```js fragment
 const body = { x: 0, lastX: 0 };
 engine.onFixed(dt => { body.lastX = body.x; body.x += speed * dt; });                                // the rules read body.x
 engine.onFrame(() => { mesh.position.x = body.lastX + (body.x - body.lastX) * engine.stepBlend; });   // the picture only
@@ -148,7 +149,7 @@ What catches up, and how:
 - Input is locked and gameplay frozen for the whole skip (keys pressed during the fade do nothing). With `fade: 0` (default) the time has moved when
   `skip` returns; with a fade the Promise resolves after the fade in, which needs frames (in a halted test keep calling `engine.step`).
 - A stopped calendar (`clock.rate` 0) skips as if at 1x. The jump itself is the op `time.skip { seconds }` (logged and replayable; it refuses `seconds <= 0`).
-- A module that keeps its own time implements the hook `skip(dt, e, done)` (called once per segment; `done` on the last one).
+- A module that keeps its own time implements the hook `skip` (recipe 49, item 3).
 
 ### Order inside one frame
 Each rendered frame runs: input poll -> the fixed steps due (`commits` applied first, then `onFixed`, module `fixed` hooks, `onFixed` `{ phase: 'late' }`, clock timers) -> `onFrame`
@@ -171,4 +172,3 @@ When a game has several systems, a default that keeps this order in one place: o
   or a settling physics body always differs: ignore those parts and read the rest. It leaves the world at the stepped state, so run it on a scratch playthrough or in a test. A diff usually means a
   module with its own time lacks a `skip` hook. `await engine.checkSave()` does the same for save -> load (a diff names a save part whose `load` does not restore what `save` wrote).
 - Why did it fire (or not)? `engine.events.traceSize = 200` records each event with the event or op that caused it: `events.trace('item:add').at(-1).chain`. Failed ops, sight queries and NPC state changes are entries too (with `code`); `events.note(name, { obj, code, data })` adds your own and `events.traceFocus(id)` makes one object verbose (the ring is bounded; size 0 costs nothing). Details: recipe 23 section 12.
-- Related tests: `threedog test 游戏时钟 SKIP`.

@@ -1,6 +1,6 @@
 # Particles: dust, smoke, sparks, splashes
 
-```js
+```js fragment
 import { particles } from 'threedog';
 engine.use(particles({
   default: { color: 0xc8b89a },                                     // what every effect starts from
@@ -29,7 +29,7 @@ Before the first time and after the last, the end stop holds. A stop list in `ov
 
 ## Fast emitters
 `rate` is per second, so a fast emitter leaves beads. `ratePerMeter` is per meter it moves, on top of `rate`, with the particles spread along the path of that step.
-```js
+```js fragment
 engine.particles.define('trail', { rate: 0, ratePerMeter: 6, lifetime: [0.4, 0.6], max: 200 });
 const trail = engine.particles.attach('trail', rocket);
 trail.ratePerMeter = 12;   // live; attach(name, object, { ratePerMeter }) sets it too
@@ -59,15 +59,14 @@ sparks.uniforms.uMaxPx.value = 64;                                            //
 `modules/particles/shaders.js` does. `aLife` is the life fraction, 0 at birth and 1 at death, for a flipbook, a gradient or a dissolve of your own. Empty slots stay in the
 buffer with `aAlpha` 0, so give them size 0 as the engine's shader does.
 ```js fragment
-// GLSL (WebGLRenderer)
-attribute float aLife; attribute float aAlpha;   // in the vertex shader
+// GLSL (WebGLRenderer), in the vertex shader: attribute float aLife; attribute float aAlpha;
 // TSL (WebGPURenderer, a new game's route): import { PointsNodeMaterial } from 'three/webgpu'; import { attribute, color, mix, vec4 } from 'three/tsl';
 const m = new PointsNodeMaterial({ transparent: true, depthWrite: false, sizeAttenuation: false });
 m.colorNode = vec4(mix(color(0x00ff00), color(0xff0000), attribute('aLife', 'float')), attribute('aAlpha', 'float'));
 sparks.material = m;   // placed and sized by the engine's nodes, unless m sets positionNode / sizeNode (the particle's place is attribute('aPos', 'vec3'))
 ```
 A flipbook is the same material with a texture. Each route has its own y: `uv()` runs up, `gl_PointCoord` runs down.
-```js
+```js fragment
 import { attribute, float, floor, mod, texture, uv, vec2, vec4 } from 'three/tsl';
 // a 4 x 4 sheet, first frame at the top left
 const f = floor(attribute('aLife', 'float').mul(16)), col = mod(f, 4), row = floor(f.div(4));

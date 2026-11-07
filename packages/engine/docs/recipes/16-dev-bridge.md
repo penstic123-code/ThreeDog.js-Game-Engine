@@ -31,7 +31,7 @@ Every command and its options are in `../COMMANDS.md`. What each does to the gam
 - `op shop.buy shop=trader item=medkit n=2` runs as source `bridge`. Values follow the op's `args` shape (`n=2` a number, `position=3,0,-2` an array). **Change state with this, not `js`**: `js` writes skip the op log.
 - `ops` lists every offer checked with `can`; `inspect [id | x,z]` adds what is around, with reasons (recipes/23-ops.md section 8); `explain op ...` / `explain quest ...` says why one cannot run or where a quest is stuck (`--full` adds the last attempt and events around it).
 - `state time=18:30 weather=rain pos=40,-20` sets the scene like URL parameters (`engine.applyState`). A weather name must be in the game's table (`describe weather`; `weather({ types: presets.weather.temperate })`, which `--open-world` games start with): what could not be applied fails with the reason and exit 1.
-- `js "engine.calendar.timeOfDay"` (alias `eval`): `engine` is available directly and `await` works inside; multi-line statements need their own `return` (`js "const p = engine.player.position; return p.x + p.z"`). Long scripts: `js --file script.js`.
+- `js "engine.calendar.timeOfDay"`: `engine` is available directly and `await` works inside; multi-line statements need their own `return` (`js "const p = engine.player.position; return p.x + p.z"`). Long scripts: `js --file script.js`.
 - `scenario barter` runs `tests/scenarios/barter.json` (recipes/23-ops.md section 7), prints failed checks and leaves the loop halted.
 
 ## 2. Notes
@@ -71,7 +71,7 @@ threedog step 2                       # let things happen
 threedog js "engine.player.position.x > 1"   # state assertion: read the ✓ true / false
 threedog snap after-walk              # only now look at pixels
 ```
-The same steps as a file: `tests/scenarios/<name>.json` with `{ "press": … }`, `{ "step": … }`, `{ "expect": { path: value } }` (section 9; no `hold` there).
+The same steps as a file: `tests/scenarios/<name>.json` with `{ "press": … }`, `{ "step": … }`, `{ "until": …, "within": s }`, `{ "expect": { path: value } }` (section 9; no `hold` there).
 - **State checks** (`op`, `expect`, `describe`, `js`): fast and exact, but they skip input. They prove rules, not that the player can reach them.
 - **Simulated-input checks** (`press`, `hold`, `engine.input.simulate`): bridge key events through the game's input path, never a physical keyboard/mouse. `verify` prints which layer each check ran on, what it did **not** prove (pointer lock and mouse look, real GPU/visuals, real FPS) and coverage (ops run vs defined; modules tested, indirect or untested; uses `engine.catalog()`); `scenario` prints the same coverage, and `--json` has the full lists.
 - **Visual checks** (`snap`, `shot`): the only ones that see the picture (exposure, color, UI overlap). Slowest; take them last.
@@ -91,7 +91,7 @@ Playing a game through from a script, the five things that cost the most time:
 ## 3. Windows / PowerShell notes
 - **Quote commas**: PowerShell splits `pos=1,-8` into two arguments and the coordinates become NaN. Write `threedog state "pos=1,-8"` (the bridge
   reports an error and shows this tip when pos is not two numbers).
-- Wrap the whole js / eval expression in **double quotes** and use single quotes for strings inside: `threedog js "engine.vars.counter('score')"`.
+- Wrap the whole `js` expression in **double quotes** and use single quotes for strings inside: `threedog js "engine.vars.counter('score')"`.
   PowerShell expands `$variables` inside double quotes; to pass `$` literally wrap the whole thing in single quotes.
 - **Write a command on a single line**: a multi-line here-string passed to a native command often silently returns nothing in PowerShell. Put several
   statements on one line separated by semicolons, or write them to a file and use `threedog js --file script.js` (no quoting or newline worries).
@@ -103,7 +103,7 @@ The bin called directly is the fastest route (COMMANDS.md, first lines); `threed
 
 - `threedog js --file steps.js`: put the whole test in one file and run it once. Inside: `assert(cond, msg)`, `expect(v).toBe(x)` (also `toEqual`, `toBeCloseTo(x, tol)`, `toBeGreaterThan`), `step(seconds)`, `log(...)`, and `engine`. The output is only the failures and one summary line, exit code 1 on failure, so ten steps cost one round trip and a few tokens:
 
-```js
+```js fragment
 step(2);
 const before = engine.time.tick;
 step(1);
@@ -161,9 +161,8 @@ combination so tests and scenarios reuse it.
 
 ## 10. MCP server: Claude Code, Cursor and other MCP clients
 `threedog mcp` runs the dev bridge as an MCP server over stdio. Each command becomes a tool (`play`, `status`, `describe`, `step`, `press`, `hold`, `skip`, `state`, `ops`,
-`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `picture_palette`, `picture_compare`, `scenario`, `verify`, `reload`, `resume`, and the static `how`, `check`, `art_list` and `lib_list`;
-tests/mcp.mjs fails when this list and the server's tools differ) and returns the same text as the
-command line (every default answer fits in about 4 KB, `tests/tool-output-sizes.mjs` guards it; a `data` payload over 3 KB keeps its small fields and names `threedog <cmd> --json` for the rest); `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `picture_palette` and `picture_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
+`op`, `catalog`, `inspect`, `scene`, `pick`, `thing`, `explain`, `errors`, `loading`, `snap`, `snap_describe`, `picture_palette`, `picture_compare`, `scenario`, `verify`, `reload`, `resume`, and the static `how`, `check`, `art_list` and `lib_list`) and returns the same text as the
+command line (every default answer fits in about 4 KB; a `data` payload over 3 KB keeps its small fields and names `threedog <cmd> --json` for the rest); `snap` also returns the PNG as an image, 480 px wide by default (`size` for more; the full file is saved). `picture_palette` and `picture_compare` need no game (recipe 35). It finds the dev server through `.threedog/dev.json` like the CLI; with none running, call the `play` tool (it starts the server and waits for the bridge)
 (or start `npm run dev` yourself; a tool call without a server answers with that fix). It is only a local client of the bridge and opens no port; every check in section 5 still applies. As
 with the command line, the `op` and `step` tools change the current session and its saves; the level itself changes only by editing content files.
 
@@ -184,7 +183,7 @@ The `js` tool (arbitrary code in the page) is off by default; `threedog mcp --al
 Tools: MCP, or `node node_modules/@threedog/tools/bin/threedog.mjs <cmd>` (`COMMANDS.md`). Errors: `.threedog/errors.log`, **read first when something breaks**.
 - Not sure the engine has X -> `threedog how "<task>"`, `threedog catalog [id]`.
 - An action failed -> its `code`, `facts`, `nextActions`.
-- What is this object, why can't I click it -> `thing(id).explain()`.
+- What is this object, why can't I click it -> `explain({ thing: id })`.
 - Stuck, or a value is not what you set -> `describe().holds` / `.shared` / `.control`.
 - What caused this -> `events.trace(name)`, `traceFocus(id)`.
 - Placeholders (gray picture, capsule, boxes) -> the picture is not made yet: `picture/` (recipes 62, 09), code models (05), tuning (35).

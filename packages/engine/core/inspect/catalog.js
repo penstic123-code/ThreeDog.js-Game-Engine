@@ -11,8 +11,8 @@
 // part keyed by the module name belongs to that module even when registered later (from game code calling into the module).
 import { parseSchema, schemaInfo } from '../base/params.js';
 import { ENGINE_PARAMS } from '../engine/Engine.js';
+import { SKIP_KINDS, TIME_HOOKS } from '../engine/moduleTypes.js';
 
-const TIME_HOOKS = ['fixed', 'frame', 'afterRender', 'skip', 'afterLoad'];
 const MAX_API = 200;   // the dev bridge narrows this to what the api page lists (tools/threedog/catalog.mjs)
 
 const keysOf = e => [
@@ -79,10 +79,10 @@ function apiNames(api) {
   return [...out];
 }
 
-/** Time model: which loop hooks it has, and the gap that breaks engine.skip (accumulates in fixed, no skip hook) */
+/** Time model: which loop hooks it has, and how engine.skip advances it (skipKind) */
 function timeOf(m) {
   const hooks = TIME_HOOKS.filter(h => typeof m[h] === 'function');
-  return { hooks, step: m.fixed ? 'fixed' : m.frame ? 'frame' : 'none', skip: !!m.skip, ...(m.noSkip ? { noSkip: m.noSkip } : {}) };
+  return { hooks, step: m.fixed ? 'fixed' : m.frame ? 'frame' : 'none', skip: !!m.skip, ...(m.skipKind ? { kind: m.skipKind } : {}), ...(m.noSkip ? { noSkip: m.noSkip } : {}) };
 }
 
 function optionalOf(e, m) {
@@ -102,7 +102,11 @@ function paramsOf(m) {
 function problemsOf(e, m, entry) {
   const out = [];
   if (entry.state === 'failed') out.push('init failed (engine.errors has the reason); no hooks run');
-  if (m.fixed && !m.skip && !m.noSkip) out.push('fixed hook but no skip hook: engine.skip does not advance it (fine when its state derives from clock.now; or declare noSkip: "why nothing needs to catch up" on the module)');
+  if (entry.state === 'disabled') out.push('switched off after it threw while running; no hooks run until it is installed again');
+  for (const b of entry.blockedBy) out.push(`blocked: requires ${b.requires}, and ${b.module} is ${b.state}; no init, no hooks until it runs`);
+  for (const g of e._contractGaps()) if (g.module === m.name) out.push(`capability ${g.cap}: the contract lists ${g.missing.join(', ')}, which this module's API lacks; a caller of one crashes`);
+  if ((m.fixed || m.skip) && !m.skipKind) out.push(`no skipKind: declare how engine.skip advances it (${SKIP_KINDS.join(', ')})`);
+  if (['approx', 'step'].includes(m.skipKind) && !m.skip) out.push(`skipKind '${m.skipKind}' but no skip hook: engine.skip does not advance it`);
   for (const o of entry.optional) if (!o.installed && o.lost) out.push(`optional ${o.name} missing: ${o.lost}`);
   return out;
 }
@@ -112,6 +116,8 @@ function moduleEntry(e, m) {
   const entry = {
     id, kind: 'module', ...(m.label ? { label: m.label } : {}), state: e.moduleStates[id], stage: m.stage ?? 'late', runIndex: e.moduleOrder.indexOf(id),
     critical: !!m.critical, requires: m.requires ?? [], optional: optionalOf(e, m), time: timeOf(m), params: paramsOf(m),
+    blockedBy: e._modBlocked.get(id) ?? [],
+    resources: [...(e._modTracked.get(id) ?? [])].filter(h => h.kind).map(h => `${h.kind}:${h.id}`),
     ops: own.op.map(n => opInfo(e, n, false)), saves: own.save.map(k => saveInfo(e, k)),
     queries: { describe: m.describe ? `describe().${id}` : null, extra: own.describe.map(n => `describe().${n}`), api: apiNames(e[id]) },
     ...(m.docs ? { docs: m.docs } : {}),
@@ -147,6 +153,7 @@ function summary(x) {
   s.saves = x.saves.map(p => p.key);
   if (x.time) s.time = [x.time.step, x.time.skip ? 'skip' : null].filter(Boolean).join('+');
   if (x.problems.length) s.problems = x.problems.length;
+  if (x.blockedBy?.length) s.blockedBy = x.blockedBy;
   return s;
 }
 
@@ -161,7 +168,7 @@ function entries(e) {
  * What this game can do, from the registrations that already exist (modules, ops, save parts, describe, params schemas); no second list to keep in sync.
  * No argument: a short list (id, state, stage, op and save names, time model, problem count). A module id: that module expanded
  * (requires / optional, params with defaults and the values in use, ops with args schema and failure codes, saved parts and versions,
- * time hooks, describe fields and api names, problems such as "fixed hook but no skip hook"). An op name: that op expanded, with its last attempt.
+ * time hooks and skip kind, describe fields and api names, problems such as "no skipKind"). An op name: that op expanded, with its last attempt.
  * 'post' or 'shadows': that capability's entry names and what it holds now (effects in the chain, cascades on or off).
  * The dev bridge `threedog catalog [id]` prints the same data and adds the doc, recipe and source files.
  * @param {string | { find?: string }} [id]

@@ -44,7 +44,7 @@ export const specs = [
       const r = await ev(() => { try {
         const cal = engine.calendar, cam = engine.camera;
         cal.dayLength = Infinity; cal.timeOfDay = 0.0;   // 午夜：uNight = 1
-        engine.weather.setAuto(false);
+        engine.weather.auto = false;
         // 直接用 renderer 画一帧仰望天顶（绕开相机控制器和后期），同一个任务里读像素：只比较天穹本身
         const stars = name => {
           engine.weather.set(name, { seconds: 0.01 }); engine.step(0.5, { render: false });

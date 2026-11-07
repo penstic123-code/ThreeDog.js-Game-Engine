@@ -4,16 +4,22 @@
 // Dialogue state.flags and quest counter/bump all point here. Writes go through the ops guard (dev): outside loading, fixed steps and ops they are reported. Loading replaces the contents in place; the flags / counters objects themselves stay the same.
 
 import { DEV } from './validate.js';
+import { codedError } from './errorHints.js';
+import { saveValues } from './saveValues.js';
 
 export class Vars {
   constructor(engine) {
     this.engine = engine;
-    this.flags = {};
-    this.counters = {};
+    this.flags = Object.create(null);      // no prototype: a flag or counter named 'constructor' is unset like any other name
+    this.counters = Object.create(null);
     engine.saves.register('vars', {
       atomic: true,
       save: () => ({ flags: { ...this.flags }, counters: { ...this.counters } }),   // copy: save data must not share objects with the live state
-      load: d => { this.replace(d?.flags, d?.counters); },
+      load: d => {
+        const v = saveValues('vars'), counters = d?.counters && Object.fromEntries(Object.entries(d.counters).filter(([k, n]) => Number.isFinite(n) || (v.drop(`counters.${k}`, n), false)));
+        v.done();
+        this.replace(d?.flags, counters);
+      },
     });
   }
   /** Read a flag */
@@ -23,7 +29,11 @@ export class Vars {
   /** Read a counter (0 if absent) */
   counter(k) { return this.counters[k] ?? 0; }
   /** Add n to a counter (default 1) and return the new value */
-  bump(k, n = 1) { DEV && this.engine.ops.guard('vars.bump'); return (this.counters[k] = this.counter(k) + n); }
+  bump(k, n = 1) {
+    DEV && this.engine.ops.guard('vars.bump');
+    if (!Number.isFinite(n)) throw codedError('engine-misuse', `vars.bump('${k}', n): n must be a finite number, got ${String(n)}`);
+    return (this.counters[k] = this.counter(k) + n);
+  }
   /** @internal Replace wholesale (for loading and net sync); a kind passed as undefined stays unchanged */
   replace(flags, counters) {
     DEV && this.engine.ops.guard('vars.replace');

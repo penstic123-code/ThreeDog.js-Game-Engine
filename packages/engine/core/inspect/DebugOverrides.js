@@ -36,7 +36,7 @@ export class DebugOverrides {
     /** The F3 debug panel (the debug() module), or null when it is not installed @type {any} */
     this.panel = null;
     // a load can replace the objects a thing id names: an override still holding the old object would show on nothing and lie in describe
-    e.events?.on?.('save:loaded', () => this._prune());
+    e.events?.on?.('state:replaced', () => this._prune());
   }
   /**
    * Diagnostic view: 'albedo' | 'lighting' | 'shadow' | 'normals' to look at one part of the render, 'overdraw' (bright = many layers on a pixel),
@@ -73,6 +73,17 @@ export class DebugOverrides {
    * @param {any} packs @returns {Promise<{ why: string, names: string[], copies: Record<string, number>, ms: number, partsChanged?: string[] }>}
    */
   reloadAssets(packs) { return reloadAssets(this.e, packs); }
+  /**
+   * Watch one value the engine does not watch by default, on the dev server: who writes it (file:line, frame) goes into engine.explain({ value: name }), and two writers fighting
+   * over it give a one-line hint. It observes; every write goes through. In a release build it does nothing: watching is false.
+   * Only watched values are seen, and a write that leaves the value unchanged is not: a value that shows no conflict may still have one.
+   * @example engine.debug.watch('boss.hp', boss, 'hp'); engine.debug.watch('player.pos', player, 'position');
+   * @param {string} name what explain and describe('picture').picture.writers call it; a name already in use is refused (watching false)
+   * @param {any} object the object, or a Color, Vector or rotation itself
+   * @param {string} [key] a plain property; a Color, Vector or rotation held there is watched inside. A property behind a class accessor cannot be hooked (watching false)
+   * @returns {{ watching: boolean, remove(): void }} remove() forgets the name; the accessor stays until reload and passes values through
+   */
+  watch(name, object, key) { return this.e._picture?.watchNamed(name, object, key) ?? { watching: false, remove() {} }; }
   /** The active view ({ mode: 'off', owner: null } when none) @returns {{ mode: string, owner: string | null, what?: string }} */
   viewState() { return this._view.state(); }
 
@@ -136,7 +147,7 @@ export class DebugOverrides {
     };
     return this._add({ owner, id: `${label}.${key}`, byId: false, obj, patch: { key, value: plain(value), apply }, undo: null });
   }
-  /** Active overrides on one object, for engine.thing(id).explain() */
+  /** Active overrides on one object, for engine.explain({ thing: id }) */
   overridesOn(obj) { this._prune(); return this._l.filter(o => o.obj === obj && !o.view).map(o => ({ owner: o.owner, ...patchInfo(o.patch) })); }
   /** Undo everything, drop / restore what the views put back, re-apply */
   dispose() { this._rebuild(() => { this._l = []; }); this._view.active = null; }

@@ -5,7 +5,7 @@
 A new game draws on WebGPU, where shaders are TSL: start with [recipe 56](56-webgpu-tsl.md), whose node materials and `tsl:` patch fields do these same jobs. This page is the GLSL route, for a game made with `threedog new-game --webgl`: **write your own material or `ShaderMaterial`**, or **patch a slot** of any material with your own GLSL. The picture is the
 game's own; this page gives building blocks, not finished pictures. There is one entry for shader code: `applyEffects`.
 
-```js
+```js fragment
 const fragmentShader = '#include <threedog_lighting>\n' + myFragmentBody;                                       // 3. engine GLSL, called inside 1 or 2
 const mat = new THREE.ShaderMaterial({ uniforms: { ...engine.uniforms }, vertexShader, fragmentShader });                    // 1. your own shader
 applyEffects(mat2, { patches: [{ name: 'tint', slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }] });                         // 2. patch a slot
@@ -24,8 +24,8 @@ engine.water.material = applyEffects(new THREE.MeshPhongMaterial({ color: 0x3070
 ## Patch a slot: your own GLSL
 Write a **named patch** that names a **slot** (where the code goes) and add it with `applyEffects(material, { patches: [...] })`:
 ```js fragment
-{ name: 'tint', slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' }                                   // one slot
-{ name: 'sway', slot: 'position', shadow: true, glsl: 'transformed.x += sin(position.y) * 0.1;' }  // moves vertices: the shadow follows
+{ name: 'tint', slot: 'color', glsl: 'diffuseColor.rgb *= 0.9;' },                                  // one slot
+{ name: 'sway', slot: 'position', shadow: true, glsl: 'transformed.x += sin(position.y) * 0.1;' }, // moves vertices: the shadow follows
 { name: 'glow', pars: 'uniform float uGlow;', uniforms: { uGlow: { value: 0.5 } },
   glsl: { color: 'diffuseColor.rgb *= 0.95;', output: 'outgoingLight += uGlow * 0.1;' } }          // several slots; pars = declarations
 ```
@@ -90,7 +90,7 @@ Patches on one material must agree. Each patch declares what it relies on, and a
 | `uniforms` | A uniform name belongs to one patch; share `engine.uniforms` (`uTime`, `uWind`, `uWeatherCloud`...) instead of making your own `uTime` | when added |
 | `shadow` | Render steps: without it the color pass only; `true` also runs its vertex code in the depth (sun / spot shadows) and distance (point-light shadows) passes | - |
 | `cacheKey` | Changes whenever the GLSL text changes (defines, branches), never for uniform values; the program key joins every patch's `name=cacheKey` in order | same name + cacheKey with different code throws. On WebGPU the program also follows the identity of each `tsl` function, so make it once and reuse it: one written fresh per material costs a program per material |
-```js
+```js fragment
 applyEffects(mat, { wind: 0.03, season: 'foliage', patches: [{ name: 'ripple', needs: { patches: ['world'] }, conflicts: ['wind'],
   slot: 'color', glsl: 'diffuseColor.rgb *= 0.9 + 0.1 * sin(vThreedogWorld.x);' }] });   // throws: 'wind' and 'ripple' cannot be combined
 ```
@@ -100,7 +100,7 @@ declarations at the top of that stage). A missing chunk throws when the patch is
 what is in scope. `worldPosition` exists after `worldpos_vertex` only when shadows, env maps or transmission need it.
 
 ### Engine effects in your own ShaderMaterial
-```js
+```js fragment
 const mat = new THREE.ShaderMaterial({ uniforms: { ...engine.uniforms, uMine: { value: 1 } }, vertexShader, fragmentShader });
 ```
 The engine never patches a ShaderMaterial of yours; call its effects as functions instead (the automatic patches call the same ones):
@@ -148,13 +148,13 @@ Which channels (color, normal, roughness) are on is fixed when the material is m
 The ground takes the same object as `terrain({ detail })`, its live numbers are `engine.terrain.uniforms`; which detail suits which ground: recipe 53.
 
 **Light shaping** is a patch in the `lighting` slot, after the lights are summed. three has no "shadow color": a shadow only removes the sun's light. The ready-made form:
-```js
+```js fragment
 applyEffects(mat, { lighting: { wrap: 0.4, shadowTint: { color: 0x4060a0, strength: 0.6, soft: 0.3 }, rim: { color: 0xffe0b0, strength: 0.4, power: 3, shadowSide: 0 } } });
 applyEffects(mat, { lighting: { glsl: 'void threedogLighting(inout ReflectedLight light, vec3 normal, vec3 viewDir, vec3 sunDir, float sunShadow, vec3 albedo){ ... }' } });   // your own function
 ```
 All numbers are uniforms, and materials with the same options share one program. Written by hand, the first directional
 light is the sun (three sorts shadow casters first), so a patch reads it there and calls `threedogRim`, `threedogWrapDiffuse` or `threedogShadowTint`:
-```js
+```js fragment
 const rim = { name: 'rim', slot: 'lighting', pars: '#include <threedog_lighting>', glsl: `
   #if NUM_DIR_LIGHTS > 0
     float nl = dot(normal, directionalLights[0].direction);

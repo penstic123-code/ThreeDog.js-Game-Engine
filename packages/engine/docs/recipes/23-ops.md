@@ -14,6 +14,7 @@ in a module's `fixed` or `world.simulate`. Low-level functions such as `inventor
 const PRICE = { bread: 5 };
 engine.ops.define('shop.buy', {
   desc: 'Buy from a shop shelf',
+  atomic: true,                                           // a failed run puts everything back (section 12)
   args: { shop: 'string', item: 'string', n: 'int?' },   // types: string number int bool position id any; ? = optional
   can(e, { shop, item, n = 1 }, ctx) {                    // read-only: return true or a reason string
     if (!e.inventory.container(shop).has(item, n)) return 'soldOut';
@@ -21,12 +22,12 @@ engine.ops.define('shop.buy', {
     return true;
   },
   run(e, { shop, item, n = 1 }, ctx) {                    // runs only after can passed
-    const got = e.inventory.transfer(shop, ctx.actor, item, n);
-    e.inventory.container(ctx.actor).remove('gold', PRICE[item] * got);
-    return got;                                           // plain data; becomes r.value
+    e.inventory.container(ctx.actor).remove('gold', PRICE[item] * n);
+    if (e.inventory.transfer(shop, ctx.actor, item, n) < n) return { ok: false, code: 'bagFull' };
+    return n;                                             // plain data; becomes r.value
   },
   offers: (e, ctx) => [{ shop: 'shop-bakery', item: 'bread' }],   // optional: arg sets possible now (ops list / dev bridge `ops`)
-  reasons: { soldOut: 'Shelf is empty', noMoney: 'Not enough gold' },   // optional developer notes
+  reasons: { soldOut: 'Shelf is empty', noMoney: 'Not enough gold', bagFull: 'No room in the bag' },   // optional developer notes
   // optional: undo(e, args, value, ctx) reverses a finished run; engine.ops.undo('shop.buy', args, r.value) calls it ({ ok: false, code: 'noUndo', facts: { op } } without one)
 });
 
@@ -37,7 +38,7 @@ const { ok } = engine.ops.can('shop.buy', { shop: 'shop-bakery', item: 'bread' }
 Rules that keep ops replayable and network-ready:
 - **Use `ctx.actor`, never `engine.player`.** `ctx.actor` is the world record id of whoever acts (default `engine.actor`, which is `'player'` — also
   the player's container id — unless the game hands control to a vehicle or squad member). NPCs run the same op with `{ actor: 'npc_3' }`; where an
-  actor stands is `engine.actorPosition(ctx.actor)`.
+  actor stands is `engine.actorPosition(ctx.actor)`. `ctx` also has `source`, `tick` and `frozen`; a nested op inherits source and actor.
 - **Args are plain data and self-contained**: no three.js objects (pass `[x, y, z]`), and anything not in world data (aim direction, a clicked build
   position) goes in the args. Pass a fresh object each call; in dev the args are frozen because the history keeps them.
 - **All "may I" checks live in `can`**, so `run` never stops halfway. A failure always has a reason (camelCase English). Show it to the player through
@@ -56,7 +57,8 @@ Rules that keep ops replayable and network-ready:
 
 `run` is synchronous and returns at once. Between fixed steps it counts as "after step N", which replays the same. Ops still run while gameplay is
 frozen by a menu (`ctx.frozen` is true; return `'paused'` from `can` for things that must wait); after a gameplay error (`engine.error`) every op
-returns `'halted'`.
+returns `'halted'`. While a save replaces the state (reading it, its parts, `afterLoad`, a rollback) every op returns
+`'loading'` and changes nothing; try again after the load.
 
 ## 3. Built-in ops (installed with their modules)
 | Op | Args | Reasons |
@@ -68,7 +70,7 @@ returns `'halted'`.
 | `inventory.trade` | `{ take, give, takeN?, giveN?, container? }` (all or nothing in `ctx.actor`'s container; reversible with `engine.ops.undo`, recipe 03) | `noContainer` `notEnough` `full` |
 | `inventory.use` | `{ item }` (from `ctx.actor`'s container; runs the item's `use`, see recipe 03) | `notEnough` `notUsable` or the item's `canUse` reason |
 | `inventory.drop` | `{ item, n? }` (a pickup at the actor's feet, data kept) | `notEnough` `noWorld` `noPosition` |
-| `thing.set` | `{ id, position?, rotation?, scale?, visible? }` (core; a world record via `world.set` / `move`, an `engine.add` object saved as an override when it has an id; undoable, recipe 40) | `noThing` `engineOwned` `recordVisible` |
+| `thing.set` | `{ id, position?, rotation?, scale?, visible? }` (core; a world record via `world.set` / `move`, so a live character is placed with its `placeAt`, an `engine.add` object saved as an override when it has an id; undoable, recipe 40) | `noThing` `engineOwned` `recordVisible` |
 | `thing.remove` | `{ id }` (core; undoable: an `engine.add` object is detached and kept, a record re-added) | `noThing` `engineOwned` |
 | `pickup.take` | `{ id }` (the item goes into `ctx.actor`'s container, or its give function runs) | `unknown` `respawning` `noPosition` `tooFar` and more; `ops.list()` has them all |
 | `npc.talk` | `{ npc, script?, channel? }` (`channel` `main` locks input, `bubble` shows lines over the NPC) | `noDialogue` `unknown` |
@@ -127,10 +129,11 @@ Put `<workspace>/tests/scenarios/<name>.json` in the engine package or a game; `
   `tests/snapshots/<name>.describe.json` (`only` / `ignore` / `tolerance`; write it with `threedog test <name> --update-snapshots`).
 - A file has 120 s under `threedog test`; a long one sets `"timeout"` at the top, in milliseconds, as a spec does.
 - Before any step runs, every op name and step field is checked; a typo fails with "did you mean". The run stops at the first failed step.
-- Use `press` only for the one test per key that proves "key -> op". Examples in the engine repository: `packages/engine/tests/scenarios/`.
+- `{ "until": { path: value }, "within": seconds }` reaches a state by a deadline, however the game freezes on the way; check the end with `expect`. A missed deadline, an error or a stuck load each name themselves. `step` stays strict: a `step` that moved less than asked fails, a freeze the game raised itself included: when a win window opens 0.4 s into `{ "step": 0.6 }`, the failure says how far it got and which window froze the game, and the scenario asks for that much.
+- Use `press` only for the one test per key that proves "key -> op".
 
 ## 8. Inspect and explain
-```js
+```js fragment
 engine.inspect();            // { actor: 'player', at, near: [...nearby], ops: [{ op, args, ok, code?, why? }] }: what is around and possible now
 engine.inspect('npc_3');     // the same as another actor; engine.inspect([x, z]) around a spot
 engine.explain({ op: 'shop.buy', args: { shop: 'bakery', item: 'bread' } }).text;
@@ -151,21 +154,22 @@ scenario replays the same. `Math.random` breaks both.
 ## 11. Structured failures, nextFixed, and who halted the loop
 `can` may return a reason string (`'noMoney'`) or a structured failure. Every failed result from `run` / `can` / `undo` has `{ ok: false, code, facts, nextActions }`; a string failure becomes `code = that string`, `facts = {}`, `nextActions = []`, so read `.code` without checking the shape. `engine.inspect()`, `ops.list({ available: true })`, `engine.describe()` actions and `engine.explain({ op })` carry `facts` / `nextActions` too.
 ```js
-engine.ops.define('shop.buy', {
+const gold = ctx => engine.inventory.container(ctx.actor).count('gold');
+engine.ops.define('shop.rent', {
   can: (e, a, ctx) => gold(ctx) >= 5 || { code: 'noMoney', facts: { need: 5, have: gold(ctx) }, nextActions: [{ op: 'job.work', args: {} }] },
   run: (e, a, ctx) => { /* ... */ },
 });
-const r = engine.ops.run('shop.buy', {});   // r.ok === false, r.code === 'noMoney', r.facts.need === 5, r.nextActions[0].op === 'job.work'
+const r = engine.ops.run('shop.rent', {});   // r.ok === false, r.code === 'noMoney', r.facts.need === 5, r.nextActions[0].op === 'job.work'
 ```
 `engine.nextFixed(fn)` runs `fn` at the start of the next fixed step and returns a Promise of its value, so a UI click or a promise callback can safely write gameplay state: `await engine.nextFixed(() => engine.ops.run('door.open', { id: 'gate' }))`. It is built on `engine.commits` and waits while frozen or loading.
 
 Tests that halt the loop name themselves (default `'game'`) and end their own halt with the handle: `const h = engine.haltLoop('my-test'); ... h.remove()`. The loop stays halted until every owner has removed theirs, so one helper cannot end another's halt.
 
 ## 12. Failing in run, atomic ops, revision
-`run` can fail like `can`: return or throw `{ ok: false, code, facts, nextActions }` (a value that merely has a `code` field is not a failure; `ok: false` is required). `facts` is an object (`{ need: 5 }`) or a list of `{ id, field, actual, expected? }` naming the record and field that were wrong. The engine never invents `nextActions`; only the op definition declares them. Every result carries `revision` (`engine.ops.revision`), a counter bumped once per committed op: "did anything change since I looked" is one compare.
+`run` can fail like `can`: return or throw `{ ok: false, code, facts, nextActions }` (`ok: false` is required). `facts` is an object (`{ need: 5 }`) or a list of `{ id, field, actual, expected? }` naming the record and field that were wrong. Every result carries `revision` (`engine.ops.revision`), a counter bumped once per committed op.
 ```js
 engine.ops.define('craft.bread', {
-  atomic: true,   // every part declared atomic (world, inventory, containers, vars, quests, grids, random, scene) is undone if run fails or throws
+  atomic: true,   // every save part declared atomic is undone if run fails or throws
   run(e, { oven }, ctx) {
     e.inventory.container(ctx.actor).remove('flour', 2);
     if (e.world.get(oven).heat < 3) return { ok: false, code: 'ovenCold', facts: [{ id: oven, field: 'heat', actual: e.world.get(oven).heat, expected: 3 }], nextActions: [{ op: 'oven.light', args: { oven } }] };
@@ -174,8 +178,8 @@ engine.ops.define('craft.bread', {
   after: (e) => e.audio.sfx('ding'),   // sound / animation: runs only after the op committed
 });
 ```
-What atomic covers: it copies the save parts that declared `saves.register(key, { atomic: true })` (the built-ins above; a game's own part can opt in) before `run` and loads them back on failure, so it costs one save of those per run (fine for a craft op, wrong for a per-frame op in a huge world). Events already emitted, sound, animation and any other module's state are not undone; keep such effects in `after`. Ops called from an atomic run join it (their `after` hooks wait for the outermost commit, and a rolled-back outer also takes back their revision). `ops.list()` and `engine.explain({ op })` report `atomic`.
+What atomic covers: it copies the save parts that declared `saves.register(key, { atomic: true })` (a game's own part can opt in) before `run` and loads them back on failure, so it costs one save of those per run (wrong for a per-frame op in a huge world). Events already emitted, sound, animation and any other module's state are not undone; keep such effects in `after`. Ops called from an atomic run join it (their `after` hooks run, nested first, at the outermost commit; a rolled-back outer takes back their revision). `ops.list()` and `engine.explain({ op })` report `atomic`.
 
 Causal trace (`events.traceSize > 0`, recipe 06): failed ops are noted as `op:<name>` with their `code`; `collision.lineClear(a, b, { who })` as `sight` (blocked lines always, clear ones for the focused object only); NPC state changes as `npc:state`. A game's behavior notes its own mode switch with `engine.events.note('npc:mode', { obj: rec.id, data: { from: 'patrol', to: 'investigate' } })`; `events.traceFocus('guard-1')` makes one object verbose.
 
-Atomic details: a rolled-back run still bumps `ops.revision` (it only goes up, never back to an old number) and its committed nested ops show in `ops.recent()` as `ok: false` with code `rolledBack`. `after` hooks run in commit order (nested first, then the outer op) once the outermost atomic op ends. The rollback does not run `afterLoad` and mutes the events its loads would emit, so atomic state must be plain data. Failed results name what went wrong in `code` (there is no `reason` field).
+Atomic details: a rolled-back run still bumps `ops.revision` (it only goes up, never back to an old number) and its committed nested ops show in `ops.recent()` as `ok: false` with code `rolledBack`. The rollback does not run `afterLoad` and mutes the events its loads would emit, so atomic state must be plain data.

@@ -5,7 +5,8 @@
 // folder), so neither mistake showed anywhere. Recipe 56 goes further and runs its blocks on WebGPU (engine spec recipe-56); running every
 // recipe's blocks would need a page per recipe (content, assets, modules), so this is the cheap check that covers all of them.
 // A block that is on purpose only a piece (the inside of an object, a line with an ellipsis) is fenced ```js fragment: still highlighted as
-// JS, not presented as code to paste, and left out of both checks.
+// JS and not presented as code to paste. A fragment still parses, alone or as the inside of an object or array, or says where it is cut with
+// an ellipsis: a broken one would fall out of R13 and show nothing. Its imports are checked like any block's. Engine names in every block: R18.
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import ts from 'typescript';
@@ -13,12 +14,13 @@ import { ENGINE } from '../paths.mjs';
 
 export const name = 'recipe code blocks: every js block parses and imports only names its package exports (fragments fenced js fragment)';
 
-/** The ```js blocks of a markdown text: [{ n, line, code }] (```js fragment blocks are not included) */
-export function jsBlocks(text) {
-  const out = []; let at = -1, buf = [];
+/** The ```js blocks of a markdown text: [{ n, line, code }]; with fragments: true also the ```js fragment ones, marked fragment: true */
+export function jsBlocks(text, { fragments = false } = {}) {
+  const out = []; let at = -1, buf = [], piece = false;
   text.split('\n').forEach((l, i) => {
-    if (at < 0 && /^\s*```js\s*$/.test(l)) { at = i + 2; buf = []; return; }
-    if (at >= 0 && /^\s*```\s*$/.test(l)) { out.push({ n: out.length + 1, line: at, code: buf.join('\n') }); at = -1; return; }
+    const open = at < 0 && /^\s*```js(\s+fragment)?\s*$/.exec(l);
+    if (open) { at = i + 2; buf = []; piece = !!open[1]; return; }
+    if (at >= 0 && /^\s*```\s*$/.test(l)) { if (!piece || fragments) out.push({ n: out.length + 1, line: at, code: buf.join('\n'), fragment: piece }); at = -1; return; }
     if (at >= 0) buf.push(l);
   });
   return out;
@@ -31,6 +33,12 @@ export function syntaxError(code) {
   if (!d) return '';
   const ln = sf.getLineAndCharacterOfPosition(d.start).line;
   return `+${ln}: ${ts.flattenDiagnosticMessageText(d.messageText, ' ')} | ${code.split('\n')[ln]?.trim().slice(0, 80)}`;
+}
+
+/** A fragment nothing can read: it parses neither alone nor as the inside of an object or array, and no ellipsis says where it is cut */
+export function brokenFragment(code) {
+  if (/\.\.\.\s*[,}\])]|…/.test(code)) return '';
+  return [code, `({\n${code}\n})`, `[\n${code}\n]`].every(syntaxError) ? syntaxError(code) : '';
 }
 
 /** Named imports of a block from packages (relative paths and made-up example packages are not checked): [{ from, names }] */
@@ -49,9 +57,9 @@ export async function run({ check }) {
   const bad = [], missing = [], mods = new Map();
   let blocks = 0;
   for (const f of files) {
-    for (const b of jsBlocks(readFileSync(join(dir, f), 'utf8'))) {
+    for (const b of jsBlocks(readFileSync(join(dir, f), 'utf8'), { fragments: true })) {
       blocks++;
-      const err = syntaxError(b.code);
+      const err = b.fragment ? brokenFragment(b.code) : syntaxError(b.code);
       if (err) { bad.push(`${f} block ${b.n} (line ${b.line}) ${err}`); continue; }
       for (const { from, names } of packageImports(b.code)) {
         if (!mods.has(from)) mods.set(from, await import(from).then(m => new Set(Object.keys(m)), e => e));
@@ -62,9 +70,10 @@ export async function run({ check }) {
     }
   }
   check(`the recipes have js blocks to check (${blocks})`, blocks > 150, String(blocks));
-  check('every ```js block of the recipes parses (a piece on purpose is fenced ```js fragment)', !bad.length, bad.join('\n'));
+  check('every ```js block of the recipes parses (a piece on purpose is fenced ```js fragment and is a readable piece)', !bad.length, bad.join('\n'));
   check('every name a recipe block imports from three / threedog / @threedog/* exists', !missing.length, missing.join('\n'));
   // self-check: the checker itself must catch the kind of error recipe 43 had (a line break inside a string) and an export name that does not exist
-  check('the checker catches a string broken over two lines and a made-up import name',
-    !!syntaxError("const s = '#include <a>\n...';") && packageImports("import { nope } from 'threedog';")[0]?.names[0] === 'nope');
+  check('the checker catches a string broken over two lines, a made-up import name and a fragment that is no piece of js',
+    !!syntaxError("const s = '#include <a>\n...';") && packageImports("import { nope } from 'threedog';")[0]?.names[0] === 'nope'
+    && !!brokenFragment('attribute float aLife;') && !brokenFragment("slot: 'color',\nglsl: 'a',"));
 }

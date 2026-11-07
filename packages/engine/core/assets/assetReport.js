@@ -3,6 +3,7 @@
 // "Lost" means: the file has it, the scene does not (a normal map a material no longer has, a clip that did not load, a material replaced by another).
 // Color-space basis: three's color management manual. Color slots (map, emissiveMap) hold sRGB, data slots (normal, roughness, metalness, ao...) stay linear.
 import * as THREE from 'three';
+import { sanitize } from '../base/spelling.js';
 
 // The one slot table: engine.assets.report and engine.inspect.materials judge a texture by it. A lightMap holds light, not a color or a value: a linear bake and an sRGB
 // picture are both right, so it is in neither list
@@ -10,8 +11,6 @@ export const COLOR_SLOTS = ['map', 'emissiveMap', 'specularColorMap', 'sheenColo
 export const DATA_SLOTS = ['normalMap', 'roughnessMap', 'metalnessMap', 'aoMap', 'bumpMap', 'alphaMap', 'displacementMap', 'specularMap', 'specularIntensityMap', 'clearcoatMap', 'clearcoatNormalMap',
   'clearcoatRoughnessMap', 'transmissionMap', 'thicknessMap', 'iridescenceMap', 'anisotropyMap', 'sheenRoughnessMap'];
 const SRGB = THREE.SRGBColorSpace, LINEAR = THREE.NoColorSpace;
-// three's PropertyBinding.sanitizeNodeName: the name the engine sees ("door.001" -> "door001")
-const sanitize = n => String(n ?? '').replace(/\s/g, '_').replace(/[[\].:/]/g, '');
 
 /** Color-space problems of one texture used in the given slots: [] when fine */
 function colorSpaceIssues(tex, slots) {

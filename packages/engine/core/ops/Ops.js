@@ -19,6 +19,7 @@ import { failure, isStructured, opsBlocked } from './opsFail.js';
 import { runOp } from './opsRun.js';
 import { newRing, logEntry, recentEntries } from './opsHistory.js';
 import { defaultsOf, withDefaults } from '../base/params.js';
+import { reportError } from '../base/errors.js';
 
 const STRINGS = {
   dup: "ops.define('{name}'): already defined. To replace it call remove() on the handle define returned first",
@@ -44,7 +45,7 @@ export class Ops {
     /** @internal */ this._inCan = null;
     /** @internal > 0 while state may be written without an op (save load, applyState, net sync) */ this._allowDepth = 0;
     /** @internal request counter (net replies carry it) */ this._seq = 0;
-    /** @internal ctx of the innermost running op (nested ops inherit source and actor) */ this._last = null;
+    /** @internal ctx of the innermost running op (nested ops inherit source, actor and session) */ this._last = null;
     /** @internal set through route() (net clients): (def, args, opts) => result to return instead of running locally, or null to run here */ this._route = null;
     /** @internal true while route() is held: every write outside allow() is reported, even in fixed steps and ops (own movement, world.move, excepted) */ this._client = false;
     /** Counter that only goes up: each committed op, undo, load and rollback bumps it (a failed op that changed nothing does not); every run result carries it, so "did anything change since I looked" is one compare */
@@ -78,7 +79,7 @@ export class Ops {
    * run (and can) may fail with { ok: false, code, facts, nextActions } (facts: object or list [{ id, field, actual, expected? }]); nextActions are the game's own suggestions.
    * owner (optional, checked by net() for peer requests): args => world record id whose `owner` field must equal the requesting actor.
    * @param {string} name
-   * targets (optional): the thing ids, kinds or template names this op is for; engine.thing(id).explain().ops lists it ('*' = any thing).
+   * targets (optional): the thing ids, kinds or template names this op is for; engine.explain({ thing: id }).ops lists it ('*' = any thing).
    * @param {{ run: (e: any, args: any, ctx: OpContext) => any, can?: (e: any, args: any, ctx: OpContext) => true | string | { code: string, facts?: object, nextActions?: { op: string, args?: object }[] }, targets?: string | string[], args?: Record<string, string | { type: string, default?: any, min?: number, max?: number, values?: any[], desc?: string, optional?: boolean }>, offers?: (e: any, ctx: OpContext) => object[], reasons?: Record<string, string>, desc?: string, undo?: (e: any, args: any, value: any) => void, net?: 'peer' | 'local', owner?: (args: any) => string, atomic?: boolean, after?: (e: any, args: any, value: any, ctx: OpContext) => void }} def
    * @returns {{ remove(): void }}
    * @example
@@ -128,6 +129,7 @@ export class Ops {
 
   /**
    * Reverse a finished op with the undo(e, args, value) its definition declared: pass the same args and the value run returned.
+   * canUndo(e, args, value) in the definition answers like can (true, a reason, a structured failure) when the world may have moved on so far that it cannot be reversed.
    * Returns { ok: true }, or { ok: false, code: 'noUndo', facts: { op }, nextActions } when the op did not declare undo. The undo runs as an op write (the dev guard stays quiet).
    * @example const r = engine.ops.run('inventory.trade', { take: 'rusty_key', give: 'gold_key' }); engine.ops.undo('inventory.trade', { take: 'rusty_key', give: 'gold_key' }, r.value);
    * @param {string} name
@@ -142,11 +144,29 @@ export class Ops {
     if (typeof d.undo !== 'function') return this._res(failure({ code: 'noUndo', facts: { op: name }, nextActions: [] }));
     const blocked = opsBlocked(this.engine);   // as run: a load in progress or a gameplay error
     if (blocked) return this._res(failure(blocked));
+    // as run: a broken op is reported and answered, a thrown error is not the caller's to catch
+    const broke = err => { if (err?.opsDevError) throw err; reportError(this.engine, err, `ops.undo('${name}')`); return this._res(failure('error')); };
+    let no;
+    try { no = d.canUndo?.(this.engine, args, value) ?? true; } catch (err) { return broke(err); }
+    if (no !== true) return this._res(failure(no));   // as can: answered, and nothing changed, so the revision stays
+    const ctx = this._ctx(name, args, opts, this._stack.length ? this._last : null);
     this._allowDepth++;
-    // the op's code is the defining module's, not the caller's (run)
-    try { asModule(this.engine, null, () => d.undo(this.engine, args, value, this._ctx(name, args, opts, null))); } finally { this._allowDepth--; }
-    this.revision++;   // the state changed: "did anything change since I looked" must see it
+    try {
+      // the op's code is the defining module's, not the caller's (run)
+      asModule(this.engine, null, () => this._as(name, ctx, () => d.undo(this.engine, args, value, ctx)));
+    } catch (err) {
+      return broke(err);
+    } finally {
+      this._allowDepth--;
+      this.revision++;   // the state changed, a half-done undo too: "did anything change since I looked" must see it
+    }
     return { ok: true };
+  }
+  /** @internal Run fn as part of op `name` with its ctx, when the op is not on the stack (undo, an after hook held for the commit, a use after a walk): nested ops, ops.actor and content words read it */
+  _as(name, ctx, fn) {
+    const prev = this._last;
+    this._stack.push(name); this._last = ctx;
+    try { return fn(); } finally { this._stack.pop(); this._last = prev; }
   }
 
   /**
@@ -166,7 +186,12 @@ export class Ops {
     const blocked = opsBlocked(this.engine);
     if (blocked) return this._res(failure(blocked));
     let res;
-    try { res = this._can(d, args, ctx); } catch (err) { if (err?.opsDevError) throw err; res = 'error'; }
+    try { res = this._can(d, args, ctx); } catch (err) {
+      if (err?.opsDevError) throw err;
+      // soft: buttons and describe() ask every frame, and asking must not freeze a game; the run path stops it. The reason stays in the answer
+      reportError(this.engine, err, `ops.can('${name}')`, { soft: true });
+      res = { code: 'error', facts: { message: String(err?.message ?? err) } };
+    }
     return this._res(res === true ? { ok: true } : failure(res));
   }
 
@@ -279,7 +304,7 @@ export class Ops {
       if (!SOURCES.includes(source)) throw devError(fmt(STRINGS.badSource, { name, source }));
       if (args) checkArgs(e, this.defs.get(name), args);
     }
-    return { source, actor: opts?.actor ?? parent?.actor ?? e.actor, tick: e.time.tick, frozen: e.frozen };
+    return { source, actor: opts?.actor ?? parent?.actor ?? e.actor, tick: e.time.tick, frozen: e.frozen, session: parent?.session ?? e.session.id };
   }
   /** @internal returns true or a reason string */
   _can(d, args, ctx) {

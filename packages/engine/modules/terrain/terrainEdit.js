@@ -8,13 +8,16 @@ import { readParams, keysSchema } from '../../core/base/params.js';
 import { xzOf } from '../../core/base/math.js';
 import { codedError } from '../../core/base/errorHints.js';
 import { isPlainObject } from '../../core/base/util.js';
-import { refuseSave, saveNumberOk } from '../../core/saves/saveValues.js';
+import { refuseSave, saveNumberOk } from '../../core/base/saveValues.js';
 import { unkey } from './terrainGen.js';
 
 // grid points past its edge that a chunk reads: a shared point, then the neighbor smooth normals and the color map's border read
 const REACH = 2;
 const EDIT_KEYS = ['radius', 'shape', 'raise', 'lower', 'flatten', 'paint'];
+/** Grid points one edit may cover: far past any brush, still a moment's work */
+const MAX_EDIT_POINTS = 1 << 22;
 const STRINGS = {
+  big: 'terrain.edit(): radius {r} covers more ground than one edit can hold; at most {max} here. Split a large change into several edits',
   none: "terrain.edit(): pass at least one of raise, lower, flatten or paint, e.g. engine.terrain.edit(pos, { radius: 2, lower: 1 })",
   many: 'terrain.edit(): raise, lower and flatten all set the height; pass only one of them',
   shape: "terrain.edit(): shape must be 'circle' or 'square', got {got}",
@@ -24,13 +27,13 @@ const STRINGS = {
 
 /** @internal owned by ChunkManager (engine.terrain.edits) */
 export class TerrainEdits {
-  constructor(engine, mgr) {
+  constructor(engine, mgr, ctx) {
     this.e = engine; this.mgr = mgr;
     this.h = new Map();     // grid key -> height of grid point (i * cell, j * cell)
     this.t = new Map();     // cell key -> ground type of cell [i, i + 1) x [j, j + 1)
     this.ver = new Map();   // chunk key 'cx,cz' -> edit version (jobs carry it; an older result is stale)
     this.attach();
-    engine.saves.register('terrain', { save: () => this.save(), load: d => this.load(d) });
+    ctx.saves.register('terrain', { notAtomic: 'height data is too large to copy for each atomic run, and its load rebuilds meshes', save: () => this.save(), load: d => this.load(d) });
   }
   /** Point the main-thread generator at the edit maps (again after the generator is rebuilt, e.g. a height map finished loading) */
   attach() { this.mgr.generator.useEdits(this.h, this.t); }
@@ -45,6 +48,8 @@ export class TerrainEdits {
     if (o.shape != null && o.shape !== 'circle' && o.shape !== 'square') throw codedError('terrain-option', fmt(STRINGS.shape, { got: JSON.stringify(o.shape) }));
     if ('paint' in o && o.paint !== null && typeof o.paint !== 'string') throw codedError('terrain-option', fmt(STRINGS.paint, { got: JSON.stringify(o.paint) }));
     const T = this.mgr.generator, C = T.CELL, [x, z] = xzOf(position), r = o.radius ?? C / 2, sq = o.shape === 'square';
+    // every point covered is a Map entry kept in the save: a radius from bad data would fill memory and hang the tab before anything could refuse it
+    if ((2 * r / C) ** 2 > MAX_EDIT_POINTS) throw codedError('terrain-option', fmt(STRINGS.big, { r, max: Math.floor(Math.sqrt(MAX_EDIT_POINTS) * C / 2) }));
     // off the outline of terrain({ shape }) there is no ground to dig or paint; near the rim the grid points just outside still move,
     // because the rim's height is interpolated from them. The outline itself is not editable
     if (!T.has(x, z)) return { heights: 0, cells: 0 };
@@ -131,7 +136,7 @@ export class TerrainEdits {
   load(d) {
     const cell = (i, j) => Number.isInteger(i) && Number.isInteger(j) && saveNumberOk(i) && saveNumberOk(j);
     const heights = h => h == null || (Array.isArray(h) && h.length % 3 === 0 && h.every(saveNumberOk) && h.every((v, n) => n % 3 || cell(v, h[n + 1])));
-    const types = t => t == null || (Array.isArray(t) && t.every(c => Array.isArray(c) && c.length === 3 && cell(c[0], c[1])));
+    const types = t => t == null || (Array.isArray(t) && t.every(c => Array.isArray(c) && c.length === 3 && cell(c[0], c[1]) && typeof c[2] === 'string'));
     if (d != null && !(isPlainObject(d) && heights(d.h) && types(d.t))) refuseSave('terrain', 'the part', 'must be { h: [i, j, height, ...], t: [[i, j, type], ...] }', d);
     const T = this.mgr.generator, before = [...this.h.keys(), ...this.t.keys()];
     this.h.clear(); this.t.clear();

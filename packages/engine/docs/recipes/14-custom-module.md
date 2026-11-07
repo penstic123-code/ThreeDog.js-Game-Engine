@@ -1,5 +1,7 @@
 # Custom module
 
+**In this recipe**: 1. Template (example: stamina, in the game as `stamina.js`) · Type: what the module may own · 2. Hooks and order cheat sheet · 3. Extra steps when it goes into the engine · 4. Verify
+
 When to write a module: a "mechanic" that has its own state, per-frame logic and saving (stamina, a heat meter, wave spawning, oxygen, a combo
 counter). The contracts every module should follow (state, game time, skip, describe, ops) and a second copyable module are in
 `49-game-module-contract.md`; this page is the template and the hook cheat sheet. A module is a file of your game (next to `main.js`, or in `plugins/`);
@@ -66,32 +68,43 @@ A module that does two kinds of thing is two definitions returned together (`wea
 ## 2. Hooks and order cheat sheet
 - `install(e, ctx)` returns the public object; `init(e, ctx)` (may be async) prepares at start; `ctx.track(handle)` ties a listener or timer to
   the module (next bullet but four); while `isReady(e)` returns false the loading screen waits for it
-  (the hook is called isReady; `ready` is always a boolean property in the engine); `afterLoad(e)` (may be async) runs after a save loaded, to rebuild
-  what the loaded state needs nearby, with gameplay frozen until it resolves.
+  (the hook is called isReady; `ready` is always a boolean property in the engine); `afterLoad(e, turn)` (may be async; recipe 20 says what `turn` is for) runs after a save loaded, to rebuild
+  what the loaded state needs nearby, with gameplay frozen and ops refused (`'loading'`) until it resolves. It rebuilds by writing state directly, inside
+  `e.ops.allow(...)` when the write is guarded, not through `e.ops.run`.
 - `fixed(dt, e)` movement, timing, gameplay keys (`input.pressed` read in fixed is this step's snapshot, independent of frame rate); `frame(dt, e)`
   animation, camera, UI (it reads this frame's latest input); `afterRender(dt, e)` after rendering.
 - `describe(e, ctx)`: see recipe 49 contract 4; `ctx.near(object or {x,z}, { name, kind })` reports things nearby. `skip(dt, e, done)`: recipe 49 contract 3.
 - `applyState(e, p)`: called by `engine.applyState` / URL parameters with the keys `time`, `season`, `weather`, `cutscene`, `play` and `at` (core handles the rest); `stateKeys: ['time']` lists what the module handles, and it refuses with `{ refused: { key: reason } }`.
 - `stage`: only when the hooks run (first -> last): `control` timeline, camera -> `ground` terrain, level -> `environment` weather, sky, water -> `gameplay`
   interactions, dialogue -> `effects` particles, objective markers -> `late` (the default) characters, physics -> `audio` music. Within
-  a stage, to read another module's result for this frame, write `after: ['its-name']` (or `before`); across stages the stage always wins, so a
+  a stage, to read another module's result for this frame, write `after: ['its-name']` (or `before`). The name may be a capability, `after: ['ground']`: whichever module provides it
+  now, so the order survives a `replaces`. Across stages the stage always wins, so a
   `before` / `after` that contradicts it (a `control` module `after` an `audio` one) makes `engine.use` throw `module-order` naming both modules: give
   them the same stage or drop the line. `engine.use(a, b)` is all-or-nothing: if `b` fails, nothing of `a` stays installed.
+- Installed is not running: `engine.has('nav')` says it is installed; after `await engine.loading.settled()`, `engine.explain({ module: 'nav' })` says whether it runs and, if not, why.
+- A module with `provides: ['inventory']`, or one another module `requires`, is checked in dev against that capability's contract when it binds: a missing method is one
+  `module-contract` warning and a line in `engine.catalog(name).problems`. The module still runs: only the game knows which calls it makes.
 - Between modules: notify with `e.events.emit('stamina:empty')` and let others `on` it; use optional dependencies as `e.hud?.` and list them in
   `optional: ['hud']` (for engine modules R16 of `npm run check` verifies this). Never import another module's files directly.
 - A module the game cannot run without sets `critical: true`: if its `init` fails, `engine.start()` rejects with the module name and reason (default
   false: a failed init is reported and start goes on). A module installed after start gets no `fixed` / `frame` before its `init` finished:
-  `engine.moduleStates` shows `initializing` / `running` / `failed`, and `await engine.loading.settled()` waits for it. A module whose `isReady` never
+  `engine.explain({ module })` shows `initializing` / `running` / `failed`, and `await engine.loading.settled()` waits for it. A module whose `isReady` never
   turns true makes `start()` reject after `engine.loading.timeoutMs` (default 120 s), naming it.
 - The `type` decides what an error does: in a `picture` or `ui` module (gameplay works without it) an error in a hook only switches that module off
-  (`module:disabled`, listed in `engine.disabledModules`); in any other type it freezes the game in development/tests and is recorded in `engine.error`.
+  (`module:disabled`, listed in `describe().disabledModules`); in any other type it freezes the game in development/tests and is recorded in `engine.error`.
+- `requires` means the provider works, not only that it is installed: until a required provider runs, the module is `'blocked'` in `engine.explain({ module })` (no init, no hooks) and `engine.catalog(name).blockedBy` says on what. If it can live without the provider, list it in `optional` instead. A `critical` module blocked by a failure stops `start()`.
+- Whatever the module registers goes through `ctx`: `ctx.ops.define`, `ctx.saves.register`, `ctx.ui.define`, `ctx.stream.addReadyCheck`, `ctx.budget.metric`, `ctx.things.addSource` / `explainWith`,
+  `ctx.ground.provide` / `addColliders`. They take the same arguments as the engine call, and `engine.catalog(name).resources` lists them. They leave with the module, so `engine.unuse` then
+  `engine.use` of the same module works; a save part's data stays in the save and goes back to the part when it registers again.
 - Listeners and timers the module adds go through `ctx.track(...)`: `ctx.track(e.events.on('item:add', fn))`, also `onFixed` / `onFrame` /
   `clock.after` / `audio.measure` / a `makeWindow` window, anything with `remove()`. They leave with the module: when its `engine.use(...)` batch
   rolls back, when its `init` fails, and on `engine.dispose()` before its `dispose` hook (the spec `threedog test "Lifecycle: every built-in"`
-  checks every engine module). A class the module builds takes `ctx.track` as a constructor argument. DOM listeners use
+  checks every engine module). A class the module builds takes `ctx` as a constructor argument. DOM listeners use
   `addEventListener(type, fn, { signal: engine.signal })`, and UI elements attach to `engine.uiRoot` (not `document.body`); scene GPU memory,
   jobs and stream entries are collected by `engine.dispose()`. The `dispose(e)` hook only collects what the core can't, such as Workers, the
   physics world, WASM objects and real-time timers, and is called in reverse install order.
+- Your data in a replaceable provider: `ctx.feeds('collision', () => addMyWalls())` runs before the `use()` of a new holder returns.
+- Foundation slots are the ones a running game cannot swap: `world` alone, because it owns every record. Choose your own holder before `start()`; every other slot takes `replaces` at any time.
 - A module's changes to shared values go through `ctx.mod(point, { mul: 0.8, layer: 'effect' })` (= `ctx.track(e.mod(point, { owner: ctx.name, ... }))`),
   so they leave with it too. A module that must be the only one of its kind declares `provides: ['inventory']`; others `requires: ['inventory']`
   (a capability, never a module name), and a game swaps it with `engine.use(mine(), { replaces: 'inventory' })` (`55-mods-time-wrap.md`). `engine.unuse('name')` removes a module with nothing in its place, and refuses while another still requires it. Picture slots: `62-picture-code.md` 3e:
@@ -110,8 +123,7 @@ A module that does two kinds of thing is two definitions returned together (`wea
   hand. What cannot be saved ends with its playthrough: a background result goes through `engine.commits` (a load or new game drops old ones;
   keep `e.commits.epoch` on a queued request and drop it when that changed), and an effect of a running playthrough (an open dialogue, a
   running cutscene, the music playing) stops on `ctx.track(e.events.on('session:end', ...))`. What is derived from save parts is rebuilt on
-  `'session:start'` and `'save:loaded'`. A module's `describe()` should show such state: the session spec (`threedog test Session`) compares every
-  installed module's describe after two new games, and the Lifecycle spec round-trips the engine's own.
+  `'session:start'` and `'save:loaded'`, and what a rollback took down on `'session:failed'`. A `'session:end'` listener only stops things: it starts nothing for the next state. A module's `describe()` should show such state: the session spec (`threedog test "session fresh page"`) compares `describe()` after a new game with a fresh page, and the Lifecycle spec round-trips the engine's own.
 - When you only need a per-frame callback and no module structure: `const h = engine.onFrame(dt => ...)` / `engine.onFixed`, and `h.remove()` cancels it.
 
 ## 3. Extra steps when it goes into the engine

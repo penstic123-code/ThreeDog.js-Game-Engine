@@ -3,27 +3,42 @@
 
 export const specs = [
   {
-    name: '[守] 抗锯齿：开局的 MSAA 就是画布自带的（不开效果时直接画）；运行中切到另一值、或开效果时走后期渲染目标；画质预设能切',
+    name: '[守] 抗锯齿：MSAA 跟画布定死，运行中写 antialias 不会把后期打开；开效果时才走后期渲染目标；画质预设和设置只改下次启动',
     url: '/tests/perf/index.html?mode=city',
     async run({ check, ev }) {
       const r = await ev(() => {
         const p = engine.post, samples = () => p.composer ? [p.composer.renderTarget1.samples, p.composer.renderTarget2.samples] : null;
         const fake = { enabled: true, needsSwap: false, renderToScreen: false, setSize() {}, render() {}, dispose() {} };
         const out = { canvas: engine.renderer.getContextAttributes().antialias, start: p.antialias };
-        p.setAntialias(true); engine.step(1 / 30, { render: true });
-        out.on = { active: p.active, s: samples() };
+        p.antialias = !out.start; engine.step(1 / 30, { render: true });
+        out.flip = { active: p.active, built: !!p.composer };
+        p.antialias = true;
         const h = engine.post.add({ name: 'glow', create: () => ({ ...fake }) }); engine.step(1 / 30, { render: true });
-        out.fx = samples();
-        p.setAntialias(false); h.remove(); engine.step(1 / 30, { render: true });
-        out.off = { active: p.active, s: samples() };
-        engine.settings.preset('high'); out.high = p.antialias;
-        engine.settings.preset('low'); out.low = p.antialias;
-        p.setAntialias(out.start);
-        // an engine whose canvas was made with MSAA: nothing on draws straight to it; switching MSAA off goes through the chain with 0 samples
-        const E = threedogTest.createEngine({ canvas: document.createElement('canvas'), antialias: true, headless: true, ui: { loading: false }, urlState: false, saveKey: 'art-aa' });
+        out.fx = { active: p.active, s: samples() };
+        p.antialias = false; engine.step(1 / 30, { render: true });
+        out.fxOff = samples();
+        h.remove(); engine.step(1 / 30, { render: true });
+        out.off = { active: p.active };
+        p.antialias = out.start;
+        // a preset's antialias is a choice for the next launch: it is stored and this canvas stays as it is
+        const key = engine.saves.storageKey('msaa'), stored = () => localStorage.getItem(key);
+        engine.settings.preset('high'); out.high = [p.antialias, stored()];
+        engine.settings.preset('low'); out.low = [p.antialias, stored()];
+        out.authored = p.authoredAA;
+        localStorage.removeItem(key);
+        // an engine whose canvas was made with MSAA: nothing on draws straight to it, and writing antialias off changes no route and builds nothing
+        const made = () => threedogTest.createEngine({ canvas: document.createElement('canvas'), antialias: true, headless: true, ui: { loading: false }, urlState: false, saveKey: 'art-aa' });
+        const E = made();
         out.own = { canvas: E.renderer.getContextAttributes().antialias, active: E.post.active };
-        E.post.setAntialias(false); E.post.render(0); out.own.offActive = E.post.active; out.own.offSamples = E.post.composer?.renderTarget1.samples;
+        E.post.antialias = false; E.post.render(0); out.own.offActive = E.post.active; out.own.offBuilt = !!E.post.composer;
+        E.post.nextAntialias(false);
         E.dispose();
+        // the stored choice is what reaches the next canvas, over the game's own value
+        const N = made();
+        out.next = { canvas: N.renderer.getContextAttributes().antialias, aa: N.post.antialias, authored: N.post.authoredAA };
+        N.post.nextAntialias(true);   // the game's own value again: no choice left in storage
+        out.next.left = localStorage.getItem(N.saves.storageKey('msaa'));
+        N.dispose();
         // a game's own renderer keeps its own MSAA choice by default (used as is, like its pixel ratio)
         out.game = [true, false].map(a => {
           const G = threedogTest.createEngine({ renderer: new threedogTest.THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: a }), headless: true, ui: { loading: false }, urlState: false, saveKey: 'art-aa-own' });
@@ -33,12 +48,15 @@ export const specs = [
       });
       check('画布自带的 MSAA 等于开局的抗锯齿值', r.canvas === r.start, JSON.stringify(r));
       check('游戏自己的渲染器：MSAA 默认跟它的 antialias 走，没开效果时都不走后期', JSON.stringify(r.game) === '[[true,false],[false,false]]', JSON.stringify(r.game));
-      check('画布开了 MSAA、没开效果：不走后期；运行中关掉：走后期，渲染目标 0 采样', r.own.canvas === true && !r.own.active && r.own.offActive && r.own.offSamples === 0, JSON.stringify(r.own));
-      // the page's canvas follows the tier: without its own MSAA (software rendering, low tier) switching on goes through the chain
-      check('开抗锯齿：画布自带 MSAA 时直接画，否则走后期、渲染目标 4 倍采样', r.start ? !r.on.active : r.on.active && r.on.s.join() === '4,4', JSON.stringify(r));
-      check('再加效果：仍是 4 倍采样', r.fx?.join() === '4,4');
-      check('关掉、去掉效果：采样 0；画布没有 MSAA 时直接画', r.off.s.join() === '0,0' && r.off.active === r.start, JSON.stringify(r));
-      check('画质预设 high 开、low 关', r.high === true && r.low === false);
+      // these two hold convergence decision R6: the chain must never run only to differ from the canvas, that made the cheap preset cost more than the middle one
+      check('画布开了 MSAA、没开效果：不走后期；运行中关掉：仍不走后期，什么也不建', r.own.canvas === true && !r.own.active && !r.own.offActive && !r.own.offBuilt, JSON.stringify(r.own));
+      check('没开效果时，写成和画布相反的值也不走后期', !r.flip.active && !r.flip.built, JSON.stringify(r.flip));
+      check('开效果：走后期，渲染目标 4 倍采样', r.fx.active && r.fx.s?.join() === '4,4', JSON.stringify(r.fx));
+      check('开着效果关抗锯齿：渲染目标运行中变 0 采样', r.fxOff?.join() === '0,0', JSON.stringify(r.fxOff));
+      check('去掉效果：回到直接画', !r.off.active, JSON.stringify(r.off));
+      check('画质预设不动这一局的抗锯齿', r.high[0] === r.start && r.low[0] === r.start, JSON.stringify(r));
+      check('画质预设把选择存给下次启动：和游戏自己的值相同就不存', r.high[1] === (r.authored ? null : '1') && r.low[1] === (r.authored ? '0' : null), JSON.stringify(r));
+      check('存下的选择在下次启动到达画布，盖过游戏的值', r.next.canvas === false && r.next.aa === false && r.next.authored === true && r.next.left === null, JSON.stringify(r.next));
     },
   },
   {

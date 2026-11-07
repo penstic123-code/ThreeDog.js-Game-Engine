@@ -1,4 +1,4 @@
-// What entered and left a scene since the last frame, so systems that must reach every object in the scene (the cascades and fog patching
+// What entered and left a scene since the last frame, so systems that must reach every object in the scene (the cascades patching
 // materials, night glow finding its materials, the room map waiting for a material that reads it) visit only the new subtrees instead of
 // each walking the whole scene after any change. While streaming, something is added almost every frame; four full walks of a 1000+
 // object scene per such frame cost more than the frame's game code.
@@ -65,10 +65,10 @@ notePatch('scene-add-hook', 'Object3D.prototype.add / remove: wrapped once per p
     if (P.remove === o.ours.remove) P.remove = o.remove;
     if (P.add === o.add && P.remove === o.remove) { delete P[KEY]; delete P[ORIG]; }
   },
-  { lost: 'plain scene.add is no longer adopted like engine.add, and fog, cascades, night glow and light counts miss objects added later' });
+  { lost: 'plain scene.add is no longer adopted like engine.add, and cascades, night glow and light counts miss objects added later' });
 notePatch('mesh-material-accessor', 'mesh.material on each object with a material that enters a watched scene: an own get / set on that object (the class accessor still runs) so a material swap is seen',
   () => {},   // off: objects entering from now on keep a plain material (_walk asks patchOn)
-  { scope: 'objects in the scene', lost: 'mesh.material = other on objects entering from now on is not seen: the new material misses fog and cascades until the object re-enters' });
+  { scope: 'objects in the scene', lost: 'mesh.material = other on objects entering from now on is not seen: the new material misses cascades until the object re-enters' });
 
 /** The accessor (get / set) `material` resolves to on this object or up its prototype chain, or null when it is a plain value */
 function materialAccessor(o) {

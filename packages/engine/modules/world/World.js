@@ -61,7 +61,10 @@ export class World {
   set anchor(a) {
     const ok = a == null || a.isObject3D || (Array.isArray(a) ? a.length === 3 && a.every(Number.isFinite) : Number.isFinite(a.x) && Number.isFinite(a.z));
     if (!ok) throw codedError('world-option', fmt(STRINGS.anchor, { got: JSON.stringify(a) }));
+    const boot = this._anchor, S = this.engine.session;
     this._anchor = a ?? null;
+    // not saved (it may be an Object3D): set during play, it ends with the playthrough and what boot left comes back. Tracked, so a failed load keeps it
+    if (S.captured && !this._anchorEnd) this._anchorEnd = S.track({ remove: () => { this._anchor = boot; this._anchorEnd = null; } });
   }
 
   /**
@@ -122,7 +125,9 @@ export class World {
   set(id, patch) { checkTypeRule(this.engine, 'world.write', `set world record ${id}`); return setRecord(this, id, patch); }
   /**
    * Move a record (no event; use it in simulate for things that move every step); still saved (saves diff against content).
-   * The model of a positionFrom 'record' (default) record follows this frame; to do something else with the position in presentation, compare in update
+   * The model of a positionFrom 'record' (default) record follows this frame; to do something else with the position in presentation, compare in update.
+   * On a live character (the player, an NPC with a model) this is its placeAt: the character owns its position, so it goes there and the record says where it stands.
+   * A seated rider gets out to go there (placeAt ends a ride); a write equal to where it sits only follows the seat
    * @example engine.world.move(rec.id, { x: rec.position.x + 1, z: rec.position.z })
    * @param {string} id
    * @param {any} position  Vector3 / object / [x, y, z] / { x, z } (y stays unchanged if omitted)
@@ -130,10 +135,18 @@ export class World {
    */
   move(id, position) {
     DEV && this.engine.ops.guard('world.move');
-    const rec = this._need(id, 'move');
-    putPos(`world.move("${id}")`, position, rec.position);
+    const rec = this._need(id, 'move'), live = this._character(rec), to = live ? { ...live.root.position } : rec.position;
+    putPos(`world.move("${id}")`, position, to);
+    if (live) {   // design.md section 9: the character is the authority. A write that agrees with it is the record following (Character._store, npcSim); any other is a placement
+      const p = live.root.position;
+      if (p.x !== to.x || p.y !== to.y || p.z !== to.z) live.placeRecord(to);
+      rec.position.x = p.x; rec.position.y = p.y; rec.position.z = p.z;
+    }
+    this._v.placed(rec);
     this._index(rec);
   }
+  /** @internal The character that owns this record's pose, or null. A far record rules its own model, except a rider's: the seat would take the write back as it comes near */
+  _character(rec) { const ch = this.engine.control?.characterOf(rec.id); return ch && (ch.vehicle || !this._s.recordRules(rec)) ? ch : null; }
   /**
    * Remove a record (its model is torn down too) and emit the world:remove event. Does nothing if the id does not exist. Removing an initial record is saved,
    * so it stays gone after loading
@@ -172,7 +185,7 @@ export class World {
    * radius: meters, or a function (for distances that change, like terrain view distance); defaults to world.radius. Registering the same kind again: old
    * models are torn down with the old dispose and rebuilt with the new one.
    * positionFrom: 'record' (default, the model follows the record every frame) or 'view' (the model moves itself, e.g. driven by a character mover; model
-   * position is copied back to the record at the end of each fixed step).
+   * position is copied back to the record at the end of each fixed step, and a write to the record moves the model and a rigid body on it).
    * @example engine.world.present('chest', { build: rec => new THREE.Mesh(boxGeo, new THREE.MeshStandardMaterial()), dispose: (rec, obj) => engine.remove(obj), show: rec
    * => !rec.looted })
    * @param {string} kind
@@ -214,8 +227,8 @@ export class World {
    * far → near step, far runs first to pay back the owed time.
    * With only far (crops), near also advances via far; with only near, far records are not simulated and owed time is not made up.
    * Both dt are accumulated real (fixed-step) seconds (not multiplied by clock.rate). For things measured in game clock (grows over days) store engine.clock.now
-   * and compare. channel: a time channel name (or rec => name) the kind lives on; then both dt are multiplied by that channel's speed (and the record's
-   * engine.time.local stack), so bullet time on 'enemies' slows near and far records alike (NPCs use it with their own channel).
+   * and compare. channel: a time channel name (or rec => name) the kind lives on; then both dt are the channel time the record lived through (its
+   * engine.time.local stack too), whatever the speed when far settles, so bullet time on 'enemies' slows near and far records alike (NPCs use it with their own channel).
    * radius defaults to the present radius ('view' widened by 1.25), or world.radius without present; may also be a function.
    * fullRadius + nearEvery (tiers, for crowds): records within fullRadius m (number or function) run near every step; the rest of the near zone runs near
    * once every nearEvery seconds, dt being the seconds since its last turn (deterministic: turns go by hashed id and step count, saved).
@@ -237,7 +250,7 @@ export class World {
    * @returns {{ remove(): void }}
    * @experimental
    */
-  pauseSimulation() { const s = this._s; s.fixed = () => {}; return { remove: () => { delete s.fixed; } }; }
+  pauseSimulation() { const s = this._s; s.fixed = () => {}; return { remove: () => { delete s.fixed; for (const e of s.ents.values()) e.ch = e.mark = undefined; } }; }   // channels kept moving: no stretch of the pause is owed
   /** Number of fixed steps simulated @experimental */ get steps() { return this._s.n; }
 }
 

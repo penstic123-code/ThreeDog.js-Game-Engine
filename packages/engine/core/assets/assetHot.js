@@ -11,6 +11,7 @@
 // the game built itself from a geometry is not found (only engine paths are).
 import { registerManifest, paramValues } from './assetManifest.js';
 import { protoCaches, protoOf, cachedModel } from './namedModel.js';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { list } from '../base/util.js';
 import { reportError } from '../base/errors.js';
 import { codedError } from '../base/errorHints.js';
@@ -99,7 +100,7 @@ async function swapModels(e, changed, why = 'edit') {
       const neu = [...protoNew.values()].find(p => p.obj.userData.modelKey === ud.modelKey);
       if (neu) {
         for (const c of [...o.children]) if (meshesOf(c).some(m => oldGeo.has(m.geometry))) o.remove(c);
-        for (const c of [...neu.obj.clone().children]) { o.add(c); count(list(JSON.parse(ud.modelKey))[0]); }   // a copy: add() takes c out of the live list
+        for (const c of [...skeletonClone(neu.obj).children]) { o.add(c); count(list(JSON.parse(ud.modelKey))[0]); }   // a copy: add() takes c out of the live list
       }
     }
   });

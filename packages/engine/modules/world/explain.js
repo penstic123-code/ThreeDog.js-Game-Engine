@@ -1,4 +1,4 @@
-// World's contribution to thing.explain() (core/scene/thingExplain.js): the record's fields as `state`, and the record's own collision / picking rules.
+// World's contribution to engine.explain({ thing }) (core/scene/thingExplain.js): the record's fields as `state`, and the record's own collision / picking rules.
 // Template rules come from the content module's explainer (content/explain.js), which runs after this and overrides these.
 
 /** @internal Fill state and rules for a thing that has a world record */

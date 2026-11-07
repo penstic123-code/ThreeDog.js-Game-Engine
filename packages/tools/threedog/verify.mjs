@@ -17,10 +17,10 @@ const PAGE_FACTS = () => ({ ops: [...window.engine.ops.defs.keys()], sections: O
 const list = (xs, n = 5) => xs.slice(0, n).join(', ') + (xs.length > n ? ` … (+${xs.length - n})` : '');
 const root = p => String(p).split(/\.|\[/)[0];
 
-/** Test files that mention one of the codes: [{ name, at }] */
-function relatedTests(dir, codes) {
+/** Test files and scenarios that mention one of the codes (an error code, or any name threedog impact asks about): [{ name, at }] */
+export function relatedTests(dir, codes, max = 3) {
   if (!codes.length) return [];
-  const files = [join(dir, 'tests'), join(ENGINE, 'tests'), join(TOOLS, 'tests')].flatMap(d => walk(d, { exts: /\.mjs$/, skip: ['fixtures', 'snapshots'], unscoped: true }));
+  const files = [join(dir, 'tests'), join(ENGINE, 'tests'), join(TOOLS, 'tests')].flatMap(d => walk(d, { exts: /\.(mjs|json)$/, skip: ['fixtures', 'snapshots'], unscoped: true }));
   const out = [];
   for (const f of new Set(files)) {
     const lines = readFileSync(f, 'utf8').split('\n');
@@ -31,7 +31,7 @@ function relatedTests(dir, codes) {
       out.push({ name, at: `${rel(f)}:${i + 1}` });
     });
   }
-  return out.slice(0, 3);
+  return out.slice(0, max);
 }
 
 /** Count per layer (same layer names as evidence.mjs: direct | simulated-input); real-browser-input is always 0, the bridge has no real keyboard path */

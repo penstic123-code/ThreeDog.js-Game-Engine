@@ -98,7 +98,7 @@ export function createRadianceCascades2D(engine, options = {}) {
   const swapped = /** @type {[THREE.Mesh, any][]} */ ([]);
   const proxyOf = (/** @type {any} */ m) => {
     let p = proxies.get(m);
-    // hint-off(material): a flat stand-in whose colour is the source material's emissive, not art
+    // a flat stand-in whose colour is the source material's emissive, not art
     if (!p) { p = new THREE.MeshBasicMaterial({ fog: false, toneMapped: false }); proxies.set(m, p); }
     p.color.setRGB(0, 0, 0);
     if (m.emissive) p.color.copy(m.emissive).multiplyScalar(m.emissiveIntensity ?? 1);   // read every frame: flicker and day / night keep working

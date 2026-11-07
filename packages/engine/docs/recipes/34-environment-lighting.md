@@ -31,8 +31,7 @@ engine.onRender(() => {                                                 // a fog
 ```
 There is no fog until your code makes one, and nothing writes it after that.
 
-- Signals to read: `uSkyHorizon` is the color at the horizon, so fog in that color hides the line where the dome meets the ground; `uWeatherFog` is what the weather asks for, a
-  multiplier your code applies; `uViewDistance` says how far the world is meant to be seen (`terrain({ viewFog: true })` writes it).
+- Signals to read (table in recipe 62): fog in the color of `uSkyHorizon` hides the line where the dome meets the ground; `uWeatherFog` and `uViewDistance` feed your own fog distance.
 - A fog color of your own that differs from the horizon: the dome fades its lower band to it, so fogged ground and sky still meet without a line.
 - Color, near, far and density are live. Adding or removing `scene.fog`, or changing its type, recompiles materials once: do it at a scene change, not every frame.
 - Your own fog math (height fog, a warm far haze): the `fogPars` and `fog` slots on a material, WebGL only (recipe 43), or your own `ShaderMaterial`:
@@ -50,7 +49,7 @@ The engine picks no curve: `renderer.toneMapping` stays three.js's default (`NoT
 ## Environment maps
 `scene.environment` is plain three.js and stays `null` until your code writes it. The background (the sky dome or a skybox) and the environment lighting are two separate fields.
 
-```js
+```js fragment
 const env = engine.sky.environment({ into: engine.scene });   // the sky as a map: follows the time of day; env.texture is the live map
 engine.scene.environmentIntensity = 0.8;                      // intensity and rotation are three.js
 engine.scene.environmentRotation.y = Math.PI / 2;
@@ -82,7 +81,7 @@ The engine's neutral materials are Lambert, so this is what most surfaces do by 
 ## Light probes (baked indirect light)
 An environment map lights everything as seen from one point. Light probes (`engine.bakeProbes`) record how the light changes from place to place (a colored glow beside
 a bright wall, dimmer light under a roof), and every lit pixel takes its own light from the grid, on WebGL and WebGPU, with no shader of your own.
-```js
+```js fragment
 const probes = await engine.bakeProbes({ bounds: { min: [-30, 0, -30], max: [30, 8, 30] }, spacing: 4, include: o => !o.userData.moving });
 const file = JSON.stringify(probes.toJSON());                 // ship this (half precision, a few tens of KB)
 const shipped = engine.loadProbes(json);                      // at start-up, instead of the bake; either renderer reads either renderer's file
@@ -103,7 +102,7 @@ probes.remove();
 
 ## Lightmaps (baked light on what never moves)
 The best-looking baked light, and free at run time: it is plain `material.lightMap` on a second UV set, so a file baked on WebGPU draws the same on WebGL. Baking needs a real GPU and Google Chrome on the machine that bakes, not on the player's.
-```js
+```js fragment
 floor.userData.static = true; wall.userData.static = true;   // named meshes that never move
 // npx threedog bake light --page "/?bake=1" --out public/light/level.lightmap --size 1024
 const baking = new URLSearchParams(location.search).has('bake');  // the bake must see the lights the map replaces
@@ -124,7 +123,7 @@ floor.material.lightMapIntensity = 1.2;                            // plain thre
 
 Bake first when the scene holds still: probes and lightmaps match it and cost nearly nothing. Real-time bounce is for light that changes while the world stands: a sun that moves, a lamp the player carries, a door that lets a room fill. It needs `renderer: 'webgpu'` chosen when the game starts, and three's real WebGPU backend; there is no WebGL version.
 
-```js
+```js fragment
 import { voxelGI, temporalAA } from '@threedog/post-effects/tsl';
 engine.post.add(voxelGI({ bounds: new THREE.Box3(min, max), intensity: 1 }));
 engine.post.add(temporalAA());   // clears the dots; it replaces MSAA while it is on
@@ -151,7 +150,7 @@ What runs where, for `voxelGI` and the three effects around it (`temporalAA`, an
 
 Pick by the light. These two are WebGPU only; a WebGL game keeps the depth haze of recipe 59.
 
-```js
+```js fragment
 import { sunShafts, lightVolumes } from '@threedog/post-effects/tsl';
 engine.post.add(sunShafts({ light: engine.lights.sun }));                // sun through gaps
 engine.post.add(lightVolumes({ bounds: new THREE.Box3(min, max) }));    // spot cones, point glows
@@ -166,6 +165,6 @@ engine.post.add(lightVolumes({ bounds: new THREE.Box3(min, max) }));    // spot 
 `engine.occlusion.enabled = true` skips the engine's big things while something hides them: hlod cells and `engine.batching` groups. Works on both renderers. Ordinary objects are not watched. Turn it on only when heavy things stand behind others (a walled town, a building full of rooms). In a scene of many small things it is a loss: each box costs CPU, more so on WebGPU. Measure with `describe().render.occlusion` (`hidden`, `trianglesSkipped`) and the frame time, on and off.
 
 - Three things share the word occlusion and are separate: occlusion culling (this section) skips drawing what is hidden; camera occlusion (`cameraOcclusion` of `collision()`, recipe 21) moves the camera so a wall does not stand between it and the player; `voxelGI`'s `occlusion` only darkens corners of its bounced light.
-- Hidden things stay in shadows, in `engine.rays` and in `voxelGI`'s volume, and `visible` stays yours. Nothing else sees them while hidden: a second camera of yours and a `THREE.Raycaster` of your own do not (their layers lack it; enable `RESERVED_LAYERS.occlusionHidden` from `threedog/layers` if they must).
+- Culling hides things from `engine.camera` alone. Every other camera (a minimap, a mirror, a security view), shadows, `engine.rays`, a `THREE.Raycaster` of your own and `voxelGI`'s volume see them as ever; `visible` and `layers` stay yours.
 - **Step mode hides nothing.** The answers arrive over drawn frames, so under `threedog step` / `engine.step()` (no real frames) `hidden` stays 0 and `inspect perf` counts every draw. Judge occlusion with `threedog resume` and real time, never from a step-mode reading.
 - Answers come a few frames late. Camera moves and cuts are covered. A big occluder that moves fast (a falling wall, a gate thrown open) can show a gap of a few frames.

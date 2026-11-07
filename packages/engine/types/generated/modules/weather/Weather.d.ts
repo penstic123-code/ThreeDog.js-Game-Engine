@@ -56,16 +56,10 @@ export class Weather {
     defineField(field: string, spec: WeatherParticles | null): WeatherParticleSystem | null;
     set auto(on: boolean);
     /**
-     * Automatic weather on/off. Writing it takes effect like setAuto.
+     * Automatic weather on/off.
      * @type {boolean}
      */
     get auto(): boolean;
-    /**
-     * Automatic weather on/off
-     * @param {boolean} on
-     * @returns {void}
-     */
-    setAuto(on: boolean): void;
     /**
      * Switch weather. seconds: transition seconds, default 15; 0 switches at once (current is the new weather before the next step, so a
      * screenshot or test right after shows all of it). Options in an object like every other engine call: set('rain', 20) throws

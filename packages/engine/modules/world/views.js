@@ -58,8 +58,12 @@ export class Views {
    * view distance)
    */
   radius(p) { const r = p.radius; return typeof r === 'function' ? r() : r ?? this.w.radius; }
-  /** A source was added / removed or moved more than min(cell / 4, 8 m) since the last refresh: refresh (that is the error of "build within radius") */
-  moved() { return this.w.engine.stream.changed(this.memo, Math.min(this.w._cells.size / 4, 8), FULL, false); }
+  /** A source was added / removed or moved more than min(cell / 4, 8 m) since the last refresh, or a radius changed with nothing moving (a view distance set in a menu): refresh (that is the error of "build within radius") */
+  moved() {
+    if (this.w.engine.stream.changed(this.memo, Math.min(this.w._cells.size / 4, 8), FULL, false)) return true;
+    for (const p of this.presenters.values()) if (this.radius(p) !== this.radii.get(p)) return true;
+    return false;
+  }
   /** Radius of presentation p for source s (a source radius caps it) */
   reach(p, s) { return s.reach(this.radii.get(p) ?? this.radius(p)); }
   /** Squared distance from rec to the nearest source of the last refresh, measured in units of each source's reach (≤ 1 = inside) */
@@ -119,12 +123,19 @@ export class Views {
   pull() {
     const W = this.w, S = W._s;
     for (const id of this.moving) {
-      const rec = W.records.get(id), o = this.map.get(id).obj.position;
-      if (S.sims.get(rec.kind)?.near && !S.isNear(id)) { o.copy(rec.position); continue; }
-      const r = rec.position;
-      if (r.x === o.x && r.y === o.y && r.z === o.z) continue;   // the mover wrote it already (Character, npcSim), or it stood still: nothing to file again
-      r.x = o.x; r.y = o.y; r.z = o.z; W._index(rec);
+      const rec = W.records.get(id), v = this.map.get(id), o = v.obj.position, r = rec.position, at = v.at;
+      // the record moved since the last pull (code wrote rec.position, which world.move would have placed at once): that write wins over the model. Far, the record rules anyway
+      if (S.recordRules(rec) || r.x !== at.x || r.y !== at.y || r.z !== at.z) { this.placed(rec); continue; }
+      if (r.x === o.x && r.y === o.y && r.z === o.z) continue;   // stood still: nothing to file again
+      r.x = at.x = o.x; r.y = at.y = o.y; r.z = at.z = o.z; W._index(rec);
     }
+  }
+  /** A write to the record of a model that moves itself: the model, and what solves it (a rigid body), go there. A write that agrees is the mover's own (Character, npcSim): only noted */
+  placed(rec) {
+    const v = this.moving.has(rec.id) && this.map.get(rec.id); if (!v) return;
+    const o = v.obj.position, r = rec.position;
+    if (r.x !== o.x || r.y !== o.y || r.z !== o.z) { this.w.engine._poses.place(v.obj, r); this.w._index(rec); }   // indexed here too: a rec.position write reaches this from pull
+    v.at.x = r.x; v.at.y = r.y; v.at.z = r.z;
   }
   /** Build models that should exist near any full-detail source (at most limit);
    *  tear down those far from all of them, in another zone, or that show says no to */
@@ -159,7 +170,7 @@ export class Views {
       if (!obj?.isObject3D) throw codedError('world-present', say(STRINGS.nullBuild, rec.kind, rec.id, String(obj)));
       if (this.map.get(rec.id) !== v) { this.drop(rec, p, obj); return; }   // no longer wanted by the time it was built
       v.obj = obj; v.pending = false; this.byObj.set(obj, rec.id);
-      if (p.positionFrom === 'view') this.moving.add(rec.id);
+      if (p.positionFrom === 'view') { this.moving.add(rec.id); v.at = { ...rec.position }; }   // at: the record as pull last left it
       obj.position.copy(rec.position);
       if (!obj.parent) e.add(obj, { owner: 'world', id: rec.id });   // the registry knows it as the record (engine.thing / hit.thing)
     };

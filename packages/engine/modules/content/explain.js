@@ -1,4 +1,4 @@
-// Content's contribution to thing.explain(): rules read from the thing's template (collide, static, interact), which win over the world record's own.
+// Content's contribution to engine.explain({ thing }): rules read from the thing's template (collide, static, interact), which win over the world record's own.
 import { orNull } from '../../core/base/util.js';
 
 /** @internal */

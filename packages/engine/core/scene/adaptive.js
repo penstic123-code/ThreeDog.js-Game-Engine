@@ -10,6 +10,8 @@
 // shortcut: only the resolution is adjusted. A tier ladder (resolution -> shadows -> view distance -> vegetation) would hang off decide() below as
 // further steps once a game needs it; until then the other knobs stay the game's (settings / engine.autoView).
 import { DEV, warnOnce } from '../base/validate.js';
+import { coded } from '../base/errorHints.js';
+import { writeRatio } from './pixelRatio.js';
 
 const GRACE = 3;          // s after ready that are not judged (warm-up compiles, first uploads, stream fill)
 const WINDOW = 1;         // s of samples per decision
@@ -17,19 +19,20 @@ const HEAVY = 0.85;       // cost above this share of the frame budget = overloa
 const LIGHT = 0.6;        // cost under this share = headroom (raise after RAISE_AFTER windows in a row)
 const RAISE_AFTER = 4;
 const LOCK_TOL = 0.08;    // intervals within 8 % of the window median count as "clustered"
-
-/** The engine.adaptive state object: the public fields (on, target, min, max, base, lowered, from; base is what this device or game starts at, the settings presets' base) plus the controller's own counters */
-export function createAdaptive({ on, target, max }) {
-  return { on, target, min: 0.6, max, base: max, t: 0, good: 0, cooldown: 0, lowered: false, from: null,
-    age: 0, costs: [], gaps: [], refresh: Infinity, reason: null };
-}
+const HELD = coded('pixel-conflict', 'engine.adaptive.on = true does nothing while pixelSize is on; it comes back with engine.setPixelSize(null)');
 
 /**
- * The one engine write of the ratio; re-reading it after keeps this from counting as an outside write. Skips an equal value because three's
- * setPixelRatio resizes the canvas, which clears the drawing buffer.
- * @param {any} e @param {number} p
+ * The engine.adaptive state object: the public fields (on, target, min, max, base, lowered, from; base is what this device or game starts at, the settings presets' base) plus the
+ * controller's own counters. on is an accessor because every reader (the loop's GPU timer, describe, settings) must see false under pixelSize; what was asked for stays and returns with setPixelSize(null).
+ * @param {{ on: boolean, target: number, max: number, held: () => boolean }} o held: pixelSize decides the ratio now
  */
-export function writeRatio(e, p) { if (Math.abs(e.renderer.getPixelRatio() - p) > 0.001) e.renderer.setPixelRatio(p); e._oPixelRatio.mark(); }
+export function createAdaptive({ on, target, max, held }) {
+  let wanted = on;
+  return { get on() { return wanted && !held(); },
+    set on(v) { wanted = v; if (DEV && v && held()) warnOnce(HELD); },
+    target, min: 0.6, max, base: max, t: 0, good: 0, cooldown: 0, lowered: false, from: null,
+    age: 0, costs: [], gaps: [], refresh: Infinity, reason: null };
+}
 
 const median = a => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
 

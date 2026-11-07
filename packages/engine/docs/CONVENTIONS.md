@@ -40,9 +40,7 @@ one line; the detail is here.
 The opts of `assets.texture(name, opts)` are part of the cache key: the same image with different opts gives two separately configured textures.
 
 ## Values the engine writes on its own (camera, shadow box)
-Lights, fog, exposure and the environment have one writer, the game's `picture/` code: the sky computes signals and no module writes them (`recipes/62-picture-code.md`). With a camera module the
-engine writes the `camera` pose every frame, and a sky keeps the shadow box around the focus. Setting one of those directly is plain three.js and works: the engine yields that value (stops
-writing it, warns once). The camera: `engine.takeCamera(owner)` or a timeline camera step.
+Lights, fog, exposure and the environment have one writer, the game's `picture/` code (recipe 62). What the engine writes itself, the camera pose and the shadow box, and how to take it: recipe 52 "Who writes it".
 
 ## Layers the engine keeps
 The three.js layers below belong to the engine (one table: `RESERVED_LAYERS` in `threedog/layers`, file `render/layers.js`). A game's own layers are 1 to 25; 30 is the default camera `hideLayer`.
@@ -51,7 +49,7 @@ The three.js layers below belong to the engine (one table: `RESERVED_LAYERS` in 
 | --- | --- | --- |
 | 26 | `lightVolumes` | the box of air and the lights `lightVolumes` reads |
 | 27 | `occlusionBox` | occlusion culling's query boxes, seen by the scene render of the view camera alone |
-| 28 | `occlusionHidden` | what culling is not drawing now, still seen by shadows, `engine.rays` and `voxelGI` |
+| 28 | `occlusionHidden` | nothing sits here: culling sets it on shadow cameras, so what it hides still casts |
 | 29 | `outlineOff` | objects `outline({ offLayer })` leaves without lines; `OUTLINE_OFF_LAYER` from `@threedog/post-effects` is this same layer |
 | 31 | `batched` | originals drawn through `engine.batching`, still hit by `engine.rays` |
 
@@ -66,24 +64,24 @@ logic need none of this.
 | Run code before / after / around a module method (a weight limit on `inventory.add`) | `engine.wrap(engine.inventory, 'add', (next, ...a) => next(...a), { owner })` | `recipes/55-mods-time-wrap.md` |
 | Close one action for a while (stunned: no jump) | `engine.input.gate(action, { owner, for })` | `recipes/55-mods-time-wrap.md` |
 | Replace a whole system (your own inventory, interactions, dialogue, quests, flow, characters, camera, collision, level; your own vehicle for `character.enter`) | `engine.use(mine(), { replaces: '<slot>' })` for a part that `provides` that slot; a module (or object) that meets that contract (`<module>.contract.js`; vehicle: `modules/characters/vehicle.contract.js`), checked with `runContract` | `recipes/55-mods-time-wrap.md` "Replacing a module" |
-| Change a picture value (light, fog, sky, water, tone, post) | write it in your `picture/` code on the three.js object or the module's `material` (recipe 62); a value the engine drives (camera far, fov, pixel ratio): `engine.autoView.manual(key)` first; a screen effect: `engine.post.add(x)` |
+| Change a picture value (light, fog, sky, water, tone, post) | write it in your `picture/` code on the three.js object or the module's `material` (recipe 62); a value the engine drives (camera far, fov, pixel ratio): write it directly, the engine yields; `engine.autoView.manual(key)` is for borrowing one and giving it back; a screen effect: `engine.post.add(x)` |
 | Write the picture yourself | plain three.js on `engine.scene / camera / renderer` (own material, `ShaderMaterial`, pass); a direct write takes that value over and the engine yields | `THREE.md` |
 
-**What can be replaced**: a slot with a contract file (inventory, interactions, dialogue, quests, flow, characters, calendar, cameraRig, particles, collision, level, nav) lists what a replacement must supply, and `runContract` checks it. `nav` is narrower than the others: the path search calls Recast's `findPath` and `findStraightPath` on `query` and `getOffMeshConnectionByRef` on `navMesh`, the path worker gives the bytes from `exportMesh` to Recast's `importNavMesh`, and NPC steering calls `addAgent` on `crowd`, so a replacement is Recast underneath (a different mesh build, say), not another navigation library. For a search of another kind, leave `nav()` out and call yours from game code. The slots below have no contract; a replacement must supply what the engine's own callers read:
+**What can be replaced**: a slot with a contract file (inventory, interactions, dialogue, quests, flow, characters, calendar, cameraRig, particles, collision, level; nav only with a Recast-based implementation, see below) lists what a replacement must supply, and `runContract` checks it. `nav` is narrower than the others: the path search calls Recast's `findPath` and `findStraightPath` on `query` and `getOffMeshConnectionByRef` on `navMesh`, the path worker gives the bytes from `exportMesh` to Recast's `importNavMesh`, and NPC steering calls `addAgent` on `crowd`, so a replacement is Recast underneath (a different mesh build, say), not another navigation library. For a search of another kind, leave `nav()` out and call yours from game code. The slots below have no contract; a replacement must supply what the engine's own callers read:
 
 | Slot | A replacement must supply |
 |---|---|
 | `sky` | the `engine.uniforms` signals your `picture/` code reads; `dome` (the object a photo leaves out) if it has one |
 | `terrain` | the ground through `engine.setGround`; `chunkSize`, `stats`, `edit` (nav), `view` and `setPlanter` (vegetation). Replace `terrain-draw` with it: the drawing half reads the engine terrain's chunks |
-| `weather` | `types`, `name`, `current`, `label(name)`, `set(name, { seconds })`, `setAuto(on)`. Replace `weatherDraw` with it |
+| `weather` | `types`, `name`, `current`, `label(name)`, `set(name, { seconds })`, `auto`. Replace `weatherDraw` with it |
 | `vegetation` | `define(name, rule)` (content), `instanceAt(point, { radius })` (photo), `host` (settings). Replace `vegetation-draw` with it |
-| `rigid` | `vehicles`, a list of objects that meet `modules/characters/vehicle.contract.js` |
+| `rigid` | `vehicles`, a list of objects that meet `modules/characters/vehicle.contract.js`; `collider3d`, the three-axis slot (`modules/rigid/collider3d.contract.js`) |
 | `swarm` | nothing: no other module calls it |
 
 **Not replaceable**: `world` (saves, the shared id space, streaming and content stand on its records; it provides the slot so that `requires: ['world']` names a capability), and the player inside `characters` (a replacement of `characters` leaves a live player's `world` record behind, and `engine.player` is the engine's own character; steer it with `control.take`).
 
 The starting picture comes from the game's `picture/` folder; what it builds as a factory can also be passed at the call site, and the
-call site wins (`terrain({ material })` and the like; the water surface is `engine.water.material`); a new style factory ships with its call-site option. No module option starts a value taken over.
+call site wins (`terrain({ material })` and the like; the water surface is `engine.water.material`); a new style factory ships with its call-site option.
 
 **Time channels**: most games use only the default (fixed `dt` in real seconds, `engine.clock` for calendar time). A channel exists so one group
 of things can run slower or faster than the rest (bullet time on enemies, haste on the player): `engine.onFixed(fn, { channel: 'enemies' })` gets
@@ -106,6 +104,112 @@ into, or a convenience for after.
 | Environment light | `engine.sky.environment({ into: engine.scene })`, or `scene.environment` | light that changes from place to place: `bakeProbes` |
 | Post effects | your own three.js Pass in the engine's chain: `engine.post.add(pass)`, the one way in (the engine renders through its composer) | ready-made effects as an optional convenience: `@threedog/post-effects` through the same call or a plugin file, tuned with its handle; a whole chain of your own: `engine.post.own()` |
 | Ambient occlusion | `engine.post.add(ao())` (screen space) | a model made in code: `bakeVertexAO(geometry)`; bounce light between places: `bakeProbes` |
+| Days, months and seasons that pass | `calendar()`, read `engine.calendar` (recipe 06) | one fixed moment: `sky({ time })` |
+| See through the hero's eyes | `firstPersonCamera()` (recipe 21) | switch at runtime: `setCamera(kind)` |
+| Still view of a room, security-camera style | `fixedCamera({ position, lookAt })` (recipe 21) | a moving shot: `takeCamera(owner)` |
+| Strategy view from above, edge scrolling | `rtsCamera()` (recipe 21) | a view of your own: a module writing `engine.camera` |
+| A person who walks, follows a path, is steered | `engine.characters` (recipe 13, 57) | a mover of your own: `characters.kit` |
+| Levels, items and quests written as data files | `content/` files, read by `engine.content` (recipe 20) | built at runtime: plain code in a module |
+| Dev info on screen, a key that shows it | `debug()`: F3 opens the panel, `engine.debug` (recipe 15) | outside the page: `threedog describe` |
+| Far buildings or forests merged into one cheap mesh | `engine.hlod.add(root)` (recipe 15) | close objects: `engine.batching` |
+| Next map, next stage, change level | `engine.level.load(name)` (recipe 10) | a fade around it: `engine.flow` (recipe 07) |
+| Background song that changes in a fight or a place | `engine.music`, rules as data (recipe 31) | one track: `engine.audio.play` |
+| An enemy walks around obstacles to reach someone | `engine.characters.findPath` on `engine.nav` (recipe 12) | a search of your own is fine: it reads `engine.collision.walkable` |
+| Two people play together over the internet | `engine.net` (recipe 27) | |
+| Take a snapshot in the game and keep it | `photo()`, `engine.photo.take()` | the raw image: `renderer.domElement.toBlob` |
+| A cutscene: steps in order; tween a value | `engine.timeline`, `engine.timeline.tween(target, to)` (recipe 07) | one delay: `engine.clock.after` |
+| Something happens when the player enters a zone | `engine.triggers` (recipe 20) | a press inside it: `engine.interactions` |
+| Raindrops and snow drawn on screen | `engine.weatherDraw` (recipe 08) | your own drawing: `THREE.md` |
+| Lower the resolution when the frame rate drops | `engine.adaptive` (recipe 15) | a fixed size: `engine.setPixelRatio` |
+| Draw many copies of one mesh in one call | `engine.batching` (recipe 05) | your own `InstancedMesh`: plain three.js |
+| What each frame costs, against limits | `engine.budget` (recipe 15) | |
+| A cutscene takes the view for a moment | `engine.takeCamera(owner)`, read `engine.cameraOverride` | a whole shot list: `engine.timeline` |
+| Sweep a shape through solid things, overlap tests | `engine.collider3d` (recipe 11) | a line: `engine.rays` |
+| Spread mesh changes over frames so nothing hitches | `engine.commits` (recipe 15) | any other work: `engine.jobs` |
+| Message when the game crashes, the last error | `engine.error` and `.threedog/errors.log` (recipe 16) | |
+| Tell other systems something happened | `engine.events` (recipe 06) | |
+| Height of the floor under a point | `engine.ground.height(x, z)` (recipe 28) | |
+| Heavy work done bit by bit without freezing a frame | `engine.jobs` (recipe 15) | off the main thread: `engine.threads` |
+| Loading screen, progress bar while files load | `engine.loading` (recipe 07) | |
+| Pause when the browser tab is hidden | `engine.page` does it: gameplay freezes under owner `page` (recipe 07) | |
+| Style files that plug in with no main.js line | `plugins/`, `engine.plugins` (recipe 40) | |
+| Seeded dice roll that replays the same | `engine.random` (recipe 06) | |
+| What is the mouse pointing at, click an object | `engine.rays`, `engine.pick(x, y)` (recipe 19) | |
+| Which systems are stopped and who stopped them | `engine.runState` (recipe 16) | |
+| Remember progress between visits | `engine.saves` (recipe 20) | |
+| New game and continue from the menu | `engine.session` (recipe 07) | |
+| Cloud shadow and season in your own material | `engine.shaderTerms` (recipe 52) | |
+| Stack bonuses from several sources on one value | `engine.stacks` (recipe 55) | one value, no bookkeeping: `engine.mod` |
+| How long the first frame took to load | `engine.startup` (recipe 15) | |
+| Load far parts of a big map only when near | `engine.stream` (recipe 33) | |
+| Heavy work in a web worker | `engine.threads` (recipe 15) | bit by bit on the main thread: `engine.jobs` |
+| How many seconds passed in the game | `engine.time.now()` (recipe 06) | |
+| Remember a flag or a count, a door was opened | `engine.vars` (recipe 20) | |
+| A named fixed view, a second camera to show | `engine.views` (recipe 46) | |
+| Load a model, texture or sound file | `engine.assets` (recipe 05) | a format it does not read: a three.js loader |
+| Something at a set hour of game time (a shop opens at nine) | `engine.clock`, `engine.calendar` (recipe 06) | |
+| A guard patrols or wanders between points | `engine.characters` with `findPath` (recipe 12, 57) | |
+| Back to the main menu after losing, game over, retry | `engine.flow`, `engine.session` (recipe 07) | the rules of the ending: recipe 32 |
+| Sunset, sunrise, the sky's colors | `engine.sky`, `engine.calendar` (recipe 08) | your own sky: `THREE.md` |
+| Mission marker, an arrow on screen | `engine.hud.marker()` (recipe 04) | |
+| Place furniture and merge it for speed | content `props` (recipe 05) | |
+| Your own colors, textures and models | plain three.js in `picture/` (recipe 09) | |
+| A map or model from a 3D modeling tool (Blender) | `engine.level` (recipe 10) | art only: recipe 46 |
+| Write your own engine system | a module (recipe 14) | one that plugs into saves and time: recipe 49 |
+| Match the look of a reference painting or picture | recipe 35 | |
+| The image looks flat, what to adjust | recipe 60 | |
+
+### Look-alike entries
+Each of these does one job. Take the row for your job; none replaces another.
+
+**What each wait waits for**
+
+| Entry | Waits for |
+|---|---|
+| `engine.ready` (`await engine.start()`) | World built and the loading screen gone |
+| `x.whenReady` (`x.ready` is the same as a boolean) | That one thing: a character's model, a stream source's area, `saves` storage |
+| `engine.loading.settled()` | Every module installed after start() finished its init, also when one failed |
+| `engine.stateApplied` | start() done and the URL parameters or latest `applyState` applied: for tests and screenshots |
+
+**Time**
+
+| Entry | Job |
+|---|---|
+| `engine.clock` | Timers: `after`, `every` |
+| `engine.time` | Reading game time: ticks and each channel's `now` |
+| `engine.calendar` | Time of day, days, seasons |
+
+**Hooks**
+
+| Entry | Runs | For |
+|---|---|---|
+| `onFixed` | 60 times a game second, stops when frozen | Rules: movement, damage, cooldowns |
+| `onFrame` | Once a frame | Presentation: animation, UI, what the player sees |
+| `onRender` | Around the frame's render | Extra three.js renders into your own targets |
+
+**Loading a save**
+
+| Entry | Job |
+|---|---|
+| `session.load` | The default: Continue or retry, nothing of the current playthrough left over |
+| `saves.load` | A quick load inside the same playthrough |
+
+**Putting something in**
+
+| Entry | Use it for | Saved |
+|---|---|---|
+| `scene.add` | Plain three.js, rebuilt by code on every start | No |
+| `engine.add(obj, { id })` | The same, with an id so changes to it persist | Its changes |
+| `world.add` | A game object that lives on while far away or across levels | Yes |
+| `content.spawn` | A placement of something written as data, at run time | Yes |
+
+**Taking something out**
+
+| Entry | Leaves the scene | Frees |
+|---|---|---|
+| `scene.remove` | Yes | Nothing: plain three.js, GPU memory stays until you dispose it |
+| `obj.removeFromParent()` | Yes | Nothing, on purpose: you will add it back |
+| `engine.remove` | Yes | Its and its children's geometry and materials; rays unregistered. Asset-shared data stays with the asset cache |
 
 ## Owners
 Everything that holds the engine is named by an owner, and only that owner releases it. Positional `freeze('menu')` and `freeze({ owner: 'menu' })` are the same.
@@ -166,11 +270,12 @@ inside template strings, which then throw on the first call).
   `ground.height(x, z)`; `{ place, x, z }` in content data is a data form.
 - **Registrations return a handle**: anything that registers a listener, timer, continuing effect or registration (`events.on/once`,
   `onFixed/onFrame`, `clock.after/every`, `calendar.at/between/daily/onSeason`, `collision.addBox/...`, `interactions.add`, `rays.addStatic`, `stream.add`,
-  `triggers.add`, `hud.marker`, `hlod.add`, `particles.attach`, `pickups.spawn`, `rigid.addBox/...`, `audio.addBus`, `defineState`) returns a
+  `triggers.add`, `hud.marker`, `hlod.add`, `particles.attach`, `pickups.spawn`, `rigid.addBox/...`, `audio.addBus`, `defineState`, `ops.define`, `saves.register`, `ui.define`) returns a
   handle `{ owner?, remove() }`; `h.remove()` undoes it, the only give-back form (no `null` / `false` hand-back calls)
-  (safe to call repeatedly), never a bare function. `remove()` undoes what that call did: models it created itself are deleted with it (such as a
+  (safe to call repeatedly, and it removes only its own registration, so `ctx.track` takes any of them), never a bare function. `remove()` undoes what that call did: models it created itself are deleted with it (such as a
   pickup); objects you passed in are not. APIs that add an object or change business data return what their own signature says: `engine.add(obj)`
   returns the added object, `inventory.add` returns a result, `world.add` a record; delete those with `engine.remove(obj)` / their own remove call.
+  A definition by name (`inventory.define`, `quests.define`, `settings.define`) is data, not a registration: it returns its own object, and defining the name again replaces it.
 - **Verbs**: defining a kind is `define` (`vegetation.define`, `particles.define`, `grids.define`, `ops.define`); placing one is `add` / `spawn`;
   hooking up a provider the engine calls back is `register` (`saves.register(key, { save, load })`: it defines no kind and places nothing).
   One timer entry: `engine.clock.after(seconds, fn, { data, channel })` (calendar seconds, or `'real'` / a time channel's seconds with `channel`);
@@ -204,9 +309,7 @@ inside template strings, which then throw on the first call).
   dev warning naming the fix.
 - Gameplay state (world, containers, vars, quests) changes only in fixed steps or inside ops; dev warns otherwise (`npm test` prints the first place, all in
   `<game>/.threedog/ops-guard.log`). (game side)
-- **One source for "can walk there"**: `createEngine({ movement: { radius, height, maxSlope, stepHeight } })` -> read-only `engine.movement`;
-  collision, the Rapier capsule, navigation, A* and level steps all read it; don't write another 0.4 / 0.45 in a module. A character's position
-  belongs to the Character mover; other systems only request movement (`placeAt` / `move` / vehicle `enter`) and never set `player.position` directly.
+- **One source for "can walk there"**: `engine.movement`, and a character's position belongs to its mover (recipe 12 section 5).
   Who calls `move` is the character's control holder (`engine.control`, `recipes/57-control.md`): one per step; anyone else is `[control-bypass]`.
 - Units are meters, Y is up, north is -Z. Characters and vehicles face the model's +Z; `facing` 0 = +Z, forward = (sin f, cos f).
 - Never call `requestAnimationFrame` or `renderer.render` yourself. **Game logic always uses real seconds or calendar seconds** (the hook's `dt`,
@@ -247,7 +350,7 @@ Inside the engine a failure takes one of three forms, so every one reaches the r
 - **Effects still moving with three.js**: all of `threedog/tsl` and `@threedog/post-effects/tsl`.
 - **Names nothing uses yet**: a public name no game, recipe, example or template used at 0.8 stays marked until one does; `docs/api-surface.txt` lists them.
 - **Coordination no test game has used**: `engine.stacks`, `engine.wrap`, `engine.mod`, `time.channel / channels`.
-- **Systems still settling**: `net()`, `engine.threads`, `engine.commits`, `grids()`, `hlod()`, `swarm()`, `stream.source / teleport / addReadyCheck / sources`, `post.get / own / setAntialias / list`, `world.simulate({ worker })`, `terrain.edit`, `ops.guard / allow`, `terrainDraw`, `vegetationDraw`, `weatherDraw`, `engine.bakeProbes / loadProbes / loadLightmap`.
+- **Systems still settling**: `net()`, `engine.threads`, `engine.commits`, `grids()`, `hlod()`, `swarm()`, `stream.source / teleport / addReadyCheck / sources`, `post.get / own / antialias / list`, `world.simulate({ worker })`, `terrain.edit`, `ops.guard / allow`, `terrainDraw`, `vegetationDraw`, `weatherDraw`, `engine.bakeProbes / loadProbes / loadLightmap`.
 - **Flat content**: an entry's `source`, `content stamp`, `content capture`.
-- **Tuning and readings**: `engine.moduleOrder / moduleStates / disabledModules`, `player.saveMotion / loadMotion`, `jobs.loadingMs / maxSteps / slowStepMs`, `stream.unloadFactor`, `batching.held`, `world.steps`, `level.heightfield`.
+- **Tuning and readings**: `engine.moduleOrder / moduleStates`, `player.saveMotion / loadMotion`, `jobs.loadingMs / maxSteps / slowStepMs`, `stream.unloadFactor`, `batching.held`, `world.steps`, `level.heightfield`.
 - **Commands.** Only the `--json` and MCP shapes are an interface; printed text keeps changing for AI readers. An error's `code` string is frozen, its message is not.

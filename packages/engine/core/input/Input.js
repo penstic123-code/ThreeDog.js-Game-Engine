@@ -15,7 +15,7 @@
 // Gameplay (onFixed, module fixed) reads a snapshot taken at the start of each fixed step: reads within one step agree, and "just pressed" counts exactly once,
 // never lost, whatever the frame rate. UI keys and camera (onFrame, module frame) read this frame's latest state.
 // Contexts (inputContext.js): a stack, the top one wins. Base 'walk'; 'vehicle' passes unrelated actions through; 'dialog', 'menu', 'cutscene' are opaque.
-// Window blur / tab hide (page:blur from core/engine/page.js) releases every held key.
+// Window blur / tab hide (page:blur from core/engine/page.js) releases every held key. Several engines on one page: the one last pressed or focused hears the keyboard and the gamepads (inputKeyboard.js).
 // engine.input.label('interact') -> "E" (UI hints); engine.input.axis -> { x, y } movement direction (moveLeft/Right/Forward/Back + sticks)
 //
 // Mouse buttons are keys too: 'Mouse0' left / 'Mouse1' middle / 'Mouse2' right (real mouse only; touch taps do not count); gamepad buttons are 'PadA' etc.
@@ -30,7 +30,9 @@ import { checkTypeRule } from '../engine/moduleTypes.js';
 import { warnMissing, warnOnce, missingText, DEV } from '../base/validate.js';
 import { touchButton } from './inputTouch.js';
 import { bindPointer } from './inputPointer.js';
+import { bindKeyboard } from './inputKeyboard.js';
 import { pollPad, keyLabel } from './inputPad.js';
+import { Seat, moveAxis } from './inputSeat.js';
 import { BASIC_KEYS, BASIC_LABELS, BOUND_LABELS } from './inputDefaults.js';
 import { initContexts, pushContext, readableMap, applyContexts, settledStack, BASE_CONTEXT } from './inputContext.js';
 
@@ -52,6 +54,7 @@ export class Input {
     /** @internal */ this._fx = { keys: new Set(), pressed: new Set(), released: new Set(), x: 0, y: 0 };   // this fixed step's snapshot
     /** @internal */ this._live = { keys: this.keys, pressed: this.justPressed, released: this.justReleased };
     /** @internal */ this._inFixed = false;
+    /** @internal local players' seats (inputSeat.js) */ this.seats = [];
     /** @internal frames ended so far. A press lives until endFrame, so this is what "the same press" means to ui/Focus.js, from any fixed step or frame hook */ this.frameCount = 0;
     /** This frame's look-drag amount (pixels) and wheel notches */
     this.look = { dx: 0, dy: 0, zoom: 0 };
@@ -82,14 +85,9 @@ export class Input {
     this.bind(bindings);   // createEngine({ bindings }): the game's keys, owner 'game'
 
     const { signal } = engine;   // engine.dispose() cancels all listeners at once
-    addEventListener('keydown', e => {
-      if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
-      this._keyDown(e.code, 'keyboard');
-      if (e.code === 'Space' || e.code === 'Tab' || e.code.startsWith('Arrow')) e.preventDefault();
-    }, { signal });
-    addEventListener('keyup', e => this._keyUp(e.code), { signal });
+    bindKeyboard(this, canvas, signal);
     // Losing focus swallows the keyup events, so release everything when the page goes away (window blur or tab hidden; core/engine/page.js owns those listeners)
-    engine.events.on('page:blur', () => { for (const k of [...this.keys]) this._keyUp(k); this._muted.clear(); });   // a muted key's keyup is lost the same way
+    engine.events.on('page:blur', () => { for (const k of [...this.keys]) this._keyUp(k); this._muted.clear(); this.stick.x = this.stick.y = 0; });   // a muted key's keyup and the stick's pointerup are lost the same way
 
     bindPointer(this, canvas, signal);
 
@@ -135,6 +133,21 @@ export class Input {
     } };
   }
   /**
+   * @internal A failed content load puts these actions back, declarations and the game's keys (core/base/sections.js undo): the function that does it
+   * @param {string[]} names @returns {() => void}
+   */
+  keepActions(names) {
+    const gameKeys = n => this._keys.holders(n).find(h => h.layer === 'game' && h.owner === 'game')?.value;
+    const was = names.map(n => [n, this.actions.get(n), gameKeys(n)]);
+    return () => {
+      for (const [n, entry, keys] of was) {
+        if (gameKeys(n) !== keys) { const h = this.bind(n, keys ?? NONE); if (!keys) h.remove(); }
+        if (entry) this.actions.set(n, entry); else this.actions.delete(n);
+      }
+      this._readable = null;
+    };
+  }
+  /**
    * Bind keys to an action (the game's choice; owner 'game'). Takes one action or a whole map, e.g. a preset: bind(presets.bindings.rtsRotate).
    * Binding again as the same owner replaces; a DIFFERENT owner binding the same action throws input-bound-twice in dev (release: the later wins).
    * An action nobody declared yet is created in context 'walk' (a module declaring it later sets its context; order does not matter).
@@ -164,9 +177,10 @@ export class Input {
   }
   /**
    * Touch button (appears only on touch devices); pressing it triggers the action. labelKey is the string-table key of the button text (updates when the
-   * language changes) @param {string} action @param {string} labelKey
+   * language changes). Returns { remove() }: a module tracks it, so the button leaves with the module
+   * @param {string} action @param {string} labelKey @returns {{ remove(): void }}
    */
-  touchButton(action, labelKey) { touchButton(this, action, labelKey); }
+  touchButton(action, labelKey) { return touchButton(this, action, labelKey); }
 
   /**
    * Press (down true) or release an action from code, through the same path as a real key: tests, AI drivers, replays. Presses the action's first bound key
@@ -186,6 +200,13 @@ export class Input {
   }
   /** @internal */
   _keyUp(code) { this._muted.delete(code); if (this.keys.delete(code)) { this.justReleased.add(code); this._accR.add(code); } }
+  /**
+   * A local player's share of the input on a shared screen: its own keys and gamepad, read like engine.input (axis, down, pressed, released). Pass it to createPlayer({ id, input }).
+   * pad: gamepad index; that pad leaves engine.input and answers the game's pad bindings here. keys: { action: keys } for this seat alone. Two seats on one pad or key throw `input-seat`.
+   * @example const two = engine.input.seat({ pad: 1, keys: { moveForward: 'KeyI', moveBack: 'KeyK', moveLeft: 'KeyJ', moveRight: 'KeyL', jump: 'KeyU' } });
+   * @param {{ pad?: number, keys?: Record<string, string | string[]> }} [opts] @returns {Seat}
+   */
+  seat(opts = {}) { const s = new Seat(this, opts); this.seats.push(s); return s; }
   /** @internal Called at the start of each frame: read the gamepad (runs every frame, allocates nothing) */
   poll(dt) { pollPad(this, dt); }
   /**
@@ -234,7 +255,7 @@ export class Input {
   /** Key name shown in the UI, e.g. "E" @param {string} action @returns {string} */
   label(action) { return keyLabel(this, action); }
   /** Which copy to read: the snapshot inside fixed steps, this frame's latest state elsewhere @internal */
-  _has(action, set) { this._known(action); if (!readableMap(this).get(action) || this._gated(action)) return false; const S = (this._inFixed ? this._fx : this._live)[set]; return this.keysOf(action).some(k => S.has(k)); }
+  _has(action, set, keys = this.keysOf(action)) { this._known(action); if (!readableMap(this).get(action) || this._gated(action)) return false; const S = (this._inFixed ? this._fx : this._live)[set]; return keys.some(k => S.has(k)); }
   /** Held (a snapshot of this step in fixed, the latest state in frame) @param {string} action @returns {boolean} */
   down(action) { return this._has(action, 'keys'); }
   /**
@@ -320,14 +341,7 @@ export class Input {
   _axisInto(out) {
     out.x = out.y = 0;
     if (!this.enabled) return out;
-    let x = this.stick.x + this.padStick.x, y = this.stick.y + this.padStick.y;
-    if (this.down('moveForward')) y += 1;
-    if (this.down('moveBack')) y -= 1;
-    if (this.down('moveLeft')) x -= 1;
-    if (this.down('moveRight')) x += 1;
-    const l = Math.hypot(x, y); if (l > 1) { x /= l; y /= l; }
-    out.x = x; out.y = y;
-    return out;
+    return moveAxis(this, this.stick.x + this.padStick.x, this.stick.y + this.padStick.y, out);
   }
   /** Take the snapshot at the start of a fixed step (also while frozen, so keys pressed during a freeze do not take effect only after unfreezing) @internal */
   beginFixed() {
@@ -337,6 +351,7 @@ export class Input {
     let t = f.pressed; f.pressed = this._accP; this._accP = t; t.clear();   // swap the two copies, no allocation
     t = f.released; f.released = this._accR; this._accR = t; t.clear();
     this._axisInto(f);
+    for (const s of this.seats) s._axisInto(s._fx);
     this._inFixed = true;
   }
   /** @internal */
@@ -346,3 +361,8 @@ export class Input {
   /** @internal */
   endFrame() { this.frameCount++; this.justPressed.clear(); this.justReleased.clear(); this.look.dx = this.look.dy = this.look.zoom = 0; this.pointer.clicked = false; }
 }
+
+export const handRolled = [
+  { kind: 'keys', seen: 'a raw keydown / keyup listener', use: "engine.input.action('jump', { label, keys }) in a module, the game binds keys with engine.input.bind (rebinding, contexts, gamepad); read engine.input.pressed(name) (recipe 58)", raw: /(?:^|[^\w.])(?:(?:window|document|self|globalThis|canvas|document\.body|[\w.]*domElement)\.)?(?:addEventListener\s*\(\s*['"]|on)key(?:down|up)\b/, yields: { kind: 'pause', raw: /['"]Escape['"]/ } },
+  { kind: 'lock', seen: 'an input lock of its own', use: "engine.input.push('ride', { owner }) takes the keys and h.remove() gives them back: no key sticks, and describe().holds.input shows who holds them (recipe 07 §2b)", quiet: /\b(engine|e|eng|ctx)\.input\.(push|gate)\b|\blockInput\b/, code: /\b(?:let|var)\s+(?:input|controls?|keys)(?:Locked|Disabled|Enabled|Frozen)\s*=/i, tags: false },
+];

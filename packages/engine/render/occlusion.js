@@ -5,16 +5,23 @@
 // property, so the box wraps its draw in a WebGL2 query.
 // Results arrive frames late, so nothing may wait for them to appear:
 //   - the box grows by the distance the camera covers in that delay, so it peeks out before the object does;
-//   - a box that was not drawn (off screen) or a camera that jumped farther than the item's size means "show it": the frustum still culls it for free;
+//   - a box that was not drawn (off screen) or a camera that outran the box's growth or was swapped means "show it": the frustum still culls it for free;
+//   - answers asked before such a moment say nothing about the view after it, so they are thrown away, also those still on their way (DELAY frames);
 //   - hiding takes HIDE_AFTER results in a row, showing takes one.
-// Hiding moves the meshes to HIDDEN_LAYER, not visible = false: visible stays the game's, shadow cameras keep that layer (a hidden thing still casts), engine.rays and voxelGI's volume enable it.
+// A query measures one camera, so hiding holds for that camera alone. No layer mask can say so: three shows an object when any bit is shared, and a mesh hidden from the view camera
+// would need every other camera (a minimap, a mirror, a probe, shadows, voxelGI's volume) to hold a bit the game never gave it. Both renderers ask object.layers.test(camera.layers), so a hidden
+// mesh's Layers gets its own test that says no to the view camera's layers object and is three's test for any other. visible and the mask stay the game's; a Raycaster passes as any other camera.
 // The boxes are for the scene render alone: any other render of the same camera would draw them through its override material. The chains see to it: WebGL takes the layer off the camera
 // once the scene is drawn (_sceneDrawn), every display.pass on WebGPU renders without it.
 import * as THREE from 'three';
 import { isWebGPU, onRendererSwap } from './backend.js';
 import { codedError } from '../core/base/errorHints.js';
 import { engineOwned } from '../core/scene/things.js';
+import { notePatch } from '../core/scene/threePatches.js';
 import { RESERVED_LAYERS } from './layers.js';
+
+notePatch('occlusion-layers-test', "layers.test on the Layers of a mesh occlusion culling hides (own property, gone when it shows): false for engine.camera's layers, three's test for any other camera", null,
+  { scope: 'objects in the scene', lost: 'cannot be switched off alone: engine.occlusion.enabled = false takes it off every mesh' });
 
 const { occlusionHidden: HIDDEN_LAYER, occlusionBox: BOX_LAYER } = RESERVED_LAYERS;
 const HIDE_AFTER = 2;
@@ -36,6 +43,18 @@ export function unhideMask(now, bit, before) {
   return now & bit ? ((now & ~bit) | before) >>> 0 : now;
 }
 
+const quiet = new WeakSet();
+/** three starts this readback without keeping its promise, so a renderer disposed while one is on its way rejects with nobody to catch it, and the page reports an error for a game that did nothing wrong */
+function quietReadback(renderer) {
+  const b = renderer.backend;
+  if (!b?.isWebGPUBackend || quiet.has(b)) return;
+  quiet.add(b);
+  notePatch('occlusion-readback', 'resolveOccludedAsync of the WebGPU backend, that one instance, once engine.occlusion is on: an AbortError from a buffer destroyed with the renderer is dropped', null,
+    { scope: 'the renderer in use', lost: 'disposing an engine while occlusion answers are on their way reports an unhandled rejection' });
+  const read = b.resolveOccludedAsync;
+  b.resolveOccludedAsync = function (c) { return read.call(this, c).catch(err => { if (err?.name !== 'AbortError') throw err; }); };
+}
+
 const unitBox = new THREE.BoxGeometry(1, 1, 1);
 const size = new THREE.Vector3(), center = new THREE.Vector3(), here = new THREE.Vector3(), grown = new THREE.Box3();
 const trianglesOf = m => (m.geometry.index?.count ?? m.geometry.attributes.position.count) / 3 * (m.isInstancedMesh ? m.count : 1);
@@ -48,9 +67,14 @@ export class Occlusion {
     /** @internal */ this._items = new Set();
     /** @internal */ this._frameNo = 0;
     /** @internal */ this._last = /** @type {THREE.Vector3 | null} */ (null);
+    /** @internal the camera of the last frame */ this._cam = null;
     /** @internal */ this._root = null;
     /** @internal */ this._hook = null;
     /** @internal the layer bits this added to each shadow camera, taken back when culling goes off */ this._shadowBits = new Map();
+    const test = THREE.Layers.prototype.test;
+    /** @internal layers.test of a hidden mesh; `this` is its Layers @this {THREE.Layers} @param {THREE.Layers} layers */ this._unseen = function (layers) { return layers !== engine.camera.layers && test.call(this, layers); };
+    // a restored context holds none of the old queries: one still pending would never answer and its item would stay hidden. Each item starts over and shows until new answers say otherwise
+    /** @internal */ this._restored = engine.events.on('page:contextrestored', () => { for (const it of this._items) { it.query = null; it.pending = it.open = false; it.runs = 0; } });
     // fallback 'webgl' replaces the renderer inside start(), and each renderer needs its own query hook on the box
     /** @internal */ this._swap = onRendererSwap(engine, () => { if (this._on) for (const it of this._items) { this._unbox(it); this._box(it); } });
   }
@@ -89,7 +113,7 @@ export class Occlusion {
    */
   watch(meshes, box) {
     const read = typeof box === 'function' ? box : null;
-    const it = { meshes, read, box: read ? null : box ?? null, masks: null, hidden: false, runs: 0, drawn: -1, proxy: null, query: null, pending: false, open: false };
+    const it = { meshes, read, box: read ? null : box ?? null, hidden: false, runs: 0, drawn: -1, wait: 0, pad: 0, proxy: null, query: null, pending: false, open: false };
     this._items.add(it);
     if (this._on) this._box(it);
     return { remove: () => { this._unbox(it); this._items.delete(it); } };
@@ -101,6 +125,7 @@ export class Occlusion {
     p.name = 'occlusion box'; p.layers.set(BOX_LAYER); p.renderOrder = Number.MAX_SAFE_INTEGER; p.matrixAutoUpdate = false; p.raycast = noRaycast;
     p.userData.batch = false;
     if (isWebGPU(this.engine.renderer)) {
+      quietReadback(this.engine.renderer);
       p.occlusionTest = true;
       p.onBeforeRender = (r, s, camera) => {
         if (camera !== this.engine.camera) return;
@@ -148,15 +173,17 @@ export class Occlusion {
   }
   _hide(it) {
     it.hidden = true;
-    it.masks = it.meshes.map(m => m.layers.mask);
-    for (const m of it.meshes) m.layers.set(HIDDEN_LAYER);
+    for (const m of it.meshes) m.layers.test = this._unseen;
   }
   _show(it) {
     if (!it.hidden) return;
-    it.meshes.forEach((m, i) => { m.layers.mask = unhideMask(m.layers.mask, 1 << HIDDEN_LAYER, it.masks[i]); });
-    it.hidden = false; it.masks = null;
+    for (const m of it.meshes) delete m.layers.test;
+    it.hidden = false;
   }
-  /** Shadow cameras see HIDDEN_LAYER plus what the view camera sees, the boxes apart. A cascade's own lights hang off its shadow node, not the scene */
+  /**
+   * Shadow cameras see what the view camera sees, the boxes apart, plus HIDDEN_LAYER, which nothing sits on: a shadow camera with layer 0 alone is read through the view camera's layers
+   * by both renderers, and then the boxes would cast and WebGL would drop what is hidden. A cascade's own lights hang off its shadow node, not the scene
+   */
   _shadowCameras(cam) {
     const want = (cam.layers.mask & ~(1 << BOX_LAYER)) | (1 << HIDDEN_LAYER);
     // OR, never a plain write: a shadow camera can hold layers of its own (a first-person body on the camera's hide layer). Only what was added is noted, so off takes back no more
@@ -173,8 +200,8 @@ export class Occlusion {
     const cam = this.engine.camera, n = ++this._frameNo;
     cam.layers.enable(BOX_LAYER);
     cam.getWorldPosition(here);
-    const moved = this._last ? here.distanceTo(this._last) : Infinity;
-    (this._last ??= new THREE.Vector3()).copy(here);
+    const moved = this._last && cam === this._cam ? here.distanceTo(this._last) : Infinity;
+    (this._last ??= new THREE.Vector3()).copy(here); this._cam = cam;
     const gl = !isWebGPU(this.engine.renderer);
     let hidNow = false;
     for (const it of this._items) {
@@ -187,7 +214,11 @@ export class Occlusion {
       grown.copy(it.box).expandByScalar(pad);
       const inside = grown.distanceToPoint(here) <= cam.near * 2;
       const seenLast = n - it.drawn <= 1;
-      const hide = seenLast && !inside && moved <= size.length() / 2 && it.runs >= HIDE_AFTER;
+      // an answer covers a camera move as far as the growth its box had when asked; a cut beyond that is a different view, however big the item is
+      if (moved * DELAY > it.pad) it.wait = n + DELAY;
+      it.pad = pad;
+      if (n <= it.wait || !seenLast) it.runs = 0;
+      const hide = seenLast && !inside && it.runs >= HIDE_AFTER;
       if (hide && !it.hidden) { this._hide(it); hidNow = true; } else if (!hide) this._show(it);
       grown.getSize(size);
       it.proxy.matrix.makeScale(size.x, size.y, size.z).setPosition(center);
@@ -196,5 +227,5 @@ export class Occlusion {
     if (hidNow || n % LIGHT_WALK === 0) this._shadowCameras(cam);
   }
   /** @internal */
-  dispose() { this.enabled = false; this._swap.remove(); this._items.clear(); this._material?.dispose(); }
+  dispose() { this.enabled = false; this._swap.remove(); this._restored.remove(); this._items.clear(); this._material?.dispose(); }
 }

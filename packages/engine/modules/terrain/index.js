@@ -37,13 +37,15 @@ const NO_HEIGHT = 'terrain(): no height function or height map was given, so the
 export { createTerrain, DEFAULT_TERRAIN } from './terrainGen.js';
 
 const VIEW = { viewChunks: 4, density: 1 };
-const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'detail', 'variation', 'viewFog', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, ...VIEW, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
+/** The rows this ground offers the settings menu; a preset's share is of the value the game gave it. Writing density places plants again, so an unchanged value stays unwritten */
+const offerGroundRows = (e, T) => e.settings?.define('viewChunks', T.viewChunks, v => { if (T.viewChunks !== v) T.viewChunks = v; }).define('density', T.density, v => { if (T.density !== v) T.density = v; });
+const TERRAIN_PARAMS = keysSchema(['viewChunks', 'density', 'material', 'effects', 'detail', 'variation', 'viewFog', 'part', ...Object.keys(DEFAULT_TERRAIN)], { ...DEFAULT_TERRAIN, ...VIEW, viewFog: false });   // defaults shown in the catalog; createTerrain applies the real ones
 
 export function terrain(opts = {}) {
   readParams('terrain', TERRAIN_PARAMS, opts);
   checkGround('terrain', opts);
   // material and detail stay on the main thread (a texture, a function): everything left in cfg is plain data for the workers
-  const { viewChunks = VIEW.viewChunks, density = VIEW.density, material, effects, detail = null, viewFog = false, ...cfg } = opts;
+  const { viewChunks = VIEW.viewChunks, density = VIEW.density, material, effects, detail = null, viewFog = false, part = false, ...cfg } = opts;
   // effects only says how the game's own material is used: without one it would silently do nothing
   if (effects !== undefined && (material == null || typeof effects !== 'boolean'))
     throw codedError('terrain-option', 'terrain({ effects }): goes with your own material, terrain({ material: myMaterial, effects: false }) = drawn as given (no cloud shadow / season / detail patch); got ' + JSON.stringify({ effects, material: material == null ? material : typeof material }));
@@ -54,7 +56,7 @@ export function terrain(opts = {}) {
   // Why two: collision, paths and vegetation read only the data, so engine.use(myGround, { replaces: 'terrain-draw' }) swaps every pixel of the
   // ground and keeps all of play. The draw part reads chunk data and never changes it.
   const data = {
-    name: 'terrain', type: 'world', provides: ['terrain'], label: 'Terrain', params: TERRAIN_PARAMS, options: opts, noSkip: 'void-fall watch only; nothing accumulates over time', optional: ['vegetation'], stage: 'ground',
+    name: 'terrain', skipKind: 'none', type: 'world', provides: part ? ['terrain'] : ['terrain', 'ground'], label: 'Terrain', params: TERRAIN_PARAMS, options: opts, noSkip: 'void-fall watch only; nothing accumulates over time', optional: ['vegetation', 'settings'], stage: 'ground',
     install(e, ctx) {
       e.i18n.add({ 'zh-CN': { 'module.terrain': '地形' }, en: { 'module.terrain': 'terrain' } });
       for (const k in cfg) if (cfg[k] === undefined) delete cfg[k];
@@ -64,12 +66,12 @@ export function terrain(opts = {}) {
       for (const k of ['height', 'groundType']) if (typeof terrainCfg[k] === 'function') terrainCfg[k] = compilePure(terrainCfg[k], `terrain({ ${k} })`).src;
       if (!terrainCfg.height && !terrainCfg.heightmap) warnOnce(NO_HEIGHT);
       sideMat = terrainCfg.shape ? prepareShape(terrainCfg) : null;
-      w = new ChunkManager(e, terrainCfg);
+      w = new ChunkManager(e, terrainCfg, ctx);
       if (terrainCfg.shape) watchVoid = voidWatcher(e, w);
       w._density = density;   // before anything is placed: nothing to place again yet
       w.viewFog = viewFog;   // opt-in: the view distance goes out as the signal uViewDistance (a game's fog reads it to hide the edge)
       state.cfg = terrainCfg;
-      e.setGround({
+      const ground = {
         height: (x, z) => w.generator.surface(x, z),
         slope: (x, z) => w.generator.slope(x, z),
         type: (x, z) => w.generator.biomeAt(x, z, w.generator.surface(x, z), w.generator.slope(x, z)),   // 'void' outside terrain({ shape })
@@ -81,11 +83,12 @@ export function terrain(opts = {}) {
         chunkCollision: (cx, cz) => w.chunkCollision(cx, cz),
         has: (x, z) => w.generator.has(x, z),
         voidY: () => w.voidY,   // the physics module reports its own bodies falling below it (terrain:void)
-      });
-      w.setViewChunks(viewChunks);
+      };
+      if (part) w.ground = ground; else ctx.ground.provide(ground);   // part: compositeGround holds the slot and reads terrain.ground
+      w.viewChunks = viewChunks;
       // a source is ready when the ring around it is generated, and for a physics source its collision has taken effect (chunkCollision non-null)
-      ctx.track(e.stream.addReadyCheck('terrain', s => w.readyAt(s, { rings: 1 }) && (!s.physics || w.readyAt(s, { rings: 1, solid: true }))));
-      e.budget.metric('chunkApplyMs', () => w.stats.applyMs);   // chunk upload ms per frame (the limit comes from the game's budget)
+      ctx.stream.addReadyCheck('terrain', s => w.readyAt(s, { rings: 1 }) && (!s.physics || w.readyAt(s, { rings: 1, solid: true })));
+      ctx.budget.metric('chunkApplyMs', () => w.stats.applyMs);   // chunk upload ms per frame (the limit comes from the game's budget)
       return w;
     },
     frame(dt, e) {
@@ -97,7 +100,8 @@ export function terrain(opts = {}) {
     describe(e, ctx) { ctx.out.perf.chunks = { loaded: w.stats.loaded ?? 0, visible: w.stats.visible ?? 0, queued: w.stats.queued, failed: w.stats.failed }; },
     // height map / mask image wait for the image: after it loads, rebuild terrain with the new config (both the main-thread copy and the workers)
     critical: true,   // a missing height map would start the game on flat ground: stop start() with the reason instead
-    async init() {
+    async init(e) {
+      offerGroundRows(e, w);
       const hm = state.cfg.heightmap, mk = state.cfg.shape?.mask;
       const needH = hm?.url && !hm.data, needM = mk?.url && !mk.data;
       if (!needH && !needM) return;
@@ -112,7 +116,7 @@ export function terrain(opts = {}) {
   let drawPart = null;
   const lookModule = {
     // the same terrain({...}) call: material / effects are read here, the rest by the data part
-    name: 'terrainDraw', type: 'picture', label: 'Terrain drawing', params: TERRAIN_PARAMS, options: opts, requires: ['terrain'], provides: ['terrain-draw'], stage: 'effects',
+    name: 'terrainDraw', skipKind: 'none', type: 'picture', label: 'Terrain drawing', params: TERRAIN_PARAMS, options: opts, requires: ['terrain'], provides: ['terrain-draw'], stage: 'effects',
     install(e, ctx) {
       e.i18n.add({ 'zh-CN': { 'module.terrainDraw': '地形外观' }, en: { 'module.terrainDraw': 'terrain drawing' } });
       // the colors the workers bake into each chunk: no chunk is generated before the first frame, so this reinit only swaps the config
@@ -143,3 +147,5 @@ function drawConfig(e, cfg) {
 
 /** Every species' placement rule (the workers get the full table when the terrain config is replaced) */
 function speciesRules(w) { const out = {}; for (const sp of w.plants.list()) out[sp.name] = sp.rule; return out; }
+
+export const handRolled = 'none: a ground of its own is plain three.js, used on purpose';

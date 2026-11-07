@@ -3,8 +3,8 @@
 //
 // const fisher = engine.npcs.add({
 //   id: 'fisher', name: '老渔夫', colors: { body: 0x4f6d8f },
-//   schedule: [ { at: '06:00', position: [10, 0, 20] },   // go to the river at 6 am (at can also be a 0–1 time of day)
-//               { at: '13:00', position: [40, 0, -5] } ], // back home at noon
+//   schedule: [ { at: '06:00', position: { x: 10, z: 20 } },   // go to the river at 6 am (at can also be a 0–1 time of day); a y in position picks the floor
+//               { at: '13:00', position: { x: 40, z: -5 } } ], // back home at noon
 //   interact: { op: 'npc.talk' },                        // the interact key nearby runs this op (npc.talk = dialogue, script defaults to the NPC id)
 // });
 //   interact: { label: 'Trade', op: 'shop.open', args: { shelf: 'fish' } }   // any op: open a shop, hand in, recruit; the op gets { npc: id, ...args }
@@ -22,7 +22,7 @@
 // Near / far is by distance to the focus; far -> near first catches up owed time (world handles it).
 //
 // One NPC record (all plain values, inspectable via engine.world.get(id)):
-// name, behavior (behavior name), mind (behavior params and memory, plain values the behavior reads/writes), schedule [{ at: 0-1, x, z }],
+// name, behavior (behavior name), mind (behavior params and memory, plain values the behavior reads/writes), schedule [{ at: 0-1, x, y?, z }] (y only when the stop gave one),
 // interact ({ label (when text), op, args, radius } or null), pathStep, repath, arriveDistance, speed,
 // look (look and feel params: colors, runSpeed, channel...), zone (which level it belongs to; null = everywhere),
 // npcs.add({ channel: 'enemies' }): its time channel (default 'world'); near and far both follow it, so bullet time slows it anywhere.
@@ -31,10 +31,11 @@
 // model given as an asset name ('villager', or ['villager', ...args]) is plain and goes into look (saved); a model object, animation, clips, a function-form interact label and
 // any other option that is not a plain value (states: fn, water: fn, fall: { belowY: fn }, a Vector3 faceTarget) stay in memory only (by id);
 // game code supplies them again via add after loading.
+import { keepTable } from '../../core/base/sections.js';
 import * as THREE from 'three';
 import { CHARACTER_KEYS } from './Character.js';
 import { buildNpcView, unbuildNpcView, defineTalk } from './npcView.js';
-import { warnOnce, fmt, DEV } from '../../core/base/validate.js';
+import { warnOnce, fmt } from '../../core/base/validate.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { NpcAvoid } from './npcAvoid.js';
 import { parseClock } from '../../core/time/dayTime.js';
@@ -112,10 +113,10 @@ export class NPC {
   placeAt(position) {
     const e = this._m.engine, W = this._m.world, rec = this.data; if (!rec) return this;
     const [x, z] = xzOf(position), ch = this.character;
-    if (ch) { ch.placeAt(position); ch._pathReq?.remove(); ch._pathReq = null; }   // an answer still on its way starts from where it stood
+    this._m._claim(rec); e.control.endTasks(this.id, 'placed');
+    if (ch) { if (ch.vehicle) ch.exit({ force: true }); ch._place(position); }
+    if (rec.vehicle != null) e.ops.allow(() => W.set(this.id, { vehicle: null, seat: null }));   // its record waited for a vehicle not built yet: the game put it elsewhere
     W.move(this.id, { x, y: ch ? ch.root.position.y : placeAtHeight(e, `npc.placeAt() (${this.id})`, x, z, yOf(position), rec.look?.stepHeight ?? e.movement.stepHeight, rec.position.y).y, z });
-    rec.nav.path = null; rec.nav.repath = 0;
-    if (rec.nav.link) { leaveLink(e, rec.id, ch, rec.nav.link); rec.nav.link = null; }   // a teleport ends a crossing
     return this;
   }
   /** Face a position (only turns with a model) */
@@ -127,18 +128,20 @@ export class NPC {
 export class NPCManager {
   /** @internal Every option add() reads: content npcs (modules/content/loader.js) are checked against the same table, without importing this module */
   get optionKeys() { return NPC_KEYS; }
-  /** @param {(h: any) => any} track the characters module's ctx.track */
-  constructor(engine, track) {
+  /** @param {any} engine @param {any} ctx the characters module's ctx @param {Map<string, { character: any }>} players the module's players, who NPCs give way to */
+  constructor(engine, ctx, players) {
+    const { track } = ctx;
     this.engine = engine;
+    /** @internal the module's ctx: setup() registers npc.talk when the world is there */ this._ctx = ctx;
     /** @internal */ this._handles = new Map();   // id -> NPC handle (just a cache, can be rebuilt any time)
     /** @internal */ this._runtime = new Map();   // id -> non-saveable params (model, animation, clips, any non-plain option, function interact label)
     /** @internal */ this._views = new WeakMap(); // model root -> { ch, use }
     /** @internal */ this._ready = false;
     /** Near NPCs avoid each other (on by default): avoid.set(false) turns it off, see npcAvoid.js */
-    this.avoid = new NpcAvoid(engine, track);
+    this.avoid = new NpcAvoid(engine, track, players);
     /** @internal */ this._b = new Behaviors();   // behavior name -> { near, far } (code, not saved)
     /** @internal */ this._tiers = null;   // { fullRadius, nearEvery } from tiers(), null = every near NPC every step
-    /** @internal */ this._byName = new Set();  // NPCs added this run without id, using the name as id (to detect same names in dev)
+    /** @internal */ this._byName = new Set();  // NPCs added this run without id, using the name as id (two with one name would be one record)
     // on the event, not in remove(): world.remove(id) and thing.remove take NPCs too, and a later add of that id must not inherit the old model or trip the same-name check
     track(engine.events.on('world:remove', ({ id }) => { this._runtime.delete(id); this._handles.delete(id); this._byName.delete(id); }));
     // a load or new game is a new run, and it fires no world:remove: setup code adding the same names again is not a clash
@@ -151,14 +154,18 @@ export class NPCManager {
     if (this._ready) return;
     const e = this.engine, W = this.world;
     this._ready = true;
-    W.present(KIND, {
+    this._ctx.track(W.present(KIND, {
       positionFrom: 'view',   // with a model the mover decides; world copies the model position back to data at the end of each fixed step
       build: rec => buildNpcView(this, rec),
-      update: (rec, obj, dt) => this._views.get(obj)?.ch.animate(dt),
+      update: (rec, obj, dt) => {
+        const v = this._views.get(obj);
+        if (v && rec.interact && v.useFrom !== e.interactions) W.rebuild(rec.id);   // its use lives in the interactions module it was built with: another one starts empty
+        else v?.ch.animate(dt);
+      },
       dispose: (rec, obj) => unbuildNpcView(this, rec, obj),
-    });
+    }));
     this._b.addBuiltin(e, W);
-    defineTalk(e, this);
+    defineTalk(e, this._ctx, this);
     /** @internal what world.simulate gets for NPCs; tiers() adds fullRadius / nearEvery on top and registers again */
     this._sim = {
       // near and far both run on the NPC's time channel (character.channel, else npcs.add({ channel })): world.simulate scales both dt by it
@@ -175,10 +182,11 @@ export class NPCManager {
       },
       far: (rec, dt) => {
         this._drive(rec, () => this._b.of(rec)?.far?.(rec, dt, this._handle(rec.id)));
-        const ch = this.character(rec.id);   // already far but the model is not torn down yet: let the model catch up with the data
-        if (ch) { ch.placeAt(rec.position); ch.loadMotion(rec.motion); }
+        const ch = this.character(rec.id);   // already far but the model is not torn down yet: let the model catch up with the data. A rider stays with its seat, a ragdoll with its body: this is no write, and placing would end the ride or lift the body
+        if (ch && !ch.bodyHeld) { ch._place(rec.position); ch.loadMotion(rec.motion); }
       },
     };
+    this._ctx.track({ remove: () => this._simHandle.remove() });   // one tracked entry however often tiers() registers again
     this._register();
   }
   /**
@@ -188,12 +196,27 @@ export class NPCManager {
    * is never taken: its behavior does not run here. Returns whether fn ran.
    */
   _drive(rec, fn) {
+    return this._claim(rec) && this.engine.control.runAs(rec.id, 'npcs', fn);
+  }
+  /** @internal The NPC's own hold on its slot, taken when first needed. Its path is the task on it: a placement drops it, the other endings leave it to the schedule. false: another base or net holder drives it */
+  _claim(rec) {
     const C = this.engine.control;
-    if (!C.has(rec.id, 'npcs')) { const top = C.of(rec.id)?.layer; if (top === 'net' || top === 'base') return false; C.take(rec.id, { owner: 'npcs', layer: 'base' }); }
-    return C.runAs(rec.id, 'npcs', fn);
+    if (C.has(rec.id, 'npcs')) return true;
+    const top = C.of(rec.id)?.layer;
+    if (top === 'net' || top === 'base') return false;
+    C.take(rec.id, { owner: 'npcs', layer: 'base', task: why => { if (why === 'placed') this._dropPath(rec.id); } });
+    return true;
+  }
+  /** @internal A placement: the path, the answer still on its way (it starts from where it stood) and a crossing all belong to the old spot */
+  _dropPath(id) {
+    const rec = this.world.get(id), ch = this.character(id);
+    if (!rec) return;
+    if (ch) { ch._pathReq?.remove(); ch._pathReq = null; }
+    rec.nav.path = null; rec.nav.repath = 0;
+    if (rec.nav.link) { leaveLink(this.engine, id, ch, rec.nav.link); rec.nav.link = null; }
   }
   /** @internal (re)register NPC simulation with world: world.simulate replaces the earlier registration of the same kind */
-  _register() { this.world.simulate(KIND, this._tiers ? { ...this._sim, ...this._tiers } : this._sim); }
+  _register() { this._simHandle = this.world.simulate(KIND, this._tiers ? { ...this._sim, ...this._tiers } : this._sim); }   // released: the entry setup() tracks
 
   /**
    * Near tiers for large crowds (off by default: every near NPC walks every fixed step). With tiers, NPCs within fullRadius m of the focus walk every step;
@@ -227,6 +250,8 @@ export class NPCManager {
     this._b.set(name, impl);
     return this;
   }
+  /** @internal A failed content load puts what add kept beside the records back (core/base/sections.js undo): the function that does it @returns {() => void} */
+  undoPoint() { return keepTable(this._runtime); }
   /**
    * Add an NPC, returns a handle. Position: opts.position (Vector3 / object / [x, y, z] / { x, z }), defaults to the schedule's current stop.
    * For behavior (default 'schedule') and mind see behavior().
@@ -244,7 +269,7 @@ export class NPCManager {
     if (io !== null && !(io && typeof io === 'object' && typeof io.op === 'string')) throw codedError('character-option', fmt(STRINGS.badInteract, { got: JSON.stringify(io) }), TypeError);
     if (io) readParams('npcs.add() interact', keysSchema(['label', 'op', 'args', 'radius']), io);
     const id = given ?? name, look = {}, runtime = { ...this._runtime.get(id) };   // a re-add keeps what it does not pass, as the record does
-    if (DEV && given == null) { if (this._byName.has(id)) throw codedError('world-id', fmt(STRINGS.sameName, { name })); this._byName.add(id); }
+    if (given == null) { if (this._byName.has(id)) throw codedError('world-id', fmt(STRINGS.sameName, { name })); this._byName.add(id); }
     // an asset name is data (saved); a model object, animation, clips and whatever is not plain stay in memory
     for (const [k, v] of Object.entries(rest)) {
       if ((RUNTIME_KEYS.includes(k) && !(k === 'model' && isModelName(v))) || !W.isPlain(v)) runtime[k] = v;
@@ -255,7 +280,7 @@ export class NPCManager {
     this._runtime.set(id, runtime);
     const hpd = e.calendar?.hoursPerDay ?? 24;
     // at may be 'HH:MM' or 0-1
-    const sched = schedule.map(s => { const [x, z] = xzOf(s.position); return { at: parseClock(s.at, hpd), x, z }; }).sort((a, b) => a.at - b.at);
+    const sched = schedule.map(s => { const [x, z] = xzOf(s.position), y = yOf(s.position); return { at: parseClock(s.at, hpd), x, ...(y !== undefined && { y }), z }; }).sort((a, b) => a.at - b.at);
     if (io && !e.interactions) warnOnce(fmt(STRINGS.noInteract, { name }));
     // the record keeps plain values only: a function label stays in runtime (above), the record gets null and the view reads runtime first
     const interact = io && { label: typeof io.label === 'string' ? io.label : null, op: io.op, args: io.args ?? {}, radius: io.radius ?? 3.2 };
@@ -267,13 +292,16 @@ export class NPCManager {
       const patch = {};
       const keys = ['name', 'interact', 'pathStep', 'repath', 'arriveDistance', 'speed', 'zone', 'schedule'];
       for (const k of keys) if (opts[k] !== undefined) patch[k] = k === 'schedule' ? sched : def[k];
-      if (opts.behavior !== undefined) { patch.behavior = behavior; patch.mind = mind; } else if (opts.mind !== undefined) patch.mind = mind;
+      // a new behavior starts a new memory, as setBehavior does; naming the one it has is setup code running again, and the memory is state
+      const changes = opts.behavior !== undefined && behavior !== old.behavior;
+      if (changes) { patch.behavior = behavior; patch.nav = { ...old.nav, path: null, repath: 0 }; }
+      if (changes || opts.mind !== undefined) patch.mind = mind;
       if (Object.keys(look).length) patch.look = { ...old.look, ...look };
       W.set(id, patch);
     } else {
-      const i = stopIndex(sched, timeOfDay(e)), [x, z] = xzOf(position ?? (i != null ? sched[i] : { x: 0, z: 0 }));
+      const i = stopIndex(sched, timeOfDay(e)), at = position ?? (i != null ? sched[i] : { x: 0, z: 0 }), [x, z] = xzOf(at);
       const nav = { stop: null, path: null, repath: 0 };
-      W.add({ id, kind: KIND, position: [x, placeAtHeight(e, `npcs.${id}`, x, z, undefined, 0, 0).y, z], ...def, state: 'idle', busy: false, nav, motion: null }, { initial });
+      W.add({ id, kind: KIND, position: [x, placeAtHeight(e, `npcs.${id}`, x, z, yOf(at), 0, 0).y, z], ...def, state: 'idle', busy: false, nav, motion: null }, { initial });
     }
     return this._handle(id);
   }

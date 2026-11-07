@@ -6,7 +6,7 @@
 //   runContract(contract, () => myInventory(contract.options), { check });       // check(label, ok, detail?) from your test runner
 //   runContract(cameraContract, () => myCamera(), { check, prepare: e => { e.camera = ... } })   // prepare: add what your module needs to the small engine
 // An object contract (kind: 'object', e.g. characters/vehicle.contract.js) checks one object instead: runContract(contract, () => myBoat, { check }).
-// Order: install -> name -> api methods -> fields (properties other modules read) -> ops defined and listed -> saves registered with their versions -> probe setup -> each probe event fires ->
+// Order: install -> name -> api methods -> fields (properties other modules read) -> resolves (characters: control can find a character) -> ops defined and listed -> saves registered with their versions -> probe setup -> each probe event fires ->
 //   describe answers -> engine.wrap goes around an api method -> a probed value survives save -> a fresh install -> load -> (probe.copy) and a read -> write into a fresh install
 // What it deliberately does not check: behaviour beyond the contract (stack sizes, UI colors): those are the module's own tests.
 // The engine core parts come from the installed threedog package (found like every other tool: paths.mjs ENGINE), not a copy.
@@ -36,6 +36,7 @@ export function contractEngine() {
       push: name => ({ name, remove() {} }), axis: { x: 0, y: 0 }, padStick: { x: 0, y: 0 }, label: () => '' },
     ui: { define() {}, get: () => null, create: () => null, set() {}, templates: {}, isOpen: () => false, open() {}, close() {}, refresh() {} },
     movement: { radius: 0.3, stepHeight: 0.4, slopeRatio: 1 },
+    session: { id: 1 }, _things: { sources: [], source: () => null },
     t: k => k, onFixed: () => ({ remove() {} }), onFrame: () => ({ remove() {} }),
   }, Object.getOwnPropertyDescriptors(holdMethods));
   e.ops = new Ops(e);
@@ -57,21 +58,36 @@ const readOf = (api, read) => typeof read === 'string' ? api[read] : callOn(api,
  * (the save / load round trip installs a fresh one). check(label, ok, detail?) is the test runner's.
  * @param {any} contract @param {() => any} makeModule @param {{ check: (label: string, ok: boolean, detail?: string) => void, label?: string }} o
  */
+/** The ctx a module gets on the contract engine: the real verbs, with nothing to own because that engine never uninstalls */
+export const contractCtx = (e, name) => ({
+  name, track: h => h, feeds: () => ({ remove() {} }), rule: (n, def, names) => e.stacks.rule(n, def, names), input: { action: (a, o) => e.input.action(a, o), bind: (a, k) => e.input.bind(a, k) },
+  ops: e.ops, saves: e.saves, ui: e.ui, stream: e.stream, budget: e.budget,
+  things: { addSource() {}, explainWith() {} }, ground: { provide: g => e.setGround(g), addColliders() {} },
+});
+
+/** A contract's position statement (design.md section 9): the row of that table it falls under, and each writer by name with what it may do */
+function checkPosition({ position }, label, check) {
+  if (!position) return;
+  const { authority, writers } = position;
+  const said = Object.values(Object(writers));
+  check(`${label}: position names its authority and its writers`, ['record', 'solver', 'physics', 'view'].includes(authority) && said.length > 0 && said.every(w => typeof w === 'string' && w), JSON.stringify(position));
+}
+
 export function runContract(contract, makeModule, { check, label = contract.name, prepare = null }) {
+  checkPosition(contract, label, check);
   if (contract.kind === 'object') return runObjectContract(contract, makeModule, { check, label });
   const install = () => {
     const e = contractEngine(); prepare?.(e);
-    const mod = makeModule();
-    // the contract engine never uninstalls: nothing to track
-    const api = mod.install(e, { name: mod.name, track: h => h, input: { action: (a, o) => e.input.action(a, o), bind: (a, k) => e.input.bind(a, k) } });
+    const mod = makeModule(), nobody = e.control.characterOf;
+    const api = mod.install(e, contractCtx(e, mod.name));
     e[mod.name] = api; e.modules.set(mod.name, mod);
     for (const c of contract.probe?.setup ?? []) callOn(api, c);
-    return { e, mod, api };
+    return { e, mod, api, nobody };
   };
   const t = (what, ok, detail) => check(`${label}: ${what}`, !!ok, detail);
   let first;
   try { first = install(); } catch (err) { t('installs on the contract engine', false, err.message); return; }
-  const { e, mod, api } = first;
+  const { e, mod, api, nobody } = first;
   t(`module name is '${contract.name}'`, mod.name === contract.name, mod.name);
   const missing = contract.api.filter(m => typeof api?.[m] !== 'function');
   t(`api has ${contract.api.join(', ')}`, !missing.length, `missing: ${missing.join(', ')}`);
@@ -79,6 +95,7 @@ export function runContract(contract, makeModule, { check, label = contract.name
     const noField = contract.fields.filter(f => !(f in Object(api)));
     t(`fields ${contract.fields.join(', ')}`, !noField.length, `missing: ${noField.join(', ')}`);
   }
+  if (contract.resolves) t('answers control.characterOf (engine.control.resolveWith at install)', e.control.characterOf !== nobody);
   for (const m of contract.directions ?? []) {
     let v = null; try { v = api[m](); } catch (err) { v = err.message; }
     t(`${m}() is a unit { x, z } on the ground plane`, v && Number.isFinite(v.x) && Number.isFinite(v.z) && Math.abs(Math.hypot(v.x, v.z) - 1) < 1e-3, JSON.stringify(v));
@@ -130,8 +147,8 @@ function runObjectContract(contract, makeObject, { check, label }) {
   const t = (what, ok, detail) => check(`${label}: ${what}`, !!ok, detail);
   let o;
   try { o = makeObject(); } catch (err) { t('builds', false, err.message); return; }
-  const missing = contract.methods.filter(m => typeof o?.[m] !== 'function');
-  t(`has methods ${contract.methods.join(', ')}`, !missing.length, `missing: ${missing.join(', ')}`);
+  const missing = contract.api.filter(m => typeof o?.[m] !== 'function');
+  t(`has methods ${contract.api.join(', ')}`, !missing.length, `missing: ${missing.join(', ')}`);
   const noField = (contract.fields ?? []).filter(k => !(o && k in o));
   t(`has fields ${(contract.fields ?? []).join(', ')}`, !noField.length, `missing: ${noField.join(', ')}`);
   for (const [k, ok] of Object.entries(contract.optional ?? {})) if (o?.[k] !== undefined) t(`${k} (optional) is valid`, ok(o[k]), JSON.stringify(o[k]));

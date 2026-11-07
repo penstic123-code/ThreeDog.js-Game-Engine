@@ -16,7 +16,8 @@ import { codedError, coded } from '../base/errorHints.js';
 
 const STRINGS = {   // yielded: the prefix up to "stopped writing it" is matched by tests (the owned-prop tag carries the fix); the rest leads with the next calls
   yielded: '{id} was changed outside the engine, so the engine stopped writing it (your value stays). Next: {manual} to own it on purpose (no warning);{set} ' +
-    '{back} to give it back to the engine',
+    '{back} to give it back to the engine{from}',
+  from: '. Written at {at}',
   set: ' {set} to let the engine drive it and only adjust it;',
 };
 
@@ -56,6 +57,7 @@ class Owned {
     /** objects this property lives on (allowOwned matches them) */ this.objects = spec.objects ?? [];
     /** 'engine' | 'manual' | 'yielded' */ this.mode = 'engine';
     /** who took it: 'game' (manual()), or 'three' for a direct write */ this.by = 'engine';
+    /** @type {string | null} the line that made the engine yield, when the dev server saw it */ this.writtenAt = null;
     this._snap = null;
     this._onChange = spec.onChange;
     // once: the engine never writes it, it only keeps the value read here (renderer.toneMapping). So a direct write is the documented way to change it (yielding warns
@@ -70,9 +72,10 @@ class Owned {
     const v = flat(this._read());
     if (!differs(v, this._snap) || isExempt(this)) return;
     this._set('yielded', 'three');
+    if (DEV) this.writtenAt = this._e._picture?.outside(this.id) ?? null;   // dev server only: who took it, as the writers tool saw it (core/inspect/pictureWriters.js)
     if (DEV && this._e.validate && !this._once) {
       const L = this.levels, back = L.back ?? L.manual.replace(/\(([^()]*)\)\s*$/, (_, a) => `(${a ? a + ', ' : ''}false)`);
-      warnOnce(coded('owned-prop', fmt(STRINGS.yielded, { id: this.id, manual: L.manual, set: L.set ? fmt(STRINGS.set, { set: L.set }) : '', back })));
+      warnOnce(coded('owned-prop', fmt(STRINGS.yielded, { id: this.id, manual: L.manual, set: L.set ? fmt(STRINGS.set, { set: L.set }) : '', back, from: this.writtenAt ? fmt(STRINGS.from, { at: this.writtenAt }) : '' })));
     }
   }
   /**
@@ -96,7 +99,7 @@ class Owned {
   }
   /** describe().owned row: writer = who writes it now ('engine' | 'manual:<who>' | 'three (engine yielded)') */
   info() {
-    return ({ part: this.part, key: this.key, writer: this.mode === 'engine' ? 'engine' : this.mode === 'yielded' ? 'three (engine yielded)' : `manual:${this.by}`, ...(this.levels.manual ? { manual: this.levels.manual } : {}) });
+    return ({ part: this.part, key: this.key, writer: this.mode === 'engine' ? 'engine' : this.mode === 'yielded' ? 'three (engine yielded)' : `manual:${this.by}`, ...(this.mode === 'yielded' && this.writtenAt ? { writtenAt: this.writtenAt } : {}), ...(this.levels.manual ? { manual: this.levels.manual } : {}) });
   }
 }
 
@@ -126,7 +129,21 @@ export function defineOwned(engine, spec) {
   const o = new Owned(engine, spec);
   const old = reg.get(spec.id); if (old) live.delete(old);
   reg.set(spec.id, o); live.add(o);
+  engine._picture?.owned(o);   // dev server only: who writes it (core/inspect/pictureWriters.js)
   return o;
+}
+/**
+ * An object a property lives on was replaced (start() fell back to another renderer, a game assigned engine.camera): each row follows it, the writers tool watches the new one, and
+ * what is there now is the new reference, because a replacement is not an outside write. The mode stays: a value the game took stays the game's.
+ * @param {any} engine @param {Map<any, any>} moved old object -> new object
+ */
+export function movedOwned(engine, moved) {
+  for (const o of engine._owned?.values() ?? []) {
+    if (!o.objects.some(x => moved.has(x))) continue;
+    o.objects = o.objects.map(x => moved.get(x) ?? x);
+    engine._picture?.owned(o);
+    if (o._snap) o.mark();
+  }
 }
 /** Remove registrations (a module disposed) @param {any} engine @param {Iterable<{ id: string }>} list */
 export function dropOwned(engine, list) { for (const o of list) { live.delete(o); if (engine._owned?.get(o.id) === o) engine._owned.delete(o.id); } }

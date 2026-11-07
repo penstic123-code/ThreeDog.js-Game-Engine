@@ -3,7 +3,7 @@ export class Views {
     /** @param {any} engine */
     constructor(engine: any);
     map: Map<any, any>;
-    current: string;
+    /** Name of the view in use, null while none is @type {string | null} */ current: string | null;
     /**
      * Declare a view. position and target are [x, y, z]; fov (degrees) is optional (the camera's own when left out). Returns { remove() } (undeclares it).
      * @param {string} name @param {{ position: number[], target?: number[], fov?: number }} v

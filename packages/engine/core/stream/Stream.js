@@ -2,7 +2,7 @@
 // camera focus, a teleport destination)
 // and the result unloads when far from all of them. Ten thousand entries build only the nearby ones.
 // const h = engine.stream.add({ position: [40, 0, -20], radius: 8, build: () => makeHouse() }); // the object build returns is added to the scene automatically
-// engine.stream.setRadius(200); // how far from each stream source to build (meters); defaults to the terrain view distance, or the signal uViewDistance
+// engine.stream.radius = 200; // how far from each stream source to build (meters); defaults to the terrain view distance, or the signal uViewDistance
 // without terrain
 //   h.remove();                     // no longer needed (a built one is unloaded)
 // Stream sources (stream.player, stream.camera, stream.source(...), stream.teleport(...)) are the one list every distance-based loader reads: stream entries,
@@ -45,6 +45,7 @@ export class Stream {
     /** @internal */ this._radiusDirty = false;
     /** @internal what the sources looked like at the last check */ this._memo = {};
     /** @internal */ this._dirty = true;
+    /** @internal the radius the last pass reached with */ this._passR = null;
     /** @internal */ this._sources = new Set();
     /** @internal Bumps when a source is added, removed or moved with at() */ this._version = 0;
     /** @internal name -> (source) => boolean */ this._checks = new Map();
@@ -53,6 +54,7 @@ export class Stream {
     /** Built-in source at the camera focus engine.focus: full detail, no physics @type {StreamSource} */
     this.camera = this.source(engine.focus, { name: 'camera', physics: false });
     this.addReadyCheck('stream', s => s.detail !== 'full' || this.ready);
+    this.addReadyCheck('state', s => !s._waitsForLoad || !engine.saves.replacing);
   }
   /** The build radius actually in use, in meters @returns {number} @experimental */
   get activeRadius() {
@@ -86,18 +88,16 @@ export class Stream {
   }
   /**
    * Build radius in meters around each full-detail stream source (a source radius caps it); null = follow the terrain view distance (the uViewDistance signal
-   * without terrain). Writing it takes effect like setRadius.
+   * without terrain).
    * @type {number | null}
    */
   get radius() { return this._radius; }
   set radius(m) {
     // Infinity would hang _update's cell walk and NaN would build nothing, without a word
     if (m != null && !(m >= 0 && Number.isFinite(m))) throw codedError('stream-option', `stream.radius is a finite number of meters >= 0, or null to follow the view distance; got ${m}`);
-    this._radius = m; this._dirty = true;
+    this._radius = m;
   }
-  /** Set the build radius in meters @param {number} m @experimental */
-  setRadius(m) { this.radius = m; }
-  /** Everything registered within radius is built (start() waits for it before the loading screen goes away) @returns {boolean} */
+  /** No build within radius is still waiting (start() waits for it before the loading screen goes away). Nothing pending, not everything built: a build that failed is reported and left out; a game that needs a thing built checks it itself (handle.built) @returns {boolean} */
   get ready() { return this.queued === 0; }
   /** entries is the registered count, built the built count, queued the queued count @returns {{ entries: number, built: number, queued: number }} */
   get stats() { return { entries: this.entries.size, built: this.live.size - this.queued, queued: this.queued }; }
@@ -129,6 +129,10 @@ export class Stream {
    * (terrain chunks, collision, nearby models) the player stays where it is. move replaces the default placement (for a vehicle or a custom character).
    * timeout (seconds of frame time, default 60; Infinity waits forever): when the destination is still not ready, the Promise rejects (code stream-timeout,
    * naming the loaders still waiting) and the player is not moved.
+   * Ready means nothing is pending, not that everything built: a stream entry or world model whose build failed is reported and left out, and the trip still lands. A terrain chunk that
+   * failed stays not ready, as there is no ground to stand on, so that trip ends in stream-timeout. A game that needs a thing built checks it itself (handle.built, engine.world.view(id)).
+   * A trip belongs to the state it was asked in: it does not land while a load runs, and a newGame, load or saves.load that goes through abandons it (it rejects with
+   * code stream-removed and the player stays where the new state put it). A load that fails leaves it going.
    * @example await engine.stream.teleport([800, 0, 300]);
    * @example await engine.stream.teleport(door.target, { radius: 40, move: p => engine.player.placeAt(p) });
    * @param {any} position
@@ -139,14 +143,20 @@ export class Stream {
   async teleport(position, opts = {}) {
     readParams('stream.teleport()', keysSchema(['radius', 'move', 'timeout']), opts);
     const e = this.engine, s = this.source(position, { radius: opts.radius ?? 64, name: 'teleport' }), limit = opts.timeout ?? 60;
+    // session.id would miss saves.load. A load under way may still fail and give this state back, so the move waits for its end; one asked inside the load (a part's load awaiting it) cannot wait for itself.
+    // Rejecting, not resolving: the caller's next line belongs to the old state too
+    s._waitsForLoad = !e.saves.replacing;
+    const generation = e.saves.generation, abandoned = () => codedError('stream-removed', fmt(SOURCE_STRINGS.abandoned, { x: s.x.toFixed(1), z: s.z.toFixed(1) }));
     let waited = 0;
     const watch = e.onFrame(dt => {
+      if (e.saves.generation !== generation && !e.saves.replacing) { s._settle(abandoned()); return; }   // no reason to keep loading a place nobody is going to
       if ((waited += dt) <= limit || s.ready) return;
       const checks = [...this._checks].filter(([, fn]) => !fn(s)).map(([n]) => n).join(', ') || 'one more frame';
       s._settle(codedError('stream-timeout', fmt(SOURCE_STRINGS.timeout, { x: s.x.toFixed(1), z: s.z.toFixed(1), t: String(limit), checks })));
     });
     try {
       await s.whenReady;
+      if (e.saves.generation !== generation) throw abandoned();
       // the move lands frames after the call (and after the op that asked for it has returned): it finishes that request, so the ops guard lets it through
       e.ops.allow(() => {
         if (opts.move) opts.move(position);
@@ -239,11 +249,12 @@ export class Stream {
       this._radiusDirty = false; this._maxRadius = 0;
       for (const h of this.entries) this._maxRadius = Math.max(this._maxRadius, h.def.radius ?? 0);
     }
-    const cs = this.cellSize;
-    if (!this.changed(this._memo, cs / 8, FULL) && !this._dirty) return;
-    this._dirty = false;
+    const cs = this.cellSize, R = this.activeRadius;
+    // the radius follows the view distance, which a settings menu moves while the player stands still
+    if (!this.changed(this._memo, cs / 8, FULL) && !this._dirty && R === this._passR) return;
+    this._dirty = false; this._passR = R;
     // full-detail sources only: a 'simple' source (far view) gets terrain and hlod proxies, not props
-    const src = this.sources(FULL), R = this.activeRadius;
+    const src = this.sources(FULL);
     const dist = h => this._dist(h, src, R);
     // unload what is far from every source
     for (const h of this.live) if (!h.def.keep && dist(h) > R * this.unloadFactor) this._leave(h);

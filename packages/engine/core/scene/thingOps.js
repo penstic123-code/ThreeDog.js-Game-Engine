@@ -7,7 +7,9 @@ import { Things, snap, write, moduleOwnerOf } from './things.js';
 import { closest, DEV, goodPos } from '../base/validate.js';
 import { onSceneRoot } from './sceneDelta.js';
 import { codedError } from '../base/errorHints.js';
-import { explainThing } from './thingExplain.js';
+
+// ops.undo of a run that failed has no value to reverse: an answer, not a crash
+const NOTHING_TO_UNDO = { code: 'nothingToUndo' };
 
 const SAY = {
   record: { keeps: ['record fields and position (world save part)'], loses: ['the built model itself: it is rebuilt from its template / present after a load'] },
@@ -27,16 +29,13 @@ function editText(en, tier, rec) {
   return `made during play${en.op ? ` by op ${en.op}` : ''}${at}: to keep it, make it a template and create it inside the op with engine.content.spawn(name, at)`;
 }
 
-/** thing.explain(): the whole story of the id in one object (thingExplain.js); a method, not a field, so the thing stays small */
-const withExplain = (e, t) => Object.defineProperty(t, 'explain', { value: () => explainThing(e, t), enumerable: false });
-
 /** A registered plain object as a thing (same shape as hit.thing); `object` is a non-enumerable getter so the result stays JSON-able */
 function nativeThing(e, en, root) {
   const tier = e._things.tier(en), say = SAY[tier];
   const out = { id: en.id, kind: root.type, owner: en.owner, at: en.at, phase: en.phase, ...(en.op && { op: en.op, tick: en.tick }), saved: tier,
     keeps: say.keeps, loses: say.loses, edit: editText(en, tier), removed: e._things.gone.has(en.id),
     template: null, definedAt: null, model: null, fields: {} };
-  return withExplain(e, Object.defineProperty(out, 'object', { get: () => root, enumerable: false }));
+  return Object.defineProperty(out, 'object', { get: () => root, enumerable: false });
 }
 
 /**
@@ -60,7 +59,7 @@ const native = (e, hit) => hit && hit[0].owner !== 'world' ? nativeThing(e, hit[
 function recordAsThing(e, id) {
   const src = e._things.source(id), r = src.explain(id);
   const out = { ...r, owner: 'world', at: r.definedAt ?? null, phase: r.spawned ? 'play' : 'setup', saved: 'record', ...SAY.record, edit: editText(null, 'record', r.edit) };
-  return withExplain(e, Object.defineProperty(out, 'object', { get: () => src.view(id), enumerable: false }));
+  return Object.defineProperty(out, 'object', { get: () => src.view(id), enumerable: false });
 }
 /** Every id engine.thing knows (for "did you mean") */
 function thingIds(e) { return [...e._things.recordIds(), ...e._things.byId.keys()]; }
@@ -76,8 +75,8 @@ function patchOf(o, a) {
   return p;
 }
 const xyz = p => Array.isArray(p) ? { x: p[0], y: p[1], z: p[2] } : p;
-const yaw = r => typeof r === 'number' ? r : r[1];
-const uni = s => typeof s === 'number' ? s : s[0];
+/** thing.set args as a record patch. rotation and scale pass as given, a number or [x, y, z], as the record's rot and scale read them */
+const recordPatch = a => ({ ...(a.position && { position: xyz(a.position) }), ...(a.rotation != null && { rot: a.rotation }), ...(a.scale != null && { scale: a.scale }) });
 
 /** Register the registry, engine.thing's ops, the 'scene' save part and the session:start setup window (called once by the Engine constructor) */
 export function installThings(e) {
@@ -108,12 +107,12 @@ export function installThings(e) {
   for (const o of e.scene.children) { const owner = moduleOwnerOf(o); if (owner && !T.byObj.has(o)) T.add(o, { owner }, null); }
   T.explainers = [];   // explain contributions from modules (see thingExplain.js)
   /**
-   * Add a contribution to engine.thing(id).explain(): fn(engine, thing, out) may fill out.state / out.rules (or add keys) for the things its module owns.
+   * Add a contribution to engine.explain({ thing: id }): fn(engine, thing, out) may fill out.state / out.rules (or add keys) for the things its module owns.
    * For module authors: core never reads another module's record or template shape, the module hands it over here. A throwing fn is skipped.
    * @param {(e: any, t: any, out: any) => void} fn
    * @example engine.explainWith((e, t, out) => { const r = e.myRecords.get(t.id); if (r) out.state = { ...r }; });
    */
-  e.explainWith = fn => { T.explainers.push(fn); };
+  e.explainWith = fn => { T.explainers.push(fn); return { remove: () => { T.explainers = T.explainers.filter(x => x !== fn); } }; };
   e.saves.register('scene', { atomic: true, save: () => T.save(), load: d => T.load(d) });
   const kindOf = id => T.source(id) ? 'record' : T.live(id) ? T.tier(T.byObj.get(T.live(id))) : null;
   const reasons = {
@@ -121,16 +120,23 @@ export function installThings(e) {
     engineOwned: 'an engine module manages this object (water, particles, physics…); change it through that module',
     recordVisible: 'a world record has no visible flag: hide its model with present({ show: rec => … }) and a field set by world.set',
     badPosition: 'position takes [x, y, z] or { x, y, z } with finite numbers (y may be left out of the object)',
+    ownerRefuses: 'what owns this record cannot apply the change (facts.why says why and what to do instead)',
   };
   e.ops.define('thing.set', {
     targets: '*',
-    desc: 'Move / turn / scale / show or hide a thing: a world record (via world.set / move) or an engine.add object (saved as an override when it has an id)',
+    desc: 'Move / turn / scale / show or hide a thing: a world record (via world.set / move; a live character or a body gets it through its owner) or an engine.add object (saved as an override when it has an id)',
     args: { id: 'string', position: 'any?', rotation: 'any?', scale: 'any?', visible: 'bool?' },
-    can: (_, a) => { const k = kindOf(a.id); return !k ? 'noThing' : k === 'engine' ? 'engineOwned' : k === 'record' && a.visible != null ? 'recordVisible' : a.position != null && !goodPos(a.position) ? 'badPosition' : true; },
+    can: (_, a) => {
+      const k = kindOf(a.id);
+      if (!k || k === 'engine') return k ? 'engineOwned' : 'noThing';
+      if (k === 'record' && a.visible != null) return 'recordVisible';
+      if (a.position != null && !goodPos(a.position)) return 'badPosition';
+      const why = k === 'record' && T.source(a.id).refuses(a.id, recordPatch(a));
+      return why ? { code: 'ownerRefuses', facts: { why } } : true;
+    },
     run(eng, a) {
       if (kindOf(a.id) === 'record') {
-        const patch = { ...(a.position && { position: xyz(a.position) }), ...(a.rotation != null && { rot: yaw(a.rotation) }), ...(a.scale != null && { scale: uni(a.scale) }) };
-        return { record: true, before: T.source(a.id).set(a.id, patch) };
+        return { record: true, before: T.source(a.id).set(a.id, recordPatch(a)) };
       }
       const obj = T.live(a.id), p = patchOf(obj, a);
       if (T.tier(T.byObj.get(obj)) === 'code') return T.override(a.id, obj, p);
@@ -138,6 +144,7 @@ export function installThings(e) {
       write(obj, p);
       return before;
     },
+    canUndo(_, a, v) { if (!v) return NOTHING_TO_UNDO; const why = v.record && T.source(a.id)?.refusesUndo(a.id, v.before); return why ? { code: 'ownerRefuses', facts: { why } } : true; },
     undo(eng, a, v) {
       if (v.record) { T.source(a.id).set(a.id, v.before); return; }
       const obj = T.live(a.id); if (!obj) return;
@@ -160,6 +167,7 @@ export function installThings(e) {
       T.hide(a.id, T.live(a.id), T.tier(T.byObj.get(T.live(a.id))) === 'code');
       return {};
     },
+    canUndo: (_, a, v) => v ? true : NOTHING_TO_UNDO,
     undo(eng, a, v) {
       if (!v.record) { T.unhide(a.id); return; }
       v.src.restore(v.record);

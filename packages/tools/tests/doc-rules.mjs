@@ -33,7 +33,7 @@ export async function run({ check }) {
   check('R18: a game doc naming its own module only warns', gameErrs.length > 0 && gameErrs.every(x => x.level === 'warn'));
   check('R18: an ignore marker skips the line', !errs('`npm test -- zzz` <!-- r18-ignore-line -->').length);
   // R22
-  const table = rows => `## One thing, one entry point\n| To do | Use | Recipe |\n|---|---|---|\n${rows}\n## Next\n`;
+  const table = rows => `## What exists: look here first\n| To do | Use | Recipe |\n|---|---|---|\n${rows}\n## Next\n`;
   const exists = r => r === 'recipes/02-npc.md';
   check('R22: a namespace without a row is named', entryTable(table('| Talk | `engine.dialogue` | `recipes/02-npc.md` |'), ['dialogue', 'quests'], exists).some(x => /engine\.quests/.test(x.msg)));
   check('R22: a row pointing at a missing recipe is an error', entryTable(table('| Talk | `engine.dialogue` | `recipes/03-nope.md` |'), ['dialogue'], exists).some(x => /does not exist/.test(x.msg)));

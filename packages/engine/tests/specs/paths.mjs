@@ -210,7 +210,7 @@ export const specs = [
         const syncAfter = E.characters.findPath({ x: -5, z: 0 }, { x: 5, z: 0 }), after = await ask();
         // the lane itself, awaited: no timing, and land()'s main-thread answer cannot stand in. lane.handler exists only once the main thread has answered for it
         const lane = [...E.threads.lanes].find(l => /pathWorker/.test(l.create.toString()));
-        const req = { mode: 'nav', s: { x: -5, y: E.surface(-5, 0), z: 0 }, g: { x: 5, y: E.surface(5, 0), z: 0 }, reach: E.nav.reach() };
+        const req = { mode: 'nav', size: E.nav.mesh().size, s: { x: -5, y: E.surface(-5, 0), z: 0 }, g: { x: 5, y: E.surface(5, 0), z: 0 }, reach: E.nav.reach(), body: E.movement.height };
         const direct = (await lane.run({ type: 'batch', reqs: [req], tiles: {}, trees: [] }))[0];
         const size = E.threads.size, workers = lane.size, local = !!lane.handler;
         box.remove(); E.dispose();
@@ -378,8 +378,7 @@ export const specs = [
           let st = null; npc.character.walkTo({ x: 5, z: 0 }).then(x => { st = x.status; });
           await until(() => st);
           out.walk = { st, x: npc.position.x, y: npc.position.y, log: [...log] };
-          let st2 = null; npc.character.walkTo({ x: -5, z: 0 }).then(x => { st2 = x.status; });
-          const walk = npc.character._walk;
+          let st2 = null; const walk = npc.character.walkTo({ x: -5, z: 0 }); walk.then(x => { st2 = x.status; });
           await until(() => log.length > 2);
           walk.remove(); await new Promise(r => setTimeout(r, 1));
           out.cut = { st2, y: npc.position.y, x: npc.position.x, log: log.slice(2) };
@@ -443,7 +442,7 @@ export const specs = [
           E.dispose();
         }
         { // straight up and down: a goal on the deck within arrive of the ladder's foot in x, z is reached on the deck
-          const { E, npc, log, until, link } = await crossing({ links: [LADDER], deck: true, goal: [1.2, 0, 0] });
+          const { E, npc, log, until, link } = await crossing({ links: [LADDER], deck: true, goal: [1.2, 3, 0] });
           out.ladderPath = E.characters.findPath({ x: -5, z: 0 }, { x: 5, z: 0 });
           await until(() => log.length >= 2 && !link());
           await until(() => npc.data.state === 'idle', 120);

@@ -1,4 +1,4 @@
-// engine.thing(id).explain(): everything known about one id in one plain object (JSON-able, same for the CLI `threedog thing <id>`, MCP and tests).
+// engine.explain({ thing: id }): everything known about one id in one plain object (JSON-able, same for the CLI `threedog explain thing <id> --full`, MCP and tests).
 // Why one object: an AI asked "why is this crate here, blocking me, and how do I change it?" otherwise joins thing(), world.origin, material info, the
 // template, collision settings and the op list by hand. Each part reads an existing source; nothing here is stored or changes any state.
 import { Box3, Vector3 } from 'three';

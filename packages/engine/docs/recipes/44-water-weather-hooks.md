@@ -66,7 +66,7 @@ engine.water.shader({
 (`myMaterial.normalMap = engine.water.normalTexture`); the tiling and the scroll run whatever material draws.
 
 ## Water: your own material (reflections, refraction)
-```js
+```js fragment
 engine.water.material = applyEffects(new THREE.MeshPhongMaterial({ color: 0x3070a0, shininess: 90, specular: 0xaaaaaa, transparent: true, opacity: 0.85 }),
   { patches: engine.water.patches });                               // keep the waves, the surface and the fresnel
 engine.water.material = new THREE.ShaderMaterial({ uniforms: engine.water.uniforms, vertexShader, fragmentShader });   // or all your own
@@ -125,7 +125,7 @@ you when one comes or goes, so swimming, buoyancy and anything else reading the 
 ## Weather particles: rain and snow parameters
 `weather({ rain, snow })` (left-out keys keep the built-in picture):
 
-```js
+```js fragment
 weather({ types,
   rain: { color: 0xa8b8d0, opacity: 0.6, length: 1.2, speed: 26, slant: 1.5, density: a => a * a },   // streaks; sparse in a drizzle
   // rain: { shape: 'soft', size: 10, maxSize: 6, sway: 0.3 },     // drops as soft sprites instead of streaks
@@ -135,9 +135,9 @@ weather({ types,
 ```
 The keys and defaults are `WeatherParticles` in `types/world.d.ts`. `density` decides how many particles show at a weather amount; opacity follows the amount as well. Coverage is `weather({ area })`.
 
-At run time each system is in `engine.weather.particles`, and every number is a plain write, live on both renderers:
+At run time each system is in `engine.weather.particles`, and every number is a plain write, live on both renderers. `particles.rain` exists only when the weather table has a `rain` field (`particles.snow` likewise for `snow`); with a table of your own, read it as `particles.rain?.`:
 ```js
-const rain = engine.weather.particles.rain;
+const rain = engine.weather.particles.rain, myFragment = 'void main() { gl_FragColor = vec4(0.7, 0.8, 1.0, 0.4); }';
 rain.spec.speed = 30; rain.spec.opacity = 0.3; rain.spec.slant = 2;              // read each frame; density too
 rain.uniforms.uColor.value.set(0xa8b8d0); rain.uniforms.uLen.value = 1.2;        // sprites: uPx (size), uMaxPx (maxSize), uSwayAmp (sway)
 rain.material = new THREE.ShaderMaterial({ uniforms: rain.uniforms, vertexShader: rain.material.vertexShader,
@@ -147,7 +147,7 @@ engine.weather.overcastColor.set(0x667788); engine.weather.lightningBrightness =
 The fall and the follow-the-camera wrap live in the vertex shader, so a material of your own shares `uniforms` and keeps a vertex shader like it.
 
 ## Weather particles: replace the shaders (GLSL)
-```js
+```js fragment
 weather({ types, snow: { uniforms: { uTint: [1, 0.85, 0.9] }, glsl: { fragment: `uniform float uOpacity;
 void main(){
   vec2 d = gl_PointCoord - 0.5;
@@ -162,7 +162,7 @@ start (what is in scope: `glsl` in `WeatherParticles`; the attribute `aEnd` is 0
 the two `#include` lines so the color matches three's materials with and without post-processing. WebGPURenderer does not compile GLSL text: `engine.weather.defineField(field, { create })` with a node material there.
 
 ## Snow that settles: `weather({ snow: { cover } })`
-```js
+```js fragment
 weather({ types, snow: { size: 18, cover: { foliage: 0xf2f4f6, ground: 0xeef0f2, strength: 0.8 } } });
 ```
 - While the weather's `snow` amount rises (any type with `snow > 0`), the foliage / ground season tint moves `strength` of the way toward
@@ -173,7 +173,7 @@ weather({ types, snow: { size: 18, cover: { foliage: 0xf2f4f6, ground: 0xeef0f2,
 - Ash, frost or anything else: `engine.mod('ground.cover', { owner: 'ash', value: { ground: 0x555555, amount: 0.6 } })` (one entry per owner, the handle's `remove()` ends it).
 
 ## Lightning picture
-```js
+```js fragment
 weather({ types, lightning: f => f * f * 0.8 });                   // flash 1 at the strike -> sky flash amount (default flickers)
 weather({ types, lightning: () => 0 });                            // no sky flash: draw your own bolt instead
 engine.events.on('weather:lightning', () => spawnBolt());          // when it strikes stays the weather table's (lightning > 0.5)
@@ -185,7 +185,8 @@ A field of the game's own weather table (`ash`, `petals`, `sparks`) gets particl
 round sprites), or `create` for a system of your own:
 
 ```js
-engine.use(sky(), weather({ types: { clear: {}, ashfall: { ash: 1, grey: 0.5, sun: 0.6 } } }));
+const engine = createEngine({ canvas });
+engine.use(sky(), weather({ types: { clear: {}, shower: { rain: 1 }, ashfall: { ash: 1, grey: 0.5, sun: 0.6 } } }));
 engine.weather.defineField('ash', { shape: 'soft', color: 0x555555, size: 14, speed: 0.8, sway: 3 });
 engine.weather.defineField('rain', { create: (engine, { area, count }) => {   // the same call replaces rain or snow
   const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(0.03), new THREE.MeshBasicMaterial({ color: 0x99bbff }), count);

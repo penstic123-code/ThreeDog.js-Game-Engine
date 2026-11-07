@@ -107,12 +107,12 @@ const webgpuPost = {
     for (const e of on) if (e._def.fuse ? typeof e._def.fuse.tsl !== 'function' : typeof e._def.node !== 'function') throw e._def.fuse ? glslOnly(e) : onlyCreate(e);
     // Same effects, same build, same samples: the graph is current (a set() of a number param never gets here)
     const key = `${samples}|${buffers}|${on.map(e => e.name).join(',')}`;
-    if (post._pipe?.key === key) return;
+    if (post._pipe?.key === key && post._pipe.camera === camera) return;
     let P = post._pipe;
     if (!P) P = post._pipe = { pipeline: new RenderPipeline(renderer), scenePass: null, samples: -1, buffers: '', key: null, order: [] };
     P.key = null;   // the graph is coming down: when a node() throws below, PostFX syncs the old list again, and that sync must rebuild, not find its key current
-    if (P.samples !== samples || P.buffers !== `${buffers}`) {
-      P.scenePass?.dispose(); P.scenePass = pass(scene, camera, { samples }); P.samples = samples; P.buffers = `${buffers}`;
+    if (P.samples !== samples || P.buffers !== `${buffers}` || P.camera !== camera) {
+      P.scenePass?.dispose(); P.scenePass = pass(scene, camera, { samples }); P.samples = samples; P.buffers = `${buffers}`; P.camera = camera;
       if (buffers.length) P.scenePass.setMRT(mrt({ output, ...Object.fromEntries(buffers.map(b => [b, BUFFERS[b]])) }));
     }
     // Every structural change rebuilds every effect's nodes: an effect's input is the node before it, which changed too

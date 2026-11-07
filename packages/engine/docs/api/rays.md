@@ -19,6 +19,8 @@
   - `normal: Vector3 | null`
   - `object: Object3D | null`
   - `face: any`
+  - `instanceId?: number` Which instance of an InstancedMesh was hit, as in a three.js intersection
+  - `batchId?: number` Which item of a BatchedMesh was hit, as in a three.js intersection
   - `entry?: any`
   - `kind?: string`
   - `thing?: HitThing` Point -> thing, computed when read: the world record the hit belongs to (a batched instance resolves to its original), where it was authored and what to edit. Example: `const t = engine.pick(0, 0)?.thing;   // { id: 'chest-home', kind: 'chest', template: 'chest', definedAt: 'content/props.js:14', ... }`

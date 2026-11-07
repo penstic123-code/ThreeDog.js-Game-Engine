@@ -3,6 +3,7 @@
 //   CHROMIUM_ARGS.software  WebGL through ANGLE's SwiftShader (--use-gl=swiftshader fails on some Windows setups): same pixels on every machine, so tests use it
 //   CHROMIUM_ARGS.gpu       WebGL through ANGLE on the real GPU (backend per platform): shot / gallery / perf / stress prefer it, it is several times faster
 import { execFile } from 'node:child_process';
+import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { trackPageErrors, trackRequests } from './wait-engine.mjs';
 import { TOOLS, viteOptions } from './paths.mjs';
@@ -140,11 +141,41 @@ export async function buildAndPreview(dir, { build: doBuild = true } = {}) {
   return { base, close: () => new Promise(r => server.httpServer.close(() => r())) };
 }
 
+/**
+ * A workspace on a vite dev server (a tool page is injected into the game, or the game is watched): { base, close() }. cacheDir (relative to dir) gives it its own
+ * dependency cache, so it does not fight a running `npm run dev` over node_modules/.vite. The rest is vite's `server` options; the default is a free port.
+ */
+export async function devServer(dir, { cacheDir, ...server } = {}) {
+  const { createServer } = await import('vite');
+  const s = await createServer(await viteOptions(dir, { logLevel: 'error', ...cacheDir && { cacheDir: resolve(dir, cacheDir) }, server: { port: 0, strictPort: false, ...server } }));
+  await s.listen();
+  const base = (s.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${s.httpServer.address().port}/`).replace(/\/$/, '');
+  return { base, close: () => s.close() };
+}
+
 /** The promise's result, or a rejection `<label> timed out after N s` when it takes longer than ms */
 export function withTimeout(promise, ms, label) {
   let t;
   const late = new Promise((_, rej) => { t = setTimeout(() => rej(new Error(`${label} timed out after ${Math.round(ms / 1000)} s`)), ms); });
   return Promise.race([promise, late]).finally(() => clearTimeout(t));
+}
+
+// A Promise (or any thenable) as ok is always truthy: check('door opens', ev(...)) without await would pass whatever the page says, so it fails instead
+// Reversed, check(condition, 'name') has the always-truthy name as ok: it could never fail, so a label that is not a string fails instead
+export const collect = () => { const results = []; return { results, check: (label, ok, detail = '') => results.push(typeof label !== 'string'
+  ? { label: String(ok), ok: false, detail: 'check(name, condition, detail): the first argument must be the name' }
+  : typeof ok?.then === 'function' ? { label, ok: false, detail: 'check got a Promise: add await' } : { label, ok: !!ok, detail }) }; };
+
+/**
+ * What a spec's run() receives: { page, check, frames, ev, wait }. frames(n): wait for the engine's loop to run n more frames (a key press is read on the next frame;
+ * software rendering is slow, so waiting by frames is more reliable than by milliseconds). ev takes one argument, like page.evaluate: a second one used to vanish
+ * without a word and the function ran with undefined; a caller with its own ev (retrying) passes it in.
+ */
+export function specContext(page, check, ev = (fn, arg, ...extra) => {
+  if (extra.length) throw new Error(`ev(fn, arg) takes one argument, got ${extra.length + 1}: pass them together, ev(({ a, b }) => ..., { a, b })`);
+  return page.evaluate(fn, arg);
+}) {
+  return { page, check, frames: (n = 2) => page.evaluate(n => window.__t.frames(n), n), ev, wait: ms => page.waitForTimeout(ms) };
 }
 
 /**

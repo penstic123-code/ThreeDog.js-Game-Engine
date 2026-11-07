@@ -143,7 +143,7 @@ Every entry of the UI focus stack (dialogue, `engine.ui.open` parts, `makeWindow
 the view locks again). A window that ends something, win or lose, takes `closable: false`: no close button and Esc does nothing, so the player cannot slip back into the
 game past it and only your buttons end it. Nothing else closes a window: a game that restarts by another road (a new game from the title, a load) closes it on `session:start`. Its picture is your `ui.css` /
 `ui.templates[id]`. A level clear, a match score, a day's earnings or a run summary are all this:
-```js
+```js fragment
 import { makeWindow } from 'threedog';
 const results = makeWindow(engine, {
   id: 'results', title: () => 'Run complete',
@@ -202,11 +202,12 @@ engine.settings.addSection('gameplay', {
 A row that switches off an effect of your own (a post effect, a picture value): name the shared value it limits, and it works like the
 built-in shadows row. Off holds the value off on the settings layer, so a later scene, weather or cutscene cannot turn it back on; on
 allows whatever the scene chose. A number row from 0 to 1 is a factor on a number value. Define the row after the effect exists. `bloom` and `ao` already have rows of their own (limiting `post.bloom.enabled` / `post.ao.enabled`), so `settings.define('bloom', ...)` throws: switch them with `engine.settings.set('bloom', false)`, or in a preset.
-```js
+```js fragment
 engine.post.add(volFog);                                                     // post.volFog.enabled now exists
 engine.settings.define('volFog', true, { limits: 'post.volFog.enabled' });   // add apply: v => ... too if the game reacts in code
 engine.settings.define('flashCap', 1, { limits: 'sky.flash' });                   // 0.5 = half of any lightning flash
 settings({ presets: { low: { volFog: false } } });                                // a preset can switch the row like any other key
+settings({ presets: { low: { viewChunks: 0.5, density: 0.25 } } });              // viewChunks and density in a preset: shares (0 to 1) of the game's own value; the top preset lets everything through
 settings({ presets: { low: { pixelRatio: 0.5 } } });                              // pixelRatio in a preset: a share (0 to 1) of the ratio the engine picked for this device
 ```
 `engine.describe().shared['post.volFog.enabled']` shows the settings entry and what the scene wanted underneath.

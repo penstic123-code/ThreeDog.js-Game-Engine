@@ -28,7 +28,7 @@ Fog and the placeholder lights: [recipe 34](34-environment-lighting.md). The sky
 
 ## Surfaces: ground, plants, cloud shadow, season
 
-```js
+```js fragment
 engine.terrain.material = myGroundMaterial;                                             // plain three.js on the module; terrain({ colors, shading, detail }) are its start values (recipe 28)
 engine.uniforms.uWindFreq.value = 1.5; engine.uniforms.uWindAmp.value = 0.5;            // signals: live on every plant, planted ones too
 engine.vegetation.define('grass', { geometry, wind: { amplitude: 0.05, glsl, tsl } });  // your own sway: threedogWind(...) / tsl: (ctx) => moved position (recipe 36)
@@ -57,7 +57,7 @@ Each runs in a slot, then by `order` (low first): `scene` (replaces the scene re
 A plain Pass is placed by its kind: one that renders `engine.scene` itself (`RenderPixelatedPass`, `SSAARenderPass`, `TAARenderPass`) goes in `scene` and replaces the engine's scene render (the scene is drawn once; a second one throws), FXAA / SMAA / TAA in `final`, any other in `hdr` after the effects already there (`ldr` when you added it after an OutputPass); a RenderPass of `engine.scene` and an OutputPass are skipped (the engine has them). Without `{ name }` it is listed by class or shader name (`CopyShader#1`); its `remove()` does not dispose it.
 
 To read the chain: `engine.post.object()` and `engine.post.targets()`; both stay the engine's (it rebuilds passes, resizes, disposes), so change the chain through `engine.post`; to take the built chain over, `engine.post.own()` (`own(false)` gives it back). A game that renders the canvas itself (its own composer) takes the frame: the engine stops drawing and warns once `[own-frame]`.
-```js
+```js fragment
 import { bloom, outline, vignette, lut } from '@threedog/post-effects';   // shared effects come from the add-on
 import { LUTPass } from 'three/addons/postprocessing/LUTPass.js';
 const line = engine.post.add(outline({ thickness: 1.5 })); engine.post.add(vignette());
@@ -86,7 +86,7 @@ export default bloom({ strength: 0.2 });
   This was reasoned on a one-dimensional model of the two orders, not yet checked with the real passes.
 - On / off: `engine.post.get('bloom').enabled = false` for every effect, whoever added it, pauses it where it is (place and params stay); `engine.plugins.off('<file>')` unloads a plugin (the effect leaves the chain; `on` plugs it again; a pack's file: `'<pack>/<file>'`). Either way
   it comes back in the same place: inside a slot `order` decides, and equal orders keep the order the names were first added in. There is no `createEngine({ post })`. The switch is the shared point `post.<name>.enabled`: `enabled` writes its game layer, a hold of your own goes through `engine.mod('post.bloom.enabled', { owner, set, layer })`, and reading `enabled` gives what runs now.
-  The settings menu shows `bloom` / `ao` toggles only when effects with those names exist; a toggle the player turns off sits on the settings layer of that point, above the game and any hold (`describe().render.post` reads `writer: 'settings'`). MSAA is `engine.post.setAntialias(on)` and works with every effect on.
+  The settings menu shows `bloom` / `ao` toggles only when effects with those names exist; a toggle the player turns off sits on the settings layer of that point, above the game and any hold (`describe().render.post` reads `writer: 'settings'`). MSAA is `engine.post.antialias = on` and works with every effect on.
 - `fuse`: a light color effect can skip its own fullscreen pass by carrying a GLSL snippet instead of `create()`:
   `fuse: { uniforms: { uMyAmount: 'float' }, values: p => ({ uMyAmount: p.amount }), glsl: 'color.rgb *= 1.0 - uMyAmount * length(vUv - 0.5);' }`.
   Fused effects that are on and next to each other in one slot (never `scene`) compile into one shader and draw in one pass, in `order`. The
@@ -124,7 +124,7 @@ Each of them is registered once (`core/ops/owned.js`), and every one behaves the
 | `background` | sky | sky: a backdrop color or skybox every frame; with the dome the dome hides when you take it | `scene.background = x` (the dome hides); whole sky: `engine.sky.replace(texture \| object3D)` | `engine.sky.backdrop = '#335577'` |
 | `view.aspect` | view | every resize | `engine.autoView.manual('aspect')` | - |
 | `sky.sunDir` | view | `sky()` each frame, from the time and `engine.sky.orbit` (the same vector as `uSunDir`) | `engine.autoView.manual('sunDir')` | - |
-| `view.far` | view | terrain view range (`setViewChunks`) | `engine.autoView.manual('far')` | - |
+| `view.far` | view | terrain view range (`terrain.viewChunks`) | `engine.autoView.manual('far')` | - |
 | `view.fov` | view | the settings menu fov slider, camera modules (first person / rts fov, fixed shots, back to the install fov on a switch) | `engine.autoView.manual('fov')` | - |
 | `view.pixelRatio` | view | adaptive resolution, about once a second while slow | `engine.autoView.manual('pixelRatio')` | `engine.setPixelRatio(1.5)` |
 | `camera` (position, rotation) | view | the camera module, every frame | `const cam = engine.takeCamera('me')` (`cam.remove()` gives it back) | - |

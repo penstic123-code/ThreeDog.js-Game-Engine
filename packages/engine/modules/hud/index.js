@@ -173,13 +173,13 @@ export function hud(opts = {}) {
   };
 
   return {
-    name: 'hud', type: 'ui', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['pickups', 'content', 'level', 'quests'], stage: 'effects', after: ['particles', 'settings'],
+    name: 'hud', skipKind: 'none', type: 'ui', params: HUD_PARAMS, options: opts, label: 'Objective markers', optional: ['pickups', 'content', 'level', 'quests'], stage: 'effects', after: ['particles', 'settings'],
     install(engine, ctx) {
       e = engine;
       e.i18n.add(STRINGS);
-      defineHudParts(e, containers);
-      for (const ev of ['quest:start', 'quest:step', 'quest:part', 'quest:done', 'quest:fail', 'save:loaded', 'session:start']) ctx.track(e.events.on(ev, syncQuests));
-      // quest markers are derived from the quests save part: they belong to the old quests, and session:start / save:loaded rebuild them
+      defineHudParts(e, ctx, containers);
+      for (const ev of ['quest:start', 'quest:step', 'quest:part', 'quest:done', 'quest:fail', 'state:replaced']) ctx.track(e.events.on(ev, syncQuests));
+      // quest markers are derived from the quests save part: they belong to the old quests, and session:start / save:loaded rebuild them; session:failed too, the quests stayed
       ctx.track(e.events.on('session:end', () => { for (const m of quest.values()) m.remove(); quest.clear(); }));
       ctx.track(e.events.on('i18n:change', () => { for (const [id, it] of items) it.part?.update({ id, ...it.o }); }));
       return api;
@@ -199,3 +199,5 @@ export function hud(opts = {}) {
     },
   };
 }
+
+export const handRolled = 'none: a score line is ordinary DOM that the game owns';

@@ -66,8 +66,7 @@ are the record's own.
 its changes by id, and an index id (`<template>:<index>`, `pickup:<item>:<index>`) moves to another entry when one is inserted above it. Without one,
 dev warns once per load and names the id to write. Pure decoration may keep its index id. Two entries with the same id in one load throw with the fix;
 an authored id may not contain `#` or `/` (those are kept for records made during play and for level nodes). Places computed from the seed (a flat
-spot near the river) stay in code and come in through `content.load(data, { places })`. Records made during play are numbered `<kind>#<n>`
-(`chest#4`), so they never meet an authored id.
+spot near the river) stay in code and come in through `content.load(data, { places })`.
 
 **Writing the ids, renaming them.** `threedog content ids [-w game]` lists each stateful entry that still relies on its index id with the id it
 has now (`-`/`+` lines, dry run); `--write` writes them into the content files. Writing today's id changes nothing for old saves. To give an entry a
@@ -80,8 +79,9 @@ and drops `prop:rock:12`'s data quietly. `npm run check` errors on a target no e
 orphan near an existing id with the exact pair to add.
 
 **Physics props.** `body: { shape: 'box' | 'ball' | 'hull', mass, friction?, restitution?, damping?, angularDamping? }` in a definition makes each
-copy a rigid body (needs `rigid()`). The copy rests on the ground asleep until something hits it; then the record follows the model, so a pushed
-crate's place is saved like any other change.
+copy a rigid body (needs `rigid()`). The copy rests on the ground asleep until something hits it; then the record follows the body, and a save keeps
+the crate's place like any other change, with its turn, speed and sleep in the save part `rigid` under the record id. A load puts it back as it was, in
+the air if it was falling. A copy nothing has touched stays out of the save, however it settled on the ground.
 ```js
 // content/templates.js
 export default { crate: { model: 'crate', body: { shape: 'box', mass: 2 } } };
@@ -89,9 +89,8 @@ export default { crate: { model: 'crate', body: { shape: 'box', mass: 2 } } };
 
 **Grid items and level nodes.** A props entry `{ id: 'bed-home', grid: 'farm', item: 'bed', cell: [4, 4], rotation: 1 }` is the record `grid.place`
 would make, as authored data (the grid comes from the content key `grids`, `{ farm: { cell: 1, origin: [0, 0], size: [16, 12] } }`, or
-`engine.grids.add`). In a level model, a node with the Blender custom property `template = 'door'` becomes an instance of that template (its other
-custom properties fill the template's state), and one with `id = true` becomes a record of kind `levelNode` whose model is the node itself. Their id
-is `<level file name>/<node name>`, for example `town/door_front` (recipe 10).
+`engine.grids.add`). In a level model, a node tagged `template = 'door'` becomes an instance of that template and one tagged `id = true` a record of kind `levelNode`, with id
+`<level file name>/<node name>` (recipe 10).
 
 At runtime (inside an op or a fixed step), `engine.content.spawn(name, at, fields)` places a new instance and returns its record (without `fields.id`
 the id is numbered `<template>#<n>`, for example `chest#3`):
@@ -136,7 +135,7 @@ export default {
 **Many placements: split a kind into a folder.** Any content kind may be a folder instead of one file: `content/props/<area>.js`… (by area,
 by theme, as you like). The parts are joined in file-name order; in `content/index.js` write `const props = contentParts(import.meta.glob('./props/*.js', { eager: true }));`
 (`import { contentParts } from 'threedog'`). An id must be unique across all parts (the content check names both files). The content check hints at splitting past
-about 2000 entries in one file; it also writes `.threedog/content-index.json` (id -> file:line), so `threedog content set/add/remove` opens only the one part it edits.
+about 2000 entries in one file; it also writes `.threedog/content-index.json` (id -> file:line), so `threedog content set/add/remove` opens only the one part it edits. After a hand edit or a rename the next write rebuilds it first, and refuses while a content file does not load.
 Add new entries at the end of a part with a written id: an entry without an id gets its position in the joined list, which an insert above it would shift.
 
 ## 3. What belongs to the definition, what to the instance
@@ -175,9 +174,7 @@ Plain three.js or a template: recipe 40 sections 1 and 2 decide. Game code keeps
 `engine.content.spawn`, `pickups.spawn` or `npcs.add` at module top level or in an `engine:ready` / `level:loaded` / `session:start`
 handler, because those are saved whole and the startup code would make a second copy after every load. Error: `world.add(…, { initial: true })`
 anywhere, which corrupts what saves compare against. Warning: code that `engine.add`s a `world.view(id)` model or writes its position / rotation / scale (world puts it back every frame).
-The fix is a placement in content, or an op. Places computed from the seed (a flat spot for `home`) stay in code and are passed as `places` to
-`content.load`; a mesh built in code becomes a model by name (`engine.assets.manifest({ models: { cabin } })`) when you want it as a template.
-A line that really must do it from code at startup carries `// runtime: <reason>`.
+The fix is a placement in content, or an op; a mesh built in code becomes a model by name (`engine.assets.manifest({ models: { cabin } })`) when you want it as a template.
 
 ## 7. A group of things
 A market stall, a gun nest, a pit lane, a shop shelf, a puzzle room: several things that belong together. Content stays flat. Each thing is its own plain
@@ -219,6 +216,6 @@ export default [
 ```
 Copied to `stall-1`, part `chest` becomes `{ id: 'stall-1-chest', template: 'chest', place: 'stall-1', x: 1, source: 'stall' }`.
 
-**Deleting.** Delete an entry and a save that changed it still loads: the change is an orphan, kept in the save, listed in `engine.describe().world.orphans` and warned
-about once; the `renames` content file says where it went (`null` = deleted on purpose). Delete a place and `threedog check` names every entry still standing on it; the
+**Deleting.** Delete an entry and a save that changed it still loads: the change is an orphan (recipe 20, "Orphans are kept");
+the `renames` content file says where it went (`null` = deleted on purpose). Delete a place and `threedog check` names every entry still standing on it; the
 load refuses it too (`content-place`), because an entry with no place has no position.

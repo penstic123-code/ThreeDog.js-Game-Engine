@@ -1,11 +1,11 @@
-// The content id index, .threedog/content-index.json in the game folder: id -> the file and line that define it, plus per file its kind, mtime,
+// The content id index, .threedog/content-index.json in the game folder: id -> the file and line that define it, plus per file its kind, stamp,
 // where its entries start in the joined kind (a folder kind joins several files) and how many entries rely on their position for their id.
 // Why: write-back (content-write.mjs) must open only the one file it edits. Without the index it would import every content file to find an id,
 // which is what made `content set` slow on a game with thousands of placements in many files. Content check writes it (it has loaded everything
-// anyway); write-back updates the one file's entry after each write and rebuilds the whole index only when an id is not where the index says.
+// anyway); write-back updates the one file's entry after each write and rebuilds the whole index when a file changed behind it or an id is not where it says.
 // Also the one place that sees all files of a kind at once, so duplicate ids across files (content/props/forest.js and town.js) are reported here.
-import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync } from 'node:fs';
-import { join, relative } from 'node:path';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, statSync, readdirSync } from 'node:fs';
+import { join, relative, dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseAst } from 'vite';
 import { abs, CONTENT_IDS_REL } from '../paths.mjs';
@@ -17,6 +17,8 @@ const { pickupId, templateId } = await import(pathToFileURL(abs(CONTENT_IDS_REL)
 const SPLIT_HINT = 2000;
 export const indexPath = dir => join(dir, '.threedog', 'content-index.json');
 const relOf = (dir, path) => relative(dir, path).replace(/\\/g, '/');
+/** A file as the index remembers it. Size too: two edits inside one tick of a coarse file clock leave the same time */
+export const fileStamp = s => ({ mtime: s.mtimeMs, size: s.size });
 
 /**
  * The id an array entry has at load: the written id, else the index id the engine gives it (ids.js / props.js), else null (no id: not addressable).
@@ -92,7 +94,7 @@ export function buildIndex(dir, data, parts) {
       // a part of an object folder: its own keys only (the joined object has every file's keys)
       const own = value ?? Object.fromEntries(Object.keys(joined || {}).filter(k => fileHasKey(text, k)).map(k => [k, joined[k]]));
       const { ids, indexIds, positional } = fileEntries(kind, file, own, from, text);
-      index.files[file] = { kind, mtime: statSync(path).mtimeMs, from, count, indexIds, positional };
+      index.files[file] = { kind, ...fileStamp(statSync(path)), from, count, indexIds, positional };
       for (const [id, e] of ids) (index.ids[id] ??= []).push(e);
       if (count > SPLIT_HINT) warnings.push(`${file}: ${count} entries in one file. Consider splitting it into a folder, content/${kind}/<part>.js (by area or by theme, your choice); `
         + 'write-back and the dev server then reread only the part that changed');
@@ -118,7 +120,24 @@ export function writeIndex(dir, data, parts) {
   return { errors, warnings };
 }
 
-/** The index, or null when there is none yet / it cannot be read @param {string} dir @param {any} [io] */
-export function readIndex(dir, io = { readFileSync, existsSync }) {
-  try { return io.existsSync(indexPath(dir)) ? JSON.parse(io.readFileSync(indexPath(dir), 'utf8')) : null; } catch { return null; }
+/**
+ * Is every file the index names as it remembers it, and has no file joined a folder kind? A file gone throws, which readIndex takes as no.
+ * Why at every read: an entry with no written id is named by its position across the kind's files, so a hand edit to an EARLIER file moves that id onto another entry,
+ * in a file that did not change; the write would then land on the wrong entry and report success.
+ * shortcut: looks at content/ only. A content file that imports its entries from outside content/ can change with no sign here; upgrade by stamping its imports if such a game writes wrongly.
+ */
+function upToDate(dir, index, io) {
+  const files = Object.keys(index.files);
+  for (const f of files) { const { mtime, size } = fileStamp(io.statSync(join(dir, f))); if (mtime !== index.files[f].mtime || size !== index.files[f].size) return false; }
+  for (const folder of new Set(files.map(dirname))) if (folder !== 'content' && io.readdirSync(join(dir, folder)).some(n => n.endsWith('.js') && n !== 'index.js' && !index.files[`${folder}/${n}`])) return false;
+  return true;
+}
+
+/** The index, or null when there is none yet, it cannot be read, or a file changed behind it: null means rebuild, nothing may be read from a stale one @param {string} dir @param {any} [io] */
+export function readIndex(dir, io = { readFileSync, existsSync, statSync, readdirSync }) {
+  try {
+    if (!io.existsSync(indexPath(dir))) return null;
+    const index = JSON.parse(io.readFileSync(indexPath(dir), 'utf8'));
+    return upToDate(dir, index, io) ? index : null;
+  } catch { return null; }
 }

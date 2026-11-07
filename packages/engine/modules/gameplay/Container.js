@@ -9,7 +9,7 @@
 import { fmt, DEV } from '../../core/base/validate.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { failure } from '../../core/ops/opsFail.js';
-import { sig, freeze, canTrade, acceptsFrom, putIn, loadEntries } from './boxOps.js';
+import { sig, freeze, checkCount, canTrade, acceptsFrom, putIn, loadEntries } from './boxOps.js';
 import { codedError } from '../../core/base/errorHints.js';
 
 // Developer messages (warned once in DEV): add doesn't throw when full, which an AI would hardly notice
@@ -79,6 +79,7 @@ export class Container {
     DEV && this.inv.engine.ops.guard(this._local ? 'inventory.add' : 'container.add');
     readParams(`add('${id}')`, keysSchema(['data', 'silent']), opts);
     if (isKey(id)) throw codedError('container', fmt(STRINGS.keyToAdd, { key: id }));
+    checkCount(`add('${id}')`, 'n', n);
     this.inv._known(id);
     const before = this.count(id), key = this._put(id, n, copyData('add', id, opts?.data), null, !!opts?.silent);
     return key === false ? failure({ code: 'full', facts: { id, n } }) : { ok: true, key, added: this.count(id) - before };
@@ -94,6 +95,7 @@ export class Container {
    */
   remove(x, n = 1) {
     DEV && this.inv.engine.ops.guard(this._local ? 'inventory.remove' : 'container.remove');
+    checkCount(`remove('${x}')`, 'n', n);
     if (!this.has(x, n)) return false;
     let rest = n;
     for (const e of this._of(x)) { const k = Math.min(rest, e.count); this._take(e, k); if (!(rest -= k)) break; }
@@ -117,7 +119,7 @@ export class Container {
     DEV && this.inv.engine.ops.guard(this._local ? 'inventory.trade' : 'container.trade');
     readParams(`trade('${take}', '${give}')`, keysSchema(['takeN', 'giveN', 'data', 'silent']), opts);
     const { takeN = 1, giveN = 1 } = opts;
-    if (!(takeN > 0) || !(giveN > 0)) throw codedError('container', `trade('${take}', '${give}'): takeN and giveN must be positive numbers, got takeN ${takeN}, giveN ${giveN}. Example: bag.trade('rusty_key', 'gold_key', { takeN: 1, giveN: 1 })`);
+    checkCount(`trade('${take}', '${give}')`, 'takeN', takeN); checkCount(`trade('${take}', '${give}')`, 'giveN', giveN);
     if (isKey(give)) throw codedError('container', fmt(STRINGS.keyToAdd, { key: give }));
     this.inv._known(give);
     const data = copyData('trade', give, opts.data), why = this._canTrade(take, give, takeN, giveN, data);
@@ -150,6 +152,7 @@ export class Container {
     DEV && this.inv.engine.ops.guard(this._local ? 'inventory.setData' : 'container.setData');
     const e = this._find(key);
     if (!e) throw codedError('container', fmt(STRINGS.noKey, { fn: 'setData', key, box: this.id, keys: this._keys() }));
+    if (n !== undefined) checkCount(`setData('${key}')`, 'n', n);
     const d = copyData('setData', e.id, data), k = Math.min(n ?? e.count, e.count), at = this._entries.indexOf(e);
     const keep = k === e.count && e.data !== undefined ? e.key : null;   // a whole entry keeps its key, so references held by the game stay valid
     e.count -= k;

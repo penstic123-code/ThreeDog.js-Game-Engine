@@ -8,6 +8,7 @@
 import { warnOnce } from '../base/validate.js';
 import { coded } from '../base/errorHints.js';
 import { ownerArgs } from './sharedPoint.js';
+import { viewHold } from '../scene/view.js';
 
 // The halt / freeze handle is { owner, remove() } only: no chaining, so each is ended in exactly one way.
 function handle(owner, remove) { return { owner, remove }; }
@@ -26,7 +27,7 @@ export function defineHoldStacks(engine) {
     else if (!engine.disposed) { engine.halted = false; engine._loop(); }
     engine.page._sync();   // a page hold is about the real-time loop: there is none while the loop is stopped (core/engine/page.js)
   } });
-  engine.stacks.define('camera', { kind: 'top', save: false });   // who holds the camera; the latest is in charge (cameraOverride)
+  engine.stacks.define('camera', { kind: 'top', save: false, onChange: () => viewHold(engine) });   // who holds the camera; the latest is in charge (cameraOverride)
 }
 
 export const holdMethods = {
@@ -41,8 +42,8 @@ export const holdMethods = {
   haltLoop(owner) {
     const a = ownerArgs(owner);
     const P = this.stacks.get('halt');
-    P.take({ owner: a.owner, value: true });   // the stack's onChange sets this.halted (defineHoldStacks), same as engine.mod('halt')
-    return handle(a.owner, () => { if (P.has(a.owner)) this._unhalt(a.owner); });
+    const held = P.take({ owner: a.owner, value: true });   // the stack's onChange sets this.halted (defineHoldStacks), same as engine.mod('halt')
+    return handle(a.owner, () => held.remove());   // this hold, not the name: a handle kept from an earlier one must not end a later one
   },
   /**
    * @internal The dev bridge and tests: end owner's halt (the handle's remove() calls this); with no halt held (a headless engine) it starts live running.

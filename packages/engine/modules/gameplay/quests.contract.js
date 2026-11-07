@@ -6,7 +6,7 @@ export default {
   api: ['define', 'start', 'advance', 'state', 'list'],
   ops: [],
   events: ['quest:start', 'quest:step', 'quest:done'],
-  saves: { quests: 2 },
+  saves: { quests: 3 },
   describe: true,
   options: {},
   probe: {

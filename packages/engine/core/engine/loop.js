@@ -12,6 +12,7 @@
 //
 // Determinism: in engine.step() and headless loading frames, jobs ignore the real-time budget and drain the queue (see Jobs.js),
 // and stream's synchronous builds are attached to the scene before step returns: same input and same seed (engine.random) give the same result.
+import { Vector4 } from 'three';
 import { reportError } from '../base/errors.js';
 import { DEV, warnOnce, fmt } from '../base/validate.js';
 import { coded, codedError } from '../base/errorHints.js';
@@ -33,18 +34,33 @@ const MAX_CATCHUP = 0.1;
 const CATCHUP_MS = STEP * 2000;
 // Dev message (console): which hook failed
 const STRINGS = {
-  onFixed: 'onFixed callback', commits: 'background result apply (commits)', onFrame: 'onFrame callback', animate: 'animator update', onRender: 'onRender callback', clock: 'clock timer', render: 'render',
+  onFixed: 'onFixed callback', onFrame: 'onFrame callback', animate: 'animator update', onRender: 'onRender callback', clock: 'clock timer', render: 'render',
   hook: '{kind} hook of module {name}',
   stepStart: 'engine.step() ran while start() is still loading: no game time passes, only frame hooks run. Wait for it first: await engine.start(); engine.step(1)',
   stepSession: 'engine.step() ran while a new game, load or quit is still replacing the state: the step plays on a half-replaced world. Wait for it first: await engine.session.load(slot); engine.step(1)',
 };
 
 const SOFT = { soft: true };   // core steps (render, stream): report once only
+const _viewport = new Vector4(), _scissor = new Vector4();
 /** Call a hook fn.call(self, a, b); errors go to reportError for tiering.
  *  opts: { module } the failing module / SOFT / null (game callback, counts as gameplay).
  *  Takes no ...args and needs no caller closure: the main loop calls this many times a frame, so it must not allocate each time. */
 function safe(engine, key, fn, opts, self, a, b) {
   try { fn.call(self, a, b); } catch (err) { reportError(engine, err, key, opts ?? undefined); }
+}
+/**
+ * One engine.onRender hook. What a hook borrows to draw (the target, viewport, scissor, autoClear, scene.overrideMaterial, camera.layers) it gives back on its last lines, which a
+ * throw skips, and the engine's frame then draws into an 8-pixel corner or in one flat material from there on. So a hook that throws has them put back. One that returns
+ * is taken at its word: what it left is the game's choice.
+ */
+function drawHook(f, ctx) {
+  const { renderer: r, scene, camera } = ctx, target = r.getRenderTarget(), viewport = r.getViewport(_viewport), scissor = r.getScissor(_scissor), scissorTest = r.getScissorTest();
+  const { autoClear } = r, { overrideMaterial } = scene, { mask } = camera.layers;
+  try { f(ctx); } catch (err) {
+    r.setRenderTarget(target); r.setViewport(viewport); r.setScissor(scissor); r.setScissorTest(scissorTest);
+    r.autoClear = autoClear; scene.overrideMaterial = overrideMaterial; camera.layers.mask = mask;
+    throw err;
+  }
 }
 /** Run one game callback list. remove() replaces the list, so a hook an earlier one removed in this pass (or a dispose) is skipped: it may sit on what its remover just tore down */
 function runList(e, name, key, a) {
@@ -74,7 +90,7 @@ export const loopMethods = {
       this.time._beginStep();                  // the one counter (core/time/time.js): this step's commits, ops and input records carry the new tick
       this._inFixed = true;                    // ops log phase 'fixed' and the dev guard lets gameplay writes through
       // due background results first, so this step's gameplay sees them; an engine stepped by hand before start() applies none (start() rebases them)
-      if (this.ready) safe(this, STRINGS.commits, this.commits.tick, null, this.commits, this.time.tick);
+      if (this.ready) this.commits.tick(this.time.tick);
       runList(this, '_fixed', STRINGS.onFixed, STEP);
       this._runHooks('fixed', STEP);
       runList(this, '_fixedLate', STRINGS.onFixed, STEP);   // onFixed({ phase: 'late' }): reads this step's result
@@ -120,14 +136,14 @@ export const loopMethods = {
     if (own) own.inside++;
     this._poses.draw();   // moving things draw between the last two fixed steps (stepPoses.js); undone below, gameplay never sees it
     try {
-      for (const f of before) { safe(this, STRINGS.onRender, f, null, undefined, ctx); r.setRenderTarget(null); }
+      for (const f of before) { safe(this, STRINGS.onRender, drawHook, null, undefined, f, ctx); r.setRenderTarget(null); }
       this.shadows._frame();   // a game light's cascades, after 'before': picture code aims its light there, and the placement must be what is drawn (render/shadows.js)
       this._checkBackendAdds();   // WebGPU route: a WebGL-only material added since the last frame is named, not drawn blank (startup.js)
       freshFrame(r);   // WebGPU: step() several times in one task, or a renderOnce() earlier in this tick, must not reuse that scene pass
       if (this._picture) this._picture.drawing = true;
       if (draws) { this.batching.skip(); try { this.post.render(dt); } finally { this.batching.unskip(); } }
       if (this._picture) this._picture.drawing = false;
-      for (const f of after) safe(this, STRINGS.onRender, f, null, undefined, ctx);
+      for (const f of after) safe(this, STRINGS.onRender, drawHook, null, undefined, f, ctx);
     } finally { this._poses.undraw(); if (own) own.inside--; this._picture?.frameEnd(); }
     gpu?.end();
     // frames that first draw new objects pay their GPU upload here (Budget.js ApplyCost); a frame that compiled shaders is not judged by adaptive resolution
@@ -290,3 +306,5 @@ export const loopMethods = {
   // Adaptive resolution (core/scene/adaptive.js): judged on frame cost; tests drive it with explicit cost / compiled values
   _adapt(dt, cost = Math.max(this._cpuMs, this._gpu?.ms ?? 0), compiled = !!this._compiled, gpuKnown = this._gpu?.ms != null) { adapt(this, dt, cost, compiled, gpuKnown); },
 };
+
+export const handRolled = [{ kind: 'loop', seen: 'a requestAnimationFrame game loop of its own', use: 'engine.onFrame(dt => ...) for what is seen, engine.onFixed(dt => ...) for rules: pause, step, tests and saves follow them', code: /\brequestAnimationFrame\s*\(\s*[\w.]+\s*\)|\.setAnimationLoop\s*\(/ }];

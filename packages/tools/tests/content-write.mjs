@@ -8,10 +8,11 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { ENGINE } from '../paths.mjs';
-import { contentWrite, lit, stats } from '../content-write.mjs';
+import { contentWrite, contentRead, lit, stats } from '../content-write.mjs';
 import { writeChecked, writeAtomic } from '../lib/atomic.mjs';
 import { checkGame } from '../content-check.mjs';
 import { loadGame, partOf } from '../content-check/load.mjs';
+import { fileStamp } from '../content-check/index-ids.mjs';
 
 export const name = 'content write: set / add / remove in place (comments kept), expect conflict, restore on failed check, one file read; folder kinds + id index';
 
@@ -44,6 +45,35 @@ export async function run({ check }) {
     await checkGame(dir);   // writes .threedog/content-index.json
     const props = () => readFileSync(join(dir, 'content/props.js'), 'utf8');
     const w = (req, opt) => contentWrite(dir, req, opt);
+
+    // ── what a path really is: a junction or link inside content, and an index naming a file outside it ──
+    const away = join(root, 'away');
+    mkdirSync(away, { recursive: true });
+    const AWAY = "export default [\n  { id: 'far', template: 'crate', x: 5, z: 5 },\n];\n";
+    writeFileSync(join(away, 'props.js'), AWAY);
+    fs.symlinkSync(away, join(dir, 'content/linked'), 'junction');
+    let fileLink = true;   // a file link needs a right Windows gives few accounts; a junction needs none
+    try { fs.symlinkSync(join(away, 'props.js'), join(dir, 'content/escape.js'), 'file'); } catch { fileLink = false; }
+    const untouched = () => readFileSync(join(away, 'props.js'), 'utf8') === AWAY;
+    const idx = join(dir, '.threedog/content-index.json'), good = readFileSync(idx, 'utf8');
+    const named = file => { const x = JSON.parse(good); x.ids.far = [{ file, kind: 'props', line: 2 }]; x.files[file] = { kind: 'props', ...fileStamp(fs.statSync(join(dir, file))), from: 0, indexIds: 0 }; writeFileSync(idx, JSON.stringify(x)); };
+    const viaFile = await w({ op: 'set', file: 'content/linked/props.js', kind: 'props', id: 'far', fields: { x: 6 } });
+    check('a file behind a junction in content is refused, the file outside stays', !viaFile.ok && /outside/.test(viaFile.error ?? '') && untouched(), viaFile.error ?? 'written');
+    if (fileLink) {
+      const viaLink = await w({ op: 'set', file: 'content/escape.js', kind: 'props', id: 'far', fields: { x: 6 } });
+      check('a file link in content that leaves it is refused', !viaLink.ok && /outside/.test(viaLink.error ?? '') && untouched(), viaLink.error ?? 'written');
+    }
+    const addVia = await w({ op: 'add', file: 'content/linked/props.js', kind: 'props', entry: { id: 'more', template: 'crate', x: 0, z: 0 } });
+    check('add through the junction is refused too', !addVia.ok && untouched(), addVia.error ?? 'written');
+    for (const [what, file] of [['behind a junction', 'content/linked/props.js'], ['outside content', '../away/props.js']]) {
+      named(file);
+      const byIndex = await w({ op: 'set', id: 'far', fields: { x: 6 } });
+      check(`an index target ${what} is refused`, !byIndex.ok && /outside/.test(byIndex.error ?? '') && untouched(), byIndex.error ?? 'written');
+      const read = await contentRead(dir, { id: 'far' });
+      check(`reading an index target ${what} is refused`, !read.ok && /outside/.test(read.error ?? ''), read.error ?? 'read');
+    }
+    writeFileSync(idx, good);
+    fs.rmSync(join(dir, 'content/linked'), { recursive: false, force: true }); fs.rmSync(join(dir, 'content/escape.js'), { force: true });
 
     const { reads, io } = countingIo(dir);
     const s = await w({ op: 'set', id: 'b', fields: { x: 12.5 } }, { io });

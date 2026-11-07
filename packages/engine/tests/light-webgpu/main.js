@@ -61,14 +61,14 @@ window.lightGI = async () => {
   const gi = engine.post.add(voxelGI({ resolution: 64, bounds: new THREE.Box3(new THREE.Vector3(-6, -1, -6), new THREE.Vector3(6, 7, 6)), intensity: 2, setup: n => { vxgiNode = n; } }));
   const taa = engine.post.add(temporalAA());
   out.row = () => engine.describe().render.post.find(x => x.name === 'voxelGI');
-  engine.post.setAntialias(true);
+  engine.post.antialias = true;
   out.antialias = engine.describe().render.antialias;
   out.aaText = /temporalAA in place of MSAA/.test(engine.describe().render.text);
   taa.enabled = false;
   out.msaa = engine.describe().render.antialias;
   out.msaaText = /\+ MSAA x4/.test(engine.describe().render.text);
   taa.enabled = true;
-  engine.post.setAntialias(false);
+  engine.post.antialias = false;
   if (backend !== 'webgpu') {   // forced WebGL2 backend: nothing runs, describe() says so, nothing was built
     const row = out.row(); delete out.row;
     return { ...out, row, built: !!vxgiNode, buffersWithoutGI: passOf()?.order?.includes('voxelGI') ?? false };
@@ -84,7 +84,6 @@ window.lightGI = async () => {
   const item = [...engine.occlusion._items].find(i => i.meshes[0] === red);
   engine.occlusion._hide(item); vxgiNode.needsUpdate = true;
   out.hiddenBounce = await corner();
-  out.volumeSeesHidden = vxgiNode.volume.layers.isEnabled(RESERVED_LAYERS.occlusionHidden);
   engine.occlusion.enabled = false; watched.remove(); vxgiNode.needsUpdate = true;
   const row = out.row(); delete out.row;
   out.row = row;

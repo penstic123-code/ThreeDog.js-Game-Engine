@@ -13,6 +13,7 @@ export const badPosition = (message, value, Type) => Object.assign(codedError('b
 // A horizontal position missing x or z (a 2-element [x, z] array reads z as undefined; { x, y } has no z) would become 0 silently
 // (player.placeAt([10, 20]) at z = 0): say which part is missing and how to write it
 const MAX_COORD = 1e9;
+const VEC_ERR = 'A position or vector needs finite numbers in every part; got ';
 const XZ_ERR = 'A horizontal position needs finite x and z: pass [x, y, z] (a 2-element [x, z] array does not work) or { x, z }; got ';
 
 /** Round to one decimal (describe, budget reports) @param {number} v @returns {number} */
@@ -29,19 +30,25 @@ export const rv = v => (Number.isFinite(v) && v !== 0 ? Number(v.toPrecision(Mat
 /** An angle in radians as the same turn in -PI..PI; of a difference, the short way round @param {number} a @returns {number} */
 export const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
 
-/** Normalize a Vector3 / Object3D / [x, y, z] / { x, y, z } into a Vector3 */
+const _world = new THREE.Vector3();
+/** Where an Object3D stands: a position argument is a place in the world, and a child's .position is one in its parent's space */
+const placeOf = o => (o.parent && !o.parent.isScene ? o.getWorldPosition(_world) : o.position);
+
+/** Normalize a Vector3 / Object3D / [x, y, z] / { x, y, z } into a Vector3. Every part must be a finite number: a NaN let in here reaches the solver, the picture and the save far from the call that made it */
 export function vec3(v, out = new THREE.Vector3()) {
-  if (!v && v !== 0) return out;
+  if (v == null || v === false || v === '') return out;
   if (typeof v !== 'object') throw badPosition(POS_ERR + JSON.stringify(v), v, TypeError);
-  if (v.isVector3) return out.copy(v);
-  if (v.isObject3D) return out.copy(v.position);
-  if (Array.isArray(v)) return out.set(v[0] ?? 0, v[1] ?? 0, v[2] ?? 0);
-  return out.set(v.x ?? 0, v.y ?? 0, v.z ?? 0);
+  if (v.isVector3) out.copy(v);
+  else if (v.isObject3D) out.copy(placeOf(v));
+  else if (Array.isArray(v)) out.set(v[0] ?? 0, v[1] ?? 0, v[2] ?? 0);
+  else out.set(v.x ?? 0, v.y ?? 0, v.z ?? 0);
+  if (!Number.isFinite(out.x) || !Number.isFinite(out.y) || !Number.isFinite(out.z)) throw badPosition(VEC_ERR + `[${out.x}, ${out.y}, ${out.z}]`, v, TypeError);
+  return out;
 }
 
 /** The height a position names, or undefined when it names none ({ x, z }) */
 export function yOf(v) {
-  if (v?.isObject3D) v = v.position;
+  if (v?.isObject3D) v = placeOf(v);
   const y = Array.isArray(v) ? v[1] : v?.y;
   return Number.isFinite(y) ? y : undefined;
 }
@@ -49,7 +56,7 @@ export function yOf(v) {
 /** Get the horizontal coordinates [x, z] from a Vector3 / Object3D / [x, y, z] / { x, z } */
 export function xzOf(v) {
   if (!v || typeof v !== 'object') throw badPosition(POS_ERR + JSON.stringify(v), v, TypeError);
-  if (v.isObject3D) v = v.position;
+  if (v.isObject3D) v = placeOf(v);
   const x = Array.isArray(v) ? v[0] : v.x, z = Array.isArray(v) ? v[2] : v.z;
   if (!Number.isFinite(x) || !Number.isFinite(z)) throw badPosition(XZ_ERR + JSON.stringify(v), v, TypeError);
   // Far past float precision (render coordinates are 32-bit): not a place. Worse, the chunk loops (`for (cx = floor(x / size); ...; cx++)`) never advance once x / size passes 2^53, a silent freeze (found by fuzz: pos z = -3.6e178)

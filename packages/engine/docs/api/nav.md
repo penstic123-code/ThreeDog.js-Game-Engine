@@ -4,7 +4,7 @@ Navmesh (nav() module)
 
 - Options `NavOptions`:
   - `cellSize?: number` Voxel cell size (meters), default 0.3; smaller is more accurate but slower to build
-  - `agentRadius?: number` Character radius (meters), default reads engine.movement.radius (this is an override)
+  - `agentRadius?: number` Character radius (meters), default reads engine.movement.radius (this is an override). The mesh built at load; a path with another radius gets a mesh of its own, on first ask
   - `agentHeight?: number` Character height (meters), default reads engine.movement.height
   - `maxClimb?: number` Step height that can be climbed (meters), default reads engine.movement.stepHeight
   - `maxSlope?: number` Max walkable slope (degrees), default reads engine.movement.maxSlope
@@ -17,7 +17,7 @@ Navmesh (nav() module)
   - `links?: NavLink[]` (experimental) Places joined by a jump or a climb instead of walking (Recast off-mesh connections); walkers cross them straight unless the game says otherwise
 
 ## Methods and properties
-- `nav.findPath(from: PositionLike, to: PositionLike, opts?: { radius?, detailed? }) → NavPathPoint[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true }) → { status, path }` — Path from from to to [{ x, z }…] (meters); null if not ready or unreachable. Usually use engine.characters.findPath
+- `nav.findPath(from: PositionLike, to: PositionLike, opts?: { radius?, detailed? }) → NavPathPoint[] | null` / `findPath(from: PositionLike, to: PositionLike, opts: { radius?: number; detailed: true }) → { status, path }` — Path from from to to [{ x, y, z }…] (meters); null if not ready or unreachable; radius: the body it must fit, default agentRadius. Usually use engine.characters.findPath
 - `nav.dispose()` — Unload the navmesh (frees native objects); characters.findPath then falls back to A*
 - Properties:
   - `ready: boolean` The navmesh has been generated

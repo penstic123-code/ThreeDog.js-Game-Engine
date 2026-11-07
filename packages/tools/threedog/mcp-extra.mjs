@@ -5,7 +5,7 @@ import { spawn } from 'node:child_process';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { TIME } from './runtime.mjs';
-import { item, result, parseResult } from '../lib/result.mjs';
+import { item, result, parseResult, HINTS_SHOWN } from '../lib/result.mjs';
 
 const str = description => ({ type: 'string', description });
 
@@ -80,24 +80,29 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const pairs = args => Object.entries(args
   || {}).map(([k, v]) => `${k}=${Array.isArray(v) && v.every(x => typeof x === 'number') ? v.join(',') : v !== null && typeof v === 'object' ? JSON.stringify(v) : v}`);
 
-/** The errors of a `check --json` result (lib/result.mjs) as lines with their fix, then the summary; capped (the full run is `npm run check` in a terminal) */
-const checkDigest = (r, max) => {
-  const lines = r.items.filter(i => i.level === 'error').map(i => `✗ ${i.code ? i.code + ' ' : ''}${i.file ? i.file + (i.line ? ':' + i.line : '') + '  ' : ''}${i.message}${i.fix ? `\n    Fix: ${i.fix}` : ''}`);
-  const text = [...lines, r.summary].join('\n');
-  return text.length > max ? text.slice(0, max - 40) + `\n… (${text.length - max + 40} more characters)` : text;
+const isHint = i => i.code === 'R40' && i.level === 'warn';
+const place = i => `${i.code ? i.code + ' ' : ''}${i.file ? i.file + (i.line ? ':' + i.line : '') + '  ' : ''}`;
+/** A `check --json` result (lib/result.mjs) as lines: every error with its fix, the first `hints` bypass hints in the order `check` prints them, then the summary. Capped, and the
+ *  summary survives the cap (the full run is `npm run check` in a terminal). A hint never changes the verdict: ok is the exit code */
+export const checkDigest = (r, max, hints = HINTS_SHOWN) => {
+  const all = r.items.filter(isHint), shown = all.slice(0, hints), more = all.length - shown.length;
+  const body = [...r.items.filter(i => i.level === 'error').map(i => `✗ ${place(i)}${i.message}${i.fix ? `\n    Fix: ${i.fix}` : ''}`),
+    ...shown.map(i => `! ${place(i)}${i.message}\n    ${i.short ?? i.fix}`), ...(more ? [`… ${more} more hints: ask with hints: ${all.length}`] : [])].join('\n');
+  const room = max - r.summary.length - 1;
+  return [...(!body ? [] : [body.length > room ? body.slice(0, room - 40) + `\n… (${body.length - room + 40} more characters)` : body]), r.summary].join('\n');
 };
 const CHECK_MS = 10 * 60000;
 export const STATIC_TOOLS = {
   how: {
-    description: 'Which API, recipe or plain three.js way answers a task, from the docs alone (no game needed). Ask before building a system or a picture; plain three.js hits come first.',
-    schema: { type: 'object', properties: { task: str('The task in English words, e.g. "tone mapping", "save game", "rain"') }, required: ['task'] },
+    description: 'What already exists, before building a system or a picture. task: one recommended route, is it installed here. browse: categories, then a category. card: one capability by id. Works with no game.',
+    schema: { type: 'object', properties: { task: str('Search: the task in English words, e.g. "tone mapping", "save game", "rain"'), browse: str('"categories" for the first screen, or a category id for its capabilities'), card: str('A capability id from browse: install, dependencies, time, saves, example'),
+      full: { type: 'boolean', description: 'task: also the other routes; card: also the example code' } }, required: [] },
+    // the answers of `threedog how` (how-answer.mjs): one field each, the same as its flags
     run: async (dir, a) => {
-      // the same answer as `threedog how`: no match or a weak one says which typed words the docs never use and what to try (how.mjs tryNext)
-      const { search, format, tryNext } = await import('../how.mjs'), { ENGINE } = await import('../paths.mjs');
-      const q = String(a.task ?? '').trim(), hits = search(join(ENGINE, 'docs'), q);
-      if (!hits.length) return { ok: true, text: `No match for "${q}". ${tryNext(hits)}`, data: [] };
-      const weak = hits.weak ? `No good match for "${q}": the closest hits below cover less than a third of it. ${tryNext(hits)}\n\n` : '';
-      return { ok: true, text: weak + hits.map(format).join('\n'), data: hits };
+      const how = await import('../how-answer.mjs'), full = !!a.full;
+      if (a.card) return how.card(dir, String(a.card).trim(), { full });
+      if (a.browse) return how.browse(a.browse === 'categories' ? '' : String(a.browse).trim());
+      return how.answer(dir, String(a.task ?? '').trim(), { full });
     },
   },
   // read-only on purpose: copying writes into the game and can need --force, so it stays a command the user (or AI) runs on purpose (threedog art copy)
@@ -124,8 +129,8 @@ export const STATIC_TOOLS = {
     },
   },
   check: {
-    description: 'Run npm run check on this game (rules R*, content, types, GAMEMAP up to date) from the files alone (no game needed); errors and counts.',
-    schema: { type: 'object', properties: { rule: str('Optional: only these rules, e.g. "R33,R18"'), max: { type: 'number', description: 'Output cap in characters (default 2000)' } }, required: [] },
+    description: 'Run npm run check on this game (rules R*, content, types, GAMEMAP) from the files alone (no game needed): errors, counts, the first bypass hints (hints never fail it).',
+    schema: { type: 'object', properties: { rule: str('Optional: only these rules, e.g. "R33,R18"'), max: { type: 'number', description: 'Output cap in characters (default 2000)' }, hints: { type: 'number', description: `Bypass hints to list (default ${HINTS_SHOWN}; every one when rule names R40)` } }, required: [] },
     run: (dir, a) => new Promise(res => {
       const args = [join(HERE, '..', 'check.mjs'), '--json', ...(a.rule ? ['--rule', String(a.rule)] : [])];
       const c = spawn(process.execPath, args, { cwd: dir, timeout: CHECK_MS });   // a check that hangs would hold every tool call queued behind it
@@ -135,7 +140,8 @@ export const STATIC_TOOLS = {
       c.stdout.on('data', d => out += d); c.stderr.resume();   // stdout is only the JSON result; the text goes to stderr
       c.on('close', (code, signal) => {
         const r = parseResult(out) ?? result([item({ code: 'check', message: signal ? `check stopped after ${CHECK_MS / 60000} minutes` : 'check did not print a result' })], 'check failed', false);
-        res({ ok: code === 0, text: (code === 0 ? '✓ check passed\n' : '✗ check failed\n') + checkDigest(r, a.max > 0 ? a.max : 2000), data: { exit: code, errors: r.items.filter(i => i.level === 'error') } });
+        const hints = a.hints >= 0 ? a.hints : /\bR40\b/.test(String(a.rule ?? '')) ? Infinity : HINTS_SHOWN;   // what check --rule R40 prints
+        res({ ok: code === 0, text: (code === 0 ? '✓ check passed\n' : '✗ check failed\n') + checkDigest(r, a.max > 0 ? a.max : 2000, hints), data: { exit: code, errors: r.items.filter(i => i.level === 'error'), hints: r.items.filter(isHint).slice(0, hints) } });
       });
     }),
   },

@@ -53,7 +53,7 @@ export const specs = [
           bad: { template: refused({ templates: { pcBad: { model: 'pcLamp', collide: { circl: 0.25 } } } }), zero: refused({ templates: { pcBad2: { model: 'pcLamp', collide: { circle: 0 } } } }),
             prop: refused({ props: [{ id: 'pc-bad', model: 'pcLamp', x, z, collide: { circle: 0.25, occluder: 'no' } }] }), word: refused({ templates: { pcBad3: { model: 'pcLamp', collide: 'sphere' } } }) },
           saved: Object.keys(W.toJSON().changed).filter(k => k.startsWith('pc-')),
-          explained: engine.thing('pc-thin').explain().rules.blocksMovement,
+          explained: engine.explain({ thing: 'pc-thin' }).detail.rules.blocksMovement,
         };
       }, models.toString().replace(/^\(\) => /, '() => '));
       const one = c => c.near.length === 1 ? c.near[0] : {}, J = JSON.stringify;

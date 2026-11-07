@@ -86,7 +86,7 @@ export class Water {
   }
 
   /** One water mesh out of the scene. The material is shared by all water, so not engine.remove (which would dispose it); the ray registration goes too @internal */
-  _drop(m) { const e = this.engine; e.detach(m); e.rays.forget(m); this._uv.delete(m); m.geometry.dispose(); }
+  _drop(m) { const e = this.engine; m.removeFromParent(); e.rays.forget(m); this._uv.delete(m); m.geometry.dispose(); }
   /** The module goes: its meshes and what it made leave with it; a game's material stays the game's @internal */
   dispose() {
     for (const m of [this.sea, ...this.bodies.values()]) if (m) this._drop(m);
@@ -142,6 +142,7 @@ export class Water {
     if ((name ?? null) !== n.name) {
       n.name = name ?? null;
       const t = name ? placeholderTexture('normal') : null;
+      this.normalTexture?.dispose();   // the one this replaces: the engine made it, so it frees it (its asset callback ignores it from now on)
       this.normalTexture = own.normalMap = t;
       own.needsUpdate = true;
       if (t) {
@@ -191,6 +192,7 @@ export class Water {
   }
   /** @internal */
   _addBody(b) {
+    if (b.query) return;   // the game's own water (addWaterBody({ query })): it draws the mesh
     const seg = Math.max(4, Math.round((b.radius ? b.radius * 2 : Math.max(b.hw, b.hd) * 2) / this.cell));
     const geo = b.radius ? new THREE.CircleGeometry(b.radius, Math.max(16, seg * 2)).rotateX(-Math.PI / 2) : new THREE.PlaneGeometry(b.hw * 2, b.hd * 2, seg, seg).rotateX(-Math.PI / 2);
     const m = new THREE.Mesh(geo, this._material);
@@ -235,7 +237,7 @@ export class Water {
 export function water(opts = {}) {
   readParams('water', WATER_PARAMS, opts);
   let w = null;
-  return { name: 'water', type: 'picture', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', after: ['sky'], optional: ['sky'], install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.water': '水面' }, en: { 'module.water': 'water' } }); w = new Water(e, opts, ctx.track); return w; }, frame(dt, e) { w.update(e.focus, dt); }, dispose() { w.dispose(); },
+  return { name: 'water', skipKind: 'none', type: 'picture', label: 'Water', params: WATER_PARAMS, options: opts, stage: 'environment', optional: ['sky'], install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.water': '水面' }, en: { 'module.water': 'water' } }); w = new Water(e, opts, ctx.track); return w; }, frame(dt, e) { w.update(e.focus, dt); }, dispose() { w.dispose(); },
     // "is there water where I think": the global sea (its level and plane size; null = none, e.g. no water level) and each separate body
     describe() {
       const r = v => Math.round(v * 10) / 10, s = w.sea;
@@ -243,3 +245,5 @@ export function water(opts = {}) {
       return { sea: s ? { level: r(s.position.y + 0.2), size: w.st.size } : null, bodies };
     } };
 }
+
+export const handRolled = 'none: water of its own is plain three.js, used on purpose';

@@ -12,8 +12,7 @@
 //     taking again every frame would work too, but through ctx.mod it adds a cleanup entry per frame
 //   - ONE layer table (LAYERS below), lowest first; inside a layer: set, then every add summed, then every mul, then every clamp.
 //     A higher layer's set hides everything below. A number point is clamped to its own min / max last.
-//   - two DIFFERENT owners `set` one point on one layer: development builds throw shared-conflict naming both (and their code lines); release
-//     builds let the later write win. add / mul / clamp never conflict: they are meant to stack.
+//   - two DIFFERENT owners `set` one point on one layer: every build throws shared-conflict naming both (and their code lines), the first value stays. add / mul / clamp never conflict: they are meant to stack.
 //   - the settings layer only restricts: clamp { max } or mul 0..1 on a number, set false on a value point; it can never raise a number or
 //     switch something on (one exception a point opts into with settingsSet: key bindings, where the player's rebinding is a replacement).
 //     It sits above system: a cutscene or menu cannot turn back on what the player turned off; only debug overrides the player
@@ -21,8 +20,8 @@
 //     | 'top' (the latest holder is in charge: the camera) | 'one' (an exclusive slot: a second holder is shared-taken; module `provides`)
 // Plain JS stays first-class: a game's own fields and onFixed logic never need this; it is for things several owners write.
 // The registry (engine.stacks: define / get / mod, save, timers, describe().shared) is core/ops/stacks.js.
-import { codedError, coded } from '../base/errorHints.js';
-import { DEV, warnOnce, note } from '../base/validate.js';
+import { codedError } from '../base/errorHints.js';
+import { DEV, note } from '../base/validate.js';
 import { callerAt } from './stackFrames.js';
 
 /** The one layer table, lowest first. Who uses which: engine = the engine's own defaults and drivers, game = game code and
@@ -117,6 +116,7 @@ export class Stack {
     // where: the code line of the first take (dev only). Kept on rewrites, so a weather module re-taking every frame costs no stack walk
     const ent = { owner, id: o.id ?? null, since: this.all._at(), where: old ? old.where : callerAt(), op, value, layer, clock, until: o.for != null ? this.all._nowOf(clock) + o.for : null };
     m.set(owner, ent);
+    this.all.engine._picture?.sharedTook(this.name, ent);   // dev server only: the point's history for explain({ value })
     if (ent.until != null) this.all._timedDirty = true;
     this._changed(o.id);
     return { owner, remove: () => { this._drop(owner, o.id, ent); }, change: v => this._rewrite(ent, v, at) };
@@ -152,8 +152,7 @@ export class Stack {
     return true;
   }
   /** @internal the conflict rule: another owner's set on the same layer, or another holder of an exclusive slot. The engine never picks silently:
-   *  dev builds throw naming both sides with copyable fixes; release builds let the later write win and warn once (an exclusive slot then drops
-   *  the earlier holder, so exactly one holds it). */
+   *  every build (development and release alike) throws naming both sides with copyable fixes; the earlier entry stays. */
   _clash(m, owner, op, layer, at) {
     const slot = this.kind === 'one';
     if (!slot && op !== 'set') return;
@@ -169,9 +168,7 @@ export class Stack {
           + `(2) decide on another layer: engine.mod('${this.name}', { owner: '${owner}', set: ..., layer: '${layer === 'game' ? 'effect' : 'game'}' }); `
           + `(3) take it over on purpose: ${this.manual ?? `engine.mod('${this.name}', { owner: '${owner}', set: ..., layer: 'system' }) (hides every layer below)`}`;
       const code = slot ? 'shared-taken' : 'shared-conflict';
-      if (DEV) throw codedError(code, msg);
-      warnOnce(coded(code, `${msg}. In this build the later write wins`), `${code}:${this.name}:${e.owner}:${owner}`);
-      if (slot) this._drop(e.owner, e.id ?? undefined, e);
+      throw codedError(code, msg);
     }
   }
   /** @internal remove owner's entry (only `ent` when given: a stale handle removes nothing) */
@@ -283,7 +280,7 @@ export class Stack {
   }
   /** @internal how the value was combined, in the order it was: "cave 180 × storm 0.6" (layer order, then set / add / mul / clamp) */
   _how(list, lead, from) {
-    const show = v => (typeof v === 'number' ? String(+v.toFixed(4)) : JSON.stringify(v));
+    const show = v => (typeof v === 'number' ? String(+v.toFixed(4)) : typeof v === 'function' ? 'function' : JSON.stringify(v));   // a rule's value may be a function
     const parts = lead ? [] : [`default ${show(this.base)}`];
     for (const L of Object.values(LAYERS)) {
       if (L < from) continue;

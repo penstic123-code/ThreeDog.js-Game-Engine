@@ -40,6 +40,17 @@ export const ERROR_HINTS = [
       'three.js BufferGeometryUtils.mergeGeometries returns null when the geometries have different attributes and logs which one in the ' +
       'console just before). Check the stack for the line and what produced the value.',
     docs: ['THREE.md', 'recipes/16-dev-bridge.md'] },
+  // A guessed pause method (the engine has one answer: engine.freeze; `threedog check` asks this entry too, tools/types.mjs)
+  { id: 'fall-prevent', match: /\bpreventDefault is not a function/,
+    cause: "The character:fall event can no longer be cancelled: falling is the rule 'fall'. To leave a fall to the game: engine.mod('fall', { owner: 'game', id: 'player', set: false }).",
+    docs: ['MIGRATING-1.0.md', 'recipes/55-mods-time-wrap.md'] },
+  { id: 'thing-explain', match: /\.explain is not a function/,
+    cause: 'engine.explain is the one way to ask why: what engine.thing(id).explain() gave is engine.explain({ thing: id }).detail.',
+    docs: ['MIGRATING-1.0.md', 'recipes/40-scene.md'] },
+  { id: 'pause-guess', match: /\b(?:time\.(?:pause|stop|resume)|engine\.(?:pause|resume|stop)) is not a function/,
+    cause: 'The engine has no pause method of that name. To pause the world call engine.freeze(owner): it returns the handle that releases it ' +
+      '(handle.release()); settings({ freezeWorld: true }) does it for a menu.',
+    docs: ['recipes/07-flow-scenes-pause.md', 'api/engine.md'] },
   { id: 'not-function', match: /[\w$.]+ is not a function/,
     cause: 'The method name is wrong, or the module is not installed (the property is then undefined). Check spelling against api/<module>.md.',
     docs: ['api/engine.md', 'CODEMAP.md'] },
@@ -98,6 +109,6 @@ export function coded(code, message) { return `${message} [${code}]`; }
 /** Indented lines "Code" (when the message has no [code] tag) + "Possible cause" + "Read"; '' if no hint matches. @param {unknown} message */
 export function hintText(message) {
   const h = hintFor(message);
-  if (!h) return '';
+  if (!h || ERROR_CODES[h.id]?.brief) return '';
   return (tagOf(String(message)) ? '' : `\n  Code: ${h.id}`) + `\n  Possible cause: ${h.cause}\n  Read: ${h.docs.join(', ')}`;
 }

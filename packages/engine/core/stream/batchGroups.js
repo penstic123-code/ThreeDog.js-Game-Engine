@@ -19,6 +19,7 @@ function makeMesh(B, g, capacity) {
   im.matrixAutoUpdate = false; im.raycast = noRaycast;   // rays hit the originals (on BATCH_LAYER), never the batch
   im.userData = { budgetTag: 'batch', cell: g.cell };
   g.mesh = im; B.byMesh.set(im, g); B.root.add(im);
+  if (!B.root.parent) B.engine.scene.add(B.root);   // joins at the first batch: a scene with none is the game's alone
   g.watch?.remove();
   let version = -1;   // the box follows the instances: a stale one would hide what stands elsewhere now
   g.watch = B.engine.occlusion.watch([im], () => {

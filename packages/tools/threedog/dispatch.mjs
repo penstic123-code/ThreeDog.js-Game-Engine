@@ -15,6 +15,7 @@ import { readRuntime, trailer, NONE } from './runtime.mjs';
 import { play, status } from './play.mjs';
 import { verify, scenarioReport } from './verify.mjs';
 import { pictureCommand } from './picture-cmd.mjs';
+import { reportCommand } from './report.mjs';
 
 const ALL = { ...COMMANDS, ...EXTRA };
 
@@ -25,7 +26,7 @@ const ALL = { ...COMMANDS, ...EXTRA };
 const PAGE_NOT_READY = /the engine stopped before it was ready|timed out waiting for the engine|no ready engine|no engine in the page|did not respond for \d+ minutes/;
 
 /** Output that a caller parses (JSON, a bare value): no state line appended */
-const plain = (cmd, args) => cmd === 'eval' || cmd === 'js' || (cmd === 'describe' && args.some((a, i) => a === '--full' || a === '--all'
+const plain = (cmd, args) => cmd === 'js' || (cmd === 'describe' && args.some((a, i) => a === '--full' || a === '--all'
   || (!a.startsWith('--') && args[i - 1] !== '--max')));
 
 export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
@@ -41,6 +42,8 @@ export async function execute(dir, cmd, args = [], { page, onShot } = {}) {
     if (cmd === 'play') r = await play(dir, { page, stop: args.includes('--stop') });
     else if (cmd === 'status') r = await status(dir, { page });
     else if (cmd.startsWith('picture-')) r = await pictureCommand(dir, cmd, args);
+    else if (cmd === 'report') r = await reportCommand(dir, args, { page });   // reads a page only when one is attached
+    else if (cmd === 'impact') r = await (await import('../impact.mjs')).impactCommand(dir, args);   // files only; loaded here, it is the one command that needs the content loader
     else if (cmd === 'errors') r = { kind: 'blocked', ...await run(null, cmd, args, { dir }) };   // .threedog/errors.log, no page: a stuck page or a stopped server must not keep it from answering
     else {
       devServer(dir);

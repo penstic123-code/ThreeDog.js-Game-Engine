@@ -2,8 +2,10 @@
 // Every step is a task in engine.loading, so the loading screen, describe().loading and `threedog loading` name the same current item.
 // A critical asset (manifest critical: true) that fails stops start() with the reason instead of starting a broken game.
 
+import { movedOwned } from '../ops/owned.js';
 import { reportError } from '../base/errors.js';
 import { asModule } from './moduleTypes.js';
+import { whenSettled } from './headlessLoad.js';
 import { catalogSnap, catalogClaim } from '../inspect/catalog.js';
 import { codedError, coded } from '../base/errorHints.js';
 import { warnOnce, DEV_SERVER, fmt } from '../base/validate.js';
@@ -14,15 +16,16 @@ import * as THREE from 'three';
 import { isWebGPU, backendName, whyNoWebGPU, firstNodeMaterial, webglOnlyOn, tier as detectTier, timerContext, rendererSwapped, compileThrough } from '../../render/backend.js';
 import { bindUniforms } from '../../render/engineUniforms.js';
 import { nameShaderErrors } from '../../render/shaderErrors.js';
-import { forcedTier, defaultPixelRatio } from '../scene/tier.js';
+import { forcedTier } from '../scene/tier.js';
 import { GpuTimer } from '../scene/adaptive.js';
+import { tierRatio, carryRatio, pixelSizeOn } from '../scene/pixelRatio.js';
 import { sceneVisitor } from '../scene/sceneDelta.js';
 import { plugAtStart } from './plugins.js';
 
 const DEV_STRINGS = {
   initFailed: 'init of module {name}',
   blocked: 'Startup blocked: {n} critical item(s) failed to load, the game cannot start:\n  {list}',
-  stalled: 'Startup stalled: still waiting after {s} s for: {list}. A module\'s isReady(e) keeps returning false (or the world never finished its nearby builds); fix that module, or raise engine.loading.timeoutMs if the load is just slow',
+  initStalled: "Startup stalled: init() of module '{name}' has not ended after {s} s with nothing loading. Fix what it waits for, or raise engine.loading.timeoutMs if it is only slow",
   disposed: 'engine.start(): engine.dispose() ran, so this engine will not start; a disposed engine cannot start, create a new one',
 };
 
@@ -67,7 +70,7 @@ export const startupMethods = {
     const ls = this.ui.get('loading'), t0 = performance.now(), L = this.loading;   // measure
     const ms = t => Math.round(performance.now() - t);        // measure
     const timing = {};                         // module name -> { init, ready } in ms (ready = time spent waiting for isReady)
-    for (const m of this.modules.values()) if (m.init) {
+    for (const m of this.modules.values()) if (m.init && !this._modBlocked.has(m.name)) {   // a blocked one inits if its provider comes up (modules.js)
       const task = L._begin(m.name, 'module', { critical: !!m.critical });
       task.phase('build');
       ls?.update({ progress: 0.1, text: this.t('common.preparing', { name: this.moduleName(m) }) });
@@ -75,7 +78,7 @@ export const startupMethods = {
       this._setModState(m, 'initializing');      // no hooks until init succeeded (modules.js)
       const snap = catalogSnap(this);   // what init registers belongs to this module in engine.catalog()
       const inst = this._modInst.get(m.name);   // a plugin removed while init awaits: its completion must not touch a same-named newcomer (modules.js)
-      try { await asModule(this, m, () => m.init(this, this._modCtx(m, inst))); if (this._isLive(m.name, inst)) { catalogClaim(this, m.name, snap); this._setModState(m, 'running'); } L._done(task); }
+      try { await L._limit(Promise.resolve(asModule(this, m, () => m.init(this, this._modCtx(m, inst)))), () => Math.max(...[...L.tasks.values()].map(x => x.at)), () => codedError('module-not-ready', fmt(DEV_STRINGS.initStalled, { name: m.name, s: String(Math.round(L.timeoutMs / 1000)) }))); if (this._isLive(m.name, inst)) { catalogClaim(this, m.name, snap); this._setModState(m, 'running'); } L._done(task); }
       catch (e) {
         L._fail(task, e);
         if (this._isLive(m.name, inst)) { this._setModState(m, 'failed'); this._dropTracked(m.name); }   // a failed module keeps no listener on half-built state
@@ -87,6 +90,7 @@ export const startupMethods = {
       this._alive();
     }
     this.phase = 'loading';                    // a module installed from now on runs its init at once (modules.js)
+    this._initWaiting();                       // one that was installed before the provider it waits for
     const tp = performance.now();   // measure
     const progress = p => ls?.update({ progress: 0.2 + p * 0.3, text: L.text() ?? this.t('common.loadingAssets') });
     // fonts the UI picture names (ui.fonts: asset names) load with the preload, so the first menu never flashes the fallback font;
@@ -137,6 +141,7 @@ export const startupMethods = {
     this.budget.checkStartup(this.startup);
     ls?.update({ progress: 1, text: '' }); ls?.hide();
     this.ops.allow(() => this.events.emit('engine:ready'));   // engine:ready listeners finish setting up the game; still loading for the ops guard
+    this.events.emit('state:replaced', { undone: false });   // the first state is a door too: what is derived reads it here
     this.session._capture();                   // the state engine.session.newGame() returns to: set up, nothing played yet
     this.ui.open('title');                     // the title screen, only when the game turned it on (createEngine({ ui: { title: {...} } }))
     await this._urlState.late();              // scenario parameters: skip the cutscene, wait, align the time, then emit state:applied
@@ -174,12 +179,13 @@ export const startupMethods = {
     // the GPU is known only now (adapterInfo after init): the default quality follows the real device
     if (!(this.headless && forcedTier())) {
       const t = detectTier(this.renderer);
-      if (t !== this.tier && this._ownsRenderer && this._createParams.pixelRatio == null) this.setPixelRatio(this.adaptive.base = defaultPixelRatio(devicePixelRatio || 1, t));
+      const was = this._deviceTier;   // the device's, not engine.tier: a preset picked at install must not read as the device changing
+      if (t !== was) tierRatio(this, t);
       // MSAA defaults from the tier too (Engine.js: antialias ?? tier !== 'low'); decided from a WebGL probe before the WebGPU
       // adapter was known, so a low-tier device could keep MSAA on the WebGPU route (found by the WebGPU parity test). Untouched when the game
-      // chose, or changed it since. The renderer's own samples stay as made: the new value then runs through the post chain (PostFX active)
-      const aaDefault = this._createParams.antialias == null && this.post.antialias === (this.tier !== 'low');
-      if (t !== this.tier && aaDefault) this.post.setAntialias(t !== 'low');
+      // or the player chose, or changed it since. The canvas's own samples stay as made: the new value is for the post chain, when an effect runs it
+      const aaDefault = this._createParams.antialias == null && !pixelSizeOn(this) && this.post.antialias === (was !== 'low') && this.post.authoredAA === this.post.antialias;
+      if (t !== was && aaDefault) this.post.antialias = this.post.authoredAA = t !== 'low';
       this.tier = t;
     }
     this.post?._sync();   // effects held by tier or backend (PostFX _held) are only known now
@@ -192,18 +198,18 @@ export const startupMethods = {
    */
   _swapToWebGL(old) {
     // the canvas's own MSAA as the post chain wants it, so an effect-free frame still draws straight to the canvas (PostFX active)
-    const r = new THREE.WebGLRenderer({ canvas: old.domElement, antialias: this.post.antialias, powerPreference: 'high-performance' });
-    const size = old.getSize(new THREE.Vector2());
-    r.setPixelRatio(old.getPixelRatio()); r.setSize(size.x, size.y, false);
+    // a transparent canvas the game asked for on its own renderer stays transparent; an engine-built one keeps the opaque WebGL default (WebGPURenderer's alpha is true by default, so it says nothing there)
+    const alpha = !this._ownsRenderer && old.alpha !== false;
+    const r = new THREE.WebGLRenderer({ canvas: old.domElement, alpha, antialias: this.post.antialias, powerPreference: 'high-performance' });
+    carryRatio(old, r, new THREE.Vector2());
     r.shadowMap.enabled = old.shadowMap.enabled; r.shadowMap.type = old.shadowMap.type;
     r.toneMapping = old.toneMapping; r.toneMappingExposure = old.toneMappingExposure; r.outputColorSpace = old.outputColorSpace;
     r.setClearColor(old.getClearColor(new THREE.Color()), old.getClearAlpha());
     r.info.autoReset = false;
     nameShaderErrors(r); bindUniforms(r, this.uniforms);
     try { old.dispose(); } catch { /* never initialized: nothing of it reached the GPU */ }
-    // owned rows name the renderer object they live on (tween exemptions, core/ops/owned.js)
-    for (const row of [this._oTone, this._oPixelRatio]) if (row) row.objects = row.objects.map(o => (o === old ? r : o));
     this.renderer = r;
+    movedOwned(this, new Map([[old, r]]));   // owned rows name the renderer object they live on (tween exemptions, core/ops/owned.js)
     // parts built for the old renderer before start(): the post chain (its backend and every effect's part), then whatever registered a rebuild
     this.post._setBackend();
     rendererSwapped(this);
@@ -257,7 +263,6 @@ export const startupMethods = {
     const ls = this.ui.get('loading');
     return new Promise((res, rej) => {
       let done = false;
-      const t0 = performance.now();   // measure: wall clock, so a module that never turns ready ends the wait instead of hanging
       const check = () => {
         if (done) return;
         this._alive();
@@ -268,12 +273,6 @@ export const startupMethods = {
         if (this.stream.ready && getStream() == null) setStream(ms(tr));
         const fatal = this._fatal();   // a critical step tracked by a module can fail while we wait
         if (fatal.length || (!waiting.length && getStream() != null)) { done = true; this._afterTick = null; if (fatal.length) rej(fatal); else res(); return; }
-        if (performance.now() - t0 > this.loading.timeoutMs) {   // measure
-          done = true; this._afterTick = null;
-          const who = [...waiting.map(m => m.name), ...(this.stream.ready ? [] : ['the stream (required nearby builds)'])];
-          rej(codedError('module-not-ready', fmt(DEV_STRINGS.stalled, { s: String(Math.round(this.loading.timeoutMs / 1000)), list: who.join(', ') })));
-          return;
-        }
         ls?.update({ progress: 0.5 + 0.5 * (1 - waiting.length / this.modules.size), text: this.loading.text() ?? this.t('common.generating', { name: this.t('common.world') }) });
       };
       // a throw (a module's isReady) must end the wait: in a timer or a frame nothing would catch it, and start() would never settle
@@ -281,6 +280,8 @@ export const startupMethods = {
       const poll = () => { guarded(); if (!done) setTimeout(poll, 20); };   // main-loop: poll for readiness while loading (a dispose rejects on the next check)
       this._afterTick = guarded;
       poll();
+      // the limit is whenSettled's, the one every wait for "ready" has
+      if (!done) whenSettled(this, () => !done).catch(err => { if (!done) { done = true; this._afterTick = null; rej(err); } });
     });
   },
 };

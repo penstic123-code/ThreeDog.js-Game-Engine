@@ -2,19 +2,20 @@
 export class PostFX {
     set antialias(on: boolean);
     /**
-     * MSAA on. Writing it takes effect like setAntialias.
+     * MSAA on or off in the post chain's render targets, for what runs through the chain. It is a render setting, not a drawing part. With no effect on nothing runs through the chain:
+     * the canvas's own MSAA shows, fixed when the context was made (createEngine({ antialias })).
+     * @example engine.post.antialias = false;
      * @type {boolean}
      * @experimental
      */
     get antialias(): boolean;
     /**
-     * Whether the post chain runs: an effect is on, or antialias differs from the canvas's own MSAA (fixed when the renderer was made, so a
-     * runtime switch away from it goes through the chain's targets)
+     * Whether the post chain runs: an effect is on
      * @returns {boolean}
      */
     get active(): boolean;
     /**
-     * What the chain runs in, for reading, or null while no post work has run yet (built the first time an effect or MSAA is on; it is not built here, so asking never costs a
+     * What the chain runs in, for reading, or null while no post work has run yet (built the first time an effect is on; it is not built here, so asking never costs a
      * render target). WebGLRenderer: the three.js EffectComposer (pass list, sizes, its targets). WebGPURenderer: { pipeline, scenePass }, three's RenderPipeline and the scene's pass() node. Read-only by rule, not by lock:
      * the engine owns it, rebuilds the chain whenever the list changes and disposes it with the engine. To add a pass use post.add,
      * to own the whole chain post.own() (recipe 52). Why public: a game reading the chain had to dig into an internal field (review 2026-11-03)
@@ -28,7 +29,7 @@ export class PostFX {
      * output; EffectComposer swaps them after every pass with needsSwap (most passes; the scene RenderPass does not). The last pass draws to the
      * canvas and still swaps, so after the frame (engine.onRender(fn, { when: 'after' })) neither target holds the final picture: writeBuffer holds
      * the input of that last pass (readBuffer when the last pass does not swap) and readBuffer is stale. For the final image, render into a target of your own.
-     * Owned by the engine like object(): it resizes them, changes samples on setAntialias and adds a depth texture when an effect needs depth;
+     * Owned by the engine like object(): it resizes them, changes samples when antialias is written and adds a depth texture when an effect needs depth;
      * do not dispose them or swap their textures. A target of your own: new THREE.WebGLRenderTarget in onRender (THREE.md)
      * @returns {{ renderTarget1: any, renderTarget2: any, readBuffer: any, writeBuffer: any } | null}
      * @experimental
@@ -72,15 +73,6 @@ export class PostFX {
      * @experimental
      */
     own(on?: boolean): void;
-    /**
-     * Turn MSAA on or off. It is a render setting, not a drawing part. With no effect on, the start value is the canvas's own MSAA (free: no
-     * post chain); the other value, and any effect, draws through the chain, whose render targets carry the MSAA.
-     * @example engine.post.setAntialias(false);
-     * @param {boolean} on
-     * @returns {void}
-     * @experimental
-     */
-    setAntialias(on: boolean): void;
     /**
      * Effects in render order: [{ name, slot, order, enabled }]
      * @returns {{ name: string, slot: PostSlot, order: number, enabled: boolean }[]}

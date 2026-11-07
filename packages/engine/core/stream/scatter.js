@@ -55,12 +55,15 @@ function bucketsOf(rule, CHUNK) {
 /**
  * Placement over one ground. chunk: edge length (m); seed: placement seed; surface / slope / typeAt (x, z): the ground;
  * skip(x, z): true where nothing may grow (edited terrain cells, flattened plots when the rule says avoidFlat), optional.
- * place(cx, cz, rule, density) returns instance matrices (column-major, chunk-local x / z), instance colors, collision circles (world x, z, radius)
+ * place(cx, cz, rule, density) (density thins only rules without a collider: blocking plants are the same at every quality) returns instance matrices (column-major, chunk-local x / z), instance colors, collision circles (world x, z, radius)
  * and stable ids (the attempt index, independent of density; with rule.positions the index in that list).
  * rule.positions replaces the random attempts: every listed spot in this chunk gets one instance at the ground height (scale / yaw from the entry
  * or the rule's random ranges); the scatter filters (perChunk, chance, cluster, heights, slope, biomes, avoidFlat) and density do not apply --
  * the game already chose the spot. skip still applies: dug or raised ground loses what grew there either way.
  */
+/** How many attempts of a scatter rule a density keeps. One formula, because the vegetation draw side cuts by the same number: placing and drawing must agree on which plants a density means */
+export const scatterAttempts = (rule, density) => Math.round((rule.perChunk ?? RULE.perChunk) * density);
+
 export function makePlacer({ chunk: CHUNK, seed, surface, slope, typeAt, fbm, skip = null, flat = null }) {
   const SEED = seed | 0;
   return function place(cx, cz, rule, density = 1) {
@@ -68,7 +71,7 @@ export function makePlacer({ chunk: CHUNK, seed, surface, slope, typeAt, fbm, sk
     const base = Math.imul(cx, 92821) ^ Math.imul(cz, 68917) ^ SEED ^ Math.imul(r.salt + 1, 40503), rnd = stream();
     const ox = cx * CHUNK, oz = cz * CHUNK;
     const listed = rule?.positions ? bucketsOf(rule, CHUNK).get(cx + ',' + cz) ?? [] : null;
-    const attempts = listed ? listed.length : Math.round(r.perChunk * density);
+    const attempts = listed ? listed.length : scatterAttempts(r, r.collider ? 1 : density);   // a plant that blocks (or is felled by id) is part of the world: quality density thins only what is decoration
     const m = new Float32Array(attempts * 16), c = new Float32Array(attempts * 3), k = new Float32Array(r.collider ? attempts * 3 : 0), ids = new Uint32Array(attempts);
     let n = 0;
     // one instance at local (lx, lz) on height h; s / yaw null = drawn from the rule's ranges. The same code for both paths, so a listed plant

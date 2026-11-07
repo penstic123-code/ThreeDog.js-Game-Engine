@@ -515,9 +515,9 @@ function shadowMaterial(material, kind) {
     () => { for (const [p, d] of before) { if (d) Object.defineProperty(THREE.Mesh.prototype, p, d); else delete THREE.Mesh.prototype[p]; } },
     { lost: 'meshes with wind or another vertex-moving patch cast a still shadow' });
 }
-notePatch('material-compile-accessor', "onBeforeCompile / customProgramCacheKey on each material the engine patches (what applyEffects was asked for, wind, fog): an own get / set, so the game's own hook assigned before or after still runs, then the engine's",
+notePatch('material-compile-accessor', "onBeforeCompile / customProgramCacheKey on each material the engine patches (what applyEffects was asked for, wind, the game's own shader slots): an own get / set, so the game's own hook assigned before or after still runs, then the engine's",
   () => {},   // off: materials patched from now on get three's plain properties (patchMaterial asks patchOn)
-  { scope: 'patched materials', lost: "on materials patched from now on, assigning material.onBeforeCompile replaces the engine's patches (wind, cloud shadow, fog) instead of running before them" });
+  { scope: 'patched materials', lost: "on materials patched from now on, assigning material.onBeforeCompile replaces the engine's patches (wind, cloud shadow) instead of running before them" });
 for (const [prop, kind] of [['customDepthMaterial', 'depth'], ['customDistanceMaterial', 'distance']]) {
   const own = Symbol.for('threedog.' + prop);
   Object.defineProperty(THREE.Mesh.prototype, prop, {

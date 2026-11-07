@@ -14,6 +14,7 @@
 // gray box; pickups({ color, size, lift }) for the plain values; engine.pickups.material is the three.js material the box and geometry-only models draw with;
 // spawn(pos, { mesh }) puts the game's own object down instead.
 import * as THREE from 'three';
+import { clone as skeletonClone } from 'three/addons/utils/SkeletonUtils.js';
 import { neutralMaterial } from '../../render/neutral.js';
 import { copyPatches, isEngineMade, markEngineMade } from '../../render/patches.js';
 import { xzOf, yOf } from '../../core/base/math.js';
@@ -32,10 +33,11 @@ const NO_ACTORS = [];
 const DEFAULT_COLOR = 0xcccccc;
 // A net host measures peers at the position they last sent (a few steps old): pickup.take allows this much beyond the radius so a fair press is not refused
 const NET_SLACK = 1;
+const seatActors = e => e.input.seats.flatMap(s => s.actor && s.actor !== e.actor ? [s.actor] : NO_ACTORS);
 
 export class Pickups {
-  /** @internal track: the module's ctx.track */
-  constructor(engine, { radius, showDistance, takers, color, size, lift }, track) {
+  /** @internal ctx: the module's ctx */
+  constructor(engine, { radius, showDistance, takers, color, size, lift }, { track }) {
     this.engine = engine;
     /** Edge of the placeholder box (meters), read when one is built */ this.size = size;
     /** Height above the ground new pickups float at (meters) */ this.lift = lift;
@@ -44,11 +46,11 @@ export class Pickups {
     /** Reach of pickups that set no radius (meters); auto pickups are taken within it */ this.radius = radius;
     /** @internal pickups float, spin and have a model only within this distance of the stream sources */ this.showDistance = showDistance;
     /**
-     * Who can walk into auto pickups: () => actor ids. Default: engine.actor, plus every net peer on a host; none on a net client (the host takes them for it,
+     * Who can walk into auto pickups: () => actor ids. Default: engine.actor and every seat's actor, plus every net peer on a host; none on a net client (the host takes them for it,
      * from the positions it is sent). A game with NPCs that collect coins returns their ids too.
      * @type {(e: any) => string[]}
      */
-    this.takers = takers ?? (e => e.net?.role === 'client' ? NO_ACTORS : e.net ? [e.actor, ...e.net.peers.map(p => p.actor)] : [e.actor]);
+    this.takers = takers ?? (e => e.net?.role === 'client' ? NO_ACTORS : [e.actor, ...seatActors(e), ...(e.net?.peers.map(p => p.actor) ?? NO_ACTORS)]);
     // world id -> what cannot go in saved data: the game's mesh, a give function. Spawning the same id again (content / setup code on load) sets them again
     /** @internal */ this._live = new Map();
     // the reach query around each taker uses the largest auto radius in the world, read from the records rather than from spawn calls:
@@ -61,7 +63,7 @@ export class Pickups {
     // a record gone (taken without respawn, removed, not in a loaded save): its live parts are no longer needed for a rebuild
     track(engine.events.on('world:remove', ({ id, kind }) => { this._live.delete(id); dirty({ kind }); }));
     track(engine.events.on('world:load', () => { this._autoDirty = true; for (const id of this._live.keys()) if (!engine.world.get(id)) this._live.delete(id); }));
-    present(this);
+    present(this, track);
   }
 
   /**
@@ -188,24 +190,25 @@ export class Pickups {
 const inReach = (rec, p, r) => { const dx = rec.position.x - p.x, dy = rec.position.y - (p.y ?? 0), dz = rec.position.z - p.z; return dx * dx + dy * dy + dz * dz <= r * r; };
 
 /** Register how pickups picture and respawn (once, on install) @internal */
-function present(pk) {
+function present(pk, track) {
   const e = pk.engine, w = e.world;
-  w.present('pickup', {
+  track(w.present('pickup', {
     radius: pk.showDistance,
     show: rec => rec.until == null,   // waiting to respawn: no model
     build: rec => model(pk, rec),
     update: (rec, o) => {   // bobbing spin: world places the model at the data position each frame first, this adds the bob on top
+      if (!rec.auto && o.userData.useFrom !== e.interactions) { w.rebuild(rec.id); return; }   // its use lives in the interactions module it was built with: another one starts empty
       if (rec.bob === false) return;
       const t = e.time.now('real'), x = rec.position.x;
       o.rotation.y = t * 1.5 + x; o.position.y = rec.position.y + Math.sin(t * 2 + x) * 0.08;
     },
     // only detached: a game's mesh is the game's, a model clone shares geometry / material with its prototype (protoOf), the material is shared by every pickup;
     // the placeholder box is the one thing built here alone, so its geometry is freed
-    dispose: (rec, o) => { o.userData.useHandle?.remove(); e.detach(o); o.traverse(c => { if (c.userData.ownGeometry) /** @type {any} */ (c).geometry.dispose(); }); },
-  });
+    dispose: (rec, o) => { o.userData.useHandle?.remove(); o.removeFromParent(); o.traverse(c => { if (c.userData.ownGeometry) /** @type {any} */ (c).geometry.dispose(); }); },
+  }));
   // waiting to respawn: when due (game clock) clear until and return to the ground. Far ones are also checked once a second, so they grow back on time even when not nearby
   const wake = rec => { if (rec.until != null && e.clock.now >= rec.until) w.set(rec.id, { until: undefined }); };
-  w.simulate('pickup', { near: wake, far: wake });
+  track(w.simulate('pickup', { near: wake, far: wake }));
 }
 
 // A pickup's shape goes one way only: a model name from assets (same protoOf as content props / templates: file or code-generated, cache, bake and shadow rules are identical).
@@ -240,7 +243,7 @@ function model(pk, rec) {
     };
     if (!name) box();
     else protoOf(e, pk, name).then(proto => {
-      const o = proto.obj.clone();   // geometry / materials stay the prototype's (shadow flags were settled once there, as for content props)
+      const o = skeletonClone(proto.obj);   // own bones if it is skinned; geometry / materials stay the prototype's (shadow flags were settled once there, as for content props)
       // generator gave only geometry: draw it with the pickups material in the item's own color (same color shares one); generators that return a full Object3D / file models stay as they are
       if (proto.fromGeometry) drawnBy(pk, o, color);
       holder.add(o);
@@ -248,6 +251,7 @@ function model(pk, rec) {
   }
   if (rec.auto) return obj;   // taken by walking into it: no key prompt
   if (!e.interactions) { warnOnce(coded('module-needs', 'Pickups without auto: true are taken with the interact key: install interactions() first.')); return obj; }
+  obj.userData.useFrom = e.interactions;
   obj.userData.useHandle = e.interactions.add(obj, {
     id: rec.id,
     label: () => e.t('pickups.take', { name: pk._name(rec) }), radius: rec.radius ?? pk.radius,
@@ -278,8 +282,8 @@ function pickupMaterial(pk, mesh) {
 }
 
 /** The op pickup.take { id }: the interact key, auto pickups, a net peer's request, the dev bridge and tests all run it, as ctx.actor @internal */
-function defineTake(e, pk) {
-  e.ops.define('pickup.take', {
+function defineTake(e, ctx, pk) {
+  ctx.ops.define('pickup.take', {
     desc: "Take a pickup off the ground: its item goes into the actor's container (or its give function runs for the actor)",
     args: { id: 'string' },
     net: 'peer',   // a client's press is sent to the host, which runs it as that peer: the item lands in the peer's bag there and syncs back
@@ -304,10 +308,30 @@ function defineTake(e, pk) {
 const PICKUP_PARAMS = {
   radius: { type: 'number', default: 2, min: 0, desc: 'reach of pickups that set no radius (meters); auto pickups are taken within it' },
   showDistance: { type: 'number', default: 60, min: 0, desc: 'pickups have a model, float and spin only within this distance of the stream sources (meters)' },
-  takers: { type: 'any', optional: true, desc: 'e => actor ids that walk into auto pickups (default engine.actor, plus net peers on a host)' },
+  takers: { type: 'any', optional: true, desc: 'e => actor ids that walk into auto pickups (default engine.actor and the seats, plus net peers on a host)' },
   color: { type: 'any', default: DEFAULT_COLOR, desc: 'color of the placeholder box and geometry-only models when the pickup and its item set none' },
   size: { type: 'number', default: 0.25, min: 0, desc: 'edge of the placeholder box (meters)' },
   lift: { type: 'number', default: 0.4, desc: 'height above the ground a pickup floats at (meters)' },
+};
+
+/**
+ * The pickups section of content data: data goes into world (kind 'pickup'). Without a written id: `pickup:<item>:<index in the pickups array>`, stable for the
+ * same content (when inserting in the middle, give existing entries an id). Taken / respawning is state
+ */
+const PICKUP_CONTENT = {
+  desc: 'pickups on the ground (list)',
+  live: true,
+  references: d => d.filter(p => typeof p.item === 'string').map((p, i) => ({ section: 'items', id: p.item, at: `pickups[${i}]` })),
+  validate(d, { ids, pickupId }) {
+    d.forEach((p, i) => { const label = `pickups[${i}] (${p.item})`; if (p.id != null) ids.claim(pickupId(p, i), label); else ids.unnamed(pickupId(p, i), label); });
+  },
+  commit(d, { engine: e, where, zone, origin, pickupId }) {
+    d.forEach((p, i) => {
+      const id = pickupId(p, i);
+      e.pickups.spawn(where(p), { give: p.item, id, count: p.count, data: p.data, radius: p.radius, auto: p.auto, respawnSeconds: p.respawn, initial: true, zone: zone(p) });
+      origin(id, d, i);
+    });
+  },
 };
 
 /**
@@ -321,10 +345,11 @@ export function pickups(opts = {}) {
   const o = readParams('pickups', PICKUP_PARAMS, opts);
   let pk = null;
   return {
-    name: 'pickups', type: 'rules', label: 'Pickups', params: PICKUP_PARAMS, options: o, requires: ['world'], optional: ['interactions', 'inventory', 'net'], stage: 'gameplay',
+    content: { pickups: PICKUP_CONTENT },
+    name: 'pickups', skipKind: 'exact', type: 'rules', label: 'Pickups', params: PICKUP_PARAMS, options: o, requires: ['world'], optional: ['interactions', 'inventory', 'net'], stage: 'gameplay',
     noSkip: 'auto pickups are spatial; respawn follows the game clock',
     install(e, ctx) {
-      pk = new Pickups(e, o, ctx.track); defineTake(e, pk); return pk;   // o: the schema defaults are filled in, the class repeats none
+      pk = new Pickups(e, o, ctx); defineTake(e, ctx, pk); return pk;   // o: the schema defaults are filled in, the class repeats none
     },
     fixed() { pk._auto(); },
     describe(e, ctx) {   // use the model if present (same object the interactions module reports, merged into one entry); far away only data
@@ -333,3 +358,5 @@ export function pickups(opts = {}) {
     },
   };
 }
+
+export const handRolled = 'none: a pickup by hand is a distance check with no word that sets it apart';

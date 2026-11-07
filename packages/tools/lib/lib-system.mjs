@@ -12,7 +12,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { noComments } from './lib-card.mjs';
+import { noComments } from './text.mjs';
 import { contentFiles } from './lib-records.mjs';
 import { copyTemplates } from './scaffold.mjs';
 import { splitTop } from './text.mjs';

@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import { TOOLS, ENGINE } from '../paths.mjs';
 import { walk } from '../lib/text.mjs';
-import { scanArt, noComments, BUILT_IN_SOUNDS } from '../art-board-scan.mjs';
+import { scanArt, BUILT_IN_SOUNDS } from '../art-board-scan.mjs';
+import { noComments } from '../lib/text.mjs';
 import { loadedArt } from '../panel/art.js';
 import { recordPull } from '../lib/lib-records.mjs';
 
@@ -83,7 +84,7 @@ mesh.material = m.grass; other.material = materials.grass;
     // the running game's list, sent as text like the bridge does: it must use nothing outside itself
     const m1 = { name: 'hull', type: 'MeshStandardMaterial', userData: {}, map: { isTexture: true, name: '', source: { data: { src: 'http://localhost/tex/orphan.png' } } } };
     const engine = { assets: { entries: new Map([['tree_1', { name: 'tree_1', type: 'model', url: '/models/tree_1.glb', value: {} }], ['spare', { name: 'spare', type: 'model', url: '/models/spare.glb' }], ['wind', { name: 'wind', type: 'sound', url: 'wind', value: {}, builtIn: true }]]) },
-      scene: { traverse: f => [{ material: m1 }, { material: { type: 'MeshBasicMaterial', userData: {} } }, {}].forEach(f) } };
+      _tools: { standIn: () => false }, scene: { traverse: f => [{ material: m1 }, { material: { type: 'MeshBasicMaterial', userData: {} } }, {}].forEach(f) } };
     const live = (0, eval)(`(${loadedArt.toString()})`)(engine);
     check('the panel list reports loaded assets, named and unnamed materials, textures', live.assets.find(a => a.name === 'tree_1').loaded && !live.assets.find(a => a.name === 'spare').loaded
       && live.materials[0].name === 'hull' && live.unnamedMaterials === 1 && live.textures[0].slot === 'map', JSON.stringify(live));

@@ -14,12 +14,12 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, rmSync } from 'node
 import { dirname, relative, resolve, sep } from 'node:path';
 import ts from 'typescript';
 import * as P from './paths.mjs';
+const { posix } = P;
 import { walk } from './lib/text.mjs';
 
 const CHECK = !!P.cli(process.argv.slice(2), { workspace: false, flags: ['check'] }).opt.check;
 const ENGINE = P.ENGINE, GEN = P.abs(P.TYPES_GEN_REL);
 const sources = P.MIGRATED_JS_REL.map(P.abs);
-const posix = p => p.split(sep).join('/');
 
 const options = {
   allowJs: true, checkJs: false, declaration: true, emitDeclarationOnly: true,
@@ -83,9 +83,10 @@ function stripInternal(text) {
   const sf = ts.createSourceFile('x.d.ts', text, ts.ScriptTarget.Latest, true);
   const isInternal = n => (n.jsDoc || []).some(d => (d.tags || []).some(t => t.tagName.text === 'internal'));
   const isPrivate = m => !!m.name && /^_/.test(m.name.getText());
+  const forTools = n => ts.isVariableStatement(n) && n.declarationList.declarations.some(d => d.name.getText() === 'handRolled');   // read by metadata.mjs, no game ever imports it
   const cuts = [];
   for (const st of sf.statements) {
-    if (isInternal(st)) cuts.push([st.getFullStart(), st.getEnd()]);
+    if (isInternal(st) || forTools(st)) cuts.push([st.getFullStart(), st.getEnd()]);
     else if (ts.isClassDeclaration(st)) for (const m of st.members) if (isInternal(m) || isPrivate(m)) cuts.push([m.getFullStart(), m.getEnd()]);
   }
   for (const [a, b] of cuts.sort((x, y) => y[0] - x[0])) text = text.slice(0, a) + text.slice(b);

@@ -30,6 +30,7 @@ export const BRIEF = e => {
   if (d.ui?.windows?.length) flags.push('windows open ' + d.ui.windows.map(x => x.id || x).slice(0, 2).join(', '));
   // engine.error is an object { where, message, code, at } (core/base/errors.js): String() of it printed "engine error [object Object]"
   if (d.error) flags.push(`engine error ${d.error.code ? `[${d.error.code}] ` : ''}${d.error.where}: ${(m => m.length > 400 ? m.slice(0, 200) + ' … ' + m.slice(-197) : m)(String(d.error.message))}${d.error.at ? ` (${d.error.at})` : ''}`);
+  if (d.disabledModules?.length) flags.push('switched off after an error: ' + d.disabledModules.slice(0, 3).join(', '));
   if (d.loading?.failed?.length) flags.push('load failed ' + d.loading.failed.map(f => f.name).slice(0, 3).join(', ') + ' (threedog loading)');
   const l1 = [p && `Player (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) ${p.inWater ? 'in water' : 'on ' + (p.ground || 'ground')}`,
     t?.clock != null && `${t.clock}${t.day != null ? ' day ' + t.day : ''}`, (w?.name ?? w?.label), ...flags].filter(Boolean).join(' · ');
@@ -71,17 +72,20 @@ export const atPath = (obj, path) => String(path).split(/\.|(?=\[)/).filter(Bool
 }, obj);
 
 /**
- * Real seconds a step really moved, measured on the tick (frozen pages tick nothing), and why it fell short. The answer of step / press / hold: asked for 3 s and
- * frozen on an error after 2, it says 2 of 3. A tick that went backwards means a new run started inside the step, so that is counted as done. Self-contained.
+ * Real seconds a step really moved, measured on the tick (frozen pages tick nothing), and why it fell short. The answer of step / press / hold and of a scenario's step: asked for
+ * 3 s and frozen on an error after 2, it says 2 of 3, and less than asked is a failure everywhere. state says what stopped it: 'running', 'frozen', 'loading' or 'error'. A tick that went backwards means a new run started inside the step, so that is
+ * counted as done. Self-contained.
  */
 const MOVED = (e, before, seconds) => {
   const fixed = Math.max(1, Math.round(seconds * 60)), ticks = e.time.tick - before, moved = ticks < 0 ? seconds : Math.min(seconds, ticks / 60);
-  const short = ticks >= 0 && ticks < fixed, by = e.runState.blockedBy;
-  return { moved: +moved.toFixed(3), short, why: short ? `gameplay is frozen by ${by.join(', ') || 'a hold'}` : '' };
+  const short = (ticks >= 0 && ticks < fixed) || !!e.error, by = e.runState.owners, state = e.error ? 'error' : !short ? 'running' : e.ready ? 'frozen' : 'loading';
+  return { moved: +moved.toFixed(3), short, state, why: { error: `the engine stopped on an error: ${e.error?.message}`, frozen: `gameplay is frozen by ${by.join(', ') || 'a hold'}`, loading: 'the game is still loading', running: '' }[state] };
 };
+/** The one way a tool advances a page by seconds and reads what happened: the `step` command and a scenario's step both come here, so they cannot disagree. Self-contained */
+export const STEPPED = `(e, seconds) => { const before = e.time.tick; e.step(seconds, { render: false }); return (${MOVED})(e, before, seconds); }`;
 
 /** Wrap fn(arg, engine, brief, run, at, moved) into the source evaluate takes */
-const page = fn => `async a => { const engine = await (${READY})(); return (${fn})(a, engine, ${BRIEF}, ${RUN}, ${atPath}, ${MOVED}); }`;
+const page = fn => `async a => { const engine = await (${READY})(); return (${fn})(a, engine, ${BRIEF}, ${RUN}, ${atPath}, ${MOVED}, ${STEPPED}); }`;
 /** Only waits for window.engine to exist: `loading` must answer while start() is still running or stuck */
 const ATTACHED = async () => {
   for (let i = 0; i < 300 && !window.engine?.loading && !window.__threedogUncaught?.length; i++) await new Promise(r => setTimeout(r, 100));
@@ -102,11 +106,9 @@ const PAGE = {
     if (v === undefined) throw new Error(`describe has no "${a.path}"; top-level keys: ${Object.keys(e.describe()).join(', ')}`);
     return JSON.stringify(v, null, 1);
   },
-  step: (a, e, brief, run, at, moved) => {
+  step: (a, e, brief, run, at, moved, stepped) => {
     e.haltLoop('threedog');   // stop a real-time page first, so the real-time loop and step do not both advance it
-    const before = e.time.tick;
-    e.step(a.seconds, { render: false });
-    const m = moved(e, before, a.seconds);   // before the drawing step below, which would add a tick of its own
+    const m = stepped(e, a.seconds);   // before the drawing step below, which would add a tick of its own
     e.step(1 / 60);   // render one frame so the picture matches the state
     const b = brief(e).slice(0, 2);
     b.push(run(e));
@@ -124,7 +126,7 @@ const PAGE = {
     if (!code) throw new Error(`action "${a.key}" has no keyboard key`);
     e.haltLoop('threedog');
     // a part opened since the last frame (the title of a page just reloaded, nothing stepped yet) skips the keys of its first frame: that frame runs here, with no game time
-    e._frameHooks(0, true); inp.endFrame();
+    e._tools.frameHooks(0, true); inp.endFrame();
     // Actions go through the public input.simulate (same path as a real key press: the fixed snapshot and the frame "just pressed" see it).
     // A raw key code is sent as a real keyboard event: the engine's own window listener takes it, no private input call
     const down = on => action ? inp.simulate(action, on) : dispatchEvent(new KeyboardEvent(on ? 'keydown' : 'keyup', { code }));
@@ -151,7 +153,7 @@ const PAGE = {
     return [`Skipped ${a.desc}` + (v === null || v === undefined ? '' : ' → ' + JSON.stringify(v).slice(0, 80)), ...brief(e).slice(0, 2), run(e)].join('\n');
   },
   // state changes the scenario, not the clock (only wait= moves it). On a halted page one frame with no game time shows the result: rigs see the new place, then a draw
-  state: async (a, e, brief) => { const r = await e.applyState(a.params); if (e.halted) { e._frameHooks(0, true); e._render(1 / 60); } return { refused: r.refused, text: brief(e).slice(0, 2).join('\n') }; },
+  state: async (a, e, brief) => { const r = await e.applyState(a.params); if (e.halted) { e._tools.frameHooks(0, true); e._tools.render(1 / 60); } return { refused: r.refused, text: brief(e).slice(0, 2).join('\n') }; },
   // js / eval and checks scripts (js --file steps.js) share this one function, so both see the same globals: engine, step(seconds = 1/60) (pauses the
   // real-time loop first, like the step command), log(...), assert(cond, msg), expect(v, msg).toBe/toEqual/toBeGreaterThan(x, msg), toBeCloseTo(x, tol?, msg).
   // Checks mode (the script calls assert / expect, steps.mjs): a failed check is recorded and the script goes on; a throw ends it and counts as one
@@ -210,13 +212,13 @@ const PAGE = {
     catch (err) { threw = String(err?.message ?? err); }
     return { res, logs, threw, value: value === undefined ? undefined : show(value)?.slice(0, 300) };
   },
-  resume: (a, e, brief, run) => { e._unhalt('threedog'); return 'Real-time running resumed\n' + run(e); },
+  resume: (a, e, brief, run) => { e._tools.resume('threedog'); return 'Real-time running resumed\n' + run(e); },
   // fading UI parts (the loading screen) finished: snap waits for it. Then, on a halted page (headless, step-driven), draw the current state once
   // without advancing game time: at tick 0 nothing had been drawn yet and snap read a black canvas (shot steps one frame before reading; the
   // same rule here, minus the game time, because snap must not change the running game)
-  settled: async (a, e) => { await e.ui.settled?.(); if (e.halted) e._render(1 / 60); return true; },
+  settled: async (a, e) => { await e.ui.settled?.(); if (e.halted) e._tools.render(1 / 60); return true; },
   // snap --play: what shot --play does (?play), on the open page. On a paused page one frame with no game time, so the picture is not the frame under the title
-  play: async (a, e) => { await e.applyState({ play: true }); if (e.halted) { e._frameHooks(0, true); e._render(1 / 60); } return true; },
+  play: async (a, e) => { await e.applyState({ play: true }); if (e.halted) { e._tools.frameHooks(0, true); e._tools.render(1 / 60); } return true; },
   title: (a, e) => !!e.ui.isOpen?.('title'),
   backend: (a, e) => e.describe().renderer,   // in words: lib/page-url.mjs drawnBy
   raw: (a, e) => e.describe(),   // the whole describe() object, compared in node (describe-snapshot.mjs)
@@ -239,7 +241,7 @@ const PAGE = {
     // explain op: same arg conversion, nothing runs
     if (a.explain) { const x = e.explain({ op: a.name, args }); return { ok: x.ok, text: x.text, detail: x.detail }; }
     const r = e.ops.run(a.name, args, { source: 'bridge' });
-    if (e.halted) e._render(1 / 60);   // show the result without advancing game time
+    if (e.halted) e._tools.render(1 / 60);   // show the result without advancing game time
     const bag = e.inventory ? 'Bag ' + (e.inventory.list().slice(0, 6).map(x => `${x.id}×${x.count}`).join(' ') || 'empty') : '';
     const head = r.ok ? `✓ ${a.name}${r.value === undefined ? '' : ' → ' + JSON.stringify(r.value).slice(0, 80)}`
       : `✗ ${a.name}: ${r.code}${d?.reasons?.[r.code] ? ' (' + d.reasons[r.code] + ')' : ''}`;
@@ -284,8 +286,6 @@ const PAGE = {
       t.edit ?? (t.id ? 'no source known (a record added from code)' : 'part of a level model or added with engine.add'), f && 'fields '
         + f].filter(Boolean).join('\n'), thing: t };
   },
-  // thing: engine.thing(id).explain() as JSON text (the same object tests and describe read)
-  thing: (a, e) => { try { const d = e.thing(a.id).explain(); return { ok: true, text: JSON.stringify(d, null, 1), data: d }; } catch (x) { return { ok: false, text: String(x.message ?? x) }; } },
   // contentGroup: every object with this name that can hold parts, each with its direct children as plain numbers (content capture; the judging is in
   // content-stamp.mjs). A model comes from userData: modelKey (content and namedModel prototypes, JSON) or modelName (assets.model copies and their clones)
   contentGroup: (a, e) => {

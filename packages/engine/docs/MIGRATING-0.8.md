@@ -2,7 +2,7 @@
 
 npm never had 0.7.1, so this page goes from 0.7.0 straight to 0.8.0.
 
-First change the `threedog` and `@threedog/*` pins in the game's `package.json` to the version you are moving to. A game in `games/` of a clone that still pins `^0.7.1` stops `npm install` with `ETARGET`.
+First run `threedog doctor --fix`: it rewrites the `threedog` and `@threedog/*` pins in each game's `package.json`. A game in `games/` of a clone that still pins `^0.7.1` stops `npm install` with `ETARGET`.
 
 Names were settled before 1.0: a few were removed, a few renamed. Nothing below keeps working under its old name. A stale uniform name in shader text reads 0 with no error and no warning, so search for the old names below.
 

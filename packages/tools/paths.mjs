@@ -17,8 +17,10 @@ const PROJECT = project();
 /** 'monorepo' or 'game' (see project()) */
 export const MODE = PROJECT.mode;
 export const ROOT = PROJECT.root;
+/** A path with / separators (shown in rules, generated docs, urls) */
+export const posix = p => p.split(sep).join('/');
 /** Relative to ROOT, separated by / */
-export const rel = p => relative(ROOT, p).split(sep).join('/');
+export const rel = p => posix(relative(ROOT, p));
 /** Path relative to ROOT → absolute path */
 export const abs = r => join(ROOT, r);
 /** A path inside ROOT re-spelled from ROOT (same letter case as ROOT and workspaces()), so a c:\ cwd still equals the listed C:\ workspace */
@@ -41,6 +43,8 @@ export const TYPES_REL = `${ENGINE_REL}/types`;
  * layout: generated/ui/UI.d.ts ← ui/UI.js
  */
 export const TYPES_GEN_REL = `${TYPES_REL}/generated`;
+/** The generated facts about modules, sections and contracts (metadata.mjs) */
+export const METADATA_REL = `${CORE_REL}/inspect/metadata.generated.js`;
 /**
  * Source files already migrated to "JSDoc → generated d.ts" (relative to the repo root). To migrate a file: add a line here → write JSDoc in the source →
  * delete the matching declarations from the hand-written d.ts → npm run map.
@@ -52,7 +56,7 @@ export const MIGRATED_JS_REL = [
   `${ENGINE_REL}/modules/water/Water.js`, `${ENGINE_REL}/modules/calendar/Calendar.js`, `${ENGINE_REL}/modules/calendar/index.js`, `${ENGINE_REL}/modules/sky/Sky.js`, `${ENGINE_REL}/modules/sky/skyModule.js`, `${ENGINE_REL}/modules/weather/Weather.js`, `${ENGINE_REL}/modules/weather/weatherDraw.js`, `${ENGINE_REL}/modules/particles/Particles.js`, `${ENGINE_REL}/modules/swarm/Swarm.js`, `${ENGINE_REL}/modules/ambience/Ambience.js`, `${ENGINE_REL}/modules/music/Music.js`, `${ENGINE_REL}/modules/timeline/Timeline.js`, `${ENGINE_REL}/modules/debug/DebugPanel.js`, `${ENGINE_REL}/modules/hlod/index.js`, `${ENGINE_REL}/modules/lights/index.js`, `${ENGINE_REL}/modules/hud/index.js`, `${ENGINE_REL}/modules/flow/index.js`,
   `${ENGINE_REL}/modules/net/Net.js`, `${ENGINE_REL}/modules/net/index.js`, `${ENGINE_REL}/modules/net/transports.js`,
   `${ENGINE_REL}/modules/world/World.js`, `${ENGINE_REL}/modules/world/index.js`, `${ENGINE_REL}/modules/grid/index.js`, `${ENGINE_REL}/modules/grid/Grid.js`, `${ENGINE_REL}/modules/grid/Layer.js`,
-  `${ENGINE_REL}/core/base/Random.js`, `${ENGINE_REL}/core/threads/Commits.js`, `${ENGINE_REL}/core/threads/Threads.js`, `${ENGINE_REL}/core/ops/Ops.js`, `${ENGINE_REL}/core/scene/Views.js`, `${ENGINE_REL}/core/threads/Jobs.js`, `${ENGINE_REL}/core/base/Events.js`, `${ENGINE_REL}/core/stream/Stream.js`, `${ENGINE_REL}/core/stream/Batching.js`, `${ENGINE_REL}/core/scene/Rays.js`, `${ENGINE_REL}/core/inspect/DebugOverrides.js`, `${ENGINE_REL}/core/base/I18n.js`, `${ENGINE_REL}/core/audio/Audio.js`, `${ENGINE_REL}/core/audio/audioVoice.js`, `${ENGINE_REL}/core/input/Input.js`, `${ENGINE_REL}/core/saves/Saves.js`, `${ENGINE_REL}/core/saves/session.js`, `${ENGINE_REL}/core/engine/page.js`, `${ENGINE_REL}/core/inspect/Budget.js`,
+  `${ENGINE_REL}/core/base/Random.js`, `${ENGINE_REL}/core/input/inputSeat.js`, `${ENGINE_REL}/core/threads/Commits.js`, `${ENGINE_REL}/core/threads/Threads.js`, `${ENGINE_REL}/core/ops/Ops.js`, `${ENGINE_REL}/core/scene/Views.js`, `${ENGINE_REL}/core/threads/Jobs.js`, `${ENGINE_REL}/core/base/Events.js`, `${ENGINE_REL}/core/stream/Stream.js`, `${ENGINE_REL}/core/stream/Batching.js`, `${ENGINE_REL}/core/scene/Rays.js`, `${ENGINE_REL}/core/inspect/DebugOverrides.js`, `${ENGINE_REL}/core/base/I18n.js`, `${ENGINE_REL}/core/audio/Audio.js`, `${ENGINE_REL}/core/audio/audioVoice.js`, `${ENGINE_REL}/core/input/Input.js`, `${ENGINE_REL}/core/saves/Saves.js`, `${ENGINE_REL}/core/saves/session.js`, `${ENGINE_REL}/core/engine/page.js`, `${ENGINE_REL}/core/inspect/Budget.js`,
   `${ENGINE_REL}/core/ops/control.js`,
 ];
 // ── Optional add-on packages ───────────────────────
@@ -139,7 +143,7 @@ export const GAME_CODE_DIRS_REL = [EXAMPLES_REL, GAMES_REL];
 /** Generated docs and declarations (not edited by hand, exempt from size checks) */
 export const GENERATED = [
   new RegExp(`^${DOCS_REL}/API\\.md$`), new RegExp(`^${API_DIR_REL}/`), new RegExp(`^${DOCS_REL}/CODEMAP\\.md$`), /\/GAMEMAP\.md$/,
-  new RegExp(`^${TYPES_GEN_REL}/`), new RegExp(`^${ENGINE_REL}/llms\\.txt$`),
+  new RegExp(`^${TYPES_GEN_REL}/`), new RegExp(`^${ENGINE_REL}/llms\\.txt$`), new RegExp(`^${METADATA_REL}$`),
 ];
 
 /** Every game folder (with a main.js), absolute paths (see project().gameDirs) */
@@ -186,7 +190,7 @@ function namedWorkspace(name) {
   // a game folder that is not one of this project's workspaces (e.g. a game kept outside games/ in the monorepo) is its own project: the command must run there
   const other = name && existsSync(join(resolve(name), 'package.json')) && project(resolve(name)).root !== ROOT;
   throw new Error(`workspace "${name}" not found. Available: ${workspaces().map(rel).join(', ')}` +
-    (other ? `. "${name}" is a game folder of its own: run the command inside it (cd ${name} && npx threedog ${process.argv[2] ?? '<command>'})` : ''));
+    (other ? `. "${name}" is a game folder of its own: cd ${name} and run the command there, without -w` : ''));
 }
 
 /**

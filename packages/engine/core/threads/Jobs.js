@@ -6,6 +6,7 @@
 // Jobs that change gameplay state pass apply: the result takes effect on a fixed tick through engine.commits, not on whichever frame the work finished (machine speed must not affect gameplay):
 //   engine.jobs.add(function* () { ...compute...; yield; ...; return result; }, { apply: result => changeGameplayState })
 //   If the job is not done by the due tick, the remaining steps run to completion on the spot, so such a job must be a plain function or generator (it cannot return a Promise).
+//   Those steps are capped by maxSteps too: a generator that never ends would hang the fixed step, so past the cap its promise rejects with jobs-endless and apply does not run.
 //   With apply, the returned Promise resolves when the work finishes, which may be before apply runs (it waits for the fixed tick); put anything that needs "state already changed" inside apply, do not assume it after await.
 // A single step that is too slow (one next() over slowStepMs in the real-time loop) warns once in dev: add more yields to a loop to slice it, since the budget only limits how many steps run, it cannot split one step.
 // Two ways to advance:
@@ -16,7 +17,10 @@
 import { warnOnce, fmt } from '../base/validate.js';
 import { codedError, coded } from '../base/errorHints.js';
 
-const STRINGS = { slow: 'engine.jobs: one job step took {ms} ms (over {max}) and will hitch the frame; add more yield calls in the loop to slice it', async: 'engine.jobs.add(..., { apply }): a job that changes gameplay state cannot return a Promise (it must be finishable on the spot when due); make it a plain function or generator', tooMany: 'engine.jobs: deterministic advance (step / headless) did not finish within {n} steps; the rest continues next frame (is a job endlessly adding new jobs?)' };
+const STRINGS = { slow: 'engine.jobs: a step of {who} took {ms} ms (over {max}) and will hitch the frame; add more yield calls in its loop to slice it, or give the function a name so this line can say which', async: 'engine.jobs.add(..., { apply }): a job that changes gameplay state cannot return a Promise (it must be finishable on the spot when due); make it a plain function or generator', endless: 'engine.jobs: {who} with apply was due and did not finish within {n} steps (engine.jobs.maxSteps), so it was stopped and its apply will not run. Make the generator end, or give it a later lag', tooMany: 'engine.jobs: deterministic advance (step / headless) did not finish within {n} steps, next up {who}; the rest continues next frame. If that job adds new jobs each time, end the chain' };
+
+/** A job as a message names it: the function it was given */
+const jobName = j => j.work?.name ? `job ${j.work.name}` : 'an unnamed job';
 
 // a runs before b: higher priority first, then earlier insertion
 const before = (a, b) => a.priority > b.priority || (a.priority === b.priority && a.seq < b.seq);
@@ -67,7 +71,11 @@ export class Jobs {
   }
   /** @internal Not done by the due tick: run the remaining steps now and return the result */
   _finishNow(j) {
-    while (!j.finished && !j.failed) this._step(j);
+    // same cap as run(): the fixed step cannot wait for "next frame", so an endless generator fails here instead of hanging the page
+    for (let n = 0; !j.finished && !j.failed; n++) {
+      if (n >= this.maxSteps) { this._fail(j, codedError('jobs-endless', fmt(STRINGS.endless, { who: jobName(j), n: this.maxSteps }))); break; }
+      this._step(j);
+    }
     // A job that fails here already told its caller through the promise (j.rej). Throwing again from the fixed step would freeze the game a second time
     // for the same error, and apply(undefined) must not run: cancel the ticket, and Commits.tick drops a canceled request after its fallback
     if (j.failed) { j.ticket?.remove(); return undefined; }
@@ -83,7 +91,7 @@ export class Jobs {
     if (deterministic) {
       let n = 0;
       while (this.heap.length && n++ < this.maxSteps) this._stepTop();
-      if (this.heap.length) warnOnce(coded('jobs-slow', fmt(STRINGS.tooMany, { n: this.maxSteps })));
+      if (this.heap.length) warnOnce(coded('jobs-slow', fmt(STRINGS.tooMany, { n: this.maxSteps, who: jobName(this.heap[0]) })));
       return;
     }
     const end = performance.now() + (this.engine.ready ? this.budgetMs : Math.max(this.budgetMs, this.loadingMs));   // measure: frame budget
@@ -103,10 +111,12 @@ export class Jobs {
       }
       const s = j.it.next();
       if (s.done) this._finish(j, s.value);
-    } catch (err) { this._removeJob(j); j.failed = true; j.error = err; j.rej(err); }
+    } catch (err) { this._fail(j, err); }
     const ms = performance.now() - t0;   // measure: step time
-    if (ms > this.slowStepMs && this.engine.ready) warnOnce(coded('jobs-slow', fmt(STRINGS.slow, { ms: Math.round(ms), max: this.slowStepMs })));
+    if (ms > this.slowStepMs && this.engine.ready) warnOnce(coded('jobs-slow', fmt(STRINGS.slow, { who: jobName(j), ms: Math.round(ms), max: this.slowStepMs })));
   }
+  /** @internal */
+  _fail(j, err) { this._removeJob(j); j.failed = true; j.error = err; j.rej(err); }
   /** @internal */
   _finish(j, v) {
     if (j.ticket && typeof v?.then === 'function') throw codedError('engine-misuse', STRINGS.async);

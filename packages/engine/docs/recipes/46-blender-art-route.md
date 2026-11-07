@@ -44,9 +44,9 @@ colliders, template / id nodes, spawn / trigger_ / npc_ / marker_ points; warnin
 | Step | What it does | When it matters |
 |---|---|---|
 | Meshopt | compresses geometry; the decoder ships with the engine | always on; smaller download, no visual change |
-| KTX2 | textures stay compressed on the GPU too, and the download shrinks | always on for a model with textures; encoded by the `ktx` tool when it is on PATH, else by the WebAssembly encoder of `ktx2-encoder`, which comes with the tools; if neither runs, that model fails, the command says why, and the game's `assets.js` stays as it was |
+| KTX2 | textures stay compressed on the GPU too, and the download shrinks | always on for a model with textures; if no encoder runs (`assets optimize` in `../COMMANDS.md`), that model fails, the command says why, and the game's `assets.js` stays as it was |
 
-It needs `@gltf-transform/cli` (`npm i -D @gltf-transform/cli`). Unchanged files are skipped; `--force` redoes everything.
+It needs `@gltf-transform/cli` (`npm i -D @gltf-transform/cli`); its current release pulls a `glob`/`minimatch` that `npm audit` flags (moderate, build time only), so add `"overrides": { "@donmccurdy/caporal": { "glob": "^14.0.4" } }` to your package.json. `--force` redoes unchanged files too.
 
 ### The same shot again, before and after
 Declare fixed views once: `engine.views.define('gate', { position: [10, 4, 12], target: [0, 1, 0], fov: 50 })` (`views.show(name)` also works in code). Then
@@ -81,7 +81,7 @@ that is what lets a painted or baked texture show. One scene can mix GLB props a
 
 There is no automatic mapping from a GLB material name to anything. To give a GLB your game's materials, do it in your game code, per model: name the
 material in Blender (`cloth`, `metal`, `glass`) and look it up in your `picture/materials.js`:
-```js
+```js fragment
 const m = await engine.assets.model('hat');
 m.traverse(o => { if (o.isMesh && materials[o.material.name]) o.material = materials[o.material.name]; });
 ```

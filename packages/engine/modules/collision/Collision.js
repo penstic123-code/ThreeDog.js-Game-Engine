@@ -5,10 +5,11 @@
 // Positions are always a single argument (Vector3 / Object3D / [x, y, z] / { x, z }); sizes go in the options object:
 //   const h = engine.collision.addBox(house, { halfWidth: 3, halfDepth: 2, rotation: 0.3 });   h.remove();
 import { Box3, Vector3 } from 'three';
-import { xzOf } from '../../core/base/math.js';
+import { xzOf, yOf } from '../../core/base/math.js';
+import { surfaceOr } from '../../core/scene/ground.js';
 
 import { readParams, keysSchema } from '../../core/base/params.js';
-import { CollisionGrid, gridBlocks } from './grid.js';
+import { CollisionGrid, gridBlocks, bodyHits } from './grid.js';
 import { codedError } from '../../core/base/errorHints.js';
 
 /** One axis of the slab test: narrows S.t0 / S.t1 to where the ray is inside |o + d t| <= h; false when it misses */
@@ -53,7 +54,8 @@ export class Collision {
    * Keep an outside copy of the static colliders (boxes and circles) in step, e.g. physics colliders or navmesh obstacles. add(type, data) builds the
    * copy of one collider and returns it; remove(piece, data) drops one. sync() does the work only when `version` moved since the last sync, then adds
    * what is new (in forEachStatic order) and removes what is gone; returns whether anything was compared. clear() forgets every piece without calling
-   * remove (the outside world they lived in was thrown away) so the next sync builds all again.
+   * remove (the outside world they lived in was thrown away) so the next sync builds all again; clear(true) calls remove on each (this collision module is leaving, the
+   * outside world stays).
    * Why one shared mirror: nav and rigid each had their own copy of this diff, and the two copies drifted (one checked readiness, the other a version
    * field of its own); a third consumer would copy it a third time.
    * @param {{ add: (type: 'box' | 'circle', data: any) => any, remove: (piece: any, data: any) => void }} fns
@@ -71,13 +73,13 @@ export class Collision {
         seen.clear();
         return true;
       },
-      clear() { pieces.clear(); version = -1; },
+      clear(drop = false) { if (drop) for (const [o, p] of pieces) remove(p, o); pieces.clear(); version = -1; },
       get size() { return pieces.size; },
     };
   }
 
   /**
-   * Add a circle collider (pillar, statue, campfire): position is the centre, radius (default 0.5), height (default 6).
+   * Add a circle collider (pillar, statue, campfire): position is the centre, radius (default 0.5), height (default 6). It stands on the ground and stops walkers on every floor; a pillar upstairs is an addBox with a y.
    * occluder: false keeps it from pulling the follow camera in (walkers are still stopped), e.g. forest trunks the camera may pass through. Returns a handle { remove() }
    */
   addCircle(position, opts = {}) {
@@ -133,14 +135,17 @@ export class Collision {
     obj.updateMatrixWorld(true);
     // a THREE.LOD is measured by its full model: a low level may stick out a little, and collision must not change with which levels exist
     const box = new Box3().setFromObject(obj.isLOD ? obj.levels[0].object : obj), c = box.getCenter(new Vector3()), s = box.getSize(new Vector3());
-    return this.addBox(c, { halfWidth: s.x / 2 + pad, halfDepth: s.z / 2 + pad, height: s.y, occluder });
+    return this.addBox(c, { halfWidth: s.x / 2 + pad, halfDepth: s.z / 2 + pad, height: s.y, y: box.min.y, occluder });
   }
 
   // The per-frame walkers below pass state through fields instead of building callbacks: resolve() and cameraDistance() run every step / frame.
   // resolve saves and restores its fields, so a nested call (from a ground collider callback) stays safe.
   _pushCircle(pos, a, b, c, radius) {
-    const dx = pos.x - a, dz = pos.z - b, d = Math.hypot(dx, dz), min = radius + c;
-    if (d < min && d > 1e-5) { pos.x = a + dx / d * min; pos.z = b + dz / d * min; this._rHit = true; }
+    let dx = pos.x - a, dz = pos.z - b, d = Math.hypot(dx, dz);
+    const min = radius + c;
+    if (d >= min) return;
+    if (d <= 1e-5) { dx = 1; dz = 0; d = 1; }   // dead centre has no direction: always leave towards +x, so the same input gives the same exit
+    pos.x = a + dx / d * min; pos.z = b + dz / d * min; this._rHit = true;
   }
   _pushBox(pos, bx, radius) {
     const lx0 = pos.x - bx.x, lz0 = pos.z - bx.z;
@@ -152,22 +157,27 @@ export class Collision {
     if (d > 1e-5) { nx = dx / d; nz = dz / d; nx = lx + nx * (radius - d); nz = lz + nz * (radius - d); }
     else { // centre is inside the box: push out along the nearest edge
       const px = bx.hw - Math.abs(lx), pz = bx.hd - Math.abs(lz);
-      if (px < pz) { nx = Math.sign(lx) * (bx.hw + radius); nz = lz; } else { nx = lx; nz = Math.sign(lz) * (bx.hd + radius); }
+      if (px < pz) { nx = (lx < 0 ? -1 : 1) * (bx.hw + radius); nz = lz; } else { nx = lx; nz = (lz < 0 ? -1 : 1) * (bx.hd + radius); }
     }
     pos.x = bx.x + nx * bx.c + nz * bx.s; pos.z = bx.z - nx * bx.s + nz * bx.c; this._rHit = true;
   }
 
-  /** @internal Push a character of radius `radius` out of obstacles; edits pos.x / pos.z directly. Returns whether a collision happened */
+  /**
+   * @internal Push a character of radius `radius` out of obstacles; edits pos.x / pos.z directly. Returns whether a collision happened.
+   * A box with an explicit `y` occupies y .. y + height, and stops only a body (pos.y .. + movement.height) that overlaps that span: a wall upstairs leaves the floor below free.
+   * A box without `y` is a footprint, as is every box when pos has no y: those stop at any height. walkableAt and A* read boxes the same way (bodyHits)
+   */
   resolve(pos, radius = this.engine.movement.radius) {
     const sPos = this._rPos, sRad = this._rRad;
     this._rPos = pos; this._rRad = radius; this._rHit = false;
-    const g = this.engine.ground;
+    const g = this.engine.ground, y = pos.y, body = this.engine.movement.height;
     for (let iter = 0; iter < 2; iter++) {
       g.forEachCollider?.(pos.x, pos.z, radius + 2, this._onGroundCircle);
       const list = this._grid.query(pos.x, pos.z, radius + 2);
       for (let i = 0; i < list.length; i++) {
         const it = list[i];
-        if (it._b) this._pushBox(pos, it, radius); else this._pushCircle(pos, it.x, it.z, it.r, radius);
+        if (!it._b) this._pushCircle(pos, it.x, it.z, it.r, radius);
+        else if (bodyHits(it, y, body)) this._pushBox(pos, it, radius);
       }
       if (!this._rHit) break;   // nothing pushed: a second pass would ask the same questions at the same spot (most steps of most walkers)
     }
@@ -176,8 +186,8 @@ export class Collision {
     return hit;
   }
 
-  /** Can anyone stand here (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (m, default engine.movement.radius) */
-  walkable(position, { radius = this.engine.movement.radius } = {}) { const [x, z] = xzOf(position); return this.walkableAt(x, z, radius); }
+  /** Can anyone stand here (for pathfinding): not in water, not too steep, not inside an obstacle. radius is the character radius (m, default engine.movement.radius). A position with y asks about the floor that height picks */
+  walkable(position, { radius = this.engine.movement.radius } = {}) { const [x, z] = xzOf(position); return this.walkableAt(x, z, radius, yOf(position)); }
   /**
    * Line of sight with height: is the 3D segment a -> b free of colliders (boxes, circles, terrain trees)? Positions like addBox ([x, y, z] / Vector3 / Object3D).
    * Heights count: a 1 m wall does not block a sight line passing 3 m above it; a collider's `y` and `height` are honoured (no `y` = sits on the ground).
@@ -214,19 +224,21 @@ export class Collision {
       return blocks((-qb - sq) / (2 * qa), (-qb + sq) / (2 * qa), bottom, top);
     };
     const len = Math.hypot(dx, dz), mx = A.x + dx / 2, mz = A.z + dz / 2;
+    // what stands on the ground stands on the floor the line passes over, not on a deck far above it
+    const floorAt = (x, z) => this.engine.surface(x, z, A.y + dy * (len > 1e-6 ? Math.min(1, Math.max(0, ((x - A.x) * dx + (z - A.z) * dz) / (len * len))) : 0));
     const list = this._grid.query(mx, mz, len / 2 + rad + 1);
     for (let i = 0; i < list.length; i++) {
       const it = list[i];
-      if (!it._b) { const g = this.engine.surface(it.x, it.z); if (circle(it.x, it.z, it.r, g, g + it.h)) return false; continue; }
+      if (!it._b) { const g = floorAt(it.x, it.z); if (circle(it.x, it.z, it.r, g, g + it.h)) return false; continue; }
       const ox = A.x - it.x, oz = A.z - it.z;
       const lx = ox * it.c - oz * it.s, lz = ox * it.s + oz * it.c, ldx = dx * it.c - dz * it.s, ldz = dx * it.s + dz * it.c;
       S.t0 = 0; S.t1 = 1;
       if (!slab(S, lx, ldx, it.hw + rad) || !slab(S, lz, ldz, it.hd + rad)) continue;
-      const bottom = it.y ?? this.engine.surface(it.x, it.z);
+      const bottom = it.y ?? floorAt(it.x, it.z);
       if (blocks(S.t0, S.t1, bottom, bottom + it.h)) return false;
     }
     let treeHit = false;
-    this.engine.ground.forEachCollider?.(mx, mz, len / 2 + rad + 1, (cx, cz, r) => {
+    this.engine.ground.forEachCollider?.(mx, mz, len / 2 + rad + 1, (cx, cz, r) => {   // plants grow on the top ground: that is where their trunks stand
       if (!treeHit) { const g = this.engine.surface(cx, cz); treeHit = circle(cx, cz, r, g, g + this.canopyHeight); }
     });
     return !treeHit;
@@ -234,19 +246,23 @@ export class Collision {
   /** @internal position argument -> { x, y, z } (y 0 when only x, z are given) */
   _vec(p) {
     const [x, z] = xzOf(p);
-    const q = p.isObject3D ? p.position : p;
-    const y = (Array.isArray(q) ? q[1] : q.y) ?? 0;
-    return { x, y, z };
+    return { x, y: yOf(p) ?? 0, z };
   }
   /** @internal The collider grid (boxes and circles added through this module), read by async pathfinding on the main thread */
   get grid() { return this._grid; }
-  /** Same as walkable but takes plain numbers (inner loop of A* pathfinding and spawn search, allocates nothing; like engine.surface(x, z)). radius defaults to engine.movement.radius */
-  walkableAt(x, z, radius = this.engine.movement.radius) { return this.groundWalkable(x, z) && !this.blockedAt(x, z, radius) && !this._groundBlocks(x, z, radius) && !gridBlocks(this._grid, x, z, radius); }
+  /**
+   * Same as walkable but takes plain numbers (inner loop of A* pathfinding and spawn search, allocates nothing; like engine.surface(x, z)). radius defaults to engine.movement.radius.
+   * y picks the floor as in surface(), and only the floor it picks counts, so [x, 0, z] on raised ground asks about that ground. Left out: the top ground, and every box blocks at any height
+   */
+  walkableAt(x, z, radius = this.engine.movement.radius, y) {
+    const f = y === undefined ? y : surfaceOr(this.engine, x, z, y, y);
+    return this.groundWalkable(x, z, f) && !this.blockedAt(x, z, radius) && !this._groundBlocks(x, z, radius) && !gridBlocks(this._grid, x, z, radius, f, this.engine.movement.height);
+  }
   /** @internal Ground shape half of walkableAt (water, slope): a smooth field, so async pathfinding samples it on a raster; colliders are tested exactly there */
-  groundWalkable(x, z) {
+  groundWalkable(x, z, y) {
     const e = this.engine;
     // the void of terrain({ shape }): -Infinity is not below a water level of -Infinity, so it must be asked directly
-    return e.ground.has(x, z) && !(e.surface(x, z) < e.waterAt(x, z) + this.walkableWaterMargin || e.slope(x, z) > this.maxClimb * 0.8);
+    return e.ground.has(x, z) && !(e.surface(x, z, y) < e.waterAt(x, z, y) + this.walkableWaterMargin || e.slope(x, z, y) > this.maxClimb * 0.8);
   }
   /** Does one of the ground's own colliders (terrain trees) block this spot */
   _groundBlocks(x, z, radius) {
@@ -275,7 +291,7 @@ export class Collision {
     if (!slab(S, lx, dx, bx.hw + S.pad) || !slab(S, lz, dz, bx.hd + S.pad)) return;
     if (S.t0 <= 0.3) return;
     const yAt = from.y + (S.to.y - from.y) * (S.t0 / len);
-    if (yAt > (bx.y ?? this.engine.surface(bx.x, bx.z)) + bx.h) return;   // camera above the wall top
+    if (yAt > (bx.y ?? this.engine.surface(bx.x, bx.z, yAt)) + bx.h) return;   // camera above the wall top
     S.best = Math.min(S.best, S.want * S.t0 / len);
   }
 
@@ -312,7 +328,7 @@ const COLLISION_PARAMS = keysSchema(['maxClimb', 'canopyHeight', 'cameraPad', 'c
 export function collision(opts = {}) {
   readParams('collision', COLLISION_PARAMS, opts);
   let c = null;
-  return { name: 'collision', type: 'world', provides: ['collision'], params: COLLISION_PARAMS, options: opts, label: 'Collision', install(e) { e.i18n.add({ 'zh-CN': { 'module.collision': '碰撞' }, en: { 'module.collision': 'collision' } }); return (c = new Collision(e, opts)); },
+  return { name: 'collision', skipKind: 'none', type: 'world', provides: ['collision'], params: COLLISION_PARAMS, options: opts, label: 'Collision', install(e) { e.i18n.add({ 'zh-CN': { 'module.collision': '碰撞' }, en: { 'module.collision': 'collision' } }); return (c = new Collision(e, opts)); },
     // counts of what blocks walking, and whether the player's own spot is walkable: answers "why can the player not go there" without stepping
     describe(e) {
       const p = e.player?.position;
@@ -320,3 +336,5 @@ export function collision(opts = {}) {
         ...(p ? { atPlayer: { walkable: c.groundWalkable(p.x, p.z), blocked: c.blockedAt(p.x, p.z) } } : {}) };
     } };
 }
+
+export const handRolled = [{ kind: 'collision', seen: 'a hand-written box overlap', use: 'engine.collision.addBox / addCircle for walls and props (movement, rays and physics read them); engine.collision.walkable to ask', quiet: /\b(engine|e|eng|ctx)\.collision\b/, code: /Math\.abs\([^)]*\)\s*<=?[^&|;]*&&\s*Math\.abs\([^)]*\)\s*<=?|[<>]=?\s*[\w.]*\bmin[XYZ]?\b[^;]*&&[^;]*[<>]=?\s*[\w.]*\bmax[XYZ]?\b/i }];

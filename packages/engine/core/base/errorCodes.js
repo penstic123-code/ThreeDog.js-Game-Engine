@@ -7,13 +7,14 @@
 
 /**
  * Errors the engine raises by name (the message ends with "[code]"): code -> { fix, docs }. Codes are stable: tools and tests may match on them.
- * @type {Record<string, { fix: string, docs: string[] }>}
+ * brief: a hint that stays one line on the console, because its message already says where the rest is; err.fix and errorInfo still give it.
+ * @type {Record<string, { fix: string, docs: string[], brief?: boolean }>}
  */
 export const ERROR_CODES = {
   'save-part-threw': {
     docs: ['recipes/20-content-actions-save.md', 'api/saves.md'],
-    fix: 'A save part\'s save() threw, so nothing was written and the previous save is kept. Fix the save() named in the message ' +
-      '(it must return plain data).' },
+    fix: 'A save part\'s save() threw or returned what a save cannot hold, so nothing was written and the previous save is kept. Fix the save() named in the message ' +
+      '(it must return plain data; NaN and Infinity at any depth count, and the message gives the path).' },
   'save-load-threw': {
     docs: ['recipes/20-content-actions-save.md', 'api/saves.md'],
     fix: 'A save part\'s load() threw, so the game was rolled back to how it was before the load. Fix the load() named in the ' +
@@ -30,6 +31,16 @@ export const ERROR_CODES = {
     docs: ['recipes/20-content-actions-save.md', 'api/saves.md'],
     fix: 'Import only text or files made by saves.export / exportFile; attachments must be data: URLs. Nothing was fetched or ' +
       'changed.' },
+  'save-key-taken': {
+    docs: ['recipes/20-content-actions-save.md', 'api/saves.md'],
+    fix: 'One owner per save key: pick another key, or call remove() on the handle of the first saves.register before registering again.' },
+  'save-busy': {
+    docs: ['recipes/20-content-actions-save.md', 'api/saves.md'],
+    fix: 'Wait for the load to end (await it) before collecting. engine.saves.save waits by itself.' },
+  'save-nested': {
+    docs: ['recipes/20-content-actions-save.md', 'api/saves.md'],
+    fix: "Something waits behind a state replacement that has not ended; with no sign of life for loading.timeoutMs it fails with this code. If a save part's load() or a module's afterLoad awaits it, it waits for itself: pass the turn they are given to " +
+      'level.load / content.load ({ turn }). A new saves.apply / load / save or session.newGame / load / quit starts after the running one: do not await it there, or ask from a save:loaded or session:start listener.' },
   'save-autosave': {
     docs: ['recipes/20-content-actions-save.md', 'api/saves.md'],
     fix: 'saves.autosave(minutes) takes a positive number of minutes of play.' },
@@ -68,6 +79,9 @@ export const ERROR_CODES = {
   'skip-amount': {
     docs: ['recipes/06-clock-events.md', 'api/engine.md'],
     fix: 'engine.skip takes { to: \'06:00\' } (needs the calendar module) or { seconds: 600 } (calendar seconds, > 0).' },
+  'skip-busy': {
+    docs: ['recipes/06-clock-events.md', 'api/engine.md'],
+    fix: 'Await the skip that is running (engine.skip returns its Promise), then call engine.skip again.' },
   'stream-timeout': {
     docs: ['recipes/18-world.md', 'api/stream.md'],
     fix: 'The teleport destination did not finish loading in time (terrain, colliders, nearby models). Read describe().loading or ' +
@@ -75,7 +89,7 @@ export const ERROR_CODES = {
   'stream-removed': {
     docs: ['recipes/18-world.md', 'api/stream.md'],
     fix: 'A stream source was removed (remove(), its until, or engine.dispose) before it was ready, so its whenReady rejects. Await ' +
-      'whenReady only on a source you keep.' },
+      'whenReady only on a source you keep. stream.teleport also rejects with it when a new game or a load replaced the state during the trip: start the trip again from the new state if it is still wanted.' },
   'stream-option': {
     docs: ['recipes/18-world.md', 'api/stream.md'],
     fix: 'stream.source(position, { detail }) takes \'full\' or \'simple\'; stream.radius takes a finite number of meters or null.' },
@@ -91,10 +105,10 @@ export const ERROR_CODES = {
     fix: "engine.mod(point, { owner, set | add | mul | clamp, layer?, for?, clock?, id? }): owner is a non-empty string, exactly one of set / add / mul / clamp for a number (set for a value point); in a module ctx.mod(point, { mul }) names the module itself. haltLoop / freeze / takeCamera / debug.view name their owner the same way. Only that owner ends it, with the handle's remove()." },
   'shared-conflict': {
     docs: ['recipes/55-mods-time-wrap.md'],
-    fix: "Two owners set one shared value on the same layer, so nothing says which one decides (dev builds throw; release builds let the later write win and warn once). Copy one fix from the message: contribute instead (mul / add), decide on another layer ({ layer }), or take it over on purpose (manual, or a set on the system layer)." },
+    fix: "Two owners set one shared value on the same layer, so nothing says which one decides (every build throws; the first value stays). Copy one fix from the message: contribute instead (mul / add), decide on another layer ({ layer }), or take it over on purpose (manual, or a set on the system layer)." },
   'shared-taken': {
     docs: ['recipes/55-mods-time-wrap.md', 'recipes/14-custom-module.md'],
-    fix: "Two modules provide the same exclusive slot (provides: ['inventory']). Install only one, or swap: engine.use(mine(), { replaces: 'inventory' }) unloads the holder and its changes." },
+    fix: "Two modules provide the same exclusive slot (provides: ['inventory']; terrain and level both hold 'ground'). Install only one, or swap: engine.use(mine(), { replaces: 'inventory' }) unloads the holder and its changes. Terrain and level together: give both { part: true } and add compositeGround({ parts })." },
   'shared-settings': {
     docs: ['recipes/55-mods-time-wrap.md'],
     fix: "The settings layer only restricts what the scene chose: clamp or mul on a number, set: false on a value point. It cannot switch something on or raise it; leave the setting out to allow the scene's value." },
@@ -145,6 +159,10 @@ export const ERROR_CODES = {
     docs: ['recipes/15-perf.md', 'api/jobs.md'],
     fix: 'A job step ran too long or a job queued too many steps. Yield more often inside the generator (engine.jobs.add(function* ' +
       '() { ...; yield; })).' },
+  'jobs-endless': {
+    docs: ['api/jobs.md'],
+    fix: 'A job with apply reached its due tick and engine.jobs.maxSteps steps were not enough to finish it, so its promise rejected and apply did not run. ' +
+      'A generator that loops forever needs an end; one that is only long needs a later lag or a higher engine.jobs.maxSteps.' },
   'threads-crash': {
     docs: ['recipes/15-perf.md', 'api/engine.md'],
     fix: 'A worker failed or went silent past the lane timeout (the reason is printed with it); the lane now runs on the main thread with the same ' +
@@ -156,6 +174,9 @@ export const ERROR_CODES = {
     docs: ['recipes/58-input.md', 'api/input.md'],
     fix: 'Two owners declared one action in different input contexts. An action belongs to one context: rename one of them, or declare both in ' +
       'the same context (then they share the action).' },
+  'input-seat': {
+    docs: ['recipes/58-input.md', 'api/input.md'],
+    fix: 'A seat owns its pad and keys alone. Give each seat its own pad index and keys, or remove() the seat that holds them; one seat drives one player.' },
   'input-unbound': {
     docs: ['recipes/58-input.md', 'api/input.md'],
     fix: "An action a module needs is read but no key is bound, so it never fires. Modules bind no keys: bind it with " +
@@ -187,8 +208,12 @@ export const ERROR_CODES = {
       'stage). Give both modules the same stage, or remove the before / after.' },
   'module-critical': {
     docs: ['recipes/14-custom-module.md', 'api/engine.md'],
-    fix: 'A module declared critical: true failed in init(), so start() stopped instead of starting a broken game. The message names the module ' +
-      'and the reason: fix its init(), or drop critical if the game can run without it.' },
+    fix: 'A module declared critical: true failed in init(), or a provider it requires failed, so start() stopped instead of starting a broken game. The message names the module ' +
+      'and the reason: fix that init(), or drop critical if the game can run without it.' },
+  'module-contract': {
+    docs: ['recipes/14-custom-module.md', 'recipes/49-game-module-contract.md'],
+    fix: "A module provides (or another module requires) a capability the engine has a contract for, and its API lacks methods or fields that contract lists. Add them, or accept the risk " +
+      "if your game calls none of them: the module still runs. The behavior half of the contract is checked by runContract from @threedog/tools/contract." },
   'module-not-ready': {
     docs: ['recipes/14-custom-module.md', 'api/engine.md'],
     fix: 'start() waited longer than engine.loading.timeoutMs for modules whose isReady(e) stays false. Fix what that module waits for, ' +
@@ -206,8 +231,8 @@ export const ERROR_CODES = {
       "takes control: engine.control.take(player, { owner, layer: 'script', step })." },
   'control-conflict': {
     docs: ['recipes/57-control.md'],
-    fix: "Two owners want the same character on the same control layer, so nothing says which one steers (dev builds throw; release builds let " +
-      "the later one take it). End the old one first (its handle.remove()), or take another layer: base < script < cutscene (higher pauses lower)." },
+    fix: "Two owners want the same character on the same control layer, so nothing says which one steers, and the first keeps it (every build). " +
+      "End the old one first (its handle.remove()), or take another layer: base < script < cutscene (higher pauses lower)." },
   'control-net': {
     docs: ['recipes/57-control.md', 'recipes/27-net.md'],
     fix: "That character is driven by another machine (net holds its control for good). Change it where it is driven: run an op the host runs " +
@@ -263,6 +288,9 @@ export const ERROR_CODES = {
   'engine-misuse': {
     docs: ['api/engine.md'],
     fix: 'An engine call got an argument it cannot use; the message names the call and the accepted forms.' },
+  'pixel-conflict': {
+    docs: ['recipes/62-picture-code.md', 'api/engine.md'],
+    fix: 'pixelSize decides the render resolution, and a camera\'s pixelSnap its view height, while they are on; something else asked for it too. The message names both: keep one, or turn it off first (engine.setPixelSize(null), or drop pixelSnap).' },
   'many-lights': {
     docs: ['recipes/09-materials-lights-models.md', 'api/lightPool.md'],
     fix: "Too many real-time lights are in the scene (the message has the count). Use engine.use(lightPool({ point: 8 })) and register torches / lamps with engine.lightPool.add(...), so a fixed small set of real lights follows the nearest sources." },
@@ -332,7 +360,7 @@ export const ERROR_CODES = {
     fix: 'An ambience rule names no sound: give sound: a name registered in audio.sounds.' },
   'camera-option': {
     docs: ['recipes/21-camera.md', 'api/cameraRig.md'],
-    fix: 'A camera option is wrong: projection is \'perspective\' or \'orthographic\' (orthographic needs size > 0 and engine.camera), ' +
+    fix: 'A camera option is wrong: projection is \'perspective\' or \'orthographic\' (orthographic needs size > 0 and an EngineCamera or a real OrthographicCamera), engine.camera takes a THREE.PerspectiveCamera or THREE.OrthographicCamera, ' +
       'ground / shots use the values the message lists.' },
   'character-option': {
     docs: ['api/characters.md', 'recipes/13-animation.md', 'recipes/02-npc.md'],
@@ -378,6 +406,9 @@ export const ERROR_CODES = {
   'rigid-misuse': {
     docs: ['recipes/11-vehicles.md', 'api/rigid.md'],
     fix: "The message says which: an id already used by another body or vehicle (give each its own id); joints lost when newGame / a load rebuilt the physics world (re-create them in a rigid:rebuilt listener, recipe 11 section 3 \"Joints\"); rigid.ragdoll() got something it cannot drive (a skinned character out of its vehicle, with the bones named when they cannot be read); or a moving body left the terrain colliders and froze (raise rigid({ terrainRing }) if it must keep moving there, recipe 11 section 3)." },
+  'settings-row': {
+    docs: ['api/settings.md'],
+    fix: 'settings.set() names a key no row owns, so nothing would apply it. Use a listed key, add the tab that has the row (settings({ sections })) or define the row: settings.define(key, default, apply).' },
   'settings-tab': {
     docs: ['api/settings.md'],
     fix: 'settings({ tabs }) names a built-in tab that does not exist. Use a listed built-in name, or define your own section.' },
@@ -455,6 +486,9 @@ export const ERROR_CODES = {
     docs: ['recipes/12-navmesh.md', 'api/nav.md'],
     fix: 'A nav link needs both ends within its radius of the mesh (which stops about the agent radius short of every edge) and within maxClimb of its height, and the places ' +
       'where they meet the mesh in the same tile or neighbouring tiles (a tile is tileSize x cellSize meters). Move the end onto walkable ground, raise radius, split a long link in two, or raise tileSize.' },
+  'nav-height': {
+    docs: ['recipes/12-navmesh.md', 'api/nav.md'],
+    fix: 'A height given to a path or a stop is more than a body height from every walkable surface at that spot, so the nearest surface was used. Leave y out to mean the ground, or give the height of the floor you mean.' },
   'grid-overlap': {
     docs: ['recipes/29-grid.md', 'api/grids.md'],
     fix: 'Two grid items claim the same cell; the second is skipped. Move one, or remove the other first.' },
@@ -469,7 +503,7 @@ export const ERROR_CODES = {
     fix: "provides is a list of exclusive slot names (provides: ['inventory']); a slot name must not be a shared value's name." },
   'module-replaces': {
     docs: ['recipes/14-custom-module.md'],
-    fix: "engine.use(mine(), { replaces: 'slot' }): an installed module must hold the slot, a module in the same call must provide it, and no other module may require the old one by its module name (require the slot)." },
+    fix: "engine.use(mine(), { replaces: 'slot' }): an installed module must hold the slot, a module in the same call must provide it, and no other module may require the old one by its module name (require the slot). The world holds every record, so it is never replaced under modules that use it or after start(): install your world before the modules that need it." },
   'module-cycle': {
     docs: ['recipes/14-custom-module.md'],
     fix: 'before / after constraints of two or more modules point at each other. Remove one of them or give a module a different stage.' },
@@ -487,7 +521,7 @@ export const ERROR_CODES = {
     fix: 'The module name becomes engine.<name>; it must not be an existing engine property or another module name.' },
   'module-handle': {
     docs: ['recipes/14-custom-module.md', 'api/engine.md'],
-    fix: "ctx.track(handle) (the ctx install / init receive) and engine.session.track(handle) take something with remove(), such as the result of events.on / onFixed / clock.after. A handle tracked after its module was unloaded (an async init resuming after replaces / unload) is removed at once: check what the init does after its await." },
+    fix: "ctx.track(handle) (the ctx install / init receive) and engine.session.track(handle) take something with remove(), such as the result of events.on / onFixed / clock.after; ctx.borrow(obj, values) takes two objects, and one property has one holder at a time: end the first borrow, or use a shared point (engine.mod) when several parties want the value. A handle tracked after its module was unloaded (an async init resuming after replaces / unload) is removed at once: check what the init does after its await." },
   'module-called': {
     docs: ['recipes/01-new-game.md', 'api/engine.md'],
     fix: 'engine.use() takes the module object: write engine.use(sky()), not engine.use(sky).' },
@@ -562,8 +596,9 @@ export const ERROR_CODES = {
     docs: ['recipes/14-custom-module.md'],
     fix: "engine.unuse(name): the module must be installed, and no other module may still require it or a slot only it provides. Unload the dependent first, or swap the provider with engine.use(mine(), { replaces: 'slot' })." },
   'picture-conflict': {
+    brief: true,
     docs: ['recipes/62-picture-code.md'],
-    fix: 'Two places change this picture value inside one frame, so the earlier write never shows. Pick the one that owns the value and delete the other, or turn the second into a signal the owner reads (recipes/62-picture-code.md "Wiring picture/ parts"). Both lines are in the message.' },
+    fix: 'Two places write this value, so one write never shows. Pick the one that owns the value and delete the other, or turn the second into a signal the owner reads (recipes/62-picture-code.md "Wiring picture/ parts"). Both lines are in the message.' },
   'camera-kind': {
     docs: ['recipes/21-camera.md', 'api/cameraRig.md'],
     fix: 'setCamera() got an unknown camera kind. Use one of the listed kinds; for a camera of your own, take it with engine.takeCamera(owner) and place engine.camera yourself (recipes/21-camera.md).' },

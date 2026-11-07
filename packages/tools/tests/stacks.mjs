@@ -14,7 +14,7 @@ export const name = 'modifier stacks: engine.mod combine rules, owners, save, ho
 /** A minimal engine: saves, events and the stacks; the holds from holds.js on top */
 function fake() {
   const parts = {}, events = [], on = {};
-  const e = Object.defineProperties({ elapsed: 0, saves: { register: (k, p) => { parts[k] = p; } }, _loop() {}, disposed: false, page: { _sync() {} },
+  const e = Object.defineProperties({ elapsed: 0, camera: { fov: 60, updateProjectionMatrix() {} }, _oFov: { mark() {} }, saves: { register: (k, p) => { parts[k] = p; } }, _loop() {}, disposed: false, page: { _sync() {} },
     events: { emit: (n, d) => events.push([n, d]), on: (n, f) => { (on[n] ??= []).push(f); return { remove() {} }; } } }, Object.getOwnPropertyDescriptors(holdMethods));
   e.stacks = new Stacks(e); e.stacks._hook(); e.mod = (n, o) => e.stacks.mod(n, o);
   defineHoldStacks(e);   // the engine's own hold stacks (halt does the loop side effect itself)
@@ -52,11 +52,10 @@ export async function run({ check }) {
   // holders
   const h = q.holders();
   check('holders lists owner / op / value / layer', h.length === 3 && h.at(-1).owner === 'a' && h.at(-1).op === 'add' && h.at(-1).value === 1 && h.at(-1).layer === 'game', JSON.stringify(h));
-  // two owners set in one layer: development builds throw (browser spec shared-points); this node run is a release build: later wins, warned once
-  const warns = []; const w0 = console.warn; console.warn = (...x) => warns.push(x.join(' '));
-  try { e.mod('q', { owner: 's1', set: 1 }); e.mod('q', { owner: 's2', set: 2 }); void v(); void v(); } finally { console.warn = w0; }
-  check('release: two owners set in one layer, the later wins ((2 + 1) x 3)', v() === 9, String(v()));
-  check('... and warn once naming both owners (shared-conflict)', warns.filter(x => x.includes("'s1'") && x.includes("'s2'")).length === 1, JSON.stringify(warns));
+  // two owners set in one layer: development builds throw (browser spec shared-points); this node run is a release build, which refuses it too
+  let clash = null; e.mod('q', { owner: 's1', set: 1 });
+  try { e.mod('q', { owner: 's2', set: 2 }); } catch (x) { clash = x; }
+  check('release: two owners set in one layer throws shared-conflict naming both, the first stays ((1 + 1) x 3)', clash?.code === 'shared-conflict' && clash.message.includes("'s1'") && clash.message.includes("'s2'") && v() === 6, String(v()));
   // bad input says how to call it
   const code = f => { try { f(); return 'no throw'; } catch (x) { return x.code; } };
   check('no owner throws mod-owner', code(() => e.mod('q', { mul: 2 })) === 'mod-owner');
@@ -87,7 +86,7 @@ export async function run({ check }) {
   // save / load: below-system entries saved, system ones stay with the screen
   e.mod('q', { owner: 'menu', mul: 0.5, layer: 'system' });
   const saved = JSON.parse(JSON.stringify(e.parts.stacks.save()));
-  check('system entries are not saved', !saved.q.some(x => x.owner === 'menu') && saved.q.length === 5);
+  check('system entries are not saved', !saved.q.some(x => x.owner === 'menu') && saved.q.length === 4);
   const before = v();
   e.mod('q', { owner: 'later', add: 100 }); q.release('a');
   e.parts.stacks.load(saved);

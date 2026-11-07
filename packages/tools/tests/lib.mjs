@@ -82,7 +82,7 @@ export async function run({ check }) {
     const top = (await import('node:fs')).readdirSync(join(c, 'plugins')).filter(f => /\.m?js$/.test(f));
     const files = {};
     for (const f of top) files['./plugins/' + f] = await import(pathToFileURL(join(c, 'plugins', f)).href);
-    const used = [], fake = { _started: false, use(m) { checkType(m); used.push(m); return this; }, modules: new Map() };
+    const used = [], fake = { _started: false, _planChange() {}, use(m) { checkType(m); used.push(m); return this; }, modules: new Map() };
     let startErr = '';
     try { const pl = new Plugins(fake); pl.add(files); fake._started = true; pl._plugAll(); } catch (x) { startErr = x.message; }
     check('[guard] pull of a factory entry: only the wiring file is at the top of plugins/, it plugs at start with no error, and --plug arguments reach the factory',

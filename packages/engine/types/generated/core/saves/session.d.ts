@@ -3,7 +3,7 @@
 /** engine.session: new game / continue / back to title, each from a clean slate. */
 export class Session {
     /**
-     * True while a playthrough runs: start() has finished, no newGame / load / quit is replacing the state, and the title screen is not up.
+     * True while a playthrough runs: start() has finished, no newGame / load / quit is replacing the state, and neither the title screen nor a finished quit stands in its place.
      * Autosave and other "only during play" work check it.
      * @type {boolean}
      * @experimental

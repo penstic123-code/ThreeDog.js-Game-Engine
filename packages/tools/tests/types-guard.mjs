@@ -46,6 +46,7 @@ mix(float(1), 'x', 2);
 import { uniformArray, instancedBufferAttribute } from 'three/tsl';
 const el = uniformArray([new THREE.Vector4()]).element(0); console.log(el.xy, el.mul(2));
 console.log(instancedBufferAttribute(new THREE.InstancedBufferAttribute(new Float32Array(2), 2)).x);
+eng.time.pause();
 `;
 
 export async function run({ check }) {
@@ -81,6 +82,7 @@ export async function run({ check }) {
       [27, 28].every(n => hints.some(l => l.includes(`probe.js:${n} `)) && !errs.some(l => l.includes(`probe.js:${n} `))) && [29, 30].every(n => errs.some(l => l.includes(`probe.js:${n} `))), errs.join(' | '));
     check('[guard] valid TSL is no error: a swizzle or method three\'s declarations leave out (36, 37) is a hint that does not claim every name runs',
       [36, 37].every(n => hints.some(l => l.includes(`probe.js:${n} `) && /TSL name/.test(l) && !/does not affect running/.test(l)) && !errs.some(l => l.includes(`probe.js:${n} `))), errs.concat(hints).join(' | '));
-    check('no other errors (declarations themselves are clean)', errs.length === 11, errs.join(' | '));
+    check('a guessed pause (engine.time.pause) points to engine.freeze in the same line (38)', errs.some(l => /probe\.js:38 .*engine\.freeze\(owner\)/.test(l)), errs.join(' | '));
+    check('no other errors (declarations themselves are clean)', errs.length === 12, errs.join(' | '));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }

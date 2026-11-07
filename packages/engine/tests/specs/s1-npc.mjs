@@ -248,6 +248,7 @@ export const specs = [
   {
     name: 'S1 NPC avoidance: 400 nearby NPCs cost < 1ms per fixed step (spread-out crowd), packed crowd also < 4ms (open world)',
     url: '/?cutscene=skip',
+    serial: true,   // judges by a measured time (R56)
     async run({ check, ev }) {
       const r = await ev(() => {
         engine.haltLoop();

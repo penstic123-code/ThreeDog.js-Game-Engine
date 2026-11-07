@@ -12,16 +12,14 @@ export function failure(r) {
   return out;
 }
 /**
- * Freeze owner held while a save's parts load (saveApply.js). A part's load() may return a Promise (an async terrain, a streamed world): until the
- * last part is applied the game is half old, half new, so fixed steps stop (freeze) and ops refuse with code 'loading' (a click or a net message
- * arriving in that gap would change the old state and be wiped, or act on a mix). Shared here so ops and the loader name the same owner.
+ * Why ops refuse right now, or null. 'loading': the state is being replaced (saves.replacing, stateReplace.js). While a save reads, loads, rebuilds in
+ * afterLoad or rolls back the game is half old, half new, so a click or a net message arriving in that gap would change the old state and be wiped,
+ * or act on a mix. It comes first: a load that failed in dev also froze on the error, and the rollback under way is still the reason to wait.
+ * 'halted': a gameplay error froze the game. Any other freeze (a menu, a cutscene) does not stop ops.
  * @internal
  */
-export const PARTS_LOADING = 'threedog:load-parts';
-/** Why ops refuse right now: 'halted' (a gameplay error froze the game), 'loading' (save parts still loading), or null @internal */
 export function opsBlocked(e) {
-  const f = e.stacks.get('freeze');
-  return f.has('error') ? 'halted' : f.has(PARTS_LOADING) ? 'loading' : null;
+  return e.saves.replacing ? 'loading' : e.stacks.get('freeze').has('error') ? 'halted' : null;
 }
 /** True when can returned a usable structured failure */
 export const isStructured = r => r !== null && typeof r === 'object' && typeof r.code === 'string' && r.code.length > 0;

@@ -1,9 +1,10 @@
 // Gameplay modules: timeline, level, triggers, world changes, particles, settings, music, characters/NPCs, interactions, dialogue, inventory,
 // quests, photo mode, ambience, debug.
 import type { Object3D, Vector3, Vector2, Quaternion, Texture, ColorLike, Vec3Like, Ease, Handle, Range, XZ, Loose, PositionLike, Material } from './common';
-import type { Engine } from './core';
+import type { Engine, SaveTurn } from './core';
 import type { LinkCrossing, NavPathPoint } from './nav';
 import type { Input } from './generated/core/input/Input';
+import type { Seat } from './generated/core/input/inputSeat';
 import type { Animator, AnimatorOptions, Rideable } from './physics';
 import type { WorldRecord } from './generated/modules/world/World';
 
@@ -11,7 +12,7 @@ import type { WorldRecord } from './generated/modules/world/World';
 // Timeline timeline()
 // ======================================================================
 
-/** Promise of a tween: await it to wait for the end; finish() jumps to the end now, remove() stops at the current position */
+/** Promise of a tween: await it to wait for the end, it rejects if a write throws; finish() jumps to the end now, remove() stops at the current position */
 export interface TweenPromise extends Promise<boolean> {
   finish(): void;
   remove(): void;
@@ -102,12 +103,20 @@ export interface LevelOptions {
   sharpEdge?: number;
   /** Hide the marker placeholder meshes, default true @experimental */
   hideMarkers?: boolean;
+  /** true: do not take the ground slot; compositeGround({ parts: [{ of: 'level' }] }) does and reads level.ground */
+  part?: boolean;
   /** Add the scene to engine.scene, default true @experimental */
   addToScene?: boolean;
 }
 /** Markers in the level (spawn, npc_*, trigger_*, marker_*), in world coordinates */
 export interface LevelMarker { name: string; position: Vector3; quaternion: Quaternion; scale: Vector3; userData: Record<string, any>; object: Object3D }
 export interface LevelLoadedEvent { root: Object3D; markers: Record<string, LevelMarker>; spawn: Vector3 }
+/** source: the file or asset name; null for a code-built scene */
+export interface LevelLoadingEvent { source: string | null }
+export interface LevelFailedEvent { source: string | null; error: unknown }
+export interface LevelPlayableEvent { root: Object3D }
+/** A level left: unload(), or a switch just before the new one commits. source: its file or asset name, null for a code-built one */
+export interface LevelUnloadedEvent { source: string | null }
 
 /** engine.level */
 export interface Level {
@@ -119,7 +128,7 @@ export interface Level {
   spawn: Vector3;
   /** Heightfield (for debugging) @experimental */
   heightfield: any;
-  /** Whether loading is finished */
+  /** The level's state is committed and nothing is loading; level:loaded fires at this moment, level:playable once every module and required nearby build settled too. After unload() it is true with no level, since nothing is loading: root says whether a level stands */
   readonly ready: boolean;
   /** Get a marker, null if none */
   marker(name: string): LevelMarker | null;
@@ -128,10 +137,12 @@ export interface Level {
   /** Unload the level (the scene is fully deleted with engine.remove; collision, ray registrations and things registered with track are removed together) @experimental */
   unload(): void;
   /**
-   * Change level: unload the current one, load the new one (glTF path/asset name, or a THREE object), and emit level:loaded when done. When a load
-   * changes level, the save system waits for it
+   * Change level (glTF path/asset name, or a THREE object). The new level is built first and replaces the old one only when that worked: level:loaded fires
+   * then. On failure the old level stays, level:failed fires and the Promise rejects. When a load changes level, the save system waits for it, and a
+   * level that fails rolls the save back. A load overtaken by a newer one or an unload resolves without a level.
+   * During a save load it waits for that load to end; a part's load() or an afterLoad passes the turn it got, and it goes at once
    */
-  load(urlOrScene: string | Object3D): Promise<void>;
+  load(urlOrScene: string | Object3D, opts?: { turn?: SaveTurn }): Promise<void>;
   /**
    * Register things that belong to the current level and need not be kept (the { remove() } handles of triggers...); they are deleted automatically on
    * level change / unload; returns the same handle. world data that keeps state (NPCs, pickups, props) needs no registration: with a zone, a level
@@ -182,6 +193,10 @@ export interface TriggerOptions {
   cooldown?: number;
   /** Custom data */
   userData?: Record<string, any>;
+  /** 'zone' (default): one enter when the first actor arrives, one exit when the last leaves. 'each': an enter, stay and exit per actor (a door counting entrants); inside is true while anyone is in */
+  occupancy?: 'zone' | 'each';
+  /** Your own region instead of a shape: the plain volume addWaterBody takes. bounds ({ min, max }) lets the zone be indexed and drawn in the debug view; without it the zone is checked every step */
+  volume?: { contains(p: { x: number; y: number; z: number }): boolean; bounds?: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } };
 }
 /** A trigger zone (the return value of add()) */
 export interface Trigger {
@@ -549,7 +564,7 @@ export interface CharacterOptions {
   airJumpSpeed?: number;
   /** How long a jump() pressed early waits for the ground (seconds), default 0.12 */
   jumpBuffer?: number;
-  /** Falling out of the level: below belowY (or when belowY(character) is true) character:fall fires and, unless a listener calls preventDefault(), it returns to safeGround. false (default) = off */
+  /** Falling out of the level: below belowY (or when belowY(character) is true) character:fall fires and the rule 'fall' decides: back to safeGround by default, engine.mod('fall', { owner, id, set: false }) leaves it to the game. false (default) = off */
   fall?: false | { belowY: number | ((character: Character) => boolean) };
   /** Time channel its movement and animation follow when the engine drives it (player default 'player', others 'world') */
   channel?: string;
@@ -570,7 +585,7 @@ export interface CharacterOptions {
   /** Skeletal animation state machine config (states, blend trees, one-shot actions), see AnimatorOptions */
   animation?: AnimatorOptions | null;
   /** Movement method: 'simple' built into the engine (default) | 'rapier' Rapier character controller (needs the rigid module) | 'manual' the game writes the position, move() only updates grounded / support / safeGround / fall */
-  mover?: 'simple' | 'rapier' | 'manual';
+  mover?: 'simple' | 'rapier' | 'manual' | ((character: any, engine: any) => { name: string; move(x: number, z: number, run: boolean, dt: number, y: number): void; dispose?(): void; leave?(): void });
   /**
    * Which way it turns each move: 'move' (default, toward its velocity) | 'camera' (along cameraRig.forward()) | 'target' (toward faceTarget) | 'manual'
    * (only face() turns it)
@@ -582,7 +597,7 @@ export interface CharacterOptions {
 /** Character facing mode, see CharacterOptions.faceMode */
 export type FaceMode = 'move' | 'camera' | 'target' | 'manual';
 /** What a player control function returns: world direction (length 0–1 scales the speed), run; null = stand still. Speed changes: engine.mod('move.speed', { owner, id: 'player', ... }) */
-export type MoveRequest = { x: number; z: number; run?: boolean } | null | undefined;
+export type MoveRequest = { x: number; y?: number; z: number; run?: boolean } | null | undefined;
 /**
  * How the player's input steers it (the base holder of its control slot, owner 'player-input'): 'camera' movement keys relative to the camera |
  * a function returning the move request. The game moving the player itself takes control: engine.control.take(player, { owner, layer: 'script', step })
@@ -590,6 +605,10 @@ export type MoveRequest = { x: number; z: number; run?: boolean } | null | undef
 export type PlayerControl = 'camera' | ((player: Character, input: Input, dt: number) => MoveRequest);
 /** Parameters of createPlayer() */
 export interface PlayerOptions extends CharacterOptions {
+  /** A further local player's id and world record; left out, the one player (engine.player) */
+  id?: string;
+  /** The seat that drives this player (engine.input.seat); default engine.input */
+  input?: Seat;
   /** Spawn point (meters, { x, z } / Vector3 / object); flat ground is found automatically if omitted */
   spawn?: PositionLike;
   /**
@@ -674,8 +693,8 @@ export declare class Character {
   /** Last spot it stood still on safe ground (where a fall returns it); null until it first stands. Saved with the motion */
   safeGround: Vector3 | null;
   /** How it walks now; name is 'simple' | 'rapier' | 'manual', controller is the native Rapier character controller (when rapier). Assign a name to switch: c.mover = 'manual' */
-  get mover(): { name: 'simple' | 'rapier' | 'manual'; controller?: any; body?: any; collider?: any; move(dirX: number, dirZ: number, run: boolean, dt: number): void; dispose?(): void };
-  set mover(name: 'simple' | 'rapier' | 'manual');
+  get mover(): { name: string; controller?: any; body?: any; collider?: any; move(dirX: number, dirZ: number, run: boolean, dt: number, y?: number): void; dispose?(): void; leave?(): void };
+  set mover(v: CharacterOptions['mover']);
   /** Skeletal animation state machine (when there is a glTF model; null while a model named by asset is still loading) */
   anim: Animator | null;
   /** false while a model named by asset is loading (the placeholder body shows); true otherwise, also after a failed load (placeholder kept) */
@@ -730,7 +749,7 @@ export declare class Character {
    * A character someone controls (engine.control.of(ch)) moves only through its holder: called from anywhere else it is control-bypass in dev;
    * take control and use handle.move() / step instead
    */
-  move(dirX: number, dirZ: number, run: boolean, dt: number): void;
+  move(dirX: number, dirZ: number, run: boolean, dt: number, dirY?: number): void;
   /** Ground type underfoot ('water' while swimming) */
   groundType(): string;
   /** Turn at once to a position, or to an angle in radians (0 = +Z) */
@@ -923,7 +942,9 @@ export interface CharactersApi {
    * The 'camera' player control as a value: keys / stick relative to the camera, the 'run' action if bound, input.autopilot. Reused object; call it
    * inside your own control function to wrap it
    */
-  moveInput(): { x: number; z: number; run: boolean };
+  moveInput(seat?: Seat): { x: number; z: number; run: boolean };
+  /** Join the vehicles a saved rider can be seated in again, before or after the load */
+  addVehicle(vehicle: any): { remove(): void };
   /**
    * Something characters stand on and ride (moving platform, lift, raft). Move the object any way (onFixed before or after the player, a timeline,
    * physics): riders follow how its matrix changed, so the order does not matter. safe: false = never a respawn spot; carry 'position+yaw' turns riders
@@ -936,9 +957,9 @@ export interface CharactersApi {
    * position and the vehicle; loading an on-foot save exits the vehicle first
    * @experimental
    */
-  removePlayer(): void;
+  removePlayer(id?: string): void;
   /**
-   * Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, z }...], or
+   * Pathfinding (the single entry point): uses the navmesh when nav is installed and ready, otherwise the A* fallback. Returns a path [{ x, y, z }...], or
    * null if unreachable
    */
   findPath(from: PositionLike, to: PositionLike, opts?: FindPathOptions & { detailed?: false }): NavPathPoint[] | null;
@@ -947,6 +968,8 @@ export interface CharactersApi {
    * built yet (path is the A* fallback result and may be inaccurate)
    */
   findPath(from: PositionLike, to: PositionLike, opts: FindPathOptions & { detailed: true }): PathResult;
+  /** What a game's mover calls to take part in contact, each optional (recipe 57): a mover calling none owns contact itself */
+  kit: { beginMove(c: any): boolean; groundAt(c: any, x: number, z: number, y?: number): number; endMove(c: any, dt: number, hit: any, ground?: string): void; ownState(c: any, base: string, speed: number): void };
   /**
    * findPath for many callers (NPC crowds, AI squads): solved in engine.threads workers; done(path, status) runs on a fixed step a few steps later (same
    * paths with threads on or off). Recipe 12 section 4
@@ -975,6 +998,8 @@ export interface CharactersOptions {
   npcs?: boolean;
   /** Near tiers for large NPC crowds, off by default (every near NPC walks every fixed step); same as engine.npcs.tiers(opts) @experimental */
   npcTiers?: { fullRadius: number; nearEvery: number };
+  /** The rule 'fall' for everyone: 'rescue' brings what falls out of the world back; left out, the engine rescues nothing. engine.mod('fall', ...) from the game sits above it */
+  fall?: 'rescue' | false | ((facts: any, engine: any) => 'rescue' | false);
   /** What every character's Animator starts from, e.g. { fade: 0.15 }; a model's manifest mapping and the character's own animation win over it */
   animation?: AnimatorOptions;
 }
@@ -982,7 +1007,7 @@ export interface CharactersOptions {
  * Pathfinding options: step is the grid size (meters, A*), maxNodes the maximum cells searched (A*), radius the character radius (meters,
  * default engine.movement.radius); for detailed see findPath
  */
-export interface FindPathOptions { step?: number; maxNodes?: number; radius?: number; detailed?: boolean }
+export interface FindPathOptions { step?: number; maxNodes?: number; radius?: number; detailed?: boolean; id?: string }
 
 // ======================================================================
 // Interactions interactions()
@@ -1207,7 +1232,7 @@ export interface Dialogue {
    */
   say(text: string | DialogueScript, opts?: { speaker?: string; node?: string; channel?: DialogueChannel; onCancel?: (() => void) | null } & BubbleOptions): SayPromise;
   /** Lines on the bubble channel now */
-  bubbles(): { speaker: string; text: string; queued: number }[];
+  bubbles(): { speaker: string; text: string; queued: number; run?: number; choices?: string[] }[];
   /** End the main dialogue */
   end(): void;
   // Advancing and choosing are ops: engine.ops.run('dialogue.advance') / engine.ops.run('dialogue.choose', { index })
@@ -1221,6 +1246,8 @@ export interface DialogueOptions {
   advanceActions?: string[];
   /** A bubble line stays this many seconds plus its reading time (about 15 characters a second) unless say() gives seconds, default 2 */
   holdSeconds?: number;
+  /** A bubble script reaching a node with choices: 'end' (default: warn, the script ends there) or 'ask' (the line stays with its choices until engine.ops.run('dialogue.choose', { index, run }); run is in dialogue.bubbles()) */
+  bubbleChoice?: 'end' | 'ask';
 }
 /**
  * What the 'dialogue' UI part receives in update(view) (show() comes first, hide() when the dialogue ends). Call advance() / choose(i) from your UI:
@@ -1419,7 +1446,7 @@ export interface Container {
   list(): ItemEntry[];
   /** How many more fit (Infinity = no limit), for an item without data, with this data, or like an existing entry key */
   room(x: string, data?: Record<string, any>): number;
-  /** Add n (default 1), optionally with data; returns { ok: true, key, added } (added: how many fit), or { ok: false, code: 'full' } when none fit; silent suppresses the toast (only the bag of engine.actor shows one) */
+  /** Add n (default 1), optionally with data; returns { ok: true, key, added } (added: how many fit), or { ok: false, code: 'full' } when none fit; the answer is an object, so read .ok: if (add(...)) is true even when the bag is full; silent suppresses the toast (only the bag of engine.actor shows one) */
   add(id: string, n?: number, opts?: { data?: Record<string, any>; silent?: boolean }): ItemAddResult;
   /** Remove n (default 1) of an item or entry key, returns false if there are not enough */
   remove(x: string, n?: number): boolean;
@@ -1516,6 +1543,8 @@ export interface QuestStep {
   id?: string;
   text: string;
   done: (e: Engine) => boolean;
+  /** The step after this one: a step id, or e => id asked when this step is done (a branch); false finishes the quest here. Default: the next step in the list. steps already passed are in quests.state(id).visited */
+  next?: string | false | ((e: Engine) => string | false | undefined);
   /**
    * Objective: a place name (content.place), object, character, { x, z }, { nearest: itemId } or a function returning an objective; with the hud module
    * the current step shows a marker automatically
@@ -1525,7 +1554,7 @@ export interface QuestStep {
 /** One goal of a parallel step; optional goals do not hold the step back */
 export interface QuestPart { /** Stable id within the step (default: its position) */ id?: string; text: string; done: (e: Engine) => boolean; target?: HudTarget; optional?: boolean }
 /** Parallel goals: done when every non-optional part is done, in any order; text defaults to the required parts joined */
-export interface QuestParallelStep { /** Stable id (default: the step's position) */ id?: string; text?: string; all: QuestPart[] }
+export interface QuestParallelStep { /** Stable id (default: the step's position) */ id?: string; text?: string; all: QuestPart[]; /** As QuestStep.next */ next?: string | false | ((e: Engine) => string | false | undefined) }
 /** Quest definition */
 export interface QuestDef {
   /** Title */
@@ -1534,8 +1563,10 @@ export interface QuestDef {
   desc?: string;
   /** Steps (completed in order); a step may be parallel goals { all: [...] } */
   steps: (QuestStep | QuestParallelStep)[];
-  /** Called on completion (give rewards) */
-  reward?: (e: Engine) => void;
+  /** Called on completion (give rewards). Returning a failure ({ ok: false, code }, e.g. what e.content.run or e.inventory.add answer) means it was not paid: see onUnpaid */
+  reward?: (e: Engine) => any;
+  /** The game's decision for a reward not given, with the failure as answer. Without it the items that did not fit stay owed (list().owed, saved) and go into the bag when there is room */
+  onUnpaid?: (e: Engine, answer: { ok: false; code: string; facts: any }) => void;
   /** Checked while active; true fails the quest (quest:fail; start(id) can begin it again). @example fail: e => e.vars.flag('caravanLost') */
   fail?: (e: Engine) => boolean;
   /** Called when the quest fails */
@@ -1550,7 +1581,7 @@ export interface Quests {
   /** Start a quest */
   start(id: string): void;
   /** One quest's progress (a copy): step index, step count, done, failed, active; null before it starts */
-  state(id: string): { step: number; steps: number; done: boolean; failed: boolean; active: boolean } | null;
+  state(id: string): { step: number; steps: number; done: boolean; failed: boolean; active: boolean; visited: string[] } | null;
   /** Finish the current step from code (its done() is not asked) and go on; the last step completes the quest. false when not active */
   advance(id: string): boolean;
   /** @experimental */ isDone(id: string): boolean;
@@ -1594,7 +1625,7 @@ export interface QuestsOptions {
    * Messages on quest start / step / done: true a toast with kind 'quest' (default) · false none · a function to show them your way.
    * @example quests({ notify: false })   quests({ notify: ({ type, text }) => type === 'done' && myBanner(text) })
    */
-  notify?: boolean | ((msg: { type: 'start' | 'step' | 'done'; id: string; text: string }) => void);
+  notify?: boolean | ((msg: { type: 'start' | 'step' | 'done' | 'unpaid'; id: string; text: string }) => void);
 }
 
 // ======================================================================
@@ -1868,7 +1899,11 @@ export interface ContentConditionDef {
   describe?(value: any): string;
 }
 /** Parameters of content.load(): places is place name -> position. Models are asset names (engine.assets.manifest / an asset pack), not an option */
-export interface ContentLoadOptions { places?: Record<string, PositionLike> }
+export interface ContentLoadOptions {
+  places?: Record<string, PositionLike>;
+  /** Inside a save part's load() or a module's afterLoad: the turn it got. Without it this load waits for that replacement to end */
+  turn?: SaveTurn;
+}
 /** A content pack: the object of content/index.js, or a folder / npm package exporting the same tables. Data only: it names assets, never paths or code */
 export type ContentPack = Record<string, any> & { name?: string; audio?: import('./core').ContentAudio };
 /**
@@ -1885,9 +1920,12 @@ export interface PropDef {
   place?: string; x?: number; z?: number;
   /** Height above the ground (meters) */
   y?: number;
-  /** Rotation about the Y axis (radians) */
-  rot?: number;
-  scale?: number;
+  /** Rotation about the Y axis (radians), or [x, y, z] radians to tilt it (a tilted collide needs a collider3d provider) */
+  rot?: number | [number, number, number];
+  /** Uniform scale, or [x, y, z] per axis */
+  scale?: number | [number, number, number];
+  /** false = do not snap to the ground: y is then the height in the world */
+  ground?: boolean;
   /** Collision: 'box' cuboid of the bounds, 'circle' cylinder on the model's base, { circle, occluder } the same with its radius in model meters (scales with the prop) and occluder: false so the follow camera passes it; false none (default) */
   collide?: 'box' | 'circle' | false | { circle: number; occluder?: boolean };
   /** Register for ray acceleration (engine.raycast can hit it), default true */
@@ -1905,16 +1943,18 @@ export interface Content {
   markers: Map<string, HudMarker | undefined>;
   /**
    * Load content (items, pickups, vegetation, NPCs, dialogue, quests, keys, trigger zones, props, the game vocabulary rules): one pack, or a list of packs
-   * loaded together in order; an id defined by two packs of one call is an error naming both (a later separate load overrides by name instead)
-   * @example engine.content.load([baseContent, forestDlc], { places: { home } })
+   * loaded together in order; an id defined by two packs of one call is an error naming both (a later separate load overrides by name instead).
+   * Bad data throws on the line. The Promise answers for this load: it resolves when the pack committed, and rejects when it failed, after the old level and registrations are
+   * back (err.notRestored lists what could not be). A load nobody awaits is reported all the same
+   * @example await engine.content.load([baseContent, forestDlc], { places: { home } })
    */
-  load(data: ContentPack | ContentPack[], opts?: ContentLoadOptions): this;
+  load(data: ContentPack | ContentPack[], opts?: ContentLoadOptions): Promise<void>;
   /** Register a custom condition, e.g. condition('timeAfter', { ref: 'clock', test: (e, t) => e.calendar.timeOfDay >= t }) */
   condition(name: string, def: ContentConditionDef): this;
   /** Whether a condition holds (object, array or function (e, { actor })); actor = whose bag has / lacks look in (default the running op's actor, else engine.actor) */
   test(cond: any, opts?: { actor?: string }): boolean;
   /** Run an effect (object, array or function (e, { actor })); actor = whose bag give / take change (default the running op's actor, else engine.actor) */
-  run(effect: any, opts?: { actor?: string }): any;
+  run(effect: any, opts?: { actor?: string }): { ok: true } | { ok: false; code: string; facts: { failed: { word: string; code: string; facts: any }[] }; nextActions: any[] };
   /** Place name -> position (load's places first, then level markers), null if none */
   place(name: string): XZ | null;
   /** Position form in content { place?, x?, z? } -> world coordinates */

@@ -7,13 +7,13 @@
 // Nothing here ever changes a game file except the record: a newer entry is reported, never applied.
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
+import { join, relative } from 'node:path';
 import { writeAtomic } from './atomic.mjs';
+import { posix } from '../paths.mjs';
 
 export const RECORD_FILE = '.threedog-lib.json';
 /** Files of an entry folder that describe it and are never pulled, so they are no part of its content */
 const NOT_CONTENT = new Set(['entry.json', 'preview.png']);
-const posix = p => p.split(sep).join('/');
 
 /** Short content hash of one file; line ends do not count in a text file */
 export function hashFile(path) {

@@ -82,7 +82,7 @@ export class Ambience {
     const e = this.engine, p = this.position; let n = 0;
     for (let ang = 0; ang < 6.28; ang += 1.05) {
       const x = p.x + Math.cos(ang) * radius, z = p.z + Math.sin(ang) * radius;
-      if (e.surface(x, z) < e.waterAt(x, z)) n += 1 / 6;
+      if (e.surface(x, z, p.y) < e.waterAt(x, z, p.y)) n += 1 / 6;
     }
     return n;
   }
@@ -177,7 +177,7 @@ const AMBIENCE_PARAMS = keysSchema(['rules', 'interval']);
 export function ambience(opts = {}) {
   readParams('ambience', AMBIENCE_PARAMS, opts);
   let a = null;
-  return { name: 'ambience', type: 'picture', params: AMBIENCE_PARAMS, options: opts, label: 'Ambience', stage: 'late',
+  return { name: 'ambience', skipKind: 'none', type: 'picture', params: AMBIENCE_PARAMS, options: opts, label: 'Ambience', stage: 'late',
     install(e, ctx) { e.i18n.add({ 'zh-CN': { 'module.ambience': '环境音' }, en: { 'module.ambience': 'ambience' } });
       builtInSounds(e.assets, SYNTHS, { bus: 'ambience' });   // sound assets wind / rain / water / birds / crickets, silent until audio.sounds names them
       a = new Ambience(e, opts);
@@ -185,7 +185,7 @@ export function ambience(opts = {}) {
       // measures for data rules (content packs hold no functions). Each reads the listener position itself: music rules call them too,
       // and ambience refreshes this.position only while it has rules of its own
       ctx.track(e.audio.measure('nearWater', () => { a._listen(); return a.nearWater(12); }));
-      ctx.track(e.audio.measure('altitude', () => { const p = a._listen(); return Math.max(0, e.surface(p.x, p.z)); }));
+      ctx.track(e.audio.measure('altitude', () => { const p = a._listen(); return Math.max(0, e.surface(p.x, p.z, p.y)); }));
       return a;
     },
     frame(dt) { a.update(dt); },
@@ -198,3 +198,5 @@ export function ambience(opts = {}) {
       return { rules: a._rules.length, on, ...(failed.length ? { failed } : {}), ...(locked ? { audioLocked: 'audio starts after a real click or key press; a bridge page has none, so `on` stays empty here whatever the position' } : {}) };
     } };
 }
+
+export const handRolled = 'none: sounds by place are data, and a hand-made version has no one shape in code';

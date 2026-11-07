@@ -1,11 +1,12 @@
 // Ragdoll: one dynamic rigid body per part of a skinned character, joined by joints; every fixed step the result is written back to the plain three.js bones.
 //   const rd = engine.rigid.ragdoll(player, { impulse: [0, 2, -8], position: hitPoint });
 //   rd.remove();   // back to animation
+//   engine.mod('ragdoll.graph', { owner: 'game', id: 'wolf', set: { body: { bone: 'Spine' }, tail: { bone: 'Tail1', parent: 'body' } } });   // not a human: any graph of parts
 //
 // Why it is done this way:
 // - Bodies do not use the bone's orientation but "one shared frame for the whole body in bind pose": bodyQ = boneWorldQ * inv(restQ). That way the frames on both sides of every joint coincide in bind pose,
 //   so the limit zero is the bind pose, whatever pose the animation was in at the start. Using bone orientation directly gives every joint an error the moment it is created and it blows apart on the first step.
-// - Only hips writes a position, other bones write rotation only: child bones keep their local offsets, so bone length cannot change and the mesh cannot stretch (the forum post this was modelled on fails right here).
+// - Only the root part writes a position, other bones write rotation only: child bones keep their local offsets, so bone length cannot change and the mesh cannot stretch (the forum post this was modelled on fails right here).
 // - Parts go through rigid's _add: buoyancy, freezing while terrain is not ready, engine.raycast and world rebuild all come for free; no second copy.
 // - Not saved: as soon as rigid's save part is read in (new game, load and saves.load all go through it) every ragdoll ends and a normal character comes back; a refused load never gets here, so the ragdoll keeps lying there.
 //   On a world rebuild without a load, rigid carries the bodies over and this rebuilds the joints on rigid:rebuilt.
@@ -15,26 +16,15 @@ import * as THREE from 'three';
 import { vec3 } from '../../core/base/math.js';
 import { readParams, keysSchema } from '../../core/base/params.js';
 import { codedError } from '../../core/base/errorHints.js';
-import { readBones, shapeParts } from './ragdollBones.js';
+import { humanoidGraph, shapeParts } from './ragdollBones.js';
 
 const KEYS = keysSchema(['impulse', 'position', 'bones', 'limits', 'mass']);
 const GROUP = (0x8000 << 16 | 0x7fff) >>> 0;   // the high 16 bits are its own group, the low 16 bits say what it can touch: everything except its own group
-const D = Math.PI / 180;
-// Default range of motion (radians, relative to bind pose). bend is positive forward (backward for knees), side is sideways, twist is around the bone. This is physical plausibility, not looks
-const LIMITS = {
-  chest: { bend: [-30 * D, 40 * D], side: [-25 * D, 25 * D], twist: [-30 * D, 30 * D] },
-  head: { bend: [-40 * D, 50 * D], side: [-35 * D, 35 * D], twist: [-60 * D, 60 * D] },
-  upperArm: { bend: [-60 * D, 120 * D], side: [-100 * D, 100 * D], twist: [-70 * D, 70 * D] },
-  lowerArm: { bend: [0, 145 * D], side: [-3 * D, 3 * D], twist: [-60 * D, 60 * D] },
-  upperLeg: { bend: [-25 * D, 110 * D], side: [-45 * D, 45 * D], twist: [-35 * D, 35 * D] },
-  lowerLeg: { bend: [0, 140 * D], side: [-3 * D, 3 * D], twist: [-5 * D, 5 * D] },
-};
-const SHARE = { hips: 0.16, chest: 0.3, head: 0.08, upperArm: 0.03, lowerArm: 0.025, upperLeg: 0.11, lowerLeg: 0.07 };   // how the total mass is split
 const FRICTION = 2;   // damping in the joints (1/s): limbs with no muscle still do not whip around like ropes forever
 const CALM_SPEED = 0.09, CALM_SPIN = 4, CALM_STEPS = 45;   // speed squared (m²/s²), angular speed squared (rad²/s²), how many steps in a row
 const HIT_SPEED = 6;   // the speed (m/s) the hit part alone can take, see _push
 
-const q1 = new THREE.Quaternion(), q2 = new THREE.Quaternion(), p1 = new THREE.Vector3(), p2 = new THREE.Vector3(), s1 = new THREE.Vector3();
+const q1 = new THREE.Quaternion(), q2 = new THREE.Quaternion(), p1 = new THREE.Vector3(), s1 = new THREE.Vector3(), m1 = new THREE.Matrix4();
 const toQ = (r, out = q1) => out.set(r.x, r.y, r.z, r.w);
 const worldOf = (o, p, q) => { o.matrixWorld.decompose(p, q, s1); };
 const shapes = new WeakMap();   // skeleton -> { key, parts }: the same character falling again and again is not re-measured
@@ -57,7 +47,8 @@ export class Ragdolls {
     if (ch?.vehicle) throw codedError('rigid-misuse', `rigid.ragdoll(): character '${ch.id}' sits in a vehicle. Fix: character.exit() first`);
     const mesh = skinOf(root);
     if (!mesh) throw codedError('rigid-misuse', `rigid.ragdoll(): no SkinnedMesh under ${ch ? `character '${ch.id}'` : `'${root.name || root.type}'`}, so there are no bones to drive. A capsule or a procedural rig cannot go limp; a model given by name loads later: await character.whenReady first`);
-    const shape = this._shape(mesh, o.bones);
+    const shape = this._shape(ch, root, mesh, o.bones);
+    if (!shape) return null;   // the game's rule says this one does not go limp
     // Take control first: a remote character throws here, when nothing has been built yet
     const hold = ch ? this.e.control.take(ch, { owner: 'ragdoll', layer: 'physics', step: () => false }) : null;
     const rd = this._build(ch, root, mesh, shape, hold, o);
@@ -75,23 +66,29 @@ export class Ragdolls {
     return { ch, root: ch.root };
   }
 
-  _shape(mesh, bones = {}) {
-    const key = JSON.stringify(bones, (k, v) => (v?.isObject3D ? v.uuid : v));
+  /** The rule 'ragdoll.graph' for this body: 'humanoid', a graph, or false for no ragdoll. Measured once per skeleton and graph */
+  _shape(ch, root, mesh, bones = {}) {
+    const g = this.r._graph.decide(ch?.id, { character: ch, root, mesh });
+    if (g === false) return null;
+    const human = g === 'humanoid';
+    if (!human && Object.keys(bones).length) throw codedError('rigid-misuse', `rigid.ragdoll({ bones }): bones names the parts of the humanoid graph, and this body's rule 'ragdoll.graph' gives its own. Fix: name the bones in the graph`);
+    const key = JSON.stringify(human ? bones : g, (k, v) => (v?.isObject3D ? v.uuid : v));
     const c = shapes.get(mesh.skeleton);
     if (c?.key === key) return c.parts;
-    const parts = shapeParts(mesh, readBones(mesh.skeleton, bones));
+    const parts = shapeParts(mesh, human ? humanoidGraph(mesh, bones) : g);
     shapes.set(mesh.skeleton, { key, parts });
     return parts;
   }
 
   _build(ch, root, mesh, shape, hold, o) {
-    const { r } = this, R = r.rapier, mass = o.mass ?? 70;
+    const { r } = this, R = r.rapier, skeleton = mesh.skeleton, top = shape[0];
+    const massK = o.mass != null ? o.mass / shape.reduce((n, s) => n + s.mass, 0) : 1;   // the call's whole-body mass keeps the graph's proportions
     root.updateWorldMatrix(true, true);
     const holder = new THREE.Group();   // parent of the placeholder objects: _add does not add to the scene when there is a parent
     const parts = {}, list = [];
     // bind space to world scale: when the model is scaled (0.01 is common for Mixamo) colliders must use the real length as it is now
-    const a = shape.find(s => s.name === 'upperLegL'), b = shape.find(s => s.name === 'lowerLegL');
-    const k = a.bone.getWorldPosition(p1).distanceTo(b.bone.getWorldPosition(p2)) / a.p.distanceTo(b.p);
+    // read from the skinning matrix of the root part: bind to now is pose and scale, and pose does not change its size, whatever the body looks like
+    const k = s1.setFromMatrixScale(m1.multiplyMatrices(top.bone.matrixWorld, skeleton.boneInverses[skeleton.bones.indexOf(top.bone)])).x;
     for (const s of shape) {
       const proxy = new THREE.Object3D(), bq = new THREE.Quaternion();
       holder.add(proxy);
@@ -101,18 +98,19 @@ export class Ragdolls {
       const mid = seg.clone().multiplyScalar(0.5), up = q1.setFromUnitVectors(new THREE.Vector3(0, 1, 0), seg.clone().normalize());
       const desc = R.ColliderDesc.capsule(Math.max(len / 2 - rad, len * 0.02), rad).setTranslation(mid.x, mid.y, mid.z)
         .setRotation({ x: up.x, y: up.y, z: up.z, w: up.w }).setCollisionGroups(GROUP);
-      const entry = r._add(proxy, desc, { mass: mass * SHARE[s.kind], friction: 0.8, restitution: 0, damping: 0.1, angularDamping: 0.8 });
+      const entry = r._add(proxy, desc, { mass: s.mass * massK, friction: 0.8, restitution: 0, damping: 0.1, angularDamping: 0.8 });
       entry.ragdoll = true; entry.object = s.bone;   // a ray hit returns the bone: the game needs to know what was hit
       entry.body.enableCcd(true);   // limbs are thin and fast when knocked away; without it they pass through thin ground
-      const part = { name: s.name, shape: s, entry, mass: mass * SHARE[s.kind], seg: seg.clone(), rad, bone: s.bone, pos0: s.bone.position.clone(), q0: s.bone.quaternion.clone() };
+      const part = { name: s.name, shape: s, entry, mass: s.mass * massK, seg: seg.clone(), rad, bone: s.bone, pos0: s.bone.position.clone(), q0: s.bone.quaternion.clone() };
       list.push(parts[s.name] = part);
     }
     const self = this;
     const rd = {
-      ch, root, mesh, list, parts: Object.fromEntries(list.map(p => [p.name, p.entry])), hold, joints: [], limits: o.limits ?? {}, anchor: null, rig: null, anim: null, drawn: false, void: false, calm: 0,
+      ch, root, mesh, list, parts: Object.fromEntries(list.map(p => [p.name, p.entry])), hold, joints: [], limits: o.limits ?? {}, anchor: null, anim: null, drawn: false, void: false, calm: 0,
       get active() { return self.live.has(rd); },
       get settled() { return rd.active && list.every(p => !p.entry.enabled || p.entry.body.isSleeping()); },
       remove() { self._end(rd); },
+      /** @internal character.placeAt: root follows the body, so a placement moves the body */ shift(x, y, z) { self._shift(rd, x, y, z); },
     };
     // Joint anchors are computed from the current pose (not the bind pose): in-between bones that are not in the part table (Spine1, clavicle) may not be at their bind position at the start, and this way the error on the first step is zero
     for (const p of list) {
@@ -130,7 +128,7 @@ export class Ragdolls {
 
   /** The three-axis range of this joint. If the starting pose is already past the limit, widen the range to the starting angle: otherwise the solver yanks it back on the first step and it looks like a twitch */
   _range(p, limits) {
-    const given = limits[p.name] ?? limits[p.shape.kind], base = LIMITS[p.shape.kind];
+    const given = limits[p.name] ?? limits[p.shape.kind], base = p.shape.limits;
     const lim = { twist: given?.twist ?? base.twist, side: given?.side ?? base.side, bend: given?.bend ?? base.bend };
     const F = p.shape.frame;
     // The child's rotation relative to the parent, read in the joint frame: the imaginary x / y / z are the three values Rapier's limits use
@@ -158,7 +156,7 @@ export class Ragdolls {
   }
 
   /**
-   * The impulse hits the part nearest to position (hips when no position is given). That part only takes HIT_SPEED worth, the rest is shared over the whole body by mass:
+   * The impulse hits the part nearest to position (the root part when no position is given). That part only takes HIT_SPEED worth, the rest is shared over the whole body by mass:
    * in a real body force travels along the skeleton, but the solver cannot pass that much in one step, and the whole hit on a 5 kg head would send it flying and tear the joints apart. Total momentum is unchanged.
    */
   _push(rd, { impulse, position }) {
@@ -184,27 +182,27 @@ export class Ragdolls {
     rd.anim = ch ? ch.anim : e.assets.animatorOf(root);
     if (rd.anim) rd.anim._held = true;
     if (ch) {
-      ch._limp = rd;
-      ch.velocity.set(0, 0); ch.vy = 0; ch.moveAmount = 0; ch.state = ch._stateMark = 'ragdoll';
-      // the player capsule is turned off by rigid.step according to _limp; an NPC's capsule belongs to its mover
-      if (ch !== e.player && ch.mover.collider && ch.mover.gen === this.r.gen) ch.mover.collider.setEnabled(false);
+      ch.limp = rd;
+      ch.velocity.set(0, 0); ch.vy = 0; ch.moveAmount = 0; ch.state = ch.stateMark = 'ragdoll';
+      // the player capsule is turned off by rigid.step according to limp; an NPC's capsule belongs to its mover
+      if (ch !== e.player && ch.mover.collider && ch.mover.world === this.r.world) ch.mover.collider.setEnabled(false);
     }
     const rig = e.cameraRig;
     if (rig?.target === root) {
-      // follow the waist, not the feet: the camera looks at the body, not at the air a person's height above it
-      rd.rig = rig; rd.anchor = new THREE.Object3D();
+      // follow the root part, not the feet: the camera looks at the body, not at the air a person's height above it
+      rd.anchor = new THREE.Object3D();
       this._anchor(rd);
       rig.follow(rd.anchor, { height: 0 });
     }
   }
 
-  _anchor(rd) { const t = rd.parts.hips.body.translation(); rd.anchor.position.set(t.x, t.y, t.z); }
+  _anchor(rd) { const t = rd.list[0].entry.body.translation(); rd.anchor.position.set(t.x, t.y, t.z); }
 
   /** Every fixed step, after the world has stepped (called by RigidBodies.step) */
   sync() {
     for (const rd of this.live) {
       const { ch, root } = rd;
-      if (ch?._disposed || !root.parent) { this._end(rd, true); continue; }   // the character or model was deleted: only clean up the physics
+      if (ch?.disposed || !root.parent) { this._end(rd, true); continue; }   // the character or model was deleted: only clean up the physics
       if (rd.settled) { if (rd.drawn) continue; rd.drawn = true; } else { rd.drawn = false; this._calm(rd); }   // once asleep, stop writing: saves cost and a bone the game wrote stays
       this._pose(rd);
       ch?.syncRecord();
@@ -222,13 +220,13 @@ export class Ragdolls {
 
   /** Write the physics result back to the bones. root follows the body (triggers, streaming and saves read it), so the bones are computed after root has moved */
   _pose(rd) {
-    const { root, list } = rd, hips = list[0].entry.body.translation();
+    const { root, list } = rd, core = list[0].entry.body.translation();
     let low = Infinity;
     for (const p of list) {   // lowest point of the body: the soles when standing, the ground when lying, no need to ask the terrain
       const t = p.entry.body.translation(), q = toQ(p.entry.body.rotation());
       low = Math.min(low, t.y - p.rad, t.y + p1.copy(p.seg).applyQuaternion(q).y - p.rad);
     }
-    p1.set(hips.x, low, hips.z);
+    p1.set(core.x, low, core.z);
     if (root.parent) root.parent.worldToLocal(p1);
     root.position.copy(p1);
     root.updateWorldMatrix(true, false);
@@ -244,21 +242,32 @@ export class Ragdolls {
       p.bone.updateMatrixWorld();
     }
     if (rd.anchor) this._anchor(rd);
-    const under = hips.y < this.e.ground.voidY();
-    if (under && !rd.void) this.e.events.emit('terrain:void', { who: rd.parts.hips, position: { x: hips.x, y: hips.y, z: hips.z } });
+    const under = core.y < this.e.ground.voidY();
+    if (under && !rd.void) this.e.events.emit('terrain:void', { who: list[0].entry, position: { x: core.x, y: core.y, z: core.z } });
     rd.void = under;
   }
 
   /** Is this character lying down (rigid.step turns the player capsule off by this) */
-  holds(ch) { return !!ch._limp; }
+  holds(ch) { return !!ch.limp; }
 
   /** Load: position belongs to the save, so the character is not put back where the body lies */
   load() { for (const rd of [...this.live]) this._end(rd, false, false); }
 
+  /** A placement: every part moves by the same offset, so the joints see the pose they had, and at rest, so nothing the fall carried arrives with it. Woken parts settle again */
+  _shift(rd, x, y, z) {
+    for (const p of rd.list) {
+      const b = p.entry.body, t = b.translation();
+      this.r.setPosition(p.entry, { x: t.x + x, y: t.y + y, z: t.z + z });
+      b.setAngvel({ x: 0, y: 0, z: 0 }, true);
+    }
+    rd.calm = 0;
+    if (rd.anchor) this._anchor(rd);
+  }
+
   /** End: tear down the physics and give every slot back to its owner. gone: the character no longer exists, nothing to give back; place: put the character where the body lies */
   _end(rd, gone = false, place = true) {
     if (!this.live.delete(rd)) return;
-    const { ch, list, anim, rig, anchor, hold } = rd;
+    const { ch, list, anim, anchor, hold } = rd;
     for (const j of rd.joints) if (j.isValid()) this.r.world.removeImpulseJoint(j, true);
     rd.joints = [];
     for (const p of list) p.entry.remove();
@@ -267,16 +276,18 @@ export class Ragdolls {
     for (const p of list) { p.bone.position.copy(p.pos0); p.bone.quaternion.copy(p.q0); }   // bones no animation clip writes also go back to how they were before falling
     if (anim) anim._held = false;
     if (ch) {
-      ch._limp = null;
-      if (ch !== this.e.player && ch.mover.collider && ch.mover.gen === this.r.gen) ch.mover.collider.setEnabled(true);
-      if (ch.state === 'ragdoll') ch.state = ch._stateMark = 'idle';
+      ch.limp = null;
+      if (ch !== this.e.player && ch.mover.collider && ch.mover.world === this.r.world) ch.mover.collider.setEnabled(true);
+      if (ch.state === 'ragdoll') ch.state = ch.stateMark = 'idle';
       if (place) ch.placeAt(ch.root.position);
     }
     // if the game switched the camera away meanwhile, do not take it back
+    const rig = this.e.cameraRig;   // read now: the rig that started following may have been swapped out (architecture 8.2)
     if (rig?.target === anchor) rig.follow(rd.root);
   }
 
-  dispose() { this._sub.remove(); this.live.clear(); }
+  /** The solver is going (rigid left or was replaced): every limp body gets up while its parts can still be read, or the character stays held by a physics that is gone. A dispose of the whole engine, or of the character, has nobody left to give it to */
+  dispose() { this._sub.remove(); for (const rd of [...this.live]) this._end(rd, this.e.disposed || !!rd.ch?.disposed); }
 }
 
 /** The SkinnedMesh with the most bones: clothes and accessories are often small meshes on the same skeleton */

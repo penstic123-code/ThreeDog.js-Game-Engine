@@ -52,13 +52,14 @@ function slotOf(r, id) {
 const REMOVE_KEYS = ['regrowSeconds'];
 
 export class Vegetation {
-  constructor(engine, opts = {}) {
+  constructor(engine, opts = {}, ctx) {
     this.engine = engine; this.species = new Map();
     // where it grows: on terrain chunks when the terrain module is installed (placed in its workers), else on vegetation's own chunks over
     // whatever provides the ground (a level, a code-built ground, flat). Both hosts keep chunks of one shape, so everything below is shared
     if (engine.terrain && Object.keys(opts).length) throw codedError('vegetation-option', `vegetation({ ${Object.keys(opts).join(', ')} }): with terrain() installed vegetation grows on the terrain chunks, and density / view distance are terrain options (terrain({ density, viewChunks })). The vegetation() options are for ground without terrain (a level, a code-built ground)`);
     /** @internal the draw parts drawing the plants (view()) */ this.views = new Set();
     /** @internal the chunk table vegetation lives in: engine.terrain, or its own GroundChunks */
+    /** @internal what its chunks live on: terrain, or its own ground chunks. The settings menu sizes the view through it */
     this.host = engine.terrain ?? new GroundChunks(engine, this, opts);
     // on terrain: this is the terrain's planter (it calls mount / unmount / drop / ring; terrain never reads engine.vegetation); a chunk's
     // visibility comes from the terrain data part, so a game that replaces the terrain drawing keeps its trees
@@ -72,8 +73,8 @@ export class Vegetation {
     this._initDone = false;   // set when init has waited for _pending: an image of a species added later is not awaited, so its error is caught where it is added
     // dev asset hot swap (core/assets/assetHot.js): a species made from a swapped model is added again with the new geometry / materials. Why here and
     // not in the generic scene walk: a species' materials are patched copies (wind, season) and its geometry may be merged from a model
-    engine.assets.onSwap?.(s => this._swapped(s));
-    engine.saves.register('vegetation', {
+    ctx.track(engine.assets.onSwap(s => this._swapped(s)));
+    ctx.saves.register('vegetation', { notAtomic: 'its load redraws the instances it hides: not plain data a rollback restores by itself',
       save: () => {
         const removed = {};
         for (const [ck, m] of this._removed) { for (const [id, until] of m) removed[`veg:${ck}:${id}`] = until; }

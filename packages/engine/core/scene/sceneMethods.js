@@ -2,7 +2,7 @@
 // add registers each root in the thing registry (things.js) so engine.thing / hit.thing can say what it is and what a save keeps. A plain
 // engine.scene.add(obj) is registered the same way (things.js adopts roots added under the scene), so both ways in give the same answer.
 import { DEV } from '../base/validate.js';
-import { writeRatio } from './adaptive.js';
+import { askRatio, askPixelSize } from './pixelRatio.js';
 import { codedError } from '../base/errorHints.js';
 import { thing } from './thingOps.js';
 import { isUnder } from '../base/util.js';
@@ -69,8 +69,6 @@ export const sceneMethods = {
   thing(idOrObj) { return thing(this, idOrObj); },
   /** @internal Dev: a module found two systems managing one object; listed in describe().scene.conflicts and warned once (code thing-owned) */
   thingConflict(text) { this._things.conflict(text); },
-  /** Detach from the parent only (no GPU release; use when you will add it back). Use remove for objects you are done with */
-  detach(...objs) { for (const o of objs) o.removeFromParent(); },
   /**
    * Delete an object for good: detach it, unregister its rays and dispose the geometries and materials nothing else in the scene uses (textures are kept).
    * One still used by another object stays, and goes with its last user. Geometry and materials shared by assets model clones are only decremented in use count (see Assets.js)
@@ -82,6 +80,7 @@ export const sceneMethods = {
       this._things.forget(o);
       this.rays.forget(o);
       this.assets.forget(o);
+      this._poses.forget(o);
       const shared = this.assets.shared, held = this.batching.held;   // a batch still drawing the same geometry / material keeps it alive
       if (counted) o.traverse(c => { for (const x of parts(c)) this._users.set(x, (this._users.get(x) ?? 0) - 1); });
       // The whole-scene count only for a part nothing else keeps: unloading a streamed block whose kit is all held by batches walked every object of the district for nothing (7 ms in one frame of the city run)
@@ -110,9 +109,15 @@ export const sceneMethods = {
       drawOnce(this.renderer, this.scene, camera, target);
     } finally { if (own) own.inside--; }
   },
-  // an engine.setPixelRatio call is the game's (or settings') request: written even when the game took the ratio. It is also the new ceiling, or adaptive
-  // resolution would climb back to the old one and undo the engine's own named entry where the raw three.js call stays. Adaptive writes through writeRatio
-  setPixelRatio(p) { writeRatio(this, p); Object.assign(this.adaptive, { max: p, lowered: false, from: null, good: 0 }); },
+  /** Render resolution, and the top adaptive resolution climbs back to. Throws while pixelSize is on (core/scene/pixelRatio.js) @param {number} p */
+  setPixelRatio(p) { askRatio(this, p); },
+  /**
+   * One art pixel becomes k real screen pixels, every one the same width at any display scale, and it stays so through a page zoom or a move to another display.
+   * While on, adaptive resolution stops and engine.setPixelRatio throws; a photo keeps the art pixels. null turns it off.
+   * @example engine.setPixelSize(3);
+   * @param {number | null} k a whole number from 1 up, or null
+   */
+  setPixelSize(k) { askPixelSize(this, k); },
   /** Raise camera.far to at least far (terrain view range). Goes through ownership: a game that owns camera.far (engine.autoView.manual('far')) keeps its value. @param {number} far */
   viewFar(far) {
     if (this.camera.far >= far) return;

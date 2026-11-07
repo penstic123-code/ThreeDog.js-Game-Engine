@@ -53,9 +53,10 @@ export class I18n {
     /** @internal @type {StringTables} */ this.tables = {};
     this.add(CORE);
     /** @internal Game-given text wins @type {StringTables} */ this.overrides = strings;
-    /** Current language, e.g. 'zh-CN' ('zh' and 'zh-Hans' resolve to it, 'en-US' to 'en') @experimental */
-    this.locale = resolveLocale(locale, this.languages);
+    /** @internal */ this._locale = resolveLocale(locale, this.languages);
   }
+  /** Current language, e.g. 'zh-CN' ('zh' and 'zh-Hans' resolve to it, 'en-US' to 'en'). Read-only: setLocale changes it, and tells i18n:change @returns {string} @experimental */
+  get locale() { return this._locale; }
   /**
    * Register string tables (never overrides text the game gave)
    * @param {StringTables} tables
@@ -64,7 +65,7 @@ export class I18n {
    */
   add(tables) { for (const lang in tables) this.tables[lang] = { ...this.tables[lang], ...tables[lang] }; return this; }
   /** Switch language ('auto' picks from the browser like createEngine) @param {string} l @experimental */
-  setLocale(l) { this.locale = resolveLocale(l, this.languages); this.engine.events.emit('i18n:change', this.locale); }
+  setLocale(l) { this._locale = resolveLocale(l, this.languages); this.engine.events.emit('i18n:change', this._locale); }
   /** All available languages @returns {string[]} @experimental */
   get languages() { return [...new Set([...Object.keys(this.tables), ...Object.keys(this.overrides)])]; }
   /** Whether the key exists @param {string} key @returns {boolean} */
@@ -104,3 +105,5 @@ export class I18n {
     });
   }
 }
+
+export const handRolled = [{ kind: 'language', seen: 'a language table of its own', use: 'engine.i18n: tables per language, the language setting, and text that follows a switch', quiet: /\b(engine|e|eng|ctx)\.i18n\b/, code: /\b(?:const|let|var)\s+(?:i18n|translations?|strings|locales?|languages?|lang|messages|texts?)\w*\s*=\s*\{/i, near: [{ re: /\b(?:en|zh|fr|de|es|ja|ko|ru)(?:[-_]\w+)?['"]?\s*:\s*[{'"`]/, lines: 3, on: 'raw' }] }];
