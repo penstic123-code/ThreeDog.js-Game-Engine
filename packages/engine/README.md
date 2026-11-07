@@ -3,7 +3,7 @@
 A web 3D game engine on three.js 0.187: **core** (rendering, main loop, input, audio, saving, UI) -> **modules** (terrain, sky and weather, physics, characters, dialogue, inventory, quests... installed on demand); all art is the game's own (`picture/` folder, `assets.js`).
 
 ## Install
-This README describes threedog 1.0.0 (older releases do not match it; from 0.x read `docs/MIGRATING-1.0.md`, from 0.8.0 `CHANGELOG.md`, from 0.7.0 first `docs/MIGRATING-0.8.md`). To work on the engine itself, clone the [repository](https://github.com/penstic123-code/Threedog.js-Game-Engine), run `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
+This README describes threedog 1.0 (older releases do not match it; from 0.x read `docs/MIGRATING-1.0.md`, from 0.8.0 `CHANGELOG.md`, from 0.7.0 first `docs/MIGRATING-0.8.md`). To work on the engine itself, clone the [repository](https://github.com/penstic123-code/Threedog.js-Game-Engine), run `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
 ```sh
 npm install threedog@1 three@~0.187.0
 npm install @threedog/terrain-noise@1      # optional: the noise terrain generator terrainPreset() (without one the ground is flat)

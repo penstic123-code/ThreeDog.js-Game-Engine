@@ -2,6 +2,10 @@
 
 What changed in each version and how a game upgrades.
 
+## 1.0.1 (2026-11-07)
+
+- Docs only: the install lines in the package READMEs name 1.0 (0.9 was never on npm).
+
 ## 1.0.0 (2026-11-07)
 
 - A request awaited inside a save load without its `turn` fails with `save-nested` after `engine.loading.timeoutMs` with no sign of life, and the load fails its normal way. It used to wait for good.

@@ -98,7 +98,7 @@ export function render(text, { name, openWorld, pixel, webgl }) {
 /** package.json dependencies: --open-world adds @threedog/terrain-noise (its main.js imports it; the blank base does not) */
 export function applyDeps(deps, { openWorld }) {
   const out = { ...deps };
-  if (openWorld) out['@threedog/terrain-noise'] ??= '^1.0.0';
+  if (openWorld) out['@threedog/terrain-noise'] ??= '^1.0.1';
   return out;
 }
 
