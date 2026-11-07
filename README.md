@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="#background">Background</a> · <a href="#what-it-can-do">What it can do</a> · <a href="#quick-start">Quick start</a> · <a href="#minimal-code-sample">Code sample</a> · <a href="#design-philosophy">Philosophy</a> · <a href="#architecture">Architecture</a> · <a href="#modules">Modules</a> · <a href="#examples">Examples</a> · <a href="#tools-for-ai">AI tools</a> · <a href="#performance-and-partitioning">Performance</a> · <a href="#status-and-known-limits">Status</a> · <a href="#docs">Docs</a> · <a href="#faq">FAQ</a>
+  <a href="#what-it-can-do">What it can do</a> · <a href="#quick-start">Quick start</a> · <a href="#minimal-code-sample">Code sample</a> · <a href="#background">Background</a> · <a href="#design-philosophy">Philosophy</a> · <a href="#architecture">Architecture</a> · <a href="#modules">Modules</a> · <a href="#examples">Examples</a> · <a href="#tools-for-ai">AI tools</a> · <a href="#performance-and-partitioning">Performance</a> · <a href="#status-and-known-limits">Status</a> · <a href="#docs">Docs</a> · <a href="#faq">FAQ</a>
 </p>
 
 Threedog lets an AI build games in plain JavaScript and three.js. The engine handles time, input, assets, saves, physics and world management, and it comes with tools to run, check and debug a project. A project can start from an empty scene and add modules as it needs them.
@@ -28,10 +28,6 @@ Threedog lets an AI build games in plain JavaScript and three.js. The engine han
 The look and the rules belong to the project. Materials, lights, models and scene objects are three.js objects, and the engine only handles what several systems must agree on. An AI can then find the right interface, verify its own result, and still reach for three.js directly when a request gets complicated.
 
 > **Version: 1.0.0.** Install it from npm, or run the engine [from source](#create-a-project-from-source).
-
-## Background
-
-Have you seen the demos AI makes with three.js? The pictures are often startlingly good, and they make you wonder whether it could build a whole game. AI knows the front end and three.js so well that writing one should come easily. Yet with every new game it rewrites saves, collision and the interface, and as the project grows that code gets harder and harder to maintain. If an engine for three.js had those shared parts ready, AI could pick them up and go straight to making the game. Threedog.js is that engine.
 
 ## What it can do
 
@@ -151,6 +147,10 @@ await engine.start();
 ```
 
 The scene, geometry, lights and materials are three.js objects. `onFrame` updates visual animation, and game state such as damage, cooldowns and character decisions goes in `onFixed` or a project op.
+
+## Background
+
+Have you seen the demos AI makes with three.js? The pictures are often startlingly good, and they make you wonder whether it could build a whole game. AI knows the front end and three.js so well that writing one should come easily. Yet with every new game it rewrites saves, collision and the interface, and as the project grows that code gets harder and harder to maintain. If an engine for three.js had those shared parts ready, AI could pick them up and go straight to making the game. Threedog.js is that engine.
 
 ## Design philosophy
 
