@@ -2,7 +2,7 @@
 
 What changed in each version and how a game upgrades.
 
-## Unreleased
+## 1.0.0 (2026-11-07)
 
 - A request awaited inside a save load without its `turn` fails with `save-nested` after `engine.loading.timeoutMs` with no sign of life, and the load fails its normal way. It used to wait for good.
 - `detach` is gone from the engine: write `obj.removeFromParent()`. `engine.remove` stays.

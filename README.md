@@ -27,7 +27,7 @@ Threedog lets an AI build games in plain JavaScript and three.js. The engine han
 
 The look and the rules belong to the project. Materials, lights, models and scene objects are three.js objects, and the engine only handles what several systems must agree on. An AI can then find the right interface, verify its own result, and still reach for three.js directly when a request gets complicated.
 
-> **Version: 1.0.0 is being prepared and is not out yet.** npm holds 0.8.0, and this page describes 1.0.0. Until it is published, run the engine [from source](#create-a-project-from-source).
+> **Version: 1.0.0.** Install it from npm, or run the engine [from source](#create-a-project-from-source).
 
 ## What it can do
 
