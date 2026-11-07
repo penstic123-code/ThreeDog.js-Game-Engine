@@ -152,6 +152,8 @@ await engine.start();
 
 **AI 能找到、使用和检查能力。** 引擎提供按任务查询的文档、能力目录、命令行、MCP 和运行检查。好不好用也看 AI 能不能知道模块是否就绪、操作为什么失败、哪个系统在控制一个对象，以及改动有没有生效。
 
+<p align="center"><img src="docs/brand/diagrams/design.zh.png" alt="循环：AI 写 three.js，引擎接入并协调，AI 检查结果，再做下一次修改" width="760"></p>
+
 **保留 three.js 的表达能力。** 项目可以创建自己的材质、灯光、几何体和着色器，也可以接入自己的渲染过程。[THREE.md](packages/engine/docs/THREE.md) 写了相机、资源释放、共享状态和渲染后端怎么接。
 
 **不绑定画风和玩法。** 灰色占位画面只是起点，卡通、写实、像素和程序化视觉都由项目选。跟随相机、背包、任务和开放世界都是可选的，世界可以用地形高度场、自建网格或导入的关卡。
@@ -180,6 +182,8 @@ await engine.start();
           ▼
 three.js / Rapier / Recast 等基础库
 
+<p align="center"><img src="docs/brand/diagrams/arch.zh.png" alt="分层：你的游戏、模块、核心、渲染、three.js 和 Rapier，旁边是给 AI 的工具" width="760"></p>
+
 开发工具：连上运行中的项目，执行操作、读取状态、检查结果
 ```
 
@@ -200,6 +204,8 @@ three.js / Rapier / Recast 等基础库
 ## 玩法和画面怎样协作
 
 玩法代码决定发生什么，画面代码用 three.js 表现这些变化。下雨就是一个例子：天气系统记录当前天气，画面读它来决定云、雨滴和地面湿润，音频读它来播雨声，玩法可以据此调整摩擦或作物生长。同一个下雨状态可以画成写实雨幕、卡通线条或像素粒子。
+
+<p align="center"><img src="docs/brand/diagrams/picture.zh.png" alt="游戏系统把信号交给 picture 文件夹里的原生 three.js，大件提供材质，检查工具读取结果" width="760"></p>
 
 ```text
 天气状态
@@ -223,6 +229,8 @@ engine.onRender(() => {
 ## 模块总览
 
 `modules/` 下有 30 个模块目录，一个目录可能有多个公开工厂。输入、存档、资源和基础音频在核心里，不在这张表中。
+
+<p align="center"><img src="docs/brand/diagrams/module.zh.png" alt="一个模块有类型、插槽和 install，ctx 把它接到引擎上，它做的东西随它离开" width="760"></p>
 
 | 模块 | 用途 | 源码 |
 |---|---|---|

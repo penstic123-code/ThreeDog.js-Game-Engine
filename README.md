@@ -152,6 +152,8 @@ The scene, geometry, lights and materials are three.js objects. `onFrame` update
 
 **An AI can find, use and check what exists.** The engine offers docs searched by task, a capability catalog, a command line, MCP and runtime checks. Ease of use also means an AI can tell whether a module is ready, why an action failed, which system controls an object, and whether a change took effect.
 
+<p align="center"><img src="docs/brand/diagrams/design.png" alt="The loop: the AI writes three.js, the engine plugs it in and coordinates it, the AI checks the result, then the next change" width="760"></p>
+
 **three.js keeps its full expression.** A project can make its own materials, lights, geometry and shaders, and it can plug in its own render pass. [THREE.md](packages/engine/docs/THREE.md) covers cameras, resource release, shared state and render backends.
 
 **No fixed look or gameplay.** The gray placeholder is only a start. Cartoon, realistic, pixel and procedural looks are the project's choice. Follow cameras, inventories, quests and open worlds are all optional, and a world can be a height field, a hand-built mesh or an imported level.
@@ -180,6 +182,8 @@ Time, input, assets, saves, module lifecycle, rendering and diagnostics
           ▼
 three.js / Rapier / Recast and other base libraries
 
+<p align="center"><img src="docs/brand/diagrams/arch.png" alt="Layers: your game, modules, core, rendering, three.js and Rapier, with the agent tools beside them" width="760"></p>
+
 Dev tools: connect to the running project, run actions, read state, check results
 ```
 
@@ -200,6 +204,8 @@ Maintainers can read [the current architecture](docs/architecture.md). Project a
 ## How gameplay and picture work together
 
 Gameplay code decides what happens, and picture code shows it in three.js. Rain is one example. The weather system records the current weather, the picture reads it to decide clouds, raindrops and wet ground, audio reads it to play rain, and gameplay can use it to change friction or crop growth. The same rain state can be drawn as a realistic curtain, cartoon lines or pixel particles.
+
+<p align="center"><img src="docs/brand/diagrams/picture.png" alt="Game systems send signals to the picture folder, which is plain three.js; big pieces hand out materials and checks read the result" width="760"></p>
 
 ```text
 Weather state
@@ -223,6 +229,8 @@ Terrain, vegetation and weather keep data apart from drawing. A project can keep
 ## Modules
 
 `modules/` holds 30 module folders, and one folder may have several public factories. Input, saves, assets and basic audio live in the core, so they are not in this table.
+
+<p align="center"><img src="docs/brand/diagrams/module.png" alt="A module has one type, slots and install; ctx ties it to the engine, and what it made leaves with it" width="760"></p>
 
 | Module | Purpose | Source |
 |---|---|---|
