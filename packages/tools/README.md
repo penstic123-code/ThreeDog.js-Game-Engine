@@ -5,8 +5,8 @@ The command line and build tooling for [threedog](https://www.npmjs.com/package/
 This README describes 0.9.0 (older releases do not match it). Inside the [repository](https://github.com/penstic123-code/Threedog.js-Game-Engine): `npm install`, then `npm run new-game -- my-game`. A game in its own folder:
 
 ```sh
-npm install threedog@0.9 three@~0.187.0
-npm install -D @threedog/tools@0.9
+npm install threedog@1 three@~0.187.0
+npm install -D @threedog/tools@1
 npx threedog init                      # sets up the current folder, never overwrites a file
 ```
 

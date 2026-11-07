@@ -3,10 +3,10 @@
 Optional terrain generator for [threedog](https://www.npmjs.com/package/threedog): noise hills, `island`, `canyon` or `flat` shapes, rivers and a biome rule table. It decides the shape of the world only; ground colors belong to the game's style (keyed by the biome names). Without it the engine's ground is flat.
 
 ```sh
-npm install @threedog/terrain-noise@0.9
+npm install @threedog/terrain-noise@1
 ```
 
-This describes 0.9.0: `npm install @threedog/terrain-noise@0.9` (games made in the [repository](https://github.com/penstic123-code/Threedog.js-Game-Engine) already have it).
+This describes 1.0.0: `npm install @threedog/terrain-noise@1` (games made in the [repository](https://github.com/penstic123-code/Threedog.js-Game-Engine) already have it).
 
 ```js
 import { openWorld } from 'threedog';
